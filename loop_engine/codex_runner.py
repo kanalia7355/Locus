@@ -2,6 +2,7 @@
 
 import json
 import shutil
+import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -12,6 +13,19 @@ from loop_engine.planning import bounded_json
 from loop_engine.process import ProcessRunner
 from loop_engine.schemas import SCHEMAS, validate
 from loop_engine.security import SafetyError, create_text, reject_secrets
+
+
+def codex_binary() -> str | None:
+    """Prefer the installed native Windows binary over cmd.exe argument rewriting."""
+    launcher = shutil.which("codex.cmd") or shutil.which("codex")
+    if launcher and sys.platform == "win32":
+        native = Path(launcher).parent / (
+            "node_modules/@openai/codex/node_modules/@openai/codex-win32-x64/"
+            "vendor/x86_64-pc-windows-msvc/bin/codex.exe"
+        )
+        if native.is_file():
+            return str(native)
+    return launcher
 
 
 class Boundary(Protocol):
@@ -54,7 +68,7 @@ class CodexRunner:
             return deadline - time.monotonic()
 
         reject_secrets(prompt)
-        binary = shutil.which("codex.cmd") or shutil.which("codex")
+        binary = codex_binary()
         if not binary:
             raise SafetyError("Codex CLI is unavailable")
         version = self.process.run(

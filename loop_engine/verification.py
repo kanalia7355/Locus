@@ -1,10 +1,12 @@
 """Deterministic command evidence; missing required verification can never pass."""
 
+import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from loop_engine.checks import sanitized
 from loop_engine.codex_runner import Boundary, UnprovenBoundary
 from loop_engine.process import ProcessRunner
 from loop_engine.security import SafetyError, fingerprint
@@ -44,7 +46,10 @@ class Verifier:
         for command in commands:
             try:
                 self.boundary.require(workspace, control_root)
-                argv = self.boundary.command(command["argv"], workspace)
+                configured = [
+                    sys.executable if value == "{python}" else value for value in command["argv"]
+                ]
+                argv = self.boundary.command(configured, workspace)
             except SafetyError:
                 results.append(
                     {
@@ -69,6 +74,9 @@ class Verifier:
                     "exit_code": outcome.returncode,
                     "outcome": outcome.outcome,
                     "elapsed_seconds": outcome.elapsed,
+                    "failure_context": None
+                    if success
+                    else sanitized(outcome.stdout + "\n" + outcome.stderr),
                 }
             )
         passed = all(result["status"] == "passed" for result in results if result["required"])

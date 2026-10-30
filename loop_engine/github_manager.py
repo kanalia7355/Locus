@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from loop_engine.approval import ApprovalQueue
+from loop_engine.checks import ChecksMonitor
 from loop_engine.git_manager import GitManager
 from loop_engine.models import Task
 from loop_engine.planning import bounded_json
@@ -166,6 +167,16 @@ class GitHubManager:
         if not existing:
             return {"complete": False, "reason": "pull_request_not_observable"}
         pr = existing[0]
+        if pr["headRefOid"] != commit["head"] and pr["state"] == "OPEN":
+            previous = checkpoint.get("previous_committed_head")
+            if not previous or pr["headRefOid"] != previous:
+                raise SafetyError("PR head changed outside the verified repair lineage")
+            self.git._git(["merge-base", "--is-ancestor", previous, commit["head"]], workspace)
+            self.git._git(["push", "origin", f"{commit['branch']}:{commit['branch']}"], workspace)
+            observed_prs = self._existing(commit["branch"], cancelled)
+            if not observed_prs:
+                raise SafetyError("Repair push outcome uncertain")
+            pr = observed_prs[0]
         self.state.record_pr(task.id, {**pr, **commit, "publication": "observed"})
         if pr["headRefOid"] != commit["head"]:
             raise SafetyError("PR head changed")
@@ -173,6 +184,14 @@ class GitHubManager:
             return {"complete": False, "state": "merged_requires_evidence_reconciliation"}
         if pr["state"] != "OPEN":
             return {"complete": False, "reason": "pr_not_open"}
+        ci = ChecksMonitor(self.root, repo, self.config["required_checks"]).observe(
+            pr["number"],
+            commit["head"],
+            cancelled=cancelled,
+        )
+        self.state.record_pr(task.id, {**pr, **commit, "ci": ci})
+        if ci["status"] != "passed":
+            return {"complete": False, "ci": ci, "repairable": ci["repairable"]}
         evidence = self.remote_evidence(task, checkpoint, pr, cancelled)
         if self.config["delivery"] == "pull_request":
             return {

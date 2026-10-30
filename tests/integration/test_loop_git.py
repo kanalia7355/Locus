@@ -53,6 +53,27 @@ def test_worktree_scope_and_idempotent_commit_in_isolated_fixture(
     assert first == second
     assert manager.snapshot(work, directory) == snapshot
     assert (tmp_path / "src/app.txt").read_text() == "before\n"
+    # A verified CI repair makes another fast-forward commit, not a rewrite of the first.
+    checkpoint = state.get_checkpoint(work.id)
+    state.checkpoint(
+        work.id,
+        {
+            **checkpoint,
+            "previous_committed_head": first["head"],
+            "committed_head": None,
+            "commit_intent": None,
+        },
+    )
+    (directory / "src/app.txt").write_text("repaired\n")
+    repaired = manager.snapshot(work, directory)
+    repair_binding = fingerprint(repaired)
+    state.checkpoint(
+        work.id, {**state.get_checkpoint(work.id), "snapshot": repaired, "binding": repair_binding}
+    )
+    third = manager.finalize(work, directory, repair_binding)
+    assert third["head"] != first["head"]
+    assert git(directory, "rev-parse", "HEAD^") == first["head"]
+    assert manager.finalize(work, directory, repair_binding) == third
     (directory / "outside.txt").write_text("out of scope")
     with pytest.raises(SafetyError):
         manager.snapshot(work, directory)

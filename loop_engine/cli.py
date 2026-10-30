@@ -99,6 +99,9 @@ def doctor(root: Path, *, check_sandbox: bool = False) -> dict[str, Any]:
     result["committed_git_baseline"] = git_head.outcome == "exit" and git_head.returncode == 0
     result["ready_for_live_execution"] = False
     result["automatic_merge"] = "blocked: atomic base binding unavailable in gh"
+    from loop_engine.qa_profiles import detect
+
+    result["verification_profiles"] = detect(root)
     if check_sandbox:
         from loop_engine.diagnostics import sandbox_probe
 
@@ -116,8 +119,9 @@ def parser() -> argparse.ArgumentParser:
     init = commands.add_parser("init")
     init.add_argument("--goal-file", type=Path)
     commands.add_parser("doctor").add_argument("--check-sandbox", action="store_true")
-    for name in ("status", "report", "pause", "stop", "resume", "decisions"):
+    for name in ("status", "report", "pause", "stop", "decisions", "launch"):
         commands.add_parser(name)
+    commands.add_parser("resume").add_argument("--background", action="store_true")
     plan = commands.add_parser("plan")
     plan.add_argument("--file", type=Path)
     start = commands.add_parser("start")
@@ -185,6 +189,12 @@ def run(args: argparse.Namespace) -> int:
             json.dumps(doctor(root, check_sandbox=args.check_sandbox), ensure_ascii=False, indent=2)
         )
         return 0
+    if args.command == "launch":
+        from loop_engine.launcher import launch
+
+        result = launch(root)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0 if result["status"] in {"already_running", "launch_requested"} else 2
     state = open_state(root)
     if args.command == "status":
         print(progress(state))
@@ -235,7 +245,7 @@ def run(args: argparse.Namespace) -> int:
             )
             return 2
         controller = build_controller(root, state)
-        if args.command == "start" and args.background:
+        if args.background:
             # This branch is reached only after full executor capability validation.
             options: dict[str, Any] = {}
             if sys.platform == "win32":
@@ -243,7 +253,7 @@ def run(args: argparse.Namespace) -> int:
             else:
                 options["start_new_session"] = True
             child = subprocess.Popen(  # noqa: S603 — fixed entrypoint, explicit human request
-                [sys.executable, "-m", "loop_engine.cli", "--project", str(root), "start"],
+                [sys.executable, "-m", "loop_engine.background", str(root), args.command],
                 cwd=root,
                 env=safe_environment(model=True),
                 stdin=subprocess.DEVNULL,
@@ -266,7 +276,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
         return run(args)
-    except (ValueError, OSError, subprocess.SubprocessError) as error:
+    except (ValueError, OSError, RuntimeError, subprocess.SubprocessError) as error:
         # Exceptions may carry credentials in subprocess arguments; only static class is emitted.
         print(
             f"Loop command blocked ({type(error).__name__}); inspect status/decisions.",

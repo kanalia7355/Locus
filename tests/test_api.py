@@ -60,12 +60,13 @@ def test_first_login_rotation_and_revocation(service: Service) -> None:
         headers=ORIGIN,
     )
     assert repeat.status_code == 401
+    invalid_short_input = "short"
     assert (
         client.post(
             "/api/auth/password",
             json={
                 "current_password": "Temporary-password-02!",
-                "new_password": "short",
+                "new_password": invalid_short_input,
             },
             headers=ORIGIN,
         ).status_code

@@ -131,6 +131,14 @@ COMMAND = obj(
 CONFIG = obj(
     {
         "version": {"const": 1},
+        "qa": obj(
+            {
+                "local_verification": {"const": True},
+                "independent_review": {"const": True},
+                "repair_failed_checks": {"const": True},
+                "require_configured_checks": {"const": True},
+            }
+        ),
         "loop": obj(
             {
                 "max_attempts_per_task": {"type": "integer", "minimum": 1, "maximum": 3},

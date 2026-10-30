@@ -107,6 +107,16 @@ class Controller:
                     self._context()
                     task = Scheduler(self.state).next_ready_task()
                     if not task:
+                        pending_ci = any(
+                            task.status == "awaiting_approval"
+                            and not self.queue.pending_for(task.id)
+                            and self.state.get_pr(task.id).get("ci", {}).get("status") == "pending"
+                            for task in self.state.tasks()
+                        )
+                        if pending_ci:
+                            time.sleep(min(2, max(0, self.deadline - time.time())))
+                            self._resume_deliveries()
+                            continue
                         break
                     if task.id not in budget["tasks"]:
                         if len(budget["tasks"]) >= self.config["loop"]["max_tasks_per_run"]:
@@ -160,8 +170,12 @@ class Controller:
             return self.cancelled() or time.monotonic() >= task_deadline
 
         try:
+            attempt_context = {
+                **context,
+                "previous_failure": self.state.get_checkpoint(task.id).get("failure_context"),
+            }
             result = self.worker.execute(
-                task, context, workspace, timeout=timeout, cancelled=task_cancelled
+                task, attempt_context, workspace, timeout=timeout, cancelled=task_cancelled
             )
             check_result(task, result)
             self.state.finish_execution(execution, "returned", result)
@@ -204,6 +218,13 @@ class Controller:
             self._transition(task.id, "awaiting_approval", "paused_after_verification")
             return
         if not verification["passed"]:
+            self.state.checkpoint(
+                task.id,
+                {
+                    **self.state.get_checkpoint(task.id),
+                    "failure_context": verification,
+                },
+            )
             if verification["status"] == "unavailable" or any(
                 check["status"] == "skipped" and check["required"]
                 for check in verification["checks"]
@@ -230,6 +251,7 @@ class Controller:
             return
         if blocking(review):
             checkpoint = self.state.get_checkpoint(task.id)
+            checkpoint["failure_context"] = review
             cycles = checkpoint.get("review_cycles", 0)
             if cycles >= self.config["loop"]["max_review_cycles"]:
                 self._transition(task.id, "blocked", "review_cycle_limit")
@@ -299,14 +321,57 @@ class Controller:
         if not self.publisher:
             self._transition(task.id, "awaiting_approval", "github_publication_unavailable")
             return
-        delivered = self.publisher.deliver(task, checkpoint, cancelled=self.cancelled)
+        try:
+            delivered = self.publisher.deliver(task, checkpoint, cancelled=self.cancelled)
+        except (ValueError, OSError):
+            # Never leave a settled worker in an active stage after a service outage.
+            # No mutation is replayed here; reconciliation is task-scoped and human.
+            self.queue.request(
+                task.id,
+                "publication",
+                fingerprint(
+                    {
+                        "binding": checkpoint["binding"],
+                        "reason": "delivery_unavailable_or_uncertain",
+                    }
+                ),
+                "Reconcile Git/PR/CI outcome and service access before retrying delivery.",
+            )
+            self._transition(task.id, "awaiting_approval", "delivery_unavailable_or_uncertain")
+            return
         if self.cancelled():
             if self.state.task(task.id).status != "awaiting_approval":
                 self._transition(task.id, "awaiting_approval", "delivery_paused_or_limited")
             return
-        if delivered.get("complete"):
+        if delivered.get("repairable"):
+            # Revoke all old source approvals/evidence before a fresh claim increments
+            # the same task budget. A subsequent commit must pass local QA + review.
+            checkpoint = self.state.get_checkpoint(task.id)
+            self.state.checkpoint(
+                task.id,
+                {
+                    **checkpoint,
+                    "verified": False,
+                    "previous_committed_head": checkpoint.get("committed_head"),
+                    "committed_head": None,
+                    "commit_intent": None,
+                    "failure_context": delivered["ci"],
+                },
+            )
+            self._retry_or_block(task.id, "ci_failed")
+        elif delivered.get("complete"):
             self._transition(task.id, "completed")
         else:
+            ci = delivered.get("ci", {})
+            if ci.get("status") not in {None, "pending", "passed"}:
+                self.queue.request(
+                    task.id,
+                    "scope",
+                    fingerprint({"binding": checkpoint["binding"], "ci": ci}),
+                    f"CI held ({ci.get('status')}, {ci.get('category', 'unclassified')}). "
+                    "Recommend inspecting service/check configuration and current run evidence; "
+                    "do not change credentials, billing, checks or permissions automatically.",
+                )
             self._transition(task.id, "awaiting_approval", "ci_or_merge_or_approval_pending")
 
     def _resume_deliveries(self) -> None:

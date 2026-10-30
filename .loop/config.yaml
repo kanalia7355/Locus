@@ -25,4 +25,38 @@ github:
   required_checks: []
   auto_merge_allowed_paths: []
   delivery: local
-verification: {}
+verification:
+  repository:
+  - name: engine-format-lint-types-tests-secrets-dependencies
+    level: security
+    argv:
+    - '{python}'
+    - scripts/verify_loop.py
+    - --audit
+    required: true
+  - name: engine-wheel-build
+    level: static
+    argv:
+    - '{python}'
+    - -m
+    - pip
+    - wheel
+    - --no-deps
+    - --no-build-isolation
+    - --wheel-dir
+    - .loop/runtime/wheels
+    - .
+    required: true
+  - name: application-format-lint-types-unit-integration-build-e2e-security
+    level: functional
+    argv:
+    - '{python}'
+    - scripts/verify.py
+    - --e2e
+    - --audit
+    required: true
+qa:
+  local_verification: true
+  independent_review: true
+  repair_failed_checks: true
+  require_configured_checks: true

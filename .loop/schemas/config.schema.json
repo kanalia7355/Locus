@@ -4,6 +4,30 @@
     "version": {
       "const": 1
     },
+    "qa": {
+      "type": "object",
+      "properties": {
+        "local_verification": {
+          "const": true
+        },
+        "independent_review": {
+          "const": true
+        },
+        "repair_failed_checks": {
+          "const": true
+        },
+        "require_configured_checks": {
+          "const": true
+        }
+      },
+      "required": [
+        "local_verification",
+        "independent_review",
+        "repair_failed_checks",
+        "require_configured_checks"
+      ],
+      "additionalProperties": false
+    },
     "loop": {
       "type": "object",
       "properties": {
@@ -208,6 +232,7 @@
   },
   "required": [
     "version",
+    "qa",
     "loop",
     "approval",
     "security",

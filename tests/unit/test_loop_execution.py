@@ -84,7 +84,7 @@ def test_missing_skipped_and_failed_required_verification_do_not_pass(tmp_path: 
             {
                 "name": "tests",
                 "level": "functional",
-                "argv": [sys.executable, "-c", "raise SystemExit(1)"],
+                "argv": ["{python}", "-c", "raise SystemExit(1)"],
                 "required": True,
             }
         ]

@@ -1,16 +1,16 @@
 """Synthetic local sandbox diagnostics; these never certify a complete model boundary."""
 
-import shutil
 import sys
 import tempfile
 from pathlib import Path
 from typing import Any
 
+from loop_engine.codex_runner import codex_binary
 from loop_engine.process import ProcessRunner
 
 
 def sandbox_probe(root: Path) -> dict[str, Any]:
-    binary = shutil.which("codex.cmd") or shutil.which("codex")
+    binary = codex_binary()
     if not binary:
         return {"live_ready": False, "reason": "codex_unavailable"}
     runtime = root.resolve() / ".loop/runtime"
@@ -24,21 +24,24 @@ def sandbox_probe(root: Path) -> dict[str, Any]:
         sentinel = container / "synthetic-control.txt"
         sentinel.write_text("synthetic boundary probe", encoding="utf-8")
         code = (
-            f"from pathlib import Path; p=Path({str(sentinel)!r}); "
-            'print("CONTROL_READ_ALLOWED" if p.read_text() else "UNPROVEN")'
+            "from pathlib import Path\nprint('PROBE_STARTED')\n"
+            f"p = Path({str(sentinel)!r})\n"
+            "try:\n    p.read_text()\n    print('CONTROL_READ_ALLOWED')\n"
+            "except PermissionError:\n    print('CONTROL_READ_DENIED')\n"
         )
+        script = workspace / "probe.py"
+        script.write_text(code, encoding="utf-8")
         outcome = ProcessRunner().run(
             [
                 binary,
                 "sandbox",
-                "-c",
-                'sandbox_mode="read-only"',
+                "-P",
+                ":read-only",
                 "-C",
                 str(workspace),
                 "--",
                 sys.executable,
-                "-c",
-                code,
+                str(script),
             ],
             workspace,
             timeout=15,
@@ -47,7 +50,9 @@ def sandbox_probe(root: Path) -> dict[str, Any]:
             "live_ready": False,
             "command_outcome": outcome.outcome,
             "exit_code": outcome.returncode,
+            "probe_started": "PROBE_STARTED" in outcome.stdout,
             "control_read_was_allowed": "CONTROL_READ_ALLOWED" in outcome.stdout,
+            "control_read_was_denied": "CONTROL_READ_DENIED" in outcome.stdout,
             "reason": "Complete filesystem/network/tool/credential isolation proof unavailable",
             "model_called": False,
         }
