@@ -1,0 +1,28 @@
+version: 1
+loop:
+  max_attempts_per_task: 3
+  max_review_cycles: 2
+  max_concurrent_tasks: 1
+  max_runtime_minutes: 360
+  max_tasks_per_run: 20
+  task_timeout_minutes: 30
+approval:
+  mode: deferred
+  require_preapproval_for_high_risk: true
+security:
+  allow_production_changes: false
+  allow_destructive_operations: false
+  allow_unrestricted_execution: false
+  allow_model_execution: false
+  sandbox_executor: unavailable
+github:
+  enabled: false
+  repository: kanalia7355/Locus
+  base: main
+  remote: origin
+  auto_merge: 'off'
+  protect_default_branch: true
+  required_checks: []
+  auto_merge_allowed_paths: []
+  delivery: local
+verification: {}

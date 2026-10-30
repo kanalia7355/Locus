@@ -1,0 +1,2 @@
+# Claude Code entrypoint
+Follow `AGENTS.md` and all linked policy files. Before any task, perform requirement critique, write acceptance criteria, implement with tests, verify and report evidence. Never use subagent-driven-development or dispatching-parallel-agents. Independent read-only review is the sole conditional exception, and only after reviewing scope/cost. Do not install or run remote scripts without inspecting and obtaining approval.

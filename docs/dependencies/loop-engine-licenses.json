@@ -1,0 +1,37 @@
+[
+  {
+    "name": "jsonschema",
+    "version": "4.26.0",
+    "license": "MIT"
+  },
+  {
+    "name": "PyYAML",
+    "version": "6.0.3",
+    "license": "MIT"
+  },
+  {
+    "name": "attrs",
+    "version": "26.1.0",
+    "license": "MIT"
+  },
+  {
+    "name": "jsonschema-specifications",
+    "version": "2025.9.1",
+    "license": "MIT"
+  },
+  {
+    "name": "referencing",
+    "version": "0.37.0",
+    "license": "MIT"
+  },
+  {
+    "name": "rpds-py",
+    "version": "2026.9.1",
+    "license": "MIT"
+  },
+  {
+    "name": "setuptools",
+    "version": "84.2.1",
+    "license": "MIT"
+  }
+]

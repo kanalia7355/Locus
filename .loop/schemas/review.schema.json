@@ -1,0 +1,68 @@
+{
+  "type": "object",
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "pattern": "^TASK-[0-9]{3,6}$"
+    },
+    "disposition": {
+      "enum": [
+        "pass",
+        "fail",
+        "needs_decision"
+      ]
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "severity": {
+            "enum": [
+              "critical",
+              "high",
+              "medium",
+              "low",
+              "info"
+            ]
+          },
+          "file": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "finding": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "evidence": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "recommended_action": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "blocking": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "severity",
+          "file",
+          "finding",
+          "evidence",
+          "recommended_action",
+          "blocking"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 100
+    }
+  },
+  "required": [
+    "task_id",
+    "disposition",
+    "findings"
+  ],
+  "additionalProperties": false
+}

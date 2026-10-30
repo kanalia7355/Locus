@@ -1,0 +1,4 @@
+# Initial threat model
+Assets: unpublished research, user identities, document ACLs, chat histories, credentials, audit logs and model prompts. Threats: unauthorized LAN users, cross-tenant retrieval, prompt injection in uploaded documents, malicious uploads, secret leaks, cloud exfiltration, privilege escalation, graph/vector ACL bypass, stale caches, insecure admin delegation.
+Controls: authenticated sessions, CSRF protections where applicable, rate limiting, secure cookies, Argon2id, one-time password expiry, first-login rotation, deny-by-default server authorization, row/tenant filters, retrieval permission checks before context assembly, outbound network restrictions for local-only mode, audit logs, secure parser sandboxing, security tests. Prompt-injected documents are untrusted content and never policy instructions.
+Security decisions must be reviewed before implementation; this file is not a certification.

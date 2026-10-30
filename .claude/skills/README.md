@@ -1,0 +1,1 @@
+Evaluate Superpowers official skills; do not copy or auto-install until version/license and compatibility are checked. Add project-specific requirement-review, security-review, UI-quality and loop-controller only when needed.

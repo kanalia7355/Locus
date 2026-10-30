@@ -1,0 +1,46 @@
+__pycache__/
+.pytest_cache/
+.venv/
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+*.sqlite3
+storage/
+uploads/
+.bootstrap/status.md
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+frontend/test-results/
+frontend/playwright-report/
+frontend/tsconfig.tsbuildinfo
+.bootstrap/*-audit.json
+.bootstrap/verification.json
+.loop/runtime/
+*.egg-info/
+build/
+
+# Local credentials, alternate environments and database sidecars
+.venv*/
+*.sqlite
+*.sqlite3-*
+*.db
+*.db-*
+*.log
+*.pem
+*.key
+*.p12
+*.pfx
+auth.json
+credentials.json
+credentials.*.json
+
+# Original distribution archive is retained locally, outside source control
+/research-ai-bootstrap-v3.zip
+
+# Generated local loop reports; authoritative runtime state remains local
+/.loop/progress.md
+/.loop/decisions.md

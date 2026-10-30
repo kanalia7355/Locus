@@ -1,0 +1,86 @@
+{
+  "type": "object",
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "pattern": "^TASK-[0-9]{3,6}$"
+    },
+    "status": {
+      "enum": [
+        "implemented",
+        "blocked",
+        "failed"
+      ]
+    },
+    "summary": {
+      "type": "string",
+      "maxLength": 4000
+    },
+    "files_changed": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 4000
+      },
+      "maxItems": 1000,
+      "uniqueItems": true
+    },
+    "tests_added": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 4000
+      },
+      "maxItems": 1000,
+      "uniqueItems": true
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 4000
+      },
+      "maxItems": 100,
+      "uniqueItems": true
+    },
+    "approval_requests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "enum": [
+              "architecture",
+              "dependency",
+              "security",
+              "publication",
+              "merge",
+              "recovery",
+              "scope"
+            ]
+          },
+          "question": {
+            "type": "string",
+            "maxLength": 4000
+          }
+        },
+        "required": [
+          "category",
+          "question"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 20
+    }
+  },
+  "required": [
+    "task_id",
+    "status",
+    "summary",
+    "files_changed",
+    "tests_added",
+    "issues",
+    "approval_requests"
+  ],
+  "additionalProperties": false
+}

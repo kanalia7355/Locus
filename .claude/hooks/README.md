@@ -1,0 +1,1 @@
+Implement and TEST tool-level guardrails for subagent spawning when the active Claude Code version supports them. Never assume documentation alone enforces restrictions. Reviewer exceptions must be explicitly scoped.

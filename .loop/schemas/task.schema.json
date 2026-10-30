@@ -1,0 +1,131 @@
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^TASK-[0-9]{3,6}$"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "status": {
+      "enum": [
+        "planned",
+        "ready",
+        "running",
+        "verifying",
+        "reviewing",
+        "completed",
+        "blocked",
+        "awaiting_approval",
+        "failed",
+        "cancelled"
+      ]
+    },
+    "priority": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "dependencies": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 4000
+      },
+      "maxItems": 100,
+      "uniqueItems": true
+    },
+    "acceptance_criteria": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 4000
+      },
+      "maxItems": 100,
+      "uniqueItems": true,
+      "minItems": 1
+    },
+    "verification_profile": {
+      "type": "string",
+      "maxLength": 100
+    },
+    "attempts": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3
+    },
+    "max_attempts": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 3
+    },
+    "risk_level": {
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    "requires_approval": {
+      "type": "boolean"
+    },
+    "review_required": {
+      "type": "boolean"
+    },
+    "allowed_paths": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 4000
+      },
+      "maxItems": 100,
+      "uniqueItems": true,
+      "minItems": 1
+    },
+    "branch": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "worktree": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "last_error": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "id",
+    "title",
+    "status",
+    "priority",
+    "dependencies",
+    "acceptance_criteria",
+    "verification_profile",
+    "attempts",
+    "max_attempts",
+    "risk_level",
+    "requires_approval",
+    "review_required",
+    "allowed_paths",
+    "branch",
+    "worktree",
+    "last_error",
+    "version"
+  ],
+  "additionalProperties": false
+}

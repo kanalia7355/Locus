@@ -1,0 +1,77 @@
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "maxLength": 100
+    },
+    "task_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "category": {
+      "enum": [
+        "architecture",
+        "dependency",
+        "security",
+        "publication",
+        "merge",
+        "recovery",
+        "scope"
+      ]
+    },
+    "risk": {
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    "question": {
+      "type": "string",
+      "maxLength": 4000
+    },
+    "options": {
+      "const": [
+        "approve",
+        "reject",
+        "revise"
+      ]
+    },
+    "status": {
+      "enum": [
+        "pending",
+        "approved",
+        "rejected",
+        "revise"
+      ]
+    },
+    "blocking_tasks": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 4000
+      },
+      "maxItems": 200,
+      "uniqueItems": true
+    },
+    "target_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  },
+  "required": [
+    "id",
+    "task_id",
+    "category",
+    "risk",
+    "question",
+    "options",
+    "status",
+    "blocking_tasks",
+    "target_hash"
+  ],
+  "additionalProperties": false
+}

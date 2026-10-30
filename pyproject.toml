@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools==84.2.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "locus-loop-engine"
+version = "0.1.0"
+description = "Persistent, serial, approval-aware Codex development controller"
+requires-python = ">=3.11"
+dependencies = ["jsonschema==4.26.0", "PyYAML==6.0.3"]
+
+[project.optional-dependencies]
+dev = ["pytest==9.2.0", "ruff==0.17.3", "mypy==2.4.1",
+       "types-jsonschema==4.26.0.20261006", "types-PyYAML==6.0.12.20261030",
+       "detect-secrets==1.5.0", "pip-audit==2.10.1"]
+
+[project.scripts]
+loop = "loop_engine.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["loop_engine*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["backend", ".", "tests", "tests/unit", "tests/integration"]
+addopts = "-ra --strict-markers"
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+extend-exclude = [".venv", "frontend/node_modules", "frontend/dist"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S"]
+ignore = ["S101"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S105", "S106"]
+
+[tool.mypy]
+python_version = "3.13"
+mypy_path = "backend"
+strict = true
+exclude = ["frontend", ".venv"]
+
+[tool.coverage.run]
+source = ["backend/app"]

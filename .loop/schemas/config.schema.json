@@ -1,0 +1,218 @@
+{
+  "type": "object",
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "loop": {
+      "type": "object",
+      "properties": {
+        "max_attempts_per_task": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3
+        },
+        "max_review_cycles": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2
+        },
+        "max_concurrent_tasks": {
+          "const": 1
+        },
+        "max_runtime_minutes": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 360
+        },
+        "max_tasks_per_run": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+        },
+        "task_timeout_minutes": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 30
+        }
+      },
+      "required": [
+        "max_attempts_per_task",
+        "max_review_cycles",
+        "max_concurrent_tasks",
+        "max_runtime_minutes",
+        "max_tasks_per_run",
+        "task_timeout_minutes"
+      ],
+      "additionalProperties": false
+    },
+    "approval": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "const": "deferred"
+        },
+        "require_preapproval_for_high_risk": {
+          "const": true
+        }
+      },
+      "required": [
+        "mode",
+        "require_preapproval_for_high_risk"
+      ],
+      "additionalProperties": false
+    },
+    "security": {
+      "type": "object",
+      "properties": {
+        "allow_production_changes": {
+          "const": false
+        },
+        "allow_destructive_operations": {
+          "const": false
+        },
+        "allow_unrestricted_execution": {
+          "const": false
+        },
+        "allow_model_execution": {
+          "type": "boolean"
+        },
+        "sandbox_executor": {
+          "enum": [
+            "codex",
+            "unavailable"
+          ]
+        }
+      },
+      "required": [
+        "allow_production_changes",
+        "allow_destructive_operations",
+        "allow_unrestricted_execution",
+        "allow_model_execution",
+        "sandbox_executor"
+      ],
+      "additionalProperties": false
+    },
+    "github": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "repository": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "base": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "remote": {
+          "const": "origin"
+        },
+        "auto_merge": {
+          "enum": [
+            "off",
+            "safe"
+          ]
+        },
+        "protect_default_branch": {
+          "const": true
+        },
+        "required_checks": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "maxItems": 100,
+          "uniqueItems": true
+        },
+        "auto_merge_allowed_paths": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "maxItems": 100,
+          "uniqueItems": true
+        },
+        "delivery": {
+          "enum": [
+            "local",
+            "pull_request",
+            "merged"
+          ]
+        }
+      },
+      "required": [
+        "enabled",
+        "repository",
+        "base",
+        "remote",
+        "auto_merge",
+        "protect_default_branch",
+        "required_checks",
+        "auto_merge_allowed_paths",
+        "delivery"
+      ],
+      "additionalProperties": false
+    },
+    "verification": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+      },
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "level": {
+              "enum": [
+                "static",
+                "functional",
+                "security",
+                "alignment"
+              ]
+            },
+            "argv": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 1000
+              },
+              "minItems": 1,
+              "maxItems": 100
+            },
+            "required": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "name",
+            "level",
+            "argv",
+            "required"
+          ],
+          "additionalProperties": false
+        },
+        "maxItems": 100
+      }
+    }
+  },
+  "required": [
+    "version",
+    "loop",
+    "approval",
+    "security",
+    "github",
+    "verification"
+  ],
+  "additionalProperties": false
+}
