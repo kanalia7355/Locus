@@ -38,6 +38,6 @@ def reasons(
         blocked.append("unresolved_gaps")
     if any(task.status not in {"completed", "cancelled"} for task in tasks):
         blocked.append("unfinished_tasks")
-    if any(item["status"] != "approved" for item in decisions):
+    if any(item["status"] not in {"approved", "obsolete"} for item in decisions):
         blocked.append("human_decisions_unresolved")
     return blocked

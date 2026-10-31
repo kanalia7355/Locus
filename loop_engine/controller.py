@@ -443,7 +443,15 @@ class Controller:
         for task in self.state.tasks():
             if self.cancelled():
                 break
-            if task.status != "awaiting_approval" or self.queue.pending_for(task.id):
+            if task.status != "awaiting_approval":
+                continue
+            reconcile = getattr(self.publisher, "reconcile_ci_registration", None)
+            if reconcile and self.queue.ci_registration_decision(task.id):
+                try:
+                    reconcile(task, self.state.get_checkpoint(task.id), cancelled=self.cancelled)
+                except (ValueError, OSError):
+                    self.state.event("ci.registration_recheck_held", task.id)
+            if self.queue.pending_for(task.id):
                 continue
             checkpoint = self.state.get_checkpoint(task.id)
             if checkpoint.get("verified"):

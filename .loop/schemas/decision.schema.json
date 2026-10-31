@@ -45,7 +45,8 @@
         "pending",
         "approved",
         "rejected",
-        "revise"
+        "revise",
+        "obsolete"
       ]
     },
     "blocking_tasks": {
