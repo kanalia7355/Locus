@@ -92,6 +92,22 @@ RESULT = obj(
         "approval_requests": {"type": "array", "items": APPROVAL_REQUEST, "maxItems": 20},
     }
 )
+PROPOSAL = obj(
+    {
+        "result": RESULT,
+        "edits": {
+            "type": "array",
+            "maxItems": 20,
+            "items": obj(
+                {
+                    "path": text(1000),
+                    "old": {"type": ["string", "null"], "maxLength": 64000},
+                    "new": text(64000),
+                }
+            ),
+        },
+    }
+)
 FINDING = obj(
     {
         "severity": {"enum": ["critical", "high", "medium", "low", "info"]},
@@ -131,6 +147,27 @@ COMMAND = obj(
 CONFIG = obj(
     {
         "version": {"const": 1},
+        "qa": obj(
+            {
+                "local_verification": {"const": True},
+                "independent_review": {"const": True},
+                "repair_failed_checks": {"const": True},
+                "require_configured_checks": {"const": True},
+            }
+        ),
+        "development": obj(
+            {
+                "enabled": {"type": "boolean"},
+                "max_cycles_per_run": {"type": "integer", "minimum": 1, "maximum": 20},
+                "stagnation_limit": {"type": "integer", "minimum": 1, "maximum": 3},
+                "evaluation_timeout_minutes": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 10,
+                },
+                "allowed_paths": strings(),
+            }
+        ),
         "loop": obj(
             {
                 "max_attempts_per_task": {"type": "integer", "minimum": 1, "maximum": 3},
@@ -142,7 +179,11 @@ CONFIG = obj(
             }
         ),
         "approval": obj(
-            {"mode": {"const": "deferred"}, "require_preapproval_for_high_risk": {"const": True}}
+            {
+                "mode": {"const": "deferred"},
+                "require_preapproval_for_high_risk": {"const": True},
+                "routine_publication": {"type": "boolean"},
+            }
         ),
         "security": obj(
             {
@@ -150,7 +191,7 @@ CONFIG = obj(
                 "allow_destructive_operations": {"const": False},
                 "allow_unrestricted_execution": {"const": False},
                 "allow_model_execution": {"type": "boolean"},
-                "sandbox_executor": {"enum": ["codex", "unavailable"]},
+                "sandbox_executor": {"enum": ["codex", "proposal-docker", "unavailable"]},
             }
         ),
         "github": obj(
@@ -173,7 +214,52 @@ CONFIG = obj(
         },
     }
 )
+CRITERION = obj(
+    {"id": text(80), "status": {"enum": ["met", "unmet", "unknown"]}, "evidence": text()}
+)
+GAP = obj(
+    {
+        "key": text(100),
+        "category": {
+            "enum": [
+                "feature",
+                "bug",
+                "test",
+                "security",
+                "performance",
+                "maintainability",
+                "architecture",
+                "scope",
+            ]
+        },
+        "severity": {"enum": ["critical", "high", "medium", "low"]},
+        "title": text(200),
+        "allowed_paths": {**strings(), "minItems": 1},
+        "criterion_ids": {**strings(), "minItems": 1},
+        "file": text(1000),
+        "anchor": text(1000),
+        "evidence": text(),
+        "reproduction": text(),
+        "acceptance": {**strings(), "minItems": 1},
+        "expected_effect": text(),
+        "depends_on": strings(),
+    }
+)
+EVALUATION = obj(
+    {
+        "head": text(64),
+        "spec_hash": text(64),
+        "criteria": {"type": "array", "items": CRITERION, "minItems": 1, "maxItems": 200},
+        "gaps": {"type": "array", "items": GAP, "maxItems": 100},
+        "review_passed": {"type": "boolean"},
+        "blocking_findings": strings(),
+    }
+)
+
+
 SCHEMAS = {
+    "proposal": PROPOSAL,
+    "evaluation": EVALUATION,
     "task": TASK,
     "result": RESULT,
     "decision": DECISION,

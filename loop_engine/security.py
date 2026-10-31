@@ -20,13 +20,24 @@ PROTECTED = (
     "scripts/verify.py",
     "pyproject.toml",
 )
-SENSITIVE = (".env", "storage", "uploads", "auth.json", "credentials", "id_rsa", "id_ed25519")
+SENSITIVE = (
+    ".env",
+    "storage",
+    "uploads",
+    "auth.json",
+    "credentials",
+    "credentials.json",
+    "id_rsa",
+    "id_ed25519",
+)
 SECRET_PATTERNS = (
     re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
     re.compile(
         r"\b(?:sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b"
     ),
-    re.compile(r"(?i)(?:password|secret|api[_-]?key|access[_-]?token)\s*[=:]\s*['\"]?[^\s'\"]{8,}"),
+    re.compile(
+        r"(?i)(?:password|secret|api[_-]?key|access[_-]?token)['\"]?\s*[=:]\s*['\"]?[^\s'\"]{8,}"
+    ),
 )
 
 
@@ -128,6 +139,7 @@ def safe_environment(*, model: bool = False) -> dict[str, str]:
         "PATH",
         "PATHEXT",
         "SYSTEMROOT",
+        "SYSTEMDRIVE",
         "WINDIR",
         "COMSPEC",
         "TEMP",

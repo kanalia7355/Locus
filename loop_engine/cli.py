@@ -12,6 +12,7 @@ import yaml
 
 from loop_engine import __version__
 from loop_engine.config import default, load
+from loop_engine.duration import parse_duration
 from loop_engine.reporting import progress, write_report
 from loop_engine.schemas import SCHEMAS
 from loop_engine.security import SafetyError, create_text, reject_secrets, safe_environment, within
@@ -58,11 +59,11 @@ def open_state(root: Path) -> StateStore:
 
 
 def doctor(root: Path, *, check_sandbox: bool = False) -> dict[str, Any]:
+    from loop_engine.codex_runner import codex_binary
+
     result: dict[str, Any] = {"engine_version": __version__, "python": sys.version.split()[0]}
     for tool in ("git", "codex", "gh"):
-        binary = shutil.which(
-            tool + ".cmd" if sys.platform == "win32" and tool == "codex" else tool
-        )
+        binary = codex_binary(root) if tool == "codex" else shutil.which(tool)
         result[tool] = {"available": binary is not None}
         if binary:
             probe = subprocess.run(  # noqa: S603 — resolved known executable, no shell
@@ -90,7 +91,7 @@ def doctor(root: Path, *, check_sandbox: bool = False) -> dict[str, Any]:
         ("codex", ["login", "status"]),
         ("gh", ["auth", "status", "--hostname", "github.com"]),
     ):
-        executable = shutil.which(tool + ".cmd") or shutil.which(tool)
+        executable = codex_binary(root) if tool == "codex" else shutil.which(tool)
         result[tool]["authenticated"] = bool(
             executable
             and process.run([executable, *args], root, timeout=15, model=True).returncode == 0
@@ -99,7 +100,36 @@ def doctor(root: Path, *, check_sandbox: bool = False) -> dict[str, Any]:
     result["committed_git_baseline"] = git_head.outcome == "exit" and git_head.returncode == 0
     result["ready_for_live_execution"] = False
     result["automatic_merge"] = "blocked: atomic base binding unavailable in gh"
-    if check_sandbox:
+    from loop_engine.qa_profiles import detect
+
+    result["verification_profiles"] = detect(root)
+    if config["security"]["sandbox_executor"] == "proposal-docker":
+        from loop_engine.runtime_diagnostics import (
+            boundary_for,
+            require_receipt,
+        )
+        from loop_engine.runtime_diagnostics import (
+            probe as runtime_probe,
+        )
+
+        try:
+            if check_sandbox:
+                result["sandbox_probe"] = runtime_probe(root)
+            require_receipt(root)
+            audited = boundary_for(root).docker.audit_evidence(root)
+            result["sandbox"] = "verified zero-tool proposals and source-only container QA"
+            result["image_dependency_audit_current"] = audited
+            result["ready_for_live_execution"] = bool(
+                audited
+                and config["security"]["allow_model_execution"]
+                and result["codex"]["authenticated"]
+                and result["committed_git_baseline"]
+            )
+        except (ValueError, OSError):
+            result["sandbox"] = "unverified or stale: execution blocked"
+        if config["github"]["delivery"] == "pull_request":
+            result["automatic_merge"] = "held by operator; PR-only delivery"
+    elif check_sandbox:
         from loop_engine.diagnostics import sandbox_probe
 
         result["sandbox_probe"] = sandbox_probe(root)
@@ -116,12 +146,19 @@ def parser() -> argparse.ArgumentParser:
     init = commands.add_parser("init")
     init.add_argument("--goal-file", type=Path)
     commands.add_parser("doctor").add_argument("--check-sandbox", action="store_true")
-    for name in ("status", "report", "pause", "stop", "resume", "decisions"):
+    for name in ("status", "report", "pause", "stop", "decisions"):
         commands.add_parser(name)
+    launch = commands.add_parser("launch")
+    launch.add_argument("--resume", action="store_true")
+    launch.add_argument("duration", nargs="?", type=parse_duration)
+    resume = commands.add_parser("resume")
+    resume.add_argument("--background", action="store_true")
+    resume.add_argument("duration", nargs="?", type=parse_duration)
     plan = commands.add_parser("plan")
     plan.add_argument("--file", type=Path)
     start = commands.add_parser("start")
     start.add_argument("--background", action="store_true")
+    start.add_argument("duration", nargs="?", type=parse_duration)
     for name in ("approve", "reject", "revise"):
         choice = commands.add_parser(name)
         choice.add_argument("decision_ids", nargs="+")
@@ -131,7 +168,7 @@ def parser() -> argparse.ArgumentParser:
 
 
 def build_controller(root: Path, state: StateStore) -> Any:
-    from loop_engine.codex_runner import CodexRunner, UnprovenBoundary
+    from loop_engine.codex_runner import Boundary, CodexRunner, UnprovenBoundary
     from loop_engine.controller import Controller
     from loop_engine.git_manager import GitManager
     from loop_engine.github_manager import GitHubManager
@@ -139,6 +176,8 @@ def build_controller(root: Path, state: StateStore) -> Any:
     from loop_engine.verification import Verifier
 
     config = load(root / ".loop/config.yaml")
+    boundary: Boundary
+    qa_boundary: Boundary
     queue_hash = __import__("loop_engine.security", fromlist=["fingerprint"]).fingerprint(config)
     if not config["security"]["allow_model_execution"]:
         from loop_engine.approval import ApprovalQueue
@@ -151,19 +190,57 @@ def build_controller(root: Path, state: StateStore) -> Any:
             "high",
         )
         raise SafetyError("Model execution is not authorized")
-    boundary = UnprovenBoundary()
-    # An honest blocker: no setting or human-approval flag can fabricate missing OS isolation.
-    boundary.require(root, root)
+    if config["security"]["sandbox_executor"] == "proposal-docker":
+        from loop_engine.runtime_diagnostics import boundary_for, require_receipt
+
+        require_receipt(root)
+        boundary = boundary_for(root)
+        if not boundary.docker.audit_evidence(root):
+            raise SafetyError("Audited immutable QA image is stale or mismatched")
+        qa_boundary = boundary.docker
+    else:
+        boundary = UnprovenBoundary()
+        boundary.require(root, root)
+        qa_boundary = boundary
     runner = CodexRunner(root, boundary=boundary)
-    git = GitManager(root, state, config["github"]["base"])
+    git = GitManager(
+        root,
+        state,
+        "refs/remotes/origin/main"
+        if config["development"]["enabled"]
+        else config["github"]["base"],
+    )
+    development = None
+    if config["development"]["enabled"]:
+        from loop_engine.development import DevelopmentLoop, MainSnapshot
+        from loop_engine.goal_evaluator import GoalEvaluator
+        from loop_engine.improvement_planner import ImprovementPlanner
+
+        profiles = config["verification"]
+        if "repository" not in profiles:
+            raise SafetyError("Project-wide verification profile is required")
+        development = DevelopmentLoop(
+            root,
+            state,
+            MainSnapshot(root, git, config["github"]["repository"]),
+            GoalEvaluator(runner),
+            Verifier(profiles, boundary=qa_boundary),
+            ImprovementPlanner(
+                state,
+                config["development"]["allowed_paths"]
+                or sorted({path for task in state.tasks() for path in task.allowed_paths}),
+                "repository",
+            ),
+        )
     return Controller(
         root,
         state,
         runner,
-        Verifier(config["verification"], boundary=boundary),
+        Verifier(config["verification"], boundary=qa_boundary),
         Reviewer(runner),
         git,
         GitHubManager(root, state, git, config["github"]),
+        development,
     )
 
 
@@ -185,6 +262,12 @@ def run(args: argparse.Namespace) -> int:
             json.dumps(doctor(root, check_sandbox=args.check_sandbox), ensure_ascii=False, indent=2)
         )
         return 0
+    if args.command == "launch":
+        from loop_engine.launcher import launch
+
+        result = launch(root, duration_seconds=args.duration, resume=args.resume)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0 if result["status"] in {"already_running", "launch_requested"} else 2
     state = open_state(root)
     if args.command == "status":
         print(progress(state))
@@ -197,9 +280,12 @@ def run(args: argparse.Namespace) -> int:
         from loop_engine.planning import import_plan, read_json, source_snapshot
 
         if not args.file:
-            from loop_engine.codex_runner import CodexRunner
+            from uuid import uuid4
 
-            proposal = CodexRunner(root).plan(source_snapshot(root), root)
+            controller = build_controller(root, state)
+            workspace = within(root, ".loop/runtime/evaluations/planning-" + uuid4().hex)
+            workspace.mkdir(parents=True)
+            proposal = controller.worker.plan(source_snapshot(root), workspace)
         else:
             proposal = read_json(args.file)
         import_plan(root, state, proposal)
@@ -235,15 +321,24 @@ def run(args: argparse.Namespace) -> int:
             )
             return 2
         controller = build_controller(root, state)
-        if args.command == "start" and args.background:
+        if args.background:
             # This branch is reached only after full executor capability validation.
             options: dict[str, Any] = {}
             if sys.platform == "win32":
                 options["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW
             else:
                 options["start_new_session"] = True
+            background_args = [
+                sys.executable,
+                "-m",
+                "loop_engine.background",
+                str(root),
+                args.command,
+            ]
+            if args.duration is not None:
+                background_args.append(f"{int(args.duration)}s")
             child = subprocess.Popen(  # noqa: S603 — fixed entrypoint, explicit human request
-                [sys.executable, "-m", "loop_engine.cli", "--project", str(root), "start"],
+                background_args,
                 cwd=root,
                 env=safe_environment(model=True),
                 stdin=subprocess.DEVNULL,
@@ -254,7 +349,12 @@ def run(args: argparse.Namespace) -> int:
             state.event("controller.background_requested", pid=child.pid)
             print("Background controller requested. Use status/pause/stop for control.")
             return 0
-        outcome = controller.run(resume=args.command == "resume")
+        if args.duration is not None:
+            outcome = controller.run(
+                resume=args.command == "resume", duration_seconds=args.duration
+            )
+        else:
+            outcome = controller.run(resume=args.command == "resume")
         print(outcome)
         return 2 if outcome == "recovery_required" else 0
     else:
@@ -266,7 +366,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
         return run(args)
-    except (ValueError, OSError, subprocess.SubprocessError) as error:
+    except (ValueError, OSError, RuntimeError, subprocess.SubprocessError) as error:
         # Exceptions may carry credentials in subprocess arguments; only static class is emitted.
         print(
             f"Loop command blocked ({type(error).__name__}); inspect status/decisions.",

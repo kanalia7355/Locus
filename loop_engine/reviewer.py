@@ -25,6 +25,24 @@ class Reviewer:
         timeout: float,
         cancelled: Callable[[], bool],
     ) -> dict[str, Any]:
+        sources: dict[str, Any] = {}
+        if getattr(self.runner.boundary, "file_proposals", False):
+            from loop_engine.process import ProcessRunner
+            from loop_engine.proposals import source_bundle
+            from loop_engine.security import SafetyError, reject_secrets
+
+            current = source_bundle(task, workspace)
+            baseline = {}
+            for name in current:
+                outcome = ProcessRunner().run(
+                    ["git", "show", snapshot["base"] + ":" + name], workspace, timeout=15
+                )
+                if outcome.outcome != "exit":
+                    raise SafetyError("Review baseline unavailable")
+                if outcome.returncode == 0:
+                    reject_secrets(outcome.stdout)
+                    baseline[name] = outcome.stdout
+            sources = {"current_source": current, "baseline_source": baseline}
         review = self.runner.invoke(
             "review",
             {
@@ -33,6 +51,7 @@ class Reviewer:
                 "immutable_goal_specifications": context,
                 "actual_diff": snapshot,
                 "test_evidence": verification,
+                **sources,
             },
             workspace,
             readonly=True,

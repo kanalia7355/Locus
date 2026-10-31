@@ -69,6 +69,18 @@ class StateStore:
                     sequence INTEGER PRIMARY KEY AUTOINCREMENT, at REAL NOT NULL,
                     kind TEXT NOT NULL, task_id TEXT, document TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS development_evaluations (
+                    binding TEXT PRIMARY KEY, head TEXT NOT NULL, document TEXT NOT NULL,
+                    created REAL NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS development_observations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, binding TEXT NOT NULL,
+                    head TEXT NOT NULL, document TEXT NOT NULL, created REAL NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS development_findings (
+                    identity TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id),
+                    first_head TEXT NOT NULL, last_head TEXT NOT NULL, document TEXT NOT NULL
+                );
                 CREATE TRIGGER IF NOT EXISTS events_no_update BEFORE UPDATE ON events
                     BEGIN SELECT RAISE(ABORT,'Events are append-only'); END;
                 CREATE TRIGGER IF NOT EXISTS events_no_delete BEFORE DELETE ON events
@@ -208,6 +220,13 @@ class StateStore:
             if not row:
                 raise ValueError("Unknown task")
             return self._task(row)
+
+    def effective_risk(self, task_id: str) -> str:
+        levels = {"low": 0, "medium": 1, "high": 2}
+        floor = self.metadata("development_risk_floor", {}).get(task_id, "low")
+        if floor not in levels:
+            raise ValueError("Invalid persistent risk floor")
+        return max((self.task(task_id).risk_level, str(floor)), key=levels.__getitem__)
 
     def transition(
         self, task_id: str, expected: str, target: str, error: str | None = None, *, version: int

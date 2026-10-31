@@ -2,9 +2,27 @@
 
 The user specification is preserved verbatim in [AUTONOMOUS_LOOP_SPEC.md](requirements/AUTONOMOUS_LOOP_SPEC.md). The engine is additive: the research UI/API remains in frontend/backend. Python3.11+ CLI code has no FastAPI/React dependency. State is in `.loop/runtime/state.sqlite3`, excluded from Git.
 
-**This is not a completed live autonomous runtime.** Local state, planning import, controller logic, approvals, Git worktrees and mocked external integration are implemented/tested. The default CLI execution transport is `UnprovenBoundary`: start/model planning cannot launch real tasks until a complete isolated executor is implemented and verified. Human approval cannot turn missing isolation into proof. Real auto-merge is also blocked because gh's head guard cannot atomically bind a PR base ref. These are unfulfilled acceptance gates, not successful substitutes.
+The source-only `proposal-docker` transport is described in [ADR0006](architecture/ADR-0006-source-only-runtime.md), with actual versus mocked evidence in the [runtime review ledger](reviews/2026-10-31-unattended-runtime.md). It requires a pinned project client, fresh containment receipt, audited immutable QA image and explicit model authorization. Other executors remain fail-closed. The operator has authorized PR-only delivery and held every merge; protected merge and atomic-base guarantees remain unfulfilled. No full Goal completion is claimed.
+
+The additive [Development Loop](architecture/ADR-0005-development-loop.md)
+assesses latest main before scheduling and after observed merges, plans grounded
+improvements without replacing Goal criteria, detects stalled quality and applies
+a deterministic completion gate. See [Bootstrap status](LOOP_BOOTSTRAP_STATUS.md)
+for actual versus synthetic validation. `loop launch 2h` requests a new bounded
+run; `loop launch --resume 2h` resumes the same run in a new time window. Neither
+activates an unavailable executor or authorizes product development.
 
 ## Install and inspect
+
+This Windows checkout uses a project-local client receipt under ignored runtime
+and an audited Docker QA image. Global CLI/config/auth files are preserved. After
+trusted runtime/image updates, rebuild with
+`python -c "from pathlib import Path; from loop_engine.docker_boundary import prepare_image; prepare_image(Path.cwd())"`
+and run `doctor --check-sandbox`. Image audit cache is bound to a UTC-day epoch,
+so rebuilding cannot refresh an old advisory result without a new audit.
+`doctor` reports actual project-client version and conditional readiness; missing,
+stale or mismatched proof never enables a host fallback. The configured PR base
+is the existing runtime feature branch, not a substitute integration `main`.
 
 ```powershell
 ./.venv/Scripts/python.exe -m pip install -e ".[dev]"
@@ -60,7 +78,7 @@ Process output is bounded in memory; raw model prompts/tool output/authenticatio
 
 ## Git and delivery
 
-An approved committed base is required. This current Locus checkout has no commits/default integration branch or remote, and the engine will not silently create a baseline from the user's untracked files. Task worktrees use `loop/TASK-ID-slug`. Local delivery does not integrate changes into main. A dependent real-worktree task needs prerequisite merge evidence in its approved base; local completion alone cannot make prerequisite code appear in another checkout.
+An approved committed base is required. Locus now has a committed baseline and the private `kanalia7355/Locus` origin. Its initial default branch is `feat/autonomous-loop-engine`; `main` has not been created. The configured `main` base therefore cannot run real task worktrees yet. Bootstrap validation uses a separate validation base and never silently creates main. Task worktrees use `loop/TASK-ID-slug`. Local delivery does not integrate changes into main. A dependent real-worktree task needs prerequisite merge evidence in its approved base; local completion alone cannot make prerequisite code appear in another checkout.
 
 All worker-produced staged/index changes are refused before verification; the controller validates its own prospective staged tree before commit. No reset/clean/force-push, hook bypass or default-branch direct commit exists. Installed executable Git hooks/filters/custom configuration require separate assessment; the engine blocks instead of disabling them. Tests use isolated known fixtures and label their fixture-specific configuration treatment.
 

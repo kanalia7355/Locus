@@ -55,24 +55,27 @@ def test_hashes_temporary_expiry_and_session_expiry(service: Service) -> None:  
 
 def test_login_limit_and_unknown_account_errors(service: Service) -> None:  # noqa: F811
     client = client_for(service)
+    invalid_input = "bad"
     unknown = client.post(
-        "/api/auth/login", json={"username": "unknown", "password": "bad"}, headers=ORIGIN
+        "/api/auth/login", json={"username": "unknown", "password": invalid_input}, headers=ORIGIN
     )
     known = client.post(
-        "/api/auth/login", json={"username": "alice", "password": "bad"}, headers=ORIGIN
+        "/api/auth/login", json={"username": "alice", "password": invalid_input}, headers=ORIGIN
     )
     assert unknown.status_code == known.status_code == 401
     assert unknown.json() == known.json()
     for _ in range(4):
         assert (
             client.post(
-                "/api/auth/login", json={"username": "alice", "password": "bad"}, headers=ORIGIN
+                "/api/auth/login",
+                json={"username": "alice", "password": invalid_input},
+                headers=ORIGIN,
             ).status_code
             == 401
         )
     assert (
         client.post(
-            "/api/auth/login", json={"username": "alice", "password": "bad"}, headers=ORIGIN
+            "/api/auth/login", json={"username": "alice", "password": invalid_input}, headers=ORIGIN
         ).status_code
         == 429
     )

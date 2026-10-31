@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any
 
 from loop_engine.approval import ApprovalQueue
+from loop_engine.checks import ChecksMonitor
+from loop_engine.config import load
 from loop_engine.git_manager import GitManager
 from loop_engine.models import Task
 from loop_engine.planning import bounded_json
@@ -18,7 +20,11 @@ def merge_reasons(task: Task, config: dict[str, Any], evidence: dict[str, Any]) 
     reasons = []
     if config["auto_merge"] != "safe" or not evidence.get("human_authorized"):
         reasons.append("auto_merge_not_authorized")
-    if task.risk_level != "low" or evidence.get("pending_approvals"):
+    if (
+        task.risk_level != "low"
+        or evidence.get("risk_level", task.risk_level) != "low"
+        or evidence.get("pending_approvals")
+    ):
         reasons.append("risk_or_pending_approval")
     if not evidence.get("paths") or any(
         not allowed(path, config["auto_merge_allowed_paths"]) for path in evidence["paths"]
@@ -93,7 +99,8 @@ class GitHubManager:
         ):
             return {"complete": False, "reason": "repository_not_configured"}
         publication = fingerprint({"config": self.config, "binding": checkpoint["binding"]})
-        if self.queue.status(task.id, "publication", publication) != "approved":
+        routine = load(self.root / ".loop/config.yaml")["approval"]["routine_publication"]
+        if not routine and self.queue.status(task.id, "publication", publication) != "approved":
             self.queue.request(
                 task.id,
                 "publication",
@@ -135,7 +142,11 @@ class GitHubManager:
                 + ", ".join(checkpoint["snapshot"]["paths"])
                 + "\n\nVerification: local required checks passed.\nLocal review: passed.\n"
                 + "CI and trusted remote review remain separate gates.\n"
-                + "Approval: exact publication approved.\n"
+                + (
+                    "Approval: operator standing publication authorization.\n"
+                    if routine
+                    else "Approval: exact publication approved.\n"
+                )
                 + f"Risk: {task.risk_level}. No automatic protection bypass.\n"
             )
             body_path = self.root / ".loop/runtime" / f"{task.id}-pr-body.md"
@@ -166,6 +177,16 @@ class GitHubManager:
         if not existing:
             return {"complete": False, "reason": "pull_request_not_observable"}
         pr = existing[0]
+        if pr["headRefOid"] != commit["head"] and pr["state"] == "OPEN":
+            previous = checkpoint.get("previous_committed_head")
+            if not previous or pr["headRefOid"] != previous:
+                raise SafetyError("PR head changed outside the verified repair lineage")
+            self.git._git(["merge-base", "--is-ancestor", previous, commit["head"]], workspace)
+            self.git._git(["push", "origin", f"{commit['branch']}:{commit['branch']}"], workspace)
+            observed_prs = self._existing(commit["branch"], cancelled)
+            if not observed_prs:
+                raise SafetyError("Repair push outcome uncertain")
+            pr = observed_prs[0]
         self.state.record_pr(task.id, {**pr, **commit, "publication": "observed"})
         if pr["headRefOid"] != commit["head"]:
             raise SafetyError("PR head changed")
@@ -173,16 +194,28 @@ class GitHubManager:
             return {"complete": False, "state": "merged_requires_evidence_reconciliation"}
         if pr["state"] != "OPEN":
             return {"complete": False, "reason": "pr_not_open"}
-        evidence = self.remote_evidence(task, checkpoint, pr, cancelled)
+        ci = ChecksMonitor(self.root, repo, self.config["required_checks"]).observe(
+            pr["number"],
+            commit["head"],
+            cancelled=cancelled,
+        )
+        self.state.record_pr(task.id, {**pr, **commit, "ci": ci})
+        if ci["status"] != "passed":
+            return {"complete": False, "ci": ci, "repairable": ci["repairable"]}
         if self.config["delivery"] == "pull_request":
+            detail = self._api(f"repos/{repo}/pulls/{pr['number']}", cancelled)
+            identity = (
+                detail.get("head", {}).get("sha") == commit["head"]
+                and detail.get("head", {}).get("repo", {}).get("full_name") == repo
+                and detail.get("base", {}).get("ref") == self.config["base"]
+                and detail.get("base", {}).get("repo", {}).get("full_name") == repo
+            )
             return {
-                "complete": evidence.get("ci_complete") is True
-                and evidence.get("trusted_review_publisher") is True
-                and evidence.get("review_head_base_policy_bound") is True
-                and evidence.get("head_matches") is True
-                and evidence.get("base_matches") is True,
-                "state": "ci_and_review_pending",
+                "complete": identity,
+                "state": "pull_request_verified_merge_held" if identity else "identity_mismatch",
+                "merged": False,
             }
+        evidence = self.remote_evidence(task, checkpoint, pr, cancelled)
         reasons = merge_reasons(task, self.config, evidence)
         if reasons:
             return {"complete": False, "merge_blockers": reasons}
@@ -205,7 +238,19 @@ class GitHubManager:
             cancelled=cancelled,
         )
         observed = self._existing(commit["branch"], cancelled)
-        return {"complete": bool(observed and observed[0]["state"] == "MERGED")}
+        if not observed or observed[0]["state"] != "MERGED":
+            return {"complete": False, "reason": "merge_not_observed"}
+        detail = self._api(f"repos/{repo}/pulls/{pr['number']}", cancelled)
+        merge_sha = detail.get("merge_commit_sha", "")
+        if (
+            detail.get("merged") is not True
+            or detail.get("head", {}).get("sha") != commit["head"]
+            or detail.get("base", {}).get("ref") != self.config["base"]
+            or detail.get("base", {}).get("repo", {}).get("full_name") != repo
+            or not re.fullmatch(r"[a-f0-9]{40,64}", merge_sha)
+        ):
+            raise SafetyError("Merge result identity requires reconciliation")
+        return {"complete": True, "merged": True, "merge_sha": merge_sha}
 
     def remote_evidence(
         self,
@@ -219,6 +264,7 @@ class GitHubManager:
             "paths": checkpoint["snapshot"]["paths"],
             "review_passed": True,
             "pending_approvals": self.queue.pending_for(task.id),
+            "risk_level": self.state.effective_risk(task.id),
             "head_matches": head == self.state.get_checkpoint(task.id).get("committed_head"),
         }
         branch = self._api(f"repos/{repo}/branches/{base}", cancelled)
