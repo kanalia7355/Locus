@@ -46,6 +46,7 @@ class Controller:
         reviewer: Any,
         workspaces: Workspaces,
         publisher: Any = None,
+        development: Any = None,
     ) -> None:
         self.root = root
         self.state = state
@@ -54,6 +55,7 @@ class Controller:
         self.reviewer = reviewer
         self.workspaces = workspaces
         self.publisher = publisher
+        self.development = development
         self.queue = ApprovalQueue(state)
         self.config = load(root / ".loop/config.yaml")
         self.deadline = 0.0
@@ -75,7 +77,7 @@ class Controller:
             )
         return snapshot
 
-    def run(self, *, resume: bool = False) -> str:
+    def run(self, *, resume: bool = False, duration_seconds: float | None = None) -> str:
         with ProjectLock(self.root / ".loop/runtime/controller.lock"):
             context = self._context()
             with self.state.connect() as db:
@@ -89,21 +91,42 @@ class Controller:
                 self.state.event("recovery.required", reason="executor_lifetime_unsettled")
                 return "recovery_required"
             budget = self.state.metadata("run_budget") if resume else None
+            maximum = self.config["loop"]["max_runtime_minutes"] * 60
+            if duration_seconds is not None and not 0 < duration_seconds <= maximum:
+                raise SafetyError("Requested window exceeds the configured runtime cap")
             if not budget:
                 now = time.time()
                 budget = {
                     "id": uuid4().hex,
                     "started": now,
-                    "deadline": now + self.config["loop"]["max_runtime_minutes"] * 60,
+                    "deadline": now + (duration_seconds or maximum),
                     "tasks": [],
                 }
                 self.state.set_metadata("run_budget", budget)
+            elif duration_seconds is not None:
+                # A human requests a new bounded window, retaining task/run counters.
+                budget["deadline"] = time.time() + duration_seconds
+                self.state.set_metadata("run_budget", budget)
             self.deadline = budget["deadline"]
+            session_started = time.monotonic()
             self.state.set_metadata("control", "running")
             try:
                 if not self.cancelled():
                     self._resume_deliveries()
+                if self.development and not self.cancelled():
+                    self._assess_project()
                 while not self.cancelled():
+                    if (
+                        self.development
+                        and self.state.metadata("development_status", {}).get("status")
+                        == "main_changed"
+                    ):
+                        self._assess_project()
+                        continue
+                    if self.development and self.state.metadata("development_status", {}).get(
+                        "status"
+                    ) in {"complete", "stalled", "evaluation_limit"}:
+                        return "goal_" + str(self.state.metadata("development_status")["status"])
                     self._context()
                     task = Scheduler(self.state).next_ready_task()
                     if not task:
@@ -127,9 +150,37 @@ class Controller:
                     write_report(self.state, self.root)
                 return "idle" if not self.cancelled() else "paused_or_limited"
             finally:
+                budget["consumed_seconds"] = (
+                    budget.get("consumed_seconds", 0) + time.monotonic() - session_started
+                )
+                self.state.set_metadata("run_budget", budget)
                 if self.state.metadata("control") == "running":
                     self.state.set_metadata("control", "stopped")
                 write_report(self.state, self.root)
+
+    def _assess_project(self, merge_sha: str | None = None) -> None:
+        try:
+            outcome = self.development.cycle(
+                deadline=self.deadline, cancelled=self.cancelled, expected_merge=merge_sha
+            )
+            if outcome in {"stalled", "evaluation_limit"}:
+                self.state.set_metadata("development_status", {"status": outcome})
+            elif outcome == "main_changed":
+                self.state.set_metadata("development_status", {"status": outcome})
+        except (ValueError, OSError):
+            self.queue.request(
+                None,
+                "scope",
+                fingerprint(
+                    {
+                        "spec": self.state.metadata("spec_hash"),
+                        "reason": "project_evaluation_unavailable",
+                    }
+                ),
+                "Project evaluation unavailable or interrupted. Inspect main, evidence and "
+                "isolation before changing scope; independent approved tasks may continue.",
+            )
+            self.state.set_metadata("development_status", {"status": "evaluation_held"})
 
     def _execute(self, task: Task, context: dict[str, Any], run_id: str) -> None:
         if self.queue.pending_for(task.id):
@@ -147,9 +198,10 @@ class Controller:
                 "spec": self.state.metadata("spec_hash"),
                 "base": initial.get("base"),
                 "policy": self.config,
+                "risk_floor": self.state.effective_risk(task.id),
             }
         )
-        if task.requires_approval or task.risk_level == "high":
+        if task.requires_approval or self.state.effective_risk(task.id) == "high":
             if self.queue.status(task.id, "scope", scope_hash) != "approved":
                 self.queue.request(
                     task.id,
@@ -173,6 +225,7 @@ class Controller:
             attempt_context = {
                 **context,
                 "previous_failure": self.state.get_checkpoint(task.id).get("failure_context"),
+                "effective_risk": self.state.effective_risk(task.id),
             }
             result = self.worker.execute(
                 task, attempt_context, workspace, timeout=timeout, cancelled=task_cancelled
@@ -360,7 +413,19 @@ class Controller:
             )
             self._retry_or_block(task.id, "ci_failed")
         elif delivered.get("complete"):
+            if delivered.get("merged") is True and delivered.get("merge_sha"):
+                self.state.checkpoint(
+                    task.id,
+                    {**self.state.get_checkpoint(task.id), "merge_sha": delivered["merge_sha"]},
+                )
             self._transition(task.id, "completed")
+            if (
+                self.development
+                and delivery == "merged"
+                and delivered.get("merged") is True
+                and delivered.get("merge_sha")
+            ):
+                self._assess_project(delivered["merge_sha"])
         else:
             ci = delivered.get("ci", {})
             if ci.get("status") not in {None, "pending", "passed"}:

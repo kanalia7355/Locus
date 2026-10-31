@@ -139,6 +139,19 @@ CONFIG = obj(
                 "require_configured_checks": {"const": True},
             }
         ),
+        "development": obj(
+            {
+                "enabled": {"type": "boolean"},
+                "max_cycles_per_run": {"type": "integer", "minimum": 1, "maximum": 20},
+                "stagnation_limit": {"type": "integer", "minimum": 1, "maximum": 3},
+                "evaluation_timeout_minutes": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 10,
+                },
+                "allowed_paths": strings(),
+            }
+        ),
         "loop": obj(
             {
                 "max_attempts_per_task": {"type": "integer", "minimum": 1, "maximum": 3},
@@ -181,7 +194,51 @@ CONFIG = obj(
         },
     }
 )
+CRITERION = obj(
+    {"id": text(80), "status": {"enum": ["met", "unmet", "unknown"]}, "evidence": text()}
+)
+GAP = obj(
+    {
+        "key": text(100),
+        "category": {
+            "enum": [
+                "feature",
+                "bug",
+                "test",
+                "security",
+                "performance",
+                "maintainability",
+                "architecture",
+                "scope",
+            ]
+        },
+        "severity": {"enum": ["critical", "high", "medium", "low"]},
+        "title": text(200),
+        "allowed_paths": {**strings(), "minItems": 1},
+        "criterion_ids": {**strings(), "minItems": 1},
+        "file": text(1000),
+        "anchor": text(1000),
+        "evidence": text(),
+        "reproduction": text(),
+        "acceptance": {**strings(), "minItems": 1},
+        "expected_effect": text(),
+        "depends_on": strings(),
+    }
+)
+EVALUATION = obj(
+    {
+        "head": text(64),
+        "spec_hash": text(64),
+        "criteria": {"type": "array", "items": CRITERION, "minItems": 1, "maxItems": 200},
+        "gaps": {"type": "array", "items": GAP, "maxItems": 100},
+        "review_passed": {"type": "boolean"},
+        "blocking_findings": strings(),
+    }
+)
+
+
 SCHEMAS = {
+    "evaluation": EVALUATION,
     "task": TASK,
     "result": RESULT,
     "decision": DECISION,

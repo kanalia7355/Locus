@@ -67,13 +67,15 @@ def test_login_limit_and_unknown_account_errors(service: Service) -> None:  # no
     for _ in range(4):
         assert (
             client.post(
-                "/api/auth/login", json={"username": "alice", "password": "bad"}, headers=ORIGIN
+                "/api/auth/login",
+                json={"username": "alice", "password": invalid_input},
+                headers=ORIGIN,
             ).status_code
             == 401
         )
     assert (
         client.post(
-            "/api/auth/login", json={"username": "alice", "password": "bad"}, headers=ORIGIN
+            "/api/auth/login", json={"username": "alice", "password": invalid_input}, headers=ORIGIN
         ).status_code
         == 429
     )

@@ -155,6 +155,8 @@ class ProcessRunner:
     ) -> ProcessResult:
         if timeout <= 0 or not argv:
             return ProcessResult("unavailable", None)
+        if cancelled():
+            return ProcessResult("cancelled", None)
         started = time.monotonic()
         job: WindowsJob | None = None
         process: subprocess.Popen[bytes] | None = None

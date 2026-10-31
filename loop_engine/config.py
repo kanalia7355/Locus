@@ -26,6 +26,13 @@ DEFAULT: dict[str, Any] = {
         "repair_failed_checks": True,
         "require_configured_checks": True,
     },
+    "development": {
+        "enabled": True,
+        "max_cycles_per_run": 20,
+        "stagnation_limit": 3,
+        "evaluation_timeout_minutes": 10,
+        "allowed_paths": [],
+    },
     "security": {
         "allow_production_changes": False,
         "allow_destructive_operations": False,
@@ -56,6 +63,7 @@ def load(path: Path) -> dict[str, Any]:
         raise SafetyError("Configuration must be an object")
     # Additive v1 migration, in memory only. Never rewrite user configuration.
     data.setdefault("qa", deepcopy(DEFAULT["qa"]))
+    data.setdefault("development", deepcopy(DEFAULT["development"]))
     for section, aliases in {
         "github": {"base_branch": "base"},
         "security": {"allow_unrestricted_codex_execution": "allow_unrestricted_execution"},

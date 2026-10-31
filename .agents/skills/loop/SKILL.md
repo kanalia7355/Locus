@@ -16,6 +16,25 @@ python -m loop_engine.cli doctor
 python -m loop_engine.cli launch
 ```
 
+For `$loop 2h`, execute `python -m loop_engine.cli launch 2h` (a new bounded run).
+For `$loop resume 2h`, execute `python -m loop_engine.cli launch --resume 2h`
+(a new time window for the same run, retaining its task/cycle caps).
+Both retain persisted task attempts, dependencies, approvals and evaluation
+history. Without a duration, resume retains the existing deadline. Never
+increase the configured six-hour ceiling.
+Interpret this invocation only within the user's current scope: a Bootstrap
+request is not permission to start product development.
+
+The Development Loop evaluates immutable Goal criteria against the latest
+approved repository `main`, before selecting work and after each observed
+merge. New gaps need file evidence, reproduction, expected effect and
+acceptance. SQLite deduplicates findings; attempted task scopes and counters
+cannot be reset. Completion requires current-head mandatory verification,
+independent project review and no unresolved tasks/gaps/decisions. A stalled
+loop is held for human review. Model claims or PR creation alone never mean
+the Goal is complete. If main does not exist, report the blocker; do not create
+or choose another integration branch on your own.
+
 `launch` checks the OS controller lock, Goal and imported task plan, then calls
 the persistent Controller in the background. It preserves attempt counters and
 resume budget. A missing Goal/plan, recovery uncertainty or failed execution

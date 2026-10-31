@@ -1,6 +1,8 @@
 """Scoped task worktrees. No reset/clean/force/hook-bypass/default-branch writes."""
 
 import re
+import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -17,14 +19,39 @@ class GitManager:
         self.base = base
         self.process = ProcessRunner()
 
-    def _git(self, args: list[str], cwd: Path | None = None) -> str:
-        result = self.process.run(["git", *args], cwd or self.root, timeout=30)
+    def _git(
+        self,
+        args: list[str],
+        cwd: Path | None = None,
+        *,
+        timeout: float = 30,
+        cancelled: Callable[[], bool] = lambda: False,
+    ) -> str:
+        if cancelled() or timeout <= 0:
+            raise SafetyError("Git operation cancelled")
+        result = self.process.run(
+            ["git", *args], cwd or self.root, timeout=timeout, cancelled=cancelled
+        )
         if result.outcome != "exit" or result.returncode != 0:
             raise SafetyError("Git operation failed; no unsafe fallback")
         return result.stdout.strip("\n")
 
-    def _safe_configuration(self, workspace: Path | None = None) -> None:
-        data = self._git(["config", "--null", "--list", "--show-origin"], workspace)
+    def _safe_configuration(
+        self,
+        workspace: Path | None = None,
+        *,
+        deadline: float | None = None,
+        cancelled: Callable[[], bool] = lambda: False,
+    ) -> None:
+        def command(args: list[str]) -> str:
+            return self._git(
+                args,
+                workspace,
+                timeout=30 if deadline is None else min(30, deadline - time.time()),
+                cancelled=cancelled,
+            )
+
+        data = command(["config", "--null", "--list", "--show-origin"])
         reject_secrets(data)
         lower = data.lower()
         if any(
@@ -41,7 +68,7 @@ class GitManager:
             raise SafetyError(
                 "Custom Git executable configuration requires separate security assessment"
             )
-        hooks = Path(self._git(["rev-parse", "--git-path", "hooks"]))
+        hooks = Path(command(["rev-parse", "--git-path", "hooks"]))
         if not hooks.is_absolute():
             hooks = self.root / hooks
         if hooks.exists() and any(

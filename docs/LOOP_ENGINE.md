@@ -4,6 +4,14 @@ The user specification is preserved verbatim in [AUTONOMOUS_LOOP_SPEC.md](requir
 
 **This is not a completed live autonomous runtime.** Local state, planning import, controller logic, approvals, Git worktrees and mocked external integration are implemented/tested. The default CLI execution transport is `UnprovenBoundary`: start/model planning cannot launch real tasks until a complete isolated executor is implemented and verified. Human approval cannot turn missing isolation into proof. Real auto-merge is also blocked because gh's head guard cannot atomically bind a PR base ref. These are unfulfilled acceptance gates, not successful substitutes.
 
+The additive [Development Loop](architecture/ADR-0005-development-loop.md)
+assesses latest main before scheduling and after observed merges, plans grounded
+improvements without replacing Goal criteria, detects stalled quality and applies
+a deterministic completion gate. See [Bootstrap status](LOOP_BOOTSTRAP_STATUS.md)
+for actual versus synthetic validation. `loop launch 2h` requests a new bounded
+run; `loop launch --resume 2h` resumes the same run in a new time window. Neither
+activates an unavailable executor or authorizes product development.
+
 ## Install and inspect
 
 ```powershell

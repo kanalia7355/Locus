@@ -23,6 +23,8 @@ def progress(state: StateStore) -> str:
     lines += [
         "",
         f"Control: {state.metadata('control', 'stopped')}",
+        f"Development: {state.metadata('development_status', {'status': 'not_evaluated'})}",
+        f"Execution window: {state.metadata('run_budget', {})}",
         "",
         "Monetary caps are not guaranteed; time/task/attempt limits apply.",
     ]

@@ -48,7 +48,7 @@ def main() -> int:
     stream = LogStream(logger)
     try:
         with contextlib.redirect_stdout(stream), contextlib.redirect_stderr(stream):
-            return cli_main(["--project", str(root), sys.argv[2]])
+            return cli_main(["--project", str(root), *sys.argv[2:]])
     except Exception as error:
         logger.error(
             "Controller stopped (%s); inspect durable state before resuming.", type(error).__name__

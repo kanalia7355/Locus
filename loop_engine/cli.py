@@ -12,6 +12,7 @@ import yaml
 
 from loop_engine import __version__
 from loop_engine.config import default, load
+from loop_engine.duration import parse_duration
 from loop_engine.reporting import progress, write_report
 from loop_engine.schemas import SCHEMAS
 from loop_engine.security import SafetyError, create_text, reject_secrets, safe_environment, within
@@ -119,13 +120,19 @@ def parser() -> argparse.ArgumentParser:
     init = commands.add_parser("init")
     init.add_argument("--goal-file", type=Path)
     commands.add_parser("doctor").add_argument("--check-sandbox", action="store_true")
-    for name in ("status", "report", "pause", "stop", "decisions", "launch"):
+    for name in ("status", "report", "pause", "stop", "decisions"):
         commands.add_parser(name)
-    commands.add_parser("resume").add_argument("--background", action="store_true")
+    launch = commands.add_parser("launch")
+    launch.add_argument("--resume", action="store_true")
+    launch.add_argument("duration", nargs="?", type=parse_duration)
+    resume = commands.add_parser("resume")
+    resume.add_argument("--background", action="store_true")
+    resume.add_argument("duration", nargs="?", type=parse_duration)
     plan = commands.add_parser("plan")
     plan.add_argument("--file", type=Path)
     start = commands.add_parser("start")
     start.add_argument("--background", action="store_true")
+    start.add_argument("duration", nargs="?", type=parse_duration)
     for name in ("approve", "reject", "revise"):
         choice = commands.add_parser(name)
         choice.add_argument("decision_ids", nargs="+")
@@ -159,7 +166,35 @@ def build_controller(root: Path, state: StateStore) -> Any:
     # An honest blocker: no setting or human-approval flag can fabricate missing OS isolation.
     boundary.require(root, root)
     runner = CodexRunner(root, boundary=boundary)
-    git = GitManager(root, state, config["github"]["base"])
+    git = GitManager(
+        root,
+        state,
+        "refs/remotes/origin/main"
+        if config["development"]["enabled"]
+        else config["github"]["base"],
+    )
+    development = None
+    if config["development"]["enabled"]:
+        from loop_engine.development import DevelopmentLoop, MainSnapshot
+        from loop_engine.goal_evaluator import GoalEvaluator
+        from loop_engine.improvement_planner import ImprovementPlanner
+
+        profiles = config["verification"]
+        if "repository" not in profiles:
+            raise SafetyError("Project-wide verification profile is required")
+        development = DevelopmentLoop(
+            root,
+            state,
+            MainSnapshot(root, git, config["github"]["repository"]),
+            GoalEvaluator(runner),
+            Verifier(profiles, boundary=boundary),
+            ImprovementPlanner(
+                state,
+                config["development"]["allowed_paths"]
+                or sorted({path for task in state.tasks() for path in task.allowed_paths}),
+                "repository",
+            ),
+        )
     return Controller(
         root,
         state,
@@ -168,6 +203,7 @@ def build_controller(root: Path, state: StateStore) -> Any:
         Reviewer(runner),
         git,
         GitHubManager(root, state, git, config["github"]),
+        development,
     )
 
 
@@ -192,7 +228,7 @@ def run(args: argparse.Namespace) -> int:
     if args.command == "launch":
         from loop_engine.launcher import launch
 
-        result = launch(root)
+        result = launch(root, duration_seconds=args.duration, resume=args.resume)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0 if result["status"] in {"already_running", "launch_requested"} else 2
     state = open_state(root)
@@ -252,8 +288,17 @@ def run(args: argparse.Namespace) -> int:
                 options["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW
             else:
                 options["start_new_session"] = True
+            background_args = [
+                sys.executable,
+                "-m",
+                "loop_engine.background",
+                str(root),
+                args.command,
+            ]
+            if args.duration is not None:
+                background_args.append(f"{int(args.duration)}s")
             child = subprocess.Popen(  # noqa: S603 — fixed entrypoint, explicit human request
-                [sys.executable, "-m", "loop_engine.background", str(root), args.command],
+                background_args,
                 cwd=root,
                 env=safe_environment(model=True),
                 stdin=subprocess.DEVNULL,
@@ -264,7 +309,12 @@ def run(args: argparse.Namespace) -> int:
             state.event("controller.background_requested", pid=child.pid)
             print("Background controller requested. Use status/pause/stop for control.")
             return 0
-        outcome = controller.run(resume=args.command == "resume")
+        if args.duration is not None:
+            outcome = controller.run(
+                resume=args.command == "resume", duration_seconds=args.duration
+            )
+        else:
+            outcome = controller.run(resume=args.command == "resume")
         print(outcome)
         return 2 if outcome == "recovery_required" else 0
     else:

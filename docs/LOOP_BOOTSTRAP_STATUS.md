@@ -19,6 +19,11 @@ Implemented additions:
 - QA stack detection, portable `{python}` substitution and additive config
   aliases; QA gates cannot be disabled. Actual detected repository commands are
   configured, but still require a proven execution boundary.
+- Development Loop: `goal_evaluator`, `gap_analyzer`, `improvement_planner`,
+  `progress_evaluator`, `completion_gate` and `development` orchestration;
+  immutable criterion IDs, latest-main assessment, atomic deduplicated tasks,
+  monotonic risk floors, fresh same-head QA, stagnation/complete gates and
+  explicit `2h` / `resume 2h` windows. See ADR 0005 and its independent audit.
 
 The detector uses the existing verification scripts, which cover format, lint,
 types, unit/integration/E2E tests, frontend build, offline secret scanning and
@@ -33,7 +38,7 @@ Remaining acceptance gates:
 
 | Gate | State / reason |
 | --- | --- |
-| Skill structure validation | Passed with system quick_validate.py; VS Code discovery requires session refresh |
+| Skill recognition | quick_validate passed; loop appears in this Codex session's skill catalog; actual VS Code invocation untested |
 | Doctor and state/repair controller tests | Implemented; test evidence in audit record |
 | Real Codex sample task | Not executed: complete model/tool/credential isolation unavailable |
 | Live `loop start` | Safely blocked by UnprovenBoundary and execution authorization |
@@ -43,6 +48,25 @@ Remaining acceptance gates:
 | Trusted independent-review check | Not provisioned; local agent review cannot impersonate a GitHub check publisher |
 | Atomic current-base merge binding | Unavailable in current gh adapter; never relaxed |
 | Intended product Goal/task plan | No product plan imported; Bootstrap does not authorize one |
+
+The Development Loop E2E runs real local temporary Git/worktrees/source edits,
+Python QA, repair commits and main integration. Its Codex execution, GitHub
+PR/check failures/protection and merge authority are synthetic. It verifies
+continuous implementation → failed CI → repair → safe eligibility → integration
+→ next improvement generation without claiming real GitHub merge success.
+
+Remote validation PR: [#1](https://github.com/kanalia7355/Locus/pull/1), Draft,
+targeting `validation/loop-bootstrap-base`. Initial CI exposed one more literal
+invalid-input fixture in the login-limit loop; it is now represented by the
+same existing named invalid input. No assertions, scanner rules or CI gates
+were weakened. The PR Checks tab and final delivery report show the latest
+current-head remote result; a local pass is not substituted for that result.
+
+Final local engine verifier: 75 tests passed, Ruff/format and strict mypy
+(current Python and Python 3.11 Linux target) passed, Secret Scan zero findings,
+dependency consistency/advisory checks passed. The final full application
+Python run passed 97 tests with 88% backend coverage. Remaining frontend/E2E
+and remote results are reported after those commands complete.
 
 Configuration differences from the supplied example are intentional:
 `base`/`allow_unrestricted_execution` are existing canonical names, with aliases

@@ -19,7 +19,11 @@ def merge_reasons(task: Task, config: dict[str, Any], evidence: dict[str, Any]) 
     reasons = []
     if config["auto_merge"] != "safe" or not evidence.get("human_authorized"):
         reasons.append("auto_merge_not_authorized")
-    if task.risk_level != "low" or evidence.get("pending_approvals"):
+    if (
+        task.risk_level != "low"
+        or evidence.get("risk_level", task.risk_level) != "low"
+        or evidence.get("pending_approvals")
+    ):
         reasons.append("risk_or_pending_approval")
     if not evidence.get("paths") or any(
         not allowed(path, config["auto_merge_allowed_paths"]) for path in evidence["paths"]
@@ -224,7 +228,19 @@ class GitHubManager:
             cancelled=cancelled,
         )
         observed = self._existing(commit["branch"], cancelled)
-        return {"complete": bool(observed and observed[0]["state"] == "MERGED")}
+        if not observed or observed[0]["state"] != "MERGED":
+            return {"complete": False, "reason": "merge_not_observed"}
+        detail = self._api(f"repos/{repo}/pulls/{pr['number']}", cancelled)
+        merge_sha = detail.get("merge_commit_sha", "")
+        if (
+            detail.get("merged") is not True
+            or detail.get("head", {}).get("sha") != commit["head"]
+            or detail.get("base", {}).get("ref") != self.config["base"]
+            or detail.get("base", {}).get("repo", {}).get("full_name") != repo
+            or not re.fullmatch(r"[a-f0-9]{40,64}", merge_sha)
+        ):
+            raise SafetyError("Merge result identity requires reconciliation")
+        return {"complete": True, "merged": True, "merge_sha": merge_sha}
 
     def remote_evidence(
         self,
@@ -238,6 +254,7 @@ class GitHubManager:
             "paths": checkpoint["snapshot"]["paths"],
             "review_passed": True,
             "pending_approvals": self.queue.pending_for(task.id),
+            "risk_level": self.state.effective_risk(task.id),
             "head_matches": head == self.state.get_checkpoint(task.id).get("committed_head"),
         }
         branch = self._api(f"repos/{repo}/branches/{base}", cancelled)

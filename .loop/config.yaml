@@ -60,3 +60,9 @@ qa:
   independent_review: true
   repair_failed_checks: true
   require_configured_checks: true
+development:
+  enabled: true
+  max_cycles_per_run: 20
+  stagnation_limit: 3
+  evaluation_timeout_minutes: 10
+  allowed_paths: []
