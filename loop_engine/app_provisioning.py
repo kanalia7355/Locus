@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Protocol
 
 from loop_engine.app_onboarding import PERMISSIONS
-from loop_engine.github_app import GitHubApp
+from loop_engine.github_app import AppConnectionError, GitHubApp
 from loop_engine.security import SafetyError, create_text, within
 
 REPOSITORY_ID = 1440108668
@@ -29,7 +29,9 @@ def masked_private_key(reader: Callable[[str], str] = getpass.getpass) -> bytes:
         try:
             for _ in range(64):
                 line = reader("PEM line (hidden): ")
-                if not line or len(line) > 256:
+                if len(line) > 256:
+                    raise AppConnectionError("key", "input_line_too_long")
+                if not line:
                     raise SafetyError("Incomplete or oversized key input")
                 lines.append(line)
                 if sum(len(value) + 1 for value in lines) > 2560:

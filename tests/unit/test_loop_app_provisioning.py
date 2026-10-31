@@ -150,3 +150,35 @@ def test_cli_failure_reports_public_stage_without_raw_error(
         "reason": "http_rejected",
         "http_status": 401,
     }
+
+
+def test_multiline_input_is_one_complete_pem(monkeypatch: pytest.MonkeyPatch) -> None:
+    import hashlib
+
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    monkeypatch.setattr(adoption.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(adoption.sys.stderr, "isatty", lambda: True)
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    original = key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.TraditionalOpenSSL,
+        serialization.NoEncryption(),
+    )
+    lines = iter(original.decode("ascii").splitlines())
+    combined = adoption.masked_private_key(lambda prompt: next(lines))
+    assert hashlib.sha256(combined).digest() == hashlib.sha256(original).digest()
+    loaded = serialization.load_pem_private_key(combined, password=None)
+    assert isinstance(loaded, rsa.RSAPrivateKey)
+    assert loaded.public_key().public_numbers() == key.public_key().public_numbers()
+
+
+def test_flattened_key_line_reports_safe_input_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    from loop_engine.github_app import AppConnectionError
+
+    monkeypatch.setattr(adoption.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(adoption.sys.stderr, "isatty", lambda: True)
+    with pytest.raises(AppConnectionError) as caught:
+        adoption.masked_private_key(lambda prompt: "x" * 300)
+    assert caught.value.public()["reason"] == "input_line_too_long"

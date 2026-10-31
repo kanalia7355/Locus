@@ -31,9 +31,17 @@ class GitHubHTTPFailure(SafetyError):
 
 
 class AppConnectionError(SafetyError):
-    """Only fixed stage/reason identifiers and a numeric HTTP status may escape."""
+    """Only fixed identifiers, HTTP status and bounded permission facts escape."""
 
-    def __init__(self, stage: str, reason: str, status: int | None = None) -> None:
+    def __init__(
+        self,
+        stage: str,
+        reason: str,
+        status: int | None = None,
+        *,
+        expected_permissions: dict[str, str] | None = None,
+        actual_permissions: object = None,
+    ) -> None:
         stages = {"key", "installation", "token", "repository"}
         reasons = {
             "missing",
@@ -46,19 +54,59 @@ class AppConnectionError(SafetyError):
             "suspended",
             "permissions",
             "repository_scope",
+            "input_line_too_long",
         }
         self.stage = stage if stage in stages else "unknown"
         self.reason = reason if reason in reasons else "unknown"
         self.status = status if type(status) is int and 100 <= status <= 599 else None
+        self.permission_difference: dict[str, object] | None = None
+        if expected_permissions is not None:
+            self.permission_difference = permission_difference(
+                expected_permissions, actual_permissions
+            )
         super().__init__("App connection or scope validation failed")
 
     def public(self) -> dict[str, object]:
-        return {
+        report: dict[str, object] = {
             "authenticated": False,
             "stage": self.stage,
             "reason": self.reason,
             "http_status": self.status,
         }
+        if self.permission_difference is not None:
+            report["permission_difference"] = self.permission_difference
+        return report
+
+
+def permission_difference(expected: dict[str, str], actual: object) -> dict[str, object]:
+    """Only known permission labels and finite access levels may be displayed."""
+    known = {
+        "contents",
+        "checks",
+        "pull_requests",
+        "metadata",
+        "administration",
+        "actions",
+        "issues",
+    }
+    if not isinstance(actual, dict):
+        return {"response_shape": "invalid"}
+
+    def level(values: dict[str, Any], name: str) -> str:
+        if name not in values:
+            return "absent"
+        value = values[name]
+        return value if isinstance(value, str) and value in {"read", "write"} else "unrecognized"
+
+    differences: dict[str, object] = {}
+    for name in sorted(known):
+        want, have = level(expected, name), level(actual, name)
+        if want != have:
+            differences[name] = {"expected": want, "granted": have}
+    unknown = len(set(actual) - known)
+    if unknown:
+        differences["other_permission_count"] = min(unknown, 1000)
+    return differences
 
 
 def _b64(value: bytes) -> str:
@@ -199,7 +247,12 @@ class GitHubApp:
         if installation.get("suspended_at") is not None:
             raise AppConnectionError("installation", "suspended")
         if installation.get("permissions") != expected:
-            raise AppConnectionError("installation", "permissions")
+            raise AppConnectionError(
+                "installation",
+                "permissions",
+                expected_permissions=expected,
+                actual_permissions=installation.get("permissions"),
+            )
         result = self._fetch(
             "token",
             "POST",

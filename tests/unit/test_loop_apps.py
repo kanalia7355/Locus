@@ -19,6 +19,7 @@ from loop_engine.github_app import (
     GitHubMissing,
     app_jwt,
     github_request,
+    permission_difference,
 )
 from loop_engine.security import SafetyError
 
@@ -271,3 +272,17 @@ def test_token_requests_exact_validated_scope_including_metadata() -> None:
     assert GitHubApp("review", 123, 456, 789, vault, request).call(
         "GET", "/repos/kanalia7355/Locus/branches/main"
     ) == {"name": "main"}
+
+
+def test_permission_difference_exposes_only_known_labels_and_levels() -> None:
+    hidden = "synthetic-private-payload"
+    report = permission_difference(
+        {"contents": "read", "checks": "write", "metadata": "read"},
+        {"contents": "write", "checks": hidden, "administration": "read", hidden: "write"},
+    )
+    assert report["contents"] == {"expected": "read", "granted": "write"}
+    assert report["checks"] == {"expected": "write", "granted": "unrecognized"}
+    assert report["metadata"] == {"expected": "read", "granted": "absent"}
+    assert report["administration"] == {"expected": "absent", "granted": "read"}
+    assert report["other_permission_count"] == 1
+    assert hidden not in json.dumps(report)

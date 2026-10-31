@@ -59,6 +59,9 @@ remain required under [BROKER_SETUP.md](BROKER_SETUP.md).
 The import now reports `authenticated=false`, fixed `stage`/`reason` identifiers
 and a numeric `http_status`. No key, JWT, token, response body or arbitrary
 exception message is included. Share only this JSON when investigating a failure.
+Permission mismatches additionally include `permission_difference`: known
+permission labels with finite expected/granted levels. Unknown names are shown
+only as a count; arbitrary values are never echoed.
 
 | Diagnostic | Check |
 | --- | --- |
@@ -72,3 +75,10 @@ exception message is included. Share only this JSON when investigating a failure
 The reported generic failure did not identify its stage. Diagnostic visibility
 does not establish its underlying cause or successful authentication. Input is
 not stored after failed authentication, and scope checks remain enforced.
+
+Paste the original multiline PEM. Each hidden prompt collects one line, and
+the program joins all lines into one complete key before signing. An observed
+`installation / permissions` response means parsing/signing and installation
+identity checks passed; it is not a PowerShell newline error. Flattening the
+entire key into one line exceeds the per-line limit and now reports
+`key / input_line_too_long` without echoing input.
