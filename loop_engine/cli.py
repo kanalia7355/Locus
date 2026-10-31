@@ -164,6 +164,11 @@ def parser() -> argparse.ArgumentParser:
     migration_plan.add_argument("--file", type=Path, required=True)
     migration_apply = commands.add_parser("migration-apply")
     migration_apply.add_argument("migration_id")
+    commands.add_parser("service-bundle")
+    commands.add_parser("service-health")
+    commands.add_parser("service-policy")
+    service_import = commands.add_parser("service-provision")
+    service_import.add_argument("role", choices=("review", "merge"))
     for name in ("status", "report", "pause", "stop", "decisions"):
         commands.add_parser(name)
     launch = commands.add_parser("launch")
@@ -264,6 +269,52 @@ def build_controller(root: Path, state: StateStore) -> Any:
 
 def run(args: argparse.Namespace) -> int:
     root = args.project.resolve()
+    if args.command == "service-bundle":
+        from loop_engine.planning import bounded_json
+        from loop_engine.process import ProcessRunner
+        from loop_engine.service_bundle import admin_command
+
+        built = ProcessRunner().run(
+            [sys.executable, "-m", "loop_engine.service_bundle", "--build", str(root)],
+            root,
+            timeout=600,
+            output_limit=65536,
+        )
+        if built.outcome != "exit" or built.returncode:
+            raise SafetyError("Service bundle build failed; no installation performed")
+        package = bounded_json(built.stdout, maximum=65536)
+        command = admin_command(package)
+        target = Path(package["bundle"]) / "admin-command.txt"
+        with target.open("x", encoding="utf-8") as stream:
+            stream.write(command)
+        print(json.dumps({**package, "admin_command": str(target)}, indent=2))
+        return 0
+    if args.command in {"service-health", "service-policy", "service-provision"}:
+        from loop_engine.service_client import ServiceClient, ServicePolicyObserver
+
+        service_client = ServiceClient()
+        if args.command == "service-policy":
+            service_result: Any = ServicePolicyObserver(
+                service_client, timeout=120, cancelled=lambda: False
+            ).observe()
+        elif args.command == "service-provision":
+            service_result = service_client.provision(args.role)
+        else:
+            service_result = {
+                role: service_client.call(role, {"operation": "health"})
+                for role in ("review", "merge")
+            }
+        print(json.dumps(service_result, indent=2))
+        if isinstance(service_result, dict) and service_result.get("status") in {
+            "blocked",
+            "uncertain",
+        }:
+            return 2
+        if args.command == "service-health" and not all(
+            service_result[role].get("isolated_account") is True for role in ("review", "merge")
+        ):
+            return 2
+        return 0
     if args.command == "app-provision":
         from loop_engine.app_credentials import WindowsAppVault
         from loop_engine.app_provisioning import provision
