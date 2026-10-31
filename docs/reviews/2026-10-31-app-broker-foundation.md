@@ -86,8 +86,17 @@ negative test additionally preserves a valid PEM header while corrupting its bod
 A separate fresh read-only security reviewer accepted only this newly discovered
 receipt-freshness fix with no findings and no fix cycles. It did not reopen the
 completed App/Broker review, use credentials/network, modify files or run tests.
-This is not a third repair cycle for the App/Broker scope. Rebuilt-image/runtime
-results are recorded separately when actually observed.
+Rebuilt-image/runtime results are recorded separately when actually observed.
+
+The slow download also exposed unnecessary headed-Chromium installation in the
+QA image: the unchanged Playwright profile and all five E2E tests use the default
+headless shell with no channel/explicit executable override. The recipe now
+caches OS dependencies separately and installs that required headless shell.
+This follows the installed CLI and [Playwright's browser documentation](https://playwright.dev/docs/browsers#chromium-headless-shell).
+The same independent image reviewer accepted this follow-up after inspecting
+the recipe, configuration and all five tests. Tests, audit commands, timeouts,
+workflow settings and runtime sandbox controls were not relaxed. The complete
+unchanged E2E suite must still pass in the rebuilt image before runtime proof.
 
 ## Deliberately unfulfilled gates
 
