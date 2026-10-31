@@ -111,7 +111,7 @@ def validate_settings(value: Any) -> dict[str, Any]:
         raise SafetyError("Invalid deployment identity fields")
     identities = {sid(value["operator_sid"])}
     runtime = PureWindowsPath(value["runtime_root"])
-    if runtime.parent != PureWindowsPath(DEPLOYMENT_ROOT) / "runtimes" or not re.fullmatch(
+    if runtime.parent != PureWindowsPath(str(DEPLOYMENT_ROOT)) / "runtimes" or not re.fullmatch(
         r"[a-f0-9]{64}", runtime.name
     ):
         raise SafetyError("Fixed versioned service location required")

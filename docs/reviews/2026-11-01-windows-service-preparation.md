@@ -9,7 +9,9 @@ confirmed source blocker in the initial security/architecture review. One
 re-review confirmed the added Native attribute type declarations and eleven
 line-specific public artifact hash scanner annotations, with no scanner-wide
 exclusion. Documentation distinguishes preparation, deployment proof and
-activation. Findings: none. One of two allowed fix/re-review cycles used.
+activation. A second cycle accepted the subsequent POSIX path conversion fix
+and parametrized fixed-path/denial regression with no findings. No further fix/re-review cycles
+are available for this scope.
 No implementation agent was delegated. Reviewer did not execute tests, services,
 installer, network requests or access credentials. Per-agent usage/elapsed
 telemetry is unavailable; no technical read-only sandbox is asserted.
@@ -33,6 +35,13 @@ Initial verification exposed missing Linux/Python3.11 inferred ctypes attribute
 types, then scanner false positives on public artifact digests. Explicit types
 and narrowly scoped public-digest annotations fixed them. CI/test assertions,
 scanner inventory and dependency controls were preserved.
+
+Remote Ubuntu CI then exposed `PureWindowsPath(Path(...))` interpreting POSIX
+parts as drive-relative. Converting the fixed path to its string first preserves
+Windows absolute semantics on both hosts. All original allow/deny assertions now
+also run with a synthetic PurePosixPath inventory. The focused suite passed
+21 cases after this correction. Earlier bundles are superseded and must not be
+deployed; generate the bundle from the corrected clean commit.
 
 This is source/preparation evidence only. No administrator installer was run,
 no accounts/services were created, no keys transferred and no remote policy,

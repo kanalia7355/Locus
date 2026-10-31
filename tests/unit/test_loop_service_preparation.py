@@ -8,7 +8,7 @@ import subprocess
 import sys
 import zipfile
 from copy import deepcopy
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
 import pytest
@@ -53,7 +53,15 @@ def settings() -> dict[str, Any]:
     }
 
 
-def test_fixed_roles_and_preparation_cannot_be_changed_into_activation() -> None:
+@pytest.mark.parametrize("posix_inventory", [False, True])
+def test_fixed_roles_and_preparation_cannot_be_changed_into_activation(
+    monkeypatch: pytest.MonkeyPatch, posix_inventory: bool
+) -> None:
+    if posix_inventory:
+        monkeypatch.setattr(
+            "loop_engine.service_identity.DEPLOYMENT_ROOT",
+            PurePosixPath("C:/ProgramData/LocusLoopServicesV1"),
+        )
     value = settings()
     assert validate_settings(value)["mode"] == "prepare"
     for defect in ("active", "same_sid", "app", "path"):
