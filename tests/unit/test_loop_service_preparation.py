@@ -256,3 +256,27 @@ def test_installer_parses_without_executing_privileged_actions() -> None:
         check=False,
     )
     assert result.returncode == 0
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows built-in modules required")
+def test_installer_builtin_modules_load_without_privileged_actions() -> None:
+    script = Path(__file__).resolve().parents[2] / "scripts/Install-LocusLoopServices.ps1"
+    source = script.read_text()
+    start = source.index("    foreach ($moduleName")
+    end = source.index("    $bundleRoot", start)
+    executable = shutil.which("powershell.exe")
+    assert executable
+    result = subprocess.run(  # noqa: S603 — loads fixed built-in modules only
+        [
+            executable,
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "$ErrorActionPreference='Stop'; & ([scriptblock]::Create([Console]::In.ReadToEnd()))",
+        ],
+        input=source[start:end].encode(),
+        capture_output=True,
+        timeout=20,
+        check=False,
+    )
+    assert result.returncode == 0

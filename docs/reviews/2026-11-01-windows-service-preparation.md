@@ -43,6 +43,20 @@ also run with a synthetic PurePosixPath inventory. The focused suite passed
 21 cases after this correction. Earlier bundles are superseded and must not be
 deployed; generate the bundle from the corrected clean commit.
 
+## First administrator deployment feedback
+
+The owner attempted the corrected bundle; it stopped at package_validation.
+Read-only reproduction identified the built-in LocalAccounts manifest under
+the fixed `1.0.0.0` subdirectory. The helper now uses that explicit System32
+module path. A non-admin probe of all package validation steps passed after
+the correction; the fixed built-in module import has an actual Windows test.
+The deployment root was absent when inspected after the failure. No installer
+state was deleted and no key was read during diagnosis.
+
+This compatibility correction occurred after the two source re-review cycles.
+It is not represented as independently re-reviewed. No third cycle was requested;
+the final deployed-system audit and all activation/merge gates remain required.
+
 This is source/preparation evidence only. No administrator installer was run,
 no accounts/services were created, no keys transferred and no remote policy,
 review or merge was changed by this preparation work. Cross-SID communication,

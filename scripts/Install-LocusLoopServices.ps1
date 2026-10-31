@@ -73,7 +73,11 @@ try {
     if ([IntPtr]::Size -ne 8) { throw '64-bit administrator PowerShell required' }
     foreach ($moduleName in @('Microsoft.PowerShell.Management', 'Microsoft.PowerShell.Security',
         'Microsoft.PowerShell.Utility', 'Microsoft.PowerShell.LocalAccounts')) {
-        Import-Module (Join-Path $PSHOME ('Modules\' + $moduleName + '\' + $moduleName + '.psd1'))
+        $moduleDirectory = Join-Path $PSHOME ('Modules\' + $moduleName)
+        if ($moduleName -eq 'Microsoft.PowerShell.LocalAccounts') {
+            $moduleDirectory = Join-Path $moduleDirectory '1.0.0.0'
+        }
+        Import-Module (Join-Path $moduleDirectory ($moduleName + '.psd1'))
     }
     $bundleRoot = (Get-Item -LiteralPath $Bundle -Force).FullName
     Assert-RegularPath $bundleRoot
@@ -239,7 +243,9 @@ public static class LocusBootstrapNativeV1 {
 }
 '@
     }
+    $installStage = 'privilege_setup'
     [LocusBootstrapNativeV1]::EnableRestore()
+    $installStage = 'runtime_copy'
     [LocusBootstrapNativeV1]::MakeDirectory($deploymentRoot)
     $runtimeParent = Join-Path $deploymentRoot 'runtimes'
     $targetRuntime = Join-Path $runtimeParent $ManifestSha256
