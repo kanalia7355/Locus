@@ -73,6 +73,9 @@ it is not evidence of that production boundary.
    copy the owner's OAuth credential into a service, or accept worker-supplied
    protection booleans. The existing authenticated `gh` reader is not proof that
    an isolated App service can make the same read.
+   [ADR0008](architecture/ADR-0008-merge-policy-read-permission-proposal.md)
+   proposes a repo-only Merge App Administration read permission; it is pending
+   owner approval, and no requested/runtime App scope has been changed.
 3. Apply/read back both writer rulesets alongside existing classic protection;
    pin the real Review App ID to its required check. Test rejection of UI/API
    merges, direct pushes, other identities and native queued requests. Personal

@@ -119,6 +119,17 @@ unchanged E2E suite must still pass in the rebuilt image before runtime proof.
   returned 401. This remains a gate-reader design/integration issue; no App
   privilege was expanded or owner OAuth credential copied into a new service.
 
+## Pending permission decision
+
+[ADR0008](../architecture/ADR-0008-merge-policy-read-permission-proposal.md)
+records the exact proposed repo-only Merge App Administration read delta and
+its broader metadata visibility. A fresh independent read-only security
+reviewer accepted the proposal after one clarification of how the unchanged
+Review App must obtain authenticated, fresh, bound policy facts. No findings
+remain for presenting that decision. The reviewer did not authorize or execute
+any permission change, implementation or activation. Operator approval remains
+pending; runtime App permissions have not been expanded.
+
 ## Deliberately unfulfilled gates
 
 [BROKER_SETUP.md](../BROKER_SETUP.md) lists service identity/source pinning,
