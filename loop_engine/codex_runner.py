@@ -228,6 +228,8 @@ class CodexRunner:
             prompt["instruction"] = (
                 "No tools are available. Return exact text edits in proposal schema. "
                 "old=null creates a new file; otherwise old must occur exactly once. "
+                "Return at most ONE edit per file; combine multiple changes into one unique "
+                "block or whole-file replacement. Follow existing lint rules in test code. "
                 "No deletions, control-plane changes, commits, approvals or remote operations. "
                 "Preserve Goal and tests; files_changed must match edits exactly. "
                 "Return blocked if supplied source is insufficient."

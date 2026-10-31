@@ -75,7 +75,7 @@ DECISION = obj(
         "risk": {"enum": ["low", "medium", "high"]},
         "question": text(),
         "options": {"const": ["approve", "reject", "revise"]},
-        "status": {"enum": ["pending", "approved", "rejected", "revise"]},
+        "status": {"enum": ["pending", "approved", "rejected", "revise", "obsolete"]},
         "blocking_tasks": strings(200),
         "target_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     }

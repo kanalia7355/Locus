@@ -7,7 +7,7 @@ from typing import Any
 from uuid import uuid4
 
 from loop_engine.schemas import validate
-from loop_engine.security import reject_secrets
+from loop_engine.security import fingerprint, reject_secrets
 from loop_engine.state_store import StateStore
 
 
@@ -121,7 +121,100 @@ class ApprovalQueue:
 
     def pending_for(self, task_id: str) -> bool:
         return any(
-            decision["status"] != "approved"
+            decision["status"] not in {"approved", "obsolete"}
             and (decision["task_id"] == task_id or task_id in decision["blocking_tasks"])
             for decision in self.decisions()
         )
+
+    def ci_registration_decision(self, task_id: str) -> dict[str, Any] | None:
+        """Only the legacy system-generated, positively active registration wait."""
+        task = self.state.task(task_id)
+        checkpoint, pr = self.state.get_checkpoint(task_id), self.state.get_pr(task_id)
+        policy = self.state.metadata("spec_snapshot", {}).get("policy", {}).get("github", {})
+        previous = pr.get("ci", {})
+        if (
+            task.status != "awaiting_approval"
+            or task.requires_approval
+            or self.state.effective_risk(task_id) == "high"
+            or policy.get("delivery") != "pull_request"
+            or policy.get("auto_merge") != "off"
+            or checkpoint.get("verified") is not True
+            or not checkpoint.get("binding")
+            or not checkpoint.get("committed_head")
+            or previous.get("status") != "missing"
+            or previous.get("head") != checkpoint["committed_head"]
+            or pr.get("headRefOid") != checkpoint["committed_head"]
+            or not (
+                any(check.get("bucket") == "pending" for check in previous.get("checks", []))
+                or any(
+                    run.get("status") in {"queued", "in_progress"}
+                    for run in previous.get("runs", [])
+                )
+            )
+        ):
+            return None
+        target = fingerprint({"binding": checkpoint["binding"], "ci": previous})
+        return next(
+            (
+                decision
+                for decision in self.decisions()
+                if decision["task_id"] == task_id
+                and decision["status"] == "pending"
+                and decision["category"] == "scope"
+                and decision["risk"] == "medium"
+                and decision["target_hash"] == target
+                and decision["question"].startswith("CI held (missing, unclassified).")
+            ),
+            None,
+        )
+
+    def retire_ci_registration(self, task_id: str, observed: dict[str, Any]) -> bool:
+        """Record a vanished CI condition, never a human approval or merge permission."""
+        decision = self.ci_registration_decision(task_id)
+        checkpoint = self.state.get_checkpoint(task_id)
+        policy = self.state.metadata("spec_snapshot", {}).get("policy", {}).get("github", {})
+        checks, runs = observed.get("checks", []), observed.get("runs", [])
+        required = policy.get("required_checks", [])
+        if (
+            not decision
+            or observed.get("status") != "passed"
+            or observed.get("head") != checkpoint.get("committed_head")
+            or not checks
+            or not required
+            or not runs
+            or len(runs) >= 100
+            or not set(required) <= {check.get("name") for check in checks}
+            or any(check.get("bucket") != "pass" for check in checks)
+            or any(
+                run.get("headSha") != observed["head"]
+                or run.get("status") != "completed"
+                or run.get("conclusion") != "success"
+                for run in runs
+            )
+        ):
+            return False
+        with self.state.transaction() as db:
+            changed = db.execute(
+                "UPDATE decisions SET status='obsolete',actor='system:ci-observation',"
+                "reason=?,decided=? "
+                "WHERE id=? AND status='pending' AND target_hash=?",
+                (
+                    "Configured checks passed at the verified head; no human approval granted.",
+                    time.time(),
+                    decision["id"],
+                    decision["target_hash"],
+                ),
+            ).rowcount
+            if changed:
+                self.state._event(
+                    db,
+                    "approval.condition_obsolete",
+                    task_id,
+                    {
+                        "id": decision["id"],
+                        "head": observed["head"],
+                        "observation_hash": fingerprint(observed),
+                        "human_approval": False,
+                    },
+                )
+        return bool(changed)

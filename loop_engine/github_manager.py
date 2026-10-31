@@ -380,3 +380,32 @@ class GitHubManager:
         )
         evidence["atomic_base_binding"] = False  # gh does not atomically match the PR base ref.
         return evidence
+
+    def reconcile_ci_registration(
+        self, task: Task, checkpoint: dict[str, Any], *, cancelled: Callable[[], bool]
+    ) -> bool:
+        if not self.queue.ci_registration_decision(task.id):
+            return False
+        workspace = Path(checkpoint["workspace"])
+        head = checkpoint["committed_head"]
+        if (
+            self.git.snapshot(task, workspace) != checkpoint["snapshot"]
+            or self.git._git(["rev-parse", "HEAD"], workspace) != head
+        ):
+            raise SafetyError("CI registration recovery source changed")
+        pr = self.state.get_pr(task.id)
+        observed = ChecksMonitor(
+            self.root, self.config["repository"], self.config["required_checks"]
+        ).observe(pr["number"], head, cancelled=cancelled)
+        if observed.get("status") != "passed":
+            return False
+        detail = self._api(f"repos/{self.config['repository']}/pulls/{pr['number']}", cancelled)
+        if (
+            detail.get("state") != "open"
+            or detail.get("head", {}).get("sha") != head
+            or detail.get("head", {}).get("repo", {}).get("full_name") != self.config["repository"]
+            or detail.get("base", {}).get("ref") != self.config["base"]
+            or detail.get("base", {}).get("repo", {}).get("full_name") != self.config["repository"]
+        ):
+            raise SafetyError("CI registration recovery PR identity changed")
+        return self.queue.retire_ci_registration(task.id, observed)
