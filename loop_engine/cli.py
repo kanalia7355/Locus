@@ -260,13 +260,22 @@ def run(args: argparse.Namespace) -> int:
     if args.command == "app-provision":
         from loop_engine.app_credentials import WindowsAppVault
         from loop_engine.app_provisioning import provision
+        from loop_engine.github_app import AppConnectionError, GitHubMissing
 
-        print(
-            json.dumps(
-                provision(root, args.role, args.app_id, args.installation_id, WindowsAppVault()),
-                indent=2,
+        try:
+            result = provision(
+                root, args.role, args.app_id, args.installation_id, WindowsAppVault()
             )
-        )
+        except AppConnectionError as error:
+            print(json.dumps(error.public(), indent=2), file=sys.stderr)
+            return 2
+        except GitHubMissing:
+            print(
+                json.dumps(AppConnectionError("repository", "http_rejected", 404).public()),
+                file=sys.stderr,
+            )
+            return 2
+        print(json.dumps(result, indent=2))
         return 0
     if args.command == "app-policy":
         from loop_engine.app_credentials import WindowsAppVault

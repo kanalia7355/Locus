@@ -12,7 +12,14 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 from loop_engine.app_onboarding import PERMISSIONS, Registration, _DeadlineReader
-from loop_engine.github_app import GitHubApp, app_jwt, github_request
+from loop_engine.github_app import (
+    AppConnectionError,
+    GitHubApp,
+    GitHubHTTPFailure,
+    GitHubMissing,
+    app_jwt,
+    github_request,
+)
 from loop_engine.security import SafetyError
 
 
@@ -140,8 +147,10 @@ def test_installation_extra_privilege_blocks_actual_operation() -> None:
         }
 
     app = GitHubApp("merge", 123, 456, 789, vault, request)
-    with pytest.raises(SafetyError, match="scope not approved"):
+    with pytest.raises(AppConnectionError) as error:
         app.call("PUT", "/repos/kanalia7355/Locus/pulls/7/merge", {})
+    assert error.value.public()["stage"] == "installation"
+    assert error.value.public()["reason"] == "permissions"
     assert calls == ["/app/installations/456"]
 
 
@@ -181,3 +190,55 @@ def test_total_header_bytes_are_bounded() -> None:
     finally:
         receiving.close()
         sending.close()
+
+
+@pytest.mark.parametrize("defect", ["repository_selection", "permissions", "http401", "http403"])
+def test_safe_authentication_diagnostic_identifies_stage(defect: str) -> None:
+    data, vault = response("review"), MemoryVault()
+    vault.put("review", 123, data["pem"].encode())
+
+    def request(method: str, path: str, bearer: str, document: Any = None) -> Any:
+        if defect.startswith("http"):
+            raise GitHubHTTPFailure(int(defect[4:]))
+        return {
+            "app_id": 123,
+            "account": {"login": "kanalia7355"},
+            "suspended_at": None,
+            "repository_selection": "all" if defect == "repository_selection" else "selected",
+            "permissions": {} if defect == "permissions" else data["permissions"],
+        }
+
+    app = GitHubApp("review", 123, 456, 789, vault, request)
+    with pytest.raises(AppConnectionError) as caught:
+        app.call("GET", "/repos/kanalia7355/Locus/branches/main")
+    report = caught.value.public()
+    assert report["stage"] == "installation" and report["authenticated"] is False
+    assert report["reason"] == ("http_rejected" if defect.startswith("http") else defect)
+    assert data["pem"] not in json.dumps(report)
+
+
+def test_arbitrary_transport_error_content_never_enters_diagnostic() -> None:
+    data, vault = response("review"), MemoryVault()
+    vault.put("review", 123, data["pem"].encode())
+
+    def request(*args: Any) -> Any:
+        raise SafetyError("synthetic confidential payload must not be copied")
+
+    with pytest.raises(AppConnectionError) as caught:
+        GitHubApp("review", 123, 456, 789, vault, request).call("GET", "/repos/kanalia7355/Locus/x")
+    assert "confidential" not in json.dumps(caught.value.public())
+    assert "confidential" not in str(caught.value)
+    assert caught.value.__suppress_context__ is True
+
+
+def test_definitive_resource_absence_is_preserved_for_mutex() -> None:
+    app = GitHubApp(
+        "review",
+        123,
+        456,
+        789,
+        MemoryVault(),
+        lambda *args: (_ for _ in ()).throw(GitHubMissing("absent")),
+    )
+    with pytest.raises(GitHubMissing):
+        app._fetch("repository", "GET", "/repos/kanalia7355/Locus/git/ref/heads/lock", "synthetic")

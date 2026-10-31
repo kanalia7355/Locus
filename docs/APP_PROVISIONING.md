@@ -14,7 +14,8 @@ it. Keep only Locus selected. Review App scopes remain unchanged. No
 Administration write or change to main protection is authorized by provisioning.
 
 The keys were placed in GitHub Actions Secrets. GitHub does not return secret
-values; no workflow is created to extract them. The current Windows vault has no
+values ([API response contract](https://docs.github.com/en/rest/actions/secrets#get-a-repository-secret));
+no workflow is created to extract them. The current Windows vault has no
 credential at either supplied App ID. Use the original key locally, without
 pasting it into chat, command arguments or files created by this tool. If the
 original key is unavailable, the App owner needs to provision a new key.
@@ -52,3 +53,22 @@ reports `merge_authorized=false` and `atomic_base_binding=false`; matching
 settings alone do not prove writer exclusion, trusted review, service isolation
 or activation. Publisher/Broker wiring, state migration and live merge proofs
 remain required under [BROKER_SETUP.md](BROKER_SETUP.md).
+
+## Safe failure diagnostics
+
+The import now reports `authenticated=false`, fixed `stage`/`reason` identifiers
+and a numeric `http_status`. No key, JWT, token, response body or arbitrary
+exception message is included. Share only this JSON when investigating a failure.
+
+| Diagnostic | Check |
+| --- | --- |
+| `key / invalid` | Original PEM belongs to the selected App and was pasted completely. |
+| `installation / http_rejected / 401` | App/key/installation pairing and local system clock. |
+| `installation / repository_selection` | Installation uses **Only select repositories → Locus**, not all repositories. |
+| `installation / permissions` | Exact role scopes and accepted installation permission update. |
+| `token / repository_scope` | Token did not demonstrate the required repository/permission scope; do not bypass validation. |
+| `repository / http_rejected` | Target repository/operation access. |
+
+The reported generic failure did not identify its stage. Diagnostic visibility
+does not establish its underlying cause or successful authentication. Input is
+not stored after failed authentication, and scope checks remain enforced.

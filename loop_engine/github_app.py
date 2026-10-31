@@ -7,7 +7,7 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
@@ -22,6 +22,43 @@ class KeyReader(Protocol):
 
 class GitHubMissing(SafetyError):
     """Definitive HTTP 404, distinct from a timeout or other uncertain response."""
+
+
+class GitHubHTTPFailure(SafetyError):
+    def __init__(self, status: int) -> None:
+        self.status = status
+        super().__init__("GitHub HTTP request rejected")
+
+
+class AppConnectionError(SafetyError):
+    """Only fixed stage/reason identifiers and a numeric HTTP status may escape."""
+
+    def __init__(self, stage: str, reason: str, status: int | None = None) -> None:
+        stages = {"key", "installation", "token", "repository"}
+        reasons = {
+            "missing",
+            "invalid",
+            "http_rejected",
+            "transport_or_response",
+            "identity",
+            "owner",
+            "repository_selection",
+            "suspended",
+            "permissions",
+            "repository_scope",
+        }
+        self.stage = stage if stage in stages else "unknown"
+        self.reason = reason if reason in reasons else "unknown"
+        self.status = status if type(status) is int and 100 <= status <= 599 else None
+        super().__init__("App connection or scope validation failed")
+
+    def public(self) -> dict[str, object]:
+        return {
+            "authenticated": False,
+            "stage": self.stage,
+            "reason": self.reason,
+            "http_status": self.status,
+        }
 
 
 def _b64(value: bytes) -> str:
@@ -86,7 +123,7 @@ def github_request(
         error.close()
         if status == 404:
             raise GitHubMissing("GitHub object unavailable") from None
-        raise SafetyError("GitHub request rejected; do not replay writes") from None
+        raise GitHubHTTPFailure(status) from None
     except (OSError, ValueError, urllib.error.URLError):
         # No exception chaining: URLError/HTTPError may include one-time paths,
         # response bodies or request objects. A write may have succeeded.
@@ -120,27 +157,58 @@ class GitHubApp:
         self.role, self.app_id, self.installation = role, app_id, installation
         self.repository_id, self.vault, self.request = repository_id, vault, request
 
+    def _fetch(
+        self,
+        stage: Literal["installation", "token", "repository"],
+        method: str,
+        path: str,
+        bearer: str,
+        document: dict[str, Any] | None = None,
+    ) -> Any:
+        try:
+            if document is None:
+                return self.request(method, path, bearer)
+            return self.request(method, path, bearer, document)
+        except GitHubMissing:
+            if stage == "repository":
+                raise  # The global mutex needs definitive absence, not a retry.
+            raise AppConnectionError(stage, "http_rejected", 404) from None
+        except GitHubHTTPFailure as error:
+            raise AppConnectionError(stage, "http_rejected", error.status) from None
+        except (SafetyError, OSError, ValueError):
+            raise AppConnectionError(stage, "transport_or_response") from None
+
     def call(self, method: str, path: str, document: dict[str, Any] | None = None) -> Any:
         pem = self.vault.get(self.role, self.app_id)
         if pem is None:
-            raise SafetyError("App credential missing")
-        jwt = app_jwt(self.app_id, pem, int(time.time()))
-        installation = self.request("GET", f"/app/installations/{self.installation}", jwt)
+            raise AppConnectionError("key", "missing")
+        try:
+            jwt = app_jwt(self.app_id, pem, int(time.time()))
+        except SafetyError:
+            raise AppConnectionError("key", "invalid") from None
+        installation = self._fetch(
+            "installation", "GET", f"/app/installations/{self.installation}", jwt
+        )
         expected = {**PERMISSIONS[self.role], "metadata": "read"}
-        if (
-            installation.get("app_id") != self.app_id
-            or installation.get("account", {}).get("login") != "kanalia7355"
-            or installation.get("repository_selection") != "selected"
-            or installation.get("suspended_at") is not None
-            or installation.get("permissions") != expected
-        ):
-            raise SafetyError("App installation scope not approved")
-        result = self.request(
+        if not isinstance(installation, dict) or installation.get("app_id") != self.app_id:
+            raise AppConnectionError("installation", "identity")
+        if installation.get("account", {}).get("login") != "kanalia7355":
+            raise AppConnectionError("installation", "owner")
+        if installation.get("repository_selection") != "selected":
+            raise AppConnectionError("installation", "repository_selection")
+        if installation.get("suspended_at") is not None:
+            raise AppConnectionError("installation", "suspended")
+        if installation.get("permissions") != expected:
+            raise AppConnectionError("installation", "permissions")
+        result = self._fetch(
+            "token",
             "POST",
             f"/app/installations/{self.installation}/access_tokens",
             jwt,
             {"repository_ids": [self.repository_id], "permissions": PERMISSIONS[self.role]},
         )
+        if not isinstance(result, dict):
+            raise AppConnectionError("token", "transport_or_response")
         credential = result.get("token")
         if (
             not isinstance(credential, str)
@@ -150,9 +218,9 @@ class GitHubApp:
             or [(repo.get("id"), repo.get("full_name")) for repo in result.get("repositories", [])]
             != [(self.repository_id, "kanalia7355/Locus")]
         ):
-            raise SafetyError("Installation credential response scope rejected")
+            raise AppConnectionError("token", "repository_scope")
         # Hard-bound to the selected repository; even a trusted caller cannot
         # accidentally use this primitive on another repository or GraphQL.
         if not path.startswith("/repos/kanalia7355/Locus/"):
             raise SafetyError("Repository-only App transport")
-        return self.request(method, path, credential, document)
+        return self._fetch("repository", method, path, credential, document)

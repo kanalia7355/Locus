@@ -113,3 +113,40 @@ def test_mask_failure_never_falls_back_to_echo(monkeypatch: pytest.MonkeyPatch) 
 
     with pytest.raises(SafetyError, match="Masked key input unavailable"):
         adoption.masked_private_key(unavailable)
+
+
+def test_cli_failure_reports_public_stage_without_raw_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import loop_engine.app_credentials as credentials
+    from loop_engine.cli import main
+    from loop_engine.github_app import AppConnectionError
+
+    monkeypatch.setattr(credentials, "WindowsAppVault", Vault)
+
+    def denied(*args: Any, **kwargs: Any) -> Any:
+        raise AppConnectionError("installation", "http_rejected", 401)
+
+    monkeypatch.setattr(adoption, "provision", denied)
+    assert (
+        main(
+            [
+                "--project",
+                str(tmp_path),
+                "app-provision",
+                "review",
+                "--app-id",
+                "123",
+                "--installation-id",
+                "456",
+            ]
+        )
+        == 2
+    )
+    report = json.loads(capsys.readouterr().err)
+    assert report == {
+        "authenticated": False,
+        "stage": "installation",
+        "reason": "http_rejected",
+        "http_status": 401,
+    }

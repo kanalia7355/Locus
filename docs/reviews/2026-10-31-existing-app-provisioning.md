@@ -38,3 +38,20 @@ Actual App authentication, returned installation permissions, policy observation
 credential isolation, signing publication and merging are not claimed proven.
 The existing source-only QA image remains valid because dependencies/recipe did
 not change; runtime source receipt must be refreshed after these code changes.
+
+## Operator failure and safe diagnostics — 2026-11-01
+
+The operator reported 27 masked input prompts followed by a generic SafetyError.
+No key was displayed, and the failure stage could not be determined. The cause
+is not claimed fixed. Safe structured errors now identify a fixed stage/reason
+and numeric HTTP status without exposing tokens, PEM, response bodies or raw
+exception messages. Authorization predicates remain unchanged; repository 404
+semantics required by the mutex remain intact.
+
+The same independent reviewer accepted this change in fix/re-review cycle 1,
+with no findings and no credential/runtime/network access. Added HTTP401/403,
+selection/permission, error-redaction, CLI diagnostic and resource-absence
+regressions passed. Full engine verification/advisory audit passed with 182
+tests and 6 opt-in live skips. The initial implementation commit also passed all
+four required source-only Docker verification commands. Later diagnostic code
+is covered by its focused tests and complete engine run; it grants no new scope.
