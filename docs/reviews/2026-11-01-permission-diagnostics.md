@@ -23,3 +23,9 @@ The operator's stage/reason proves key signing and installation identity passed
 but does not identify the differing field. Actual permission comparison and
 successful provisioning remain pending operator execution. No scope was added
 or accepted automatically, and no key was stored after failed authentication.
+
+The subsequent operator-provided comparison identified the exact configuration:
+Review App 5555922 had Checks absent (required write) and Contents write
+(required read). The operator was instructed to correct those two fields on
+that App ID and accept any displayed installation update. This is a live
+permission mismatch observation, not successful token provisioning or merging.
