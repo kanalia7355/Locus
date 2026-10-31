@@ -57,9 +57,21 @@ This compatibility correction occurred after the two source re-review cycles.
 It is not represented as independently re-reviewed. No third cycle was requested;
 the final deployed-system audit and all activation/merge gates remain required.
 
-This is source/preparation evidence only. No administrator installer was run,
+At the initial source review this was preparation evidence only. No administrator installer was run,
 no accounts/services were created, no keys transferred and no remote policy,
 review or merge was changed by this preparation work. Cross-SID communication,
 SCM execution/stop, deployed filesystem denial and vault persistence still need
 real deployment. Production authority, Controller delivery wiring, migration,
 live race/recovery proofs and final approval remain separate gates.
+
+## Subsequent accounts-stage failure
+
+The owner ran the replacement bundle and reported accounts/setup_failed.
+Non-admin inspection found the deployment root and Review account, but no Merge
+account, either service or Review profile registration. The original installer
+was not re-run, no partial state was deleted, no password reset was attempted
+and no key was accessed. Public-only C# entry-point resolution and PowerShell
+SID/credential-construction probes succeeded without invoking identity changes.
+Non-admin LSA rights enumeration returned access denied; the exact failed
+identity setup API is still undetermined. A separate read-only account diagnostic
+was added; it does not constitute a third source re-review or activation proof.
