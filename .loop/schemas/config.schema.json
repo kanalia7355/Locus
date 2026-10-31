@@ -118,11 +118,15 @@
         },
         "require_preapproval_for_high_risk": {
           "const": true
+        },
+        "routine_publication": {
+          "type": "boolean"
         }
       },
       "required": [
         "mode",
-        "require_preapproval_for_high_risk"
+        "require_preapproval_for_high_risk",
+        "routine_publication"
       ],
       "additionalProperties": false
     },
@@ -144,6 +148,7 @@
         "sandbox_executor": {
           "enum": [
             "codex",
+            "proposal-docker",
             "unavailable"
           ]
         }

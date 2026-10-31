@@ -7,6 +7,7 @@ from typing import Any
 
 from loop_engine.approval import ApprovalQueue
 from loop_engine.checks import ChecksMonitor
+from loop_engine.config import load
 from loop_engine.git_manager import GitManager
 from loop_engine.models import Task
 from loop_engine.planning import bounded_json
@@ -98,7 +99,8 @@ class GitHubManager:
         ):
             return {"complete": False, "reason": "repository_not_configured"}
         publication = fingerprint({"config": self.config, "binding": checkpoint["binding"]})
-        if self.queue.status(task.id, "publication", publication) != "approved":
+        routine = load(self.root / ".loop/config.yaml")["approval"]["routine_publication"]
+        if not routine and self.queue.status(task.id, "publication", publication) != "approved":
             self.queue.request(
                 task.id,
                 "publication",
@@ -140,7 +142,11 @@ class GitHubManager:
                 + ", ".join(checkpoint["snapshot"]["paths"])
                 + "\n\nVerification: local required checks passed.\nLocal review: passed.\n"
                 + "CI and trusted remote review remain separate gates.\n"
-                + "Approval: exact publication approved.\n"
+                + (
+                    "Approval: operator standing publication authorization.\n"
+                    if routine
+                    else "Approval: exact publication approved.\n"
+                )
                 + f"Risk: {task.risk_level}. No automatic protection bypass.\n"
             )
             body_path = self.root / ".loop/runtime" / f"{task.id}-pr-body.md"
@@ -196,16 +202,20 @@ class GitHubManager:
         self.state.record_pr(task.id, {**pr, **commit, "ci": ci})
         if ci["status"] != "passed":
             return {"complete": False, "ci": ci, "repairable": ci["repairable"]}
-        evidence = self.remote_evidence(task, checkpoint, pr, cancelled)
         if self.config["delivery"] == "pull_request":
+            detail = self._api(f"repos/{repo}/pulls/{pr['number']}", cancelled)
+            identity = (
+                detail.get("head", {}).get("sha") == commit["head"]
+                and detail.get("head", {}).get("repo", {}).get("full_name") == repo
+                and detail.get("base", {}).get("ref") == self.config["base"]
+                and detail.get("base", {}).get("repo", {}).get("full_name") == repo
+            )
             return {
-                "complete": evidence.get("ci_complete") is True
-                and evidence.get("trusted_review_publisher") is True
-                and evidence.get("review_head_base_policy_bound") is True
-                and evidence.get("head_matches") is True
-                and evidence.get("base_matches") is True,
-                "state": "ci_and_review_pending",
+                "complete": identity,
+                "state": "pull_request_verified_merge_held" if identity else "identity_mismatch",
+                "merged": False,
             }
+        evidence = self.remote_evidence(task, checkpoint, pr, cancelled)
         reasons = merge_reasons(task, self.config, evidence)
         if reasons:
             return {"complete": False, "merge_blockers": reasons}

@@ -1,0 +1,46 @@
+{
+  "requirements": "Fix the reproduced API helper defect while preserving approved local prototype behavior. Node synthetic fetch probe observed null instead of synthetic-request for Headers input.",
+  "nonfunctional_requirements": [
+    "No external research data or production deployment",
+    "Preserve UI baseline and access control"
+  ],
+  "architecture": "Normalize RequestInit.headers with the standard Headers API; preserve transport and error behavior.",
+  "constraints": [
+    "PR-only; no merge",
+    "No dependency, CI or Goal relaxation"
+  ],
+  "risks": [
+    "API helper is shared; full application, browser and engine checks are mandatory."
+  ],
+  "tasks": [
+    {
+      "id": "TASK-001",
+      "title": "Fix RequestInit Headers normalization",
+      "acceptance_criteria": [
+        "Headers instances preserve custom X-Request-ID on outgoing requests; currently the header is lost.",
+        "Tuple-array and record HeadersInit forms preserve their custom headers.",
+        "Default Content-Type remains application/json, and caller-specified Content-Type is preserved case-insensitively.",
+        "credentials remains forced to same-origin and existing 401/session-rotation behavior and tests remain unchanged.",
+        "Add meaningful regression tests for all header forms and content-type behavior; all existing required checks pass without weakening tests or CI."
+      ],
+      "verification_profile": "repository",
+      "allowed_paths": [
+        "frontend/src/api.ts",
+        "frontend/src/api.test.ts"
+      ],
+      "status": "ready",
+      "priority": 90,
+      "dependencies": [],
+      "attempts": 0,
+      "max_attempts": 3,
+      "risk_level": "low",
+      "requires_approval": false,
+      "review_required": true,
+      "branch": null,
+      "worktree": null,
+      "last_error": null,
+      "version": 0
+    }
+  ],
+  "decisions": []
+}

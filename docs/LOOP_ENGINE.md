@@ -2,7 +2,7 @@
 
 The user specification is preserved verbatim in [AUTONOMOUS_LOOP_SPEC.md](requirements/AUTONOMOUS_LOOP_SPEC.md). The engine is additive: the research UI/API remains in frontend/backend. Python3.11+ CLI code has no FastAPI/React dependency. State is in `.loop/runtime/state.sqlite3`, excluded from Git.
 
-**This is not a completed live autonomous runtime.** Local state, planning import, controller logic, approvals, Git worktrees and mocked external integration are implemented/tested. The default CLI execution transport is `UnprovenBoundary`: start/model planning cannot launch real tasks until a complete isolated executor is implemented and verified. Human approval cannot turn missing isolation into proof. Real auto-merge is also blocked because gh's head guard cannot atomically bind a PR base ref. These are unfulfilled acceptance gates, not successful substitutes.
+The source-only `proposal-docker` transport is described in [ADR0006](architecture/ADR-0006-source-only-runtime.md), with actual versus mocked evidence in the [runtime review ledger](reviews/2026-10-31-unattended-runtime.md). It requires a pinned project client, fresh containment receipt, audited immutable QA image and explicit model authorization. Other executors remain fail-closed. The operator has authorized PR-only delivery and held every merge; protected merge and atomic-base guarantees remain unfulfilled. No full Goal completion is claimed.
 
 The additive [Development Loop](architecture/ADR-0005-development-loop.md)
 assesses latest main before scheduling and after observed merges, plans grounded
@@ -13,6 +13,16 @@ run; `loop launch --resume 2h` resumes the same run in a new time window. Neithe
 activates an unavailable executor or authorizes product development.
 
 ## Install and inspect
+
+This Windows checkout uses a project-local client receipt under ignored runtime
+and an audited Docker QA image. Global CLI/config/auth files are preserved. After
+trusted runtime/image updates, rebuild with
+`python -c "from pathlib import Path; from loop_engine.docker_boundary import prepare_image; prepare_image(Path.cwd())"`
+and run `doctor --check-sandbox`. Image audit cache is bound to a UTC-day epoch,
+so rebuilding cannot refresh an old advisory result without a new audit.
+`doctor` reports actual project-client version and conditional readiness; missing,
+stale or mismatched proof never enables a host fallback. The configured PR base
+is the existing runtime feature branch, not a substitute integration `main`.
 
 ```powershell
 ./.venv/Scripts/python.exe -m pip install -e ".[dev]"

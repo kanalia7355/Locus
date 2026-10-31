@@ -11,8 +11,10 @@ from loop_engine.github_manager import GitHubManager
 from loop_engine.security import fingerprint
 
 
-@pytest.mark.parametrize("missing", ["head_matches", "base_matches"])
-def test_pr_delivery_requires_exact_head_and_base(tmp_path: Path, missing: str) -> None:
+@pytest.mark.parametrize("missing", ["head_matches", "base_matches", None])
+def test_pr_delivery_requires_exact_head_and_base(
+    tmp_path: Path, missing: str | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
     state = initialize(tmp_path, "Fixture")
     work = task()
     state.import_plan("Fixture", "hash", [work])
@@ -31,20 +33,23 @@ def test_pr_delivery_requires_exact_head_and_base(tmp_path: Path, missing: str) 
         def _existing(self, *args: Any) -> list[dict[str, Any]]:
             return [{"number": 1, "state": "OPEN", "headRefOid": "h"}]
 
-        def remote_evidence(self, *args: Any) -> dict[str, Any]:
+        def _api(self, endpoint: str, *args: Any) -> dict[str, Any]:
+            assert (
+                endpoint == "repos/example/repo/pulls/1"
+            )  # No protection API for PR-only delivery.
             return {
-                **dict.fromkeys(
-                    [
-                        "ci_complete",
-                        "trusted_review_publisher",
-                        "review_head_base_policy_bound",
-                        "head_matches",
-                        "base_matches",
-                    ],
-                    True,
-                ),
-                missing: False,
+                "head": {
+                    "sha": "other" if missing == "head_matches" else "h",
+                    "repo": {"full_name": "example/repo"},
+                },
+                "base": {
+                    "ref": "other" if missing == "base_matches" else "main",
+                    "repo": {"full_name": "example/repo"},
+                },
             }
+
+        def remote_evidence(self, *args: Any) -> dict[str, Any]:
+            pytest.fail("PR-only delivery must not invoke merge protection APIs")
 
     queue = ApprovalQueue(state)
     binding = fingerprint({"config": config, "binding": checkpoint["binding"]})
@@ -54,4 +59,10 @@ def test_pr_delivery_requires_exact_head_and_base(tmp_path: Path, missing: str) 
         "human",
     )
     manager = PRFixture(tmp_path, state, GitFixture(), config)  # type: ignore[arg-type]
-    assert not manager.deliver(work, checkpoint, cancelled=lambda: False)["complete"]
+    monkeypatch.setattr(
+        "loop_engine.github_manager.ChecksMonitor.observe",
+        lambda *args, **kwargs: {"status": "passed", "repairable": False},
+    )
+    delivered = manager.deliver(work, checkpoint, cancelled=lambda: False)
+    assert delivered["complete"] is (missing is None)
+    assert delivered["merged"] is False

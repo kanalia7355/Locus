@@ -9,30 +9,41 @@ loop:
 approval:
   mode: deferred
   require_preapproval_for_high_risk: true
+  routine_publication: true
 security:
   allow_production_changes: false
   allow_destructive_operations: false
   allow_unrestricted_execution: false
-  allow_model_execution: false
-  sandbox_executor: unavailable
+  allow_model_execution: true
+  sandbox_executor: proposal-docker
 github:
-  enabled: false
+  enabled: true
   repository: kanalia7355/Locus
-  base: main
+  base: feat/unattended-runtime
   remote: origin
   auto_merge: 'off'
   protect_default_branch: true
-  required_checks: []
+  required_checks:
+  - verify
+  - engine (ubuntu-latest, 3.11)
+  - engine (ubuntu-latest, 3.13)
+  - engine (windows-latest, 3.11)
+  - engine (windows-latest, 3.13)
+  - conventional-title
   auto_merge_allowed_paths: []
-  delivery: local
+  delivery: pull_request
 verification:
   repository:
+  - name: image-dependency-advisories
+    level: security
+    argv:
+    - '{image-audit}'
+    required: true
   - name: engine-format-lint-types-tests-secrets-dependencies
     level: security
     argv:
     - '{python}'
     - scripts/verify_loop.py
-    - --audit
     required: true
   - name: engine-wheel-build
     level: static
@@ -53,7 +64,6 @@ verification:
     - '{python}'
     - scripts/verify.py
     - --e2e
-    - --audit
     required: true
 qa:
   local_verification: true
@@ -61,7 +71,7 @@ qa:
   repair_failed_checks: true
   require_configured_checks: true
 development:
-  enabled: true
+  enabled: false
   max_cycles_per_run: 20
   stagnation_limit: 3
   evaluation_timeout_minutes: 10

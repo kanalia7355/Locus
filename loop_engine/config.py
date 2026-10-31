@@ -19,7 +19,11 @@ DEFAULT: dict[str, Any] = {
         "max_tasks_per_run": 20,
         "task_timeout_minutes": 30,
     },
-    "approval": {"mode": "deferred", "require_preapproval_for_high_risk": True},
+    "approval": {
+        "mode": "deferred",
+        "require_preapproval_for_high_risk": True,
+        "routine_publication": False,
+    },
     "qa": {
         "local_verification": True,
         "independent_review": True,
@@ -64,6 +68,7 @@ def load(path: Path) -> dict[str, Any]:
     # Additive v1 migration, in memory only. Never rewrite user configuration.
     data.setdefault("qa", deepcopy(DEFAULT["qa"]))
     data.setdefault("development", deepcopy(DEFAULT["development"]))
+    data.setdefault("approval", {}).setdefault("routine_publication", False)
     for section, aliases in {
         "github": {"base_branch": "base"},
         "security": {"allow_unrestricted_codex_execution": "allow_unrestricted_execution"},
