@@ -65,8 +65,13 @@ current-head remote result; a local pass is not substituted for that result.
 Final local engine verifier: 75 tests passed, Ruff/format and strict mypy
 (current Python and Python 3.11 Linux target) passed, Secret Scan zero findings,
 dependency consistency/advisory checks passed. The final full application
-Python run passed 97 tests with 88% backend coverage. Remaining frontend/E2E
-and remote results are reported after those commands complete.
+Python run passed 97 tests with 88% backend coverage. UI tests 4/4, Chromium
+E2E 5/5 and production build passed. Final npm audit detected a newly reported
+minimatch advisory; a pinned override was independently reviewed, and all
+affected frontend checks were rerun successfully with zero audit findings.
+See `reviews/2026-10-31-minimatch-mitigation.md` for compatibility limitations
+and the pending human dependency Decision. Current-head remote checks remain
+separate from this local evidence.
 
 Configuration differences from the supplied example are intentional:
 `base`/`allow_unrestricted_execution` are existing canonical names, with aliases
