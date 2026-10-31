@@ -242,3 +242,32 @@ def test_definitive_resource_absence_is_preserved_for_mutex() -> None:
     )
     with pytest.raises(GitHubMissing):
         app._fetch("repository", "GET", "/repos/kanalia7355/Locus/git/ref/heads/lock", "synthetic")
+
+
+def test_token_requests_exact_validated_scope_including_metadata() -> None:
+    data, vault = response("review"), MemoryVault()
+    vault.put("review", 123, data["pem"].encode())
+    expected = {**PERMISSIONS["review"], "metadata": "read"}
+
+    def request(method: str, path: str, bearer: str, document: Any = None) -> Any:
+        if path.endswith("/access_tokens"):
+            assert document == {"repository_ids": [789], "permissions": expected}
+            return {
+                "token": "synthetic-in-memory-value",
+                "permissions": expected,
+                "repository_selection": "selected",
+                "repositories": [{"id": 789, "full_name": "kanalia7355/Locus"}],
+            }
+        if path.startswith("/app/"):
+            return {
+                "app_id": 123,
+                "account": {"login": "kanalia7355"},
+                "repository_selection": "selected",
+                "suspended_at": None,
+                "permissions": expected,
+            }
+        return {"name": "main"}
+
+    assert GitHubApp("review", 123, 456, 789, vault, request).call(
+        "GET", "/repos/kanalia7355/Locus/branches/main"
+    ) == {"name": "main"}

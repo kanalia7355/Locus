@@ -205,7 +205,7 @@ class GitHubApp:
             "POST",
             f"/app/installations/{self.installation}/access_tokens",
             jwt,
-            {"repository_ids": [self.repository_id], "permissions": PERMISSIONS[self.role]},
+            {"repository_ids": [self.repository_id], "permissions": expected},
         )
         if not isinstance(result, dict):
             raise AppConnectionError("token", "transport_or_response")

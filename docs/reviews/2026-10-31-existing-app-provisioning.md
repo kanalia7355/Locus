@@ -55,3 +55,17 @@ regressions passed. Full engine verification/advisory audit passed with 182
 tests and 6 opt-in live skips. The initial implementation commit also passed all
 four required source-only Docker verification commands. Later diagnostic code
 is covered by its focused tests and complete engine run; it grants no new scope.
+
+The operator then supplied the safe diagnostic `installation / permissions`.
+This establishes that JWT/App/installation identity, owner and selected-repo
+checks passed, but exact granted permissions did not. No token was requested or
+key stored at that failure point. The operator was given the exact Review role
+scope and installation-update instructions; successful import is still pending.
+
+The token request was also aligned with its existing validation contract: exact
+role scopes plus already-required Metadata read are explicitly requested, still
+limited to the same repository ID. The independent reviewer accepted this final
+delta in cycle 2 without findings. The maximum two fix/re-review cycles for
+this scope are now used. The added wire-scope regression passed; the complete
+final engine verifier/advisory audit passed with 183 tests and 6 live opt-in
+skips. No live token compatibility, publisher or merge proof is inferred.
