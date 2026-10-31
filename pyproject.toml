@@ -7,7 +7,7 @@ name = "locus-loop-engine"
 version = "0.1.0"
 description = "Persistent, serial, approval-aware Codex development controller"
 requires-python = ">=3.11"
-dependencies = ["jsonschema==4.26.0", "PyYAML==6.0.3"]
+dependencies = ["jsonschema==4.26.0", "PyYAML==6.0.3", "cryptography==50.0.2"]
 
 [project.optional-dependencies]
 dev = ["setuptools==84.2.1", "pytest==9.2.0", "ruff==0.17.3", "mypy==2.4.1",

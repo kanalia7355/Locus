@@ -4,8 +4,10 @@ Latest environment and execution evidence is in
 [ADR0006](../architecture/ADR-0006-source-only-runtime.md) and the
 [runtime ledger](../reviews/2026-10-31-unattended-runtime.md). Earlier phase
 entries below are historical snapshots, including their initial no-remote and
-unavailable-executor statements. PR-only operation is the current authorization;
-no merge or full acceptance conclusion supersedes the outstanding guarantees.
+unavailable-executor statements. Conditional safe merge and ADR0007 implementation
+are now authorized, but runtime remains PR-only until its activation gates pass.
+See [App/Broker setup](../BROKER_SETUP.md). No full acceptance conclusion
+supersedes the outstanding guarantees.
 
 Source: user-supplied "Codex Autonomous Loop Engineering — Implementation Specification", received2026-10-31. Scope is a new independent controller alongside the existing app. No research-app replacement, live remote mutation, live worker or background daemon is implied by implementation.
 

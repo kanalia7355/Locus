@@ -2,7 +2,7 @@
 
 The user specification is preserved verbatim in [AUTONOMOUS_LOOP_SPEC.md](requirements/AUTONOMOUS_LOOP_SPEC.md). The engine is additive: the research UI/API remains in frontend/backend. Python3.11+ CLI code has no FastAPI/React dependency. State is in `.loop/runtime/state.sqlite3`, excluded from Git.
 
-The source-only `proposal-docker` transport is described in [ADR0006](architecture/ADR-0006-source-only-runtime.md), with actual versus mocked evidence in the [runtime review ledger](reviews/2026-10-31-unattended-runtime.md). It requires a pinned project client, fresh containment receipt, audited immutable QA image and explicit model authorization. Other executors remain fail-closed. The operator has authorized PR-only delivery and held every merge; protected merge and atomic-base guarantees remain unfulfilled. No full Goal completion is claimed.
+The source-only `proposal-docker` transport is described in [ADR0006](architecture/ADR-0006-source-only-runtime.md), with actual versus mocked evidence in the [runtime review ledger](reviews/2026-10-31-unattended-runtime.md). It requires a pinned project client, fresh containment receipt, audited immutable QA image and explicit model authorization. Other executors remain fail-closed. The operator has authorized conditional safe merge and approved [ADR0007](architecture/ADR-0007-safe-merge-broker-proposal.md) implementation. Its [App/Broker foundation and remaining activation gates](BROKER_SETUP.md) do not yet provide atomic-base enforcement; runtime delivery remains PR-only. No full Goal completion is claimed.
 
 The additive [Development Loop](architecture/ADR-0005-development-loop.md)
 assesses latest main before scheduling and after observed merges, plans grounded
@@ -78,7 +78,7 @@ Process output is bounded in memory; raw model prompts/tool output/authenticatio
 
 ## Git and delivery
 
-An approved committed base is required. Locus now has a committed baseline and the private `kanalia7355/Locus` origin. Its initial default branch is `feat/autonomous-loop-engine`; `main` has not been created. The configured `main` base therefore cannot run real task worktrees yet. Bootstrap validation uses a separate validation base and never silently creates main. Task worktrees use `loop/TASK-ID-slug`. Local delivery does not integrate changes into main. A dependent real-worktree task needs prerequisite merge evidence in its approved base; local completion alone cannot make prerequisite code appear in another checkout.
+An approved committed base is required. `kanalia7355/Locus` is now public and its protected default branch is `main`. The frozen local runtime still targets the historical runtime feature branch in PR-only mode; changing that policy requires a versioned migration preserving Goal, attempts and evidence. Task worktrees use `loop/TASK-ID-slug`. Local delivery does not integrate changes into main. A dependent real-worktree task needs prerequisite merge evidence in its approved base; local completion alone cannot make prerequisite code appear in another checkout.
 
 All worker-produced staged/index changes are refused before verification; the controller validates its own prospective staged tree before commit. No reset/clean/force-push, hook bypass or default-branch direct commit exists. Installed executable Git hooks/filters/custom configuration require separate assessment; the engine blocks instead of disabling them. Tests use isolated known fixtures and label their fixture-specific configuration treatment.
 
@@ -96,6 +96,6 @@ Markdown is derived from DB. Preexisting/user-edited reports are preserved when 
 
 ## Verification status
 
-Local unit/integration/mocked CLI E2E, real temporary Git operations, process timeouts/output bounds and Windows lifetime tests are run by scripts/verify_loop.py. The research app retains scripts/verify.py and its browser E2E. New CI defines Windows/Linux and Python3.11/3.13 checks, but remote CI is not executed/verified here. Skipped platform/live checks are not claimed passed. See [phase ledger](plans/LOOP_IMPLEMENTATION.md) and [audit record](reviews/2026-10-31-loop-audits.md) for evidence and unresolved gates.
+Local unit/integration/mocked CLI E2E, real temporary Git operations, process timeouts/output bounds and Windows lifetime tests are run by scripts/verify_loop.py. The research app retains scripts/verify.py and its browser E2E. CI defines Windows/Linux and Python3.11/3.13 checks; previous runtime PRs passed remote CI. Each new head still needs its own observed results. Skipped platform/live checks are not claimed passed. See the [Broker review](reviews/2026-10-31-app-broker-foundation.md), [phase ledger](plans/LOOP_IMPLEMENTATION.md) and [initial audit record](reviews/2026-10-31-loop-audits.md) for evidence and unresolved gates.
 
 The final advisory command found no known vulnerabilities in installed third-party dependencies. pip-audit explicitly skipped this unpublished local engine package because it is not in PyPI's advisory inventory; that is not a security clearance of the engine itself. Source audits, tests and the unfulfilled live boundaries remain separate evidence.

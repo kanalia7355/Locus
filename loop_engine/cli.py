@@ -146,6 +146,9 @@ def parser() -> argparse.ArgumentParser:
     init = commands.add_parser("init")
     init.add_argument("--goal-file", type=Path)
     commands.add_parser("doctor").add_argument("--check-sandbox", action="store_true")
+    app_setup = commands.add_parser("app-register")
+    app_setup.add_argument("role", choices=("review", "merge"))
+    app_setup.add_argument("--owner", choices=("kanalia7355",), default="kanalia7355")
     for name in ("status", "report", "pause", "stop", "decisions"):
         commands.add_parser(name)
     launch = commands.add_parser("launch")
@@ -246,6 +249,12 @@ def build_controller(root: Path, state: StateStore) -> Any:
 
 def run(args: argparse.Namespace) -> int:
     root = args.project.resolve()
+    if args.command == "app-register":
+        from loop_engine.app_credentials import WindowsAppVault
+        from loop_engine.app_onboarding import register
+
+        print(json.dumps(register(args.role, args.owner, WindowsAppVault()), indent=2))
+        return 0
     if args.command == "init":
         goal = ""
         if args.goal_file:

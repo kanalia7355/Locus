@@ -1,0 +1,182 @@
+"""In-memory credentials only. No App is registered or installed by these tests."""
+
+import base64
+import json
+import socket
+import threading
+import time
+from typing import Any
+
+import pytest
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
+
+from loop_engine.app_onboarding import PERMISSIONS, Registration, _DeadlineReader
+from loop_engine.github_app import GitHubApp, app_jwt, github_request
+from loop_engine.security import SafetyError
+
+
+class MemoryVault:
+    def __init__(self) -> None:
+        self.values: dict[tuple[str, int], bytes] = {}
+
+    def put(self, role: str, app_id: int, value: bytes) -> None:
+        self.values[role, app_id] = value
+
+    def get(self, role: str, app_id: int) -> bytes | None:
+        return self.values.get((role, app_id))
+
+
+def test_jwt_signature_and_short_expiry() -> None:
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    pem = key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.TraditionalOpenSSL,
+        serialization.NoEncryption(),
+    )
+    jwt = app_jwt(123, pem, 1000)
+    header, payload, signature = jwt.split(".")
+    claims = json.loads(base64.urlsafe_b64decode(payload + "=="))
+    assert claims == {"iat": 940, "exp": 1480, "iss": "123"}
+    key.public_key().verify(
+        base64.urlsafe_b64decode(signature + "=="),
+        f"{header}.{payload}".encode(),
+        padding.PKCS1v15(),
+        hashes.SHA256(),
+    )
+
+
+def response(role: str) -> dict[str, Any]:
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    return {
+        "id": 123,
+        "slug": "locus-test",
+        "owner": {"login": "kanalia7355"},
+        "permissions": {**PERMISSIONS[role], "metadata": "read"},
+        "pem": key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.TraditionalOpenSSL,
+            serialization.NoEncryption(),
+        ).decode(),
+    }
+
+
+def test_registration_is_state_bound_once_and_emits_no_credentials() -> None:
+    vault = MemoryVault()
+    data = response("review")
+    setup = Registration("review", "kanalia7355", vault, lambda code: data)
+    manifest = setup.manifest("http://127.0.0.1:9999")
+    assert manifest["default_permissions"] == PERMISSIONS["review"]
+    assert manifest["public"] is False
+    assert manifest["hook_attributes"]["active"] is False
+    with pytest.raises(SafetyError):
+        setup.accept("state=wrong&code=" + "x" * 40)
+    result = setup.accept(f"state={setup.state}&code=" + "x" * 40)
+    assert result["activated"] is False
+    assert set(result) == {"role", "app_id", "slug", "installation_url", "activated"}
+    assert vault.values["review", 123] == data["pem"].encode()
+    with pytest.raises(SafetyError):
+        setup.accept(f"state={setup.state}&code=" + "x" * 40)
+
+
+@pytest.mark.parametrize("mutation", ["owner", "permissions", "id", "slug", "pem"])
+def test_unapproved_identity_never_reaches_vault(mutation: str) -> None:
+    vault, data = MemoryVault(), response("merge")
+    data[mutation] = None
+    setup = Registration("merge", "kanalia7355", vault, lambda code: data)
+    with pytest.raises((SafetyError, AttributeError)):
+        setup.accept(f"state={setup.state}&code=" + "x" * 40)
+    assert not vault.values
+
+
+def test_malformed_key_is_not_written_to_vault() -> None:
+    vault, data = MemoryVault(), response("merge")
+    data["pem"] = "not a private key"
+    setup = Registration("merge", "kanalia7355", vault, lambda code: data)
+    with pytest.raises(SafetyError, match="key validation failed"):
+        setup.accept(f"state={setup.state}&code=" + "x" * 40)
+    assert not vault.values
+
+
+def test_conversion_failure_consumes_session_without_replay() -> None:
+    calls = []
+
+    def fail(code: str) -> dict[str, Any]:
+        calls.append(code)
+        raise TimeoutError
+
+    setup = Registration("merge", "kanalia7355", MemoryVault(), fail)
+    query = f"state={setup.state}&code=" + "x" * 40
+    with pytest.raises(TimeoutError):
+        setup.accept(query)
+    with pytest.raises(SafetyError):
+        setup.accept(query)
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["https://evil.example/", "//evil.example/", "/../x", "/x%2f..", "/repos/x\r\nInjected: yes"],
+)
+def test_http_origin_and_path_rejection_without_network(path: str) -> None:
+    with pytest.raises(SafetyError):
+        github_request("GET", path, "in-memory-test-value")
+
+
+def test_installation_extra_privilege_blocks_actual_operation() -> None:
+    data, vault = response("merge"), MemoryVault()
+    vault.put("merge", 123, data["pem"].encode())
+    calls = []
+
+    def request(method: str, path: str, bearer: str, document: Any = None) -> Any:
+        calls.append(path)
+        return {
+            "app_id": 123,
+            "account": {"login": "kanalia7355"},
+            "repository_selection": "selected",
+            "suspended_at": None,
+            "permissions": {**PERMISSIONS["merge"], "metadata": "read", "administration": "write"},
+        }
+
+    app = GitHubApp("merge", 123, 456, 789, vault, request)
+    with pytest.raises(SafetyError, match="scope not approved"):
+        app.call("PUT", "/repos/kanalia7355/Locus/pulls/7/merge", {})
+    assert calls == ["/app/installations/456"]
+
+
+def test_slow_trickled_header_cannot_extend_absolute_deadline() -> None:
+    receiving, sending = socket.socketpair()
+    done = threading.Event()
+
+    def trickle() -> None:
+        while not done.wait(0.01):
+            try:
+                sending.sendall(b"a")
+            except OSError:
+                return
+
+    thread = threading.Thread(target=trickle, daemon=True)
+    started = time.monotonic()
+    try:
+        thread.start()
+        reader = _DeadlineReader(receiving, started + 0.2)
+        with pytest.raises(TimeoutError):
+            reader.readline()
+        assert time.monotonic() - started < 1
+    finally:
+        done.set()
+        receiving.close()
+        sending.close()
+        thread.join(timeout=1)
+
+
+def test_total_header_bytes_are_bounded() -> None:
+    receiving, sending = socket.socketpair()
+    try:
+        sending.sendall(b"a" * 16_385)
+        reader = _DeadlineReader(receiving, time.monotonic() + 2)
+        with pytest.raises(TimeoutError, match="header limit"):
+            reader.readline()
+    finally:
+        receiving.close()
+        sending.close()

@@ -1,6 +1,8 @@
 # ADR 0007 — Proposed exact-base automatic merge architecture
 
-Status: PROPOSED, requires operator approval before implementation/activation.
+Status: APPROVED FOR IMPLEMENTATION by the operator on 2026-10-31
+(personal repository, dedicated Apps/Broker). Activation remains pending independent
+review and the live proofs below. Approval does not authorize bypassing protection.
 No existing Goal criterion, retry cap or safety gate is relaxed.
 
 ## Observed problem
