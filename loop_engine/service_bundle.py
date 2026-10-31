@@ -198,13 +198,32 @@ def prepare_python(root: Path, bootstrap: dict[str, bytes] | None = None) -> Pat
     return runtime
 
 
-def build(root: Path) -> dict[str, Any]:
+def recovery_request(
+    previous_manifest: str | None, review_sid: str | None
+) -> dict[str, str] | None:
+    if previous_manifest is None and review_sid is None:
+        return None
+    if (
+        not isinstance(previous_manifest, str)
+        or not re.fullmatch(r"[a-f0-9]{64}", previous_manifest)
+        or not isinstance(review_sid, str)
+        or not re.fullmatch(r"S-1-5-21(?:-[0-9]{1,10}){4}", review_sid)
+        or any(int(part) > 0xFFFFFFFF for part in review_sid.split("-")[3:])
+    ):
+        raise BundleError("Partial recovery requires exact previous manifest and local Review SID")
+    return {"previous_manifest_sha256": previous_manifest, "review_sid": review_sid}
+
+
+def build(
+    root: Path, previous_manifest: str | None = None, review_sid: str | None = None
+) -> dict[str, Any]:
     from loop_engine.process import ProcessRunner
     from loop_engine.security import SafetyError, reparse
     from loop_engine.windows_pipe import Native
 
     if sys.platform != "win32":
         raise BundleError("Windows service package build required")
+    recovery = recovery_request(previous_manifest, review_sid)
     root = root.resolve()
     process = ProcessRunner()
 
@@ -304,6 +323,8 @@ def build(root: Path) -> dict[str, Any]:
         "files": files,
         "installer_sha256": hashlib.sha256(installer.read_bytes()).hexdigest(),
     }
+    if recovery is not None:
+        manifest["partial_recovery"] = recovery
     raw = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
     manifest_path = directory / "manifest.json"
     with manifest_path.open("xb") as stream:
@@ -321,10 +342,14 @@ def main() -> int:
     actions = parser.add_mutually_exclusive_group(required=True)
     actions.add_argument("--fetch-wheels", type=Path)
     actions.add_argument("--build", type=Path)
+    parser.add_argument("--recover-partial-from")
+    parser.add_argument("--review-sid")
     args = parser.parse_args()
     if args.build:
-        print(json.dumps(build(args.build)))
+        print(json.dumps(build(args.build, args.recover_partial_from, args.review_sid)))
         return 0
+    if args.recover_partial_from is not None or args.review_sid is not None:
+        parser.error("Recovery metadata is supported only for --build")
     args.fetch_wheels.mkdir(parents=True, exist_ok=False)
     receipts = fetch_wheels(args.fetch_wheels)
     print(json.dumps(receipts))

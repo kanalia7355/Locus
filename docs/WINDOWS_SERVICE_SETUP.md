@@ -53,6 +53,10 @@
 通常権限の権限一覧読取は Access Denied だった。管理者の診断結果を待って
 失敗したAPIを絞り、その後に明示的な既存物確認付きの復旧手順を用意する。
 
+管理者の追加診断で、Review の3ログオン権限すべて成功を確認した。
+新しい [部分復旧経路](WINDOWS_SERVICE_RECOVERY.md)は旧 manifest と Review SID を
+固定し、未使用アカウントのパスワードだけを再生成する。通常の installer 再実行とは別。
+
 ## 配備後に通常端末で検証する作業
 
 ```powershell

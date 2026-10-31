@@ -69,6 +69,118 @@ function Set-SealedAcl([string]$Path, [string[]]$Readers, [string]$Writer = '') 
     Set-Acl -LiteralPath $Path -AclObject $acl
 }
 
+function Find-LocalUser([string]$Name) {
+    try { return Get-LocalUser -Name $Name -ErrorAction Stop }
+    catch { if ($_.FullyQualifiedErrorId -notlike 'UserNotFound,*') { throw }; return $null }
+}
+
+function Assert-PrivateAcl([string]$Path) {
+    Assert-RegularPath $Path
+    $acl = Get-Acl -LiteralPath $Path
+    if ($acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne 'S-1-5-18' -or
+        -not $acl.AreAccessRulesProtected) { throw 'Private SYSTEM ownership required' }
+    $rules = @($acl.Access)
+    if ($rules.Count -ne 2) { throw 'Unexpected private ACL' }
+    $seen = @()
+    foreach ($rule in $rules) {
+        $identity = $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+        if ($identity -notin @('S-1-5-18', 'S-1-5-32-544') -or $identity -in $seen -or
+            $rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow -or
+            $rule.IsInherited -or [int]$rule.FileSystemRights -ne 2032127) {
+            throw 'Unexpected private ACL grant'
+        }
+        $seen += $identity
+    }
+}
+
+function Assert-RecoveryAccount($User, [string]$ExpectedSid, [bool]$ProfilePresent, [bool]$InUse) {
+    if ($null -eq $User -or $User.Name -ne 'locus_loop_review' -or
+        $User.SID.Value -cne $ExpectedSid -or -not $User.Enabled -or
+        $null -ne $User.LastLogon -or $ProfilePresent -or $InUse) {
+        throw 'Partial Review identity differs or has been used; preserve for explicit recovery'
+    }
+}
+
+function Assert-UnusedRecoveryAccount($User, [string]$ExpectedSid) {
+    $profileRegistry = 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList'
+    $profileRoot = [Environment]::ExpandEnvironmentVariables((Get-ItemProperty -LiteralPath $profileRegistry).ProfilesDirectory)
+    $profile = (Test-Path -LiteralPath (Join-Path $profileRoot 'locus_loop_review')) -or
+        (Test-Path -LiteralPath ($profileRegistry + '\' + $ExpectedSid))
+    $accountNames = @('locus_loop_review', '.\locus_loop_review', ([Environment]::MachineName + '\locus_loop_review'))
+    $inUse = @(Get-CimInstance -ClassName Win32_Service | Where-Object { $_.StartName -in $accountNames }).Count -ne 0
+    Assert-RecoveryAccount $User $ExpectedSid $profile $inUse
+    foreach ($group in @(Get-LocalGroup)) {
+        if (@(Get-LocalGroupMember -Group $group | Where-Object { $_.SID.Value -eq $ExpectedSid }).Count -ne 0) {
+            throw 'Grouped Review account preserved'
+        }
+    }
+}
+
+function Assert-PartialRecovery($Recovery, $NewManifest, [string]$Root) {
+    if ($null -eq $Recovery -or
+        @($Recovery.PSObject.Properties.Name).Count -ne 2 -or
+        $Recovery.previous_manifest_sha256 -cnotmatch '^[a-f0-9]{64}$' -or
+        $Recovery.review_sid -cnotmatch '^S-1-5-21(-[0-9]{1,10}){4}$' -or
+        $Recovery.review_sid -eq $NewManifest.operator_sid) { throw 'Exact recovery pins required' }
+    $expectedSid = New-Object Security.Principal.SecurityIdentifier($Recovery.review_sid)
+    if ($expectedSid.Value -cne $Recovery.review_sid) { throw 'Canonical Review SID required' }
+    Assert-PrivateAcl $Root
+    $rootItems = @(Get-ChildItem -LiteralPath $Root -Force)
+    if ($rootItems.Count -ne 1 -or $rootItems[0].Name -cne 'runtimes' -or
+        -not $rootItems[0].PSIsContainer) { throw 'Unknown partial deployment contents preserved' }
+    $runtimes = Join-Path $Root 'runtimes'
+    Assert-PrivateAcl $runtimes
+    $oldHash = $Recovery.previous_manifest_sha256
+    $expectedNames = @($oldHash, ($oldHash + '.manifest.json'))
+    $actualNames = @((Get-ChildItem -LiteralPath $runtimes -Force).Name)
+    if (@(Compare-Object $expectedNames $actualNames -CaseSensitive).Count -ne 0) {
+        throw 'Unknown runtime or prior recovery preserved'
+    }
+    $oldManifestPath = Join-Path $runtimes ($oldHash + '.manifest.json')
+    Assert-PrivateAcl $oldManifestPath
+    if ((Get-FileHash -LiteralPath $oldManifestPath -Algorithm SHA256).Hash.ToLowerInvariant() -cne $oldHash) {
+        throw 'Previous installed manifest changed'
+    }
+    $oldManifest = Get-Content -LiteralPath $oldManifestPath -Raw | ConvertFrom-Json
+    if ($oldManifest.protocol -ne 'locus-service-bundle-v1' -or
+        $oldManifest.source_clean -ne $true -or
+        $oldManifest.operator_sid -cne $NewManifest.operator_sid -or
+        $oldManifest.project_root -ne $NewManifest.project_root) { throw 'Previous deployment identity differs' }
+    $oldRuntime = Join-Path $runtimes $oldHash
+    Assert-PrivateAcl $oldRuntime
+    $oldFiles = @($oldManifest.files.PSObject.Properties.Name)
+    if ($oldFiles.Count -lt 1 -or $oldFiles.Count -gt 5000 -or
+        @(Get-ChildItem -LiteralPath $oldRuntime -File -Recurse -Force).Count -ne $oldFiles.Count) {
+        throw 'Previous inventory differs'
+    }
+    $expectedDirectories = New-Object 'Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    foreach ($name in $oldFiles) {
+        $parent = [IO.Path]::GetDirectoryName((Resolve-Child $oldRuntime $name))
+        while ($parent -ne $oldRuntime) {
+            [void]$expectedDirectories.Add($parent)
+            $parent = [IO.Path]::GetDirectoryName($parent)
+        }
+    }
+    $actualDirectories = @(Get-ChildItem -LiteralPath $oldRuntime -Directory -Recurse -Force)
+    if ($actualDirectories.Count -ne $expectedDirectories.Count) { throw 'Previous directory inventory differs' }
+    foreach ($directory in $actualDirectories) {
+        if (-not $expectedDirectories.Contains($directory.FullName)) { throw 'Unknown previous directory preserved' }
+    }
+    foreach ($item in @(Get-ChildItem -LiteralPath $oldRuntime -Recurse -Force)) {
+        Assert-PrivateAcl $item.FullName
+    }
+    foreach ($name in $oldFiles) {
+        $path = Resolve-Child $oldRuntime $name
+        if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $oldManifest.files.$name) {
+            throw 'Previous runtime changed'
+        }
+    }
+    if ($null -ne (Find-LocalUser 'locus_loop_merge')) { throw 'Existing Merge account preserved' }
+    $review = Find-LocalUser 'locus_loop_review'
+    Assert-UnusedRecoveryAccount $review $Recovery.review_sid
+    return $review
+}
+
 try {
     if ([IntPtr]::Size -ne 8) { throw '64-bit administrator PowerShell required' }
     foreach ($moduleName in @('Microsoft.PowerShell.Management', 'Microsoft.PowerShell.Security',
@@ -114,10 +226,23 @@ try {
         review = @{ service = 'LocusLoopReviewV1'; account = 'locus_loop_review'; app_id = 5555922; installation_id = 177234377 }
         merge = @{ service = 'LocusLoopMergeV1'; account = 'locus_loop_merge'; app_id = 5556060; installation_id = 177236244 }
     }
-    if (Test-Path -LiteralPath $deploymentRoot) { throw 'Existing deployment requires explicit recovery/upgrade' }
+    $recovery = $null
+    $recoveryUser = $null
+    if ($manifest.PSObject.Properties.Name -contains 'partial_recovery') {
+        $recovery = $manifest.partial_recovery
+        if ($null -eq $recovery) { throw 'Invalid recovery metadata' }
+    }
     foreach ($role in @('review', 'merge')) {
         if (Get-Service -Name $roleDefinitions[$role].service -ErrorAction SilentlyContinue) { throw 'Existing service preserved' }
-        if (Get-LocalUser -Name $roleDefinitions[$role].account -ErrorAction SilentlyContinue) { throw 'Existing account preserved' }
+    }
+    if ($null -ne $recovery) {
+        $installStage = 'recovery_preflight'
+        $recoveryUser = Assert-PartialRecovery $recovery $manifest $deploymentRoot
+    } else {
+        if (Test-Path -LiteralPath $deploymentRoot) { throw 'Existing deployment requires explicit recovery/upgrade' }
+        foreach ($role in @('review', 'merge')) {
+            if ($null -ne (Find-LocalUser $roleDefinitions[$role].account)) { throw 'Existing account preserved' }
+        }
     }
     if (-not ('LocusBootstrapNativeV1' -as [type])) {
         Add-Type -TypeDefinition @'
@@ -142,7 +267,6 @@ public static class LocusBootstrapNativeV1 {
     [DllImport("advapi32.dll")] static extern uint LsaOpenPolicy(IntPtr system, ref Attributes attributes, uint rights, out IntPtr policy);
     [DllImport("advapi32.dll")] static extern uint LsaAddAccountRights(IntPtr policy, byte[] sid, Text[] rights, uint count);
     [DllImport("advapi32.dll")] static extern uint LsaClose(IntPtr policy);
-    [DllImport("userenv.dll", CharSet=CharSet.Unicode)] static extern int CreateProfile(string sid, string name, System.Text.StringBuilder path, uint size);
     [DllImport("advapi32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern IntPtr OpenSCManager(string machine, string database, uint rights);
     [DllImport("advapi32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern IntPtr OpenService(IntPtr manager, string name, uint rights);
     [DllImport("advapi32.dll", SetLastError=true)] static extern bool SetServiceObjectSecurity(IntPtr service, uint information, IntPtr descriptor);
@@ -227,7 +351,7 @@ public static class LocusBootstrapNativeV1 {
             if(!ConvertStringSecurityDescriptorToSecurityDescriptor(sddl,1,out descriptor,IntPtr.Zero) || !SetServiceObjectSecurity(service,5,descriptor)) throw new InvalidOperationException();
         } finally { if(descriptor!=IntPtr.Zero) LocalFree(descriptor); if(service!=IntPtr.Zero) CloseServiceHandle(service); CloseServiceHandle(manager); }
     }
-    public static void PrepareIdentity(byte[] sid, string sidText, string account) {
+    public static void PrepareIdentity(byte[] sid) {
         var attributes = new Attributes { Length=(uint)Marshal.SizeOf(typeof(Attributes)) };
         IntPtr policy;
         if (LsaOpenPolicy(IntPtr.Zero, ref attributes, 0x810, out policy)!=0) throw new InvalidOperationException();
@@ -237,16 +361,21 @@ public static class LocusBootstrapNativeV1 {
             for (int index=0; index<names.Length; index++) values[index]=new Text { Length=(ushort)(names[index].Length*2), Maximum=(ushort)((names[index].Length+1)*2), Buffer=Marshal.StringToHGlobalUni(names[index]) };
             if (LsaAddAccountRights(policy, sid, values, (uint)values.Length)!=0) throw new InvalidOperationException();
         } finally { foreach (var item in values) if (item.Buffer!=IntPtr.Zero) Marshal.FreeHGlobal(item.Buffer); LsaClose(policy); }
-        var path = new System.Text.StringBuilder(32768);
-        if (CreateProfile(sidText, account, path, (uint)path.Capacity)<0) throw new InvalidOperationException();
+        // SCM loads the service account profile at logon. No manual CreateProfile.
     }
 }
 '@
     }
     $installStage = 'privilege_setup'
     [LocusBootstrapNativeV1]::EnableRestore()
+    if ($null -ne $recovery) {
+        $intent = @{ protocol = 'locus-partial-recovery-v1'; manifest_sha256 = $ManifestSha256;
+            previous_manifest_sha256 = $recovery.previous_manifest_sha256; review_sid = $recovery.review_sid }
+        [LocusBootstrapNativeV1]::WritePrivate((Join-Path $deploymentRoot 'partial-recovery-intent.json'), ($intent | ConvertTo-Json))
+    } else {
+        [LocusBootstrapNativeV1]::MakeDirectory($deploymentRoot)
+    }
     $installStage = 'runtime_copy'
-    [LocusBootstrapNativeV1]::MakeDirectory($deploymentRoot)
     $runtimeParent = Join-Path $deploymentRoot 'runtimes'
     $targetRuntime = Join-Path $runtimeParent $ManifestSha256
     [LocusBootstrapNativeV1]::MakeTree($deploymentRoot, $targetRuntime)
@@ -266,11 +395,20 @@ public static class LocusBootstrapNativeV1 {
         # No plaintext password is bound to a cmdlet parameter or emitted to logs.
         $secure = [LocusBootstrapNativeV1]::NewPassword()
         $account = $roleDefinitions[$role].account
-        $user = New-LocalUser -Name $account -Password $secure -AccountNeverExpires -PasswordNeverExpires
+        if ($role -eq 'review' -and $null -ne $recoveryUser) {
+            $installStage = 'review_password_rotation'
+            $user = Find-LocalUser $account
+            Assert-UnusedRecoveryAccount $user $recovery.review_sid
+            Set-LocalUser -SID $user.SID -Password $secure -PasswordNeverExpires $true
+        } else {
+            $installStage = ($role + '_account_creation')
+            $user = New-LocalUser -Name $account -Password $secure -AccountNeverExpires -PasswordNeverExpires
+        }
         $roleDefinitions[$role].sid = $user.SID.Value
         $sidBytes = New-Object byte[] $user.SID.BinaryLength
         $user.SID.GetBinaryForm($sidBytes, 0)
-        [LocusBootstrapNativeV1]::PrepareIdentity($sidBytes, $user.SID.Value, $account)
+        $installStage = ($role + '_logon_rights')
+        [LocusBootstrapNativeV1]::PrepareIdentity($sidBytes)
         $credentials[$role] = New-Object Management.Automation.PSCredential('.\' + $account, $secure)
     }
     $installStage = 'permissions'
@@ -280,9 +418,10 @@ public static class LocusBootstrapNativeV1 {
     $settingsPath = Join-Path $deploymentRoot 'settings.json'
     [LocusBootstrapNativeV1]::WritePrivate($settingsPath, ($settings | ConvertTo-Json -Depth 8))
     # Every runtime/config entry is independently protected and owned by SYSTEM.
-    foreach ($item in @(Get-ChildItem -LiteralPath $deploymentRoot -Recurse -Force)) {
+    foreach ($item in @(Get-ChildItem -LiteralPath $targetRuntime -Recurse -Force)) {
         Set-SealedAcl $item.FullName $readers
     }
+    foreach ($path in @($targetRuntime, $runtimeParent, $installedManifest, $settingsPath)) { Set-SealedAcl $path $readers }
     Set-SealedAcl $deploymentRoot $readers
     $stateParent = Join-Path $deploymentRoot 'state'
     [LocusBootstrapNativeV1]::MakeTree($deploymentRoot, $stateParent)

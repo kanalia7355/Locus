@@ -164,7 +164,9 @@ def parser() -> argparse.ArgumentParser:
     migration_plan.add_argument("--file", type=Path, required=True)
     migration_apply = commands.add_parser("migration-apply")
     migration_apply.add_argument("migration_id")
-    commands.add_parser("service-bundle")
+    service_bundle = commands.add_parser("service-bundle")
+    service_bundle.add_argument("--recover-partial-from")
+    service_bundle.add_argument("--review-sid")
     commands.add_parser("service-health")
     commands.add_parser("service-policy")
     service_import = commands.add_parser("service-provision")
@@ -272,10 +274,21 @@ def run(args: argparse.Namespace) -> int:
     if args.command == "service-bundle":
         from loop_engine.planning import bounded_json
         from loop_engine.process import ProcessRunner
-        from loop_engine.service_bundle import admin_command
+        from loop_engine.service_bundle import admin_command, recovery_request
 
+        recovery = recovery_request(args.recover_partial_from, args.review_sid)
+        build_arguments = [sys.executable, "-m", "loop_engine.service_bundle", "--build", str(root)]
+        if recovery is not None:
+            build_arguments.extend(
+                [
+                    "--recover-partial-from",
+                    recovery["previous_manifest_sha256"],
+                    "--review-sid",
+                    recovery["review_sid"],
+                ]
+            )
         built = ProcessRunner().run(
-            [sys.executable, "-m", "loop_engine.service_bundle", "--build", str(root)],
+            build_arguments,
             root,
             timeout=600,
             output_limit=65536,
