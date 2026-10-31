@@ -4,6 +4,15 @@ ADR-0007 was approved for implementation on 2026-10-31. **It is not activated.**
 The existing Controller still delivers PRs and refuses atomic-base claims.
 Do not enable native queued auto-merge or replace its false atomic-base gate.
 
+The complete requirements/status matrix is [UNATTENDED_READINESS.md](UNATTENDED_READINESS.md).
+New inactive review-publication and remote-gate/merge transport cores have mock
+integration coverage. Versioned source/policy migration now has an explicitly
+approved apply/recovery CLI and synthetic crash/concurrent-edit coverage.
+No real migration was applied. Controller/service wiring, isolated deployment,
+authenticated policy communication and live merge proofs are still incomplete.
+Use `loop activation-readiness --live --pull 6` for read-only current facts;
+approval cannot turn those missing components into a deployed system.
+
 For the existing operator-created Apps and keys currently in GitHub Actions
 Secrets, use [existing App provisioning](APP_PROVISIONING.md), not a second App
 registration. Keys must be entered locally through the masked import command;
@@ -112,7 +121,7 @@ it is not evidence of that production boundary.
 4. Cross-process/host race and crash tests against a disposable test repository,
    including uncertain writes, key rotation/revocation and emergency recovery.
    Never delete a lock merely because a process died or a timeout elapsed.
-5. Versioned main/policy state migration preserving Goal, attempt counters,
+5. Apply the approved versioned main/policy state migration preserving Goal, attempt counters,
    decisions, source snapshots, review evidence and events. Existing frozen
    `.loop/config.yaml` and database have not been rewritten or reset.
 6. Independent final audit, explicit operator activation, then one complete live

@@ -34,3 +34,6 @@ v2の開発・セキュリティ・運用文書は残している。画面の判
 研究支援アプリと独立したPython CLI基盤を `loop_engine/` に追加。[完全指示書](docs/requirements/AUTONOMOUS_LOOP_SPEC.md)、[利用方法と未完了の実機ゲート](docs/LOOP_ENGINE.md)、[各Phaseの実装状況](docs/plans/LOOP_IMPLEMENTATION.md) を参照。ローカル・モック検証の成功を、実機での自律実行や安全な自動マージの完成とは扱わない。
 
 専用 GitHub App / Merge Broker の設計は実装着手を承認済み。[登録手順と稼働前の残件](docs/BROKER_SETUP.md) を参照。App 登録と自動マージの稼働許可は別であり、現在はマージを保留している。
+
+無人運転に必要な要件と実測・模擬検証の区別は [稼働準備一覧](docs/UNATTENDED_READINESS.md) を参照。
+`python -m loop_engine.cli activation-readiness --live --pull 6` は現在の残件を読み取り専用で確認する。

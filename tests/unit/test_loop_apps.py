@@ -35,6 +35,48 @@ class MemoryVault:
         return self.values.get((role, app_id))
 
 
+def test_fixed_graphql_query_and_authenticated_bot_identity() -> None:
+    data, vault = response("merge"), MemoryVault()
+    vault.put("merge", 123, data["pem"].encode())
+    calls: list[tuple[str, str, Any]] = []
+    expected = {**PERMISSIONS["merge"], "metadata": "read"}
+
+    def request(method: str, path: str, bearer: str, document: Any = None) -> Any:
+        calls.append((method, path, document))
+        if path.endswith("/access_tokens"):
+            return {
+                "token": "synthetic-in-memory-value",
+                "permissions": expected,
+                "repository_selection": "selected",
+                "repositories": [{"id": 789, "full_name": "kanalia7355/Locus"}],
+            }
+        if path.startswith("/app/"):
+            return {
+                "app_id": 123,
+                "app_slug": "locus-merge",
+                "account": {"login": "kanalia7355"},
+                "suspended_at": None,
+                "repository_selection": "selected",
+                "permissions": expected,
+            }
+        assert path == "/graphql" and method == "POST"
+        assert document["variables"] == {"number": 7}
+        assert 'owner:"kanalia7355",name:"Locus"' in document["query"]
+        assert "mutation" not in document["query"]
+        return {"data": {"repository": {"pullRequest": {"headRefOid": "a" * 40}}}}
+
+    app = GitHubApp("merge", 123, 456, 789, vault, request)
+    assert app.pull_request_state(7)["headRefOid"] == "a" * 40
+    assert app.bot_login() == "locus-merge[bot]"
+    count = len(calls)
+    for invalid in (0, -1, True, "7) { mutation"):
+        with pytest.raises(SafetyError):
+            app.pull_request_state(invalid)  # type: ignore[arg-type]
+    with pytest.raises(SafetyError):
+        app.call("POST", "/graphql", {"query": "mutation"})
+    assert len(calls) == count
+
+
 def test_jwt_signature_and_short_expiry() -> None:
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     pem = key.private_bytes(

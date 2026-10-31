@@ -256,7 +256,7 @@ class GitHubApp:
         except (SafetyError, OSError, ValueError):
             raise AppConnectionError(stage, "transport_or_response") from None
 
-    def call(self, method: str, path: str, document: dict[str, Any] | None = None) -> Any:
+    def _credential(self) -> str:
         pem = self.vault.get(self.role, self.app_id)
         if pem is None:
             raise AppConnectionError("key", "missing")
@@ -283,6 +283,12 @@ class GitHubApp:
                 expected_permissions=expected,
                 actual_permissions=installation.get("permissions"),
             )
+        slug = installation.get("app_slug")
+        self._bot = (
+            slug + "[bot]"
+            if isinstance(slug, str) and re.fullmatch(r"[a-z0-9][a-z0-9-]{0,99}", slug)
+            else None
+        )
         result = self._fetch(
             "token",
             "POST",
@@ -302,8 +308,44 @@ class GitHubApp:
             != [(self.repository_id, "kanalia7355/Locus")]
         ):
             raise AppConnectionError("token", "repository_scope")
-        # Hard-bound to the selected repository; even a trusted caller cannot
-        # accidentally use this primitive on another repository or GraphQL.
+        return credential
+
+    def bot_login(self) -> str:
+        """Resolve only through authenticated installation metadata."""
+        self._credential()
+        if self._bot is None:
+            raise SafetyError("Authenticated App bot identity unavailable")
+        return self._bot
+
+    def call(self, method: str, path: str, document: dict[str, Any] | None = None) -> Any:
+        # Validate the target before touching credentials or issuing any request.
         if not path.startswith("/repos/kanalia7355/Locus/"):
             raise SafetyError("Repository-only App transport")
-        return self._fetch("repository", method, path, credential, document)
+        return self._fetch("repository", method, path, self._credential(), document)
+
+    def pull_request_state(self, pull: int) -> dict[str, Any]:
+        """One fixed read-only query; no caller query, repo or mutation surface."""
+        if type(pull) is not int or pull <= 0:
+            raise SafetyError("Invalid pull request identity")
+        query = (
+            'query($number:Int!){repository(owner:"kanalia7355",name:"Locus")'
+            "{pullRequest(number:$number){headRefOid baseRefOid reviewDecision "
+            "autoMergeRequest{enabledAt} reviewThreads(first:100){totalCount "
+            "nodes{isResolved} pageInfo{hasNextPage}}}}}"
+        )
+        result = self._fetch(
+            "repository",
+            "POST",
+            "/graphql",
+            self._credential(),
+            {"query": query, "variables": {"number": pull}},
+        )
+        if not isinstance(result, dict) or result.get("errors"):
+            raise SafetyError("Complete pull request state unavailable")
+        try:
+            state = result["data"]["repository"]["pullRequest"]
+        except (KeyError, TypeError):
+            raise SafetyError("Complete pull request state unavailable") from None
+        if not isinstance(state, dict):
+            raise SafetyError("Complete pull request state unavailable")
+        return state

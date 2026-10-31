@@ -157,6 +157,13 @@ def parser() -> argparse.ArgumentParser:
     inspect_policy.add_argument("--merge-app-id", type=int, required=True)
     inspect_policy.add_argument("--installation-id", type=int, required=True)
     inspect_policy.add_argument("--review-app-id", type=int, required=True)
+    readiness = commands.add_parser("activation-readiness")
+    readiness.add_argument("--live", action="store_true")
+    readiness.add_argument("--pull", type=int, default=6)
+    migration_plan = commands.add_parser("migration-plan")
+    migration_plan.add_argument("--file", type=Path, required=True)
+    migration_apply = commands.add_parser("migration-apply")
+    migration_apply.add_argument("migration_id")
     for name in ("status", "report", "pause", "stop", "decisions"):
         commands.add_parser(name)
     launch = commands.add_parser("launch")
@@ -316,7 +323,40 @@ def run(args: argparse.Namespace) -> int:
         result = launch(root, duration_seconds=args.duration, resume=args.resume)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0 if result["status"] in {"already_running", "launch_requested"} else 2
+    if args.command == "activation-readiness":
+        from loop_engine.activation_readiness import assess, frozen_hash
+
+        remote: dict[str, Any] = {}
+        if args.live:
+            from loop_engine.app_credentials import WindowsAppVault
+            from loop_engine.app_provisioning import REPOSITORY_ID
+            from loop_engine.broker_policy_reader import PREFIX, observe_policy
+            from loop_engine.github_app import GitHubApp
+
+            vault = WindowsAppVault()
+            review = GitHubApp("review", 5555922, 177234377, REPOSITORY_ID, vault)
+            merge = GitHubApp("merge", 5556060, 177236244, REPOSITORY_ID, vault)
+            review.call("GET", PREFIX + "/branches/main")
+            remote["review_authenticated"] = True
+            remote["policy"] = observe_policy(merge, merge.app_id, review.app_id)
+            remote["merge_authenticated"] = True
+            remote["pull_state"] = merge.pull_request_state(args.pull)
+        report = assess(root, frozen_hash(root), remote=remote)
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        return 0 if report["ready_for_activation_approval"] else 2
     state = open_state(root)
+    if args.command in {"migration-plan", "migration-apply"}:
+        from loop_engine.planning import read_json
+        from loop_engine.policy_migration import PolicyMigration
+
+        migration = PolicyMigration(root, state)
+        migration_result = (
+            migration.prepare(read_json(args.file))
+            if args.command == "migration-plan"
+            else {"specification_hash": migration.apply(args.migration_id)}
+        )
+        print(json.dumps(migration_result, indent=2))
+        return 0
     if args.command == "status":
         print(progress(state))
     elif args.command == "report":
