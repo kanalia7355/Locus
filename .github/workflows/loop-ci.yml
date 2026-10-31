@@ -4,9 +4,14 @@ on:
   push:
     branches-ignore: [main]
 permissions:
-  contents: read
+  contents: write
+  pull-requests: write
 jobs:
   engine:
+    # PR-controlled code must not inherit workflow-level publication permissions.
+    permissions:
+      contents: read
+      pull-requests: none
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest]
