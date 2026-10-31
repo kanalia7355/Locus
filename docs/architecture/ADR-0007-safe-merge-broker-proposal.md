@@ -43,6 +43,18 @@ one-time operator account authorization; no credential is requested in chat.
 
 ## Required validation
 
+Define multi-process/multi-host lock ownership and fencing. An uncertain
+in-flight GitHub write must retain exclusivity even after its initiating process
+crashes; local process exit or an elapsed timeout is not proof that the remote
+write cannot complete. Recovery may stop for operator intervention rather than
+release an unsafe lock.
+
+Test every alternative main-update path: UI/API merges, direct pushes, existing
+native auto-merge requests, alternate tokens and other automation. Define App
+credential rotation/revocation and operator recovery. An emergency administrative
+override must disable automation and invalidate its attestations before service
+can resume.
+
 Prove that other actors cannot update main; concurrent requests serialize;
 head/base/policy changes fail closed; failed/missing/cancelled CI cannot merge;
 untrusted code cannot publish trusted review or reach App credentials; crashes
@@ -52,3 +64,7 @@ the main/policy state migration. A synthetic pass is not live proof.
 Until approved and proven, use PR delivery with protected manual review. Moving
 to an organization-backed merge queue would be a different owner/scope decision
 and is not performed automatically.
+
+Approval of this proposal authorizes design and implementation of the approach,
+not a declaration of safety or activation before the required live evidence and
+independent review.
