@@ -118,7 +118,10 @@ class ChecksMonitor:
             "repairable": False,
         }
         names = [check["name"] for check in checks]
-        if not checks or not self.required or any(names.count(name) != 1 for name in self.required):
+        # Push and PR workflows may publish the same context at the same HEAD.
+        # Require every observed instance to pass; never choose a successful
+        # duplicate while ignoring its failed, pending or cancelled sibling.
+        if not checks or not self.required or any(name not in names for name in self.required):
             return {**evidence, "status": "missing"}
         if any(check["bucket"] == "pending" for check in checks):
             return {**evidence, "status": "pending"}

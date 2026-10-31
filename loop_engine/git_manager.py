@@ -59,7 +59,6 @@ class GitManager:
             for key in (
                 "core.fsmonitor\n",
                 "core.hookspath\n",
-                "filter.",
                 "core.sshcommand\n",
                 "core.gitproxy\n",
                 ".pushinsteadof\n",
@@ -68,6 +67,28 @@ class GitManager:
             raise SafetyError(
                 "Custom Git executable configuration requires separate security assessment"
             )
+        if "filter." in lower:
+            known = {
+                "filter.lfs.clean\ngit-lfs clean -- %f",
+                "filter.lfs.smudge\ngit-lfs smudge -- %f",
+                "filter.lfs.process\ngit-lfs filter-process",
+                "filter.lfs.required\ntrue",
+            }
+            definitions = {entry for entry in data.split("\0") if entry.startswith("filter.")}
+            if not definitions or not definitions <= known:
+                raise SafetyError("Custom Git filters require separate assessment")
+            tracked = command(["ls-tree", "-r", "--name-only", "-z", self.base])
+            others = command(["ls-files", "--others", "--exclude-standard", "-z"])
+            names = sorted(set(filter(None, (tracked + "\0" + others).split("\0"))))
+            if any(Path(name).name.casefold() == ".gitattributes" for name in names):
+                raise SafetyError("Git attributes require separate filter assessment")
+            for index in range(0, len(names), 40):
+                attributes = command(
+                    ["check-attr", "--all", "-z", "--", *names[index : index + 40]]
+                )
+                fields = attributes.split("\0")
+                if any(fields[item] == "filter" for item in range(1, len(fields), 3)):
+                    raise SafetyError("Active Git filters require separate assessment")
         hooks = Path(command(["rev-parse", "--git-path", "hooks"]))
         if not hooks.is_absolute():
             hooks = self.root / hooks

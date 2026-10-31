@@ -59,11 +59,11 @@ def open_state(root: Path) -> StateStore:
 
 
 def doctor(root: Path, *, check_sandbox: bool = False) -> dict[str, Any]:
+    from loop_engine.codex_runner import codex_binary
+
     result: dict[str, Any] = {"engine_version": __version__, "python": sys.version.split()[0]}
     for tool in ("git", "codex", "gh"):
-        binary = shutil.which(
-            tool + ".cmd" if sys.platform == "win32" and tool == "codex" else tool
-        )
+        binary = codex_binary(root) if tool == "codex" else shutil.which(tool)
         result[tool] = {"available": binary is not None}
         if binary:
             probe = subprocess.run(  # noqa: S603 — resolved known executable, no shell
@@ -91,7 +91,7 @@ def doctor(root: Path, *, check_sandbox: bool = False) -> dict[str, Any]:
         ("codex", ["login", "status"]),
         ("gh", ["auth", "status", "--hostname", "github.com"]),
     ):
-        executable = shutil.which(tool + ".cmd") or shutil.which(tool)
+        executable = codex_binary(root) if tool == "codex" else shutil.which(tool)
         result[tool]["authenticated"] = bool(
             executable
             and process.run([executable, *args], root, timeout=15, model=True).returncode == 0
@@ -103,7 +103,33 @@ def doctor(root: Path, *, check_sandbox: bool = False) -> dict[str, Any]:
     from loop_engine.qa_profiles import detect
 
     result["verification_profiles"] = detect(root)
-    if check_sandbox:
+    if config["security"]["sandbox_executor"] == "proposal-docker":
+        from loop_engine.runtime_diagnostics import (
+            boundary_for,
+            require_receipt,
+        )
+        from loop_engine.runtime_diagnostics import (
+            probe as runtime_probe,
+        )
+
+        try:
+            if check_sandbox:
+                result["sandbox_probe"] = runtime_probe(root)
+            require_receipt(root)
+            audited = boundary_for(root).docker.audit_evidence(root)
+            result["sandbox"] = "verified zero-tool proposals and source-only container QA"
+            result["image_dependency_audit_current"] = audited
+            result["ready_for_live_execution"] = bool(
+                audited
+                and config["security"]["allow_model_execution"]
+                and result["codex"]["authenticated"]
+                and result["committed_git_baseline"]
+            )
+        except (ValueError, OSError):
+            result["sandbox"] = "unverified or stale: execution blocked"
+        if config["github"]["delivery"] == "pull_request":
+            result["automatic_merge"] = "held by operator; PR-only delivery"
+    elif check_sandbox:
         from loop_engine.diagnostics import sandbox_probe
 
         result["sandbox_probe"] = sandbox_probe(root)
@@ -142,7 +168,7 @@ def parser() -> argparse.ArgumentParser:
 
 
 def build_controller(root: Path, state: StateStore) -> Any:
-    from loop_engine.codex_runner import CodexRunner, UnprovenBoundary
+    from loop_engine.codex_runner import Boundary, CodexRunner, UnprovenBoundary
     from loop_engine.controller import Controller
     from loop_engine.git_manager import GitManager
     from loop_engine.github_manager import GitHubManager
@@ -150,6 +176,8 @@ def build_controller(root: Path, state: StateStore) -> Any:
     from loop_engine.verification import Verifier
 
     config = load(root / ".loop/config.yaml")
+    boundary: Boundary
+    qa_boundary: Boundary
     queue_hash = __import__("loop_engine.security", fromlist=["fingerprint"]).fingerprint(config)
     if not config["security"]["allow_model_execution"]:
         from loop_engine.approval import ApprovalQueue
@@ -162,9 +190,18 @@ def build_controller(root: Path, state: StateStore) -> Any:
             "high",
         )
         raise SafetyError("Model execution is not authorized")
-    boundary = UnprovenBoundary()
-    # An honest blocker: no setting or human-approval flag can fabricate missing OS isolation.
-    boundary.require(root, root)
+    if config["security"]["sandbox_executor"] == "proposal-docker":
+        from loop_engine.runtime_diagnostics import boundary_for, require_receipt
+
+        require_receipt(root)
+        boundary = boundary_for(root)
+        if not boundary.docker.audit_evidence(root):
+            raise SafetyError("Audited immutable QA image is stale or mismatched")
+        qa_boundary = boundary.docker
+    else:
+        boundary = UnprovenBoundary()
+        boundary.require(root, root)
+        qa_boundary = boundary
     runner = CodexRunner(root, boundary=boundary)
     git = GitManager(
         root,
@@ -187,7 +224,7 @@ def build_controller(root: Path, state: StateStore) -> Any:
             state,
             MainSnapshot(root, git, config["github"]["repository"]),
             GoalEvaluator(runner),
-            Verifier(profiles, boundary=boundary),
+            Verifier(profiles, boundary=qa_boundary),
             ImprovementPlanner(
                 state,
                 config["development"]["allowed_paths"]
@@ -199,7 +236,7 @@ def build_controller(root: Path, state: StateStore) -> Any:
         root,
         state,
         runner,
-        Verifier(config["verification"], boundary=boundary),
+        Verifier(config["verification"], boundary=qa_boundary),
         Reviewer(runner),
         git,
         GitHubManager(root, state, git, config["github"]),
@@ -243,9 +280,12 @@ def run(args: argparse.Namespace) -> int:
         from loop_engine.planning import import_plan, read_json, source_snapshot
 
         if not args.file:
-            from loop_engine.codex_runner import CodexRunner
+            from uuid import uuid4
 
-            proposal = CodexRunner(root).plan(source_snapshot(root), root)
+            controller = build_controller(root, state)
+            workspace = within(root, ".loop/runtime/evaluations/planning-" + uuid4().hex)
+            workspace.mkdir(parents=True)
+            proposal = controller.worker.plan(source_snapshot(root), workspace)
         else:
             proposal = read_json(args.file)
         import_plan(root, state, proposal)

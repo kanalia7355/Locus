@@ -1,6 +1,7 @@
 """Offline secret scan: fail on findings, print locations without secret values."""
 
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -18,6 +19,29 @@ SYNTHETIC = (
 
 
 def main() -> int:
+    executable = shutil.which("git")
+    inventory = (
+        subprocess.run(  # noqa: S603 — fixed read-only Git source inventory
+            [executable, "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=30,
+        )
+        if executable
+        else None
+    )
+    paths = ["."]  # Source archives without Git retain the original full-tree scan.
+    if inventory is not None and inventory.returncode == 0:
+        paths = [
+            "./" + name
+            for name in sorted(set(filter(None, inventory.stdout.split("\0"))))
+            if (ROOT / name).is_file()
+        ]
+        if not paths:
+            print("Offline secret scan: no publishable source files")
+            return 0
     result = subprocess.run(  # noqa: S603 — fixed interpreter/module, no shell
         [
             sys.executable,
@@ -32,6 +56,7 @@ def main() -> int:
             EXCLUDED,
             "--exclude-secrets",
             SYNTHETIC,
+            *paths,
         ],
         cwd=ROOT,
         capture_output=True,

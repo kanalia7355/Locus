@@ -1,6 +1,11 @@
 # Bootstrap QA/PR integration — 2026-10-31
 
-**Incomplete: live autonomous implementation is not enabled.** The full user
+Latest transport/environment status: [ADR0006](architecture/ADR-0006-source-only-runtime.md)
+and the [runtime ledger](reviews/2026-10-31-unattended-runtime.md) supersede the
+historical unavailable-executor statements below. The operator now permits
+source-only implementation and PR delivery; every merge remains held.
+
+Historical Bootstrap snapshot: live autonomous implementation was not enabled. The full user
 request is preserved in `requirements/LOOP_BOOTSTRAP_SPEC.md`. This report does
 not replace `.bootstrap/complete.json`, which describes the older product
 prototype bootstrap. No Locus product development loop has been started.

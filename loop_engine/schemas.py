@@ -92,6 +92,22 @@ RESULT = obj(
         "approval_requests": {"type": "array", "items": APPROVAL_REQUEST, "maxItems": 20},
     }
 )
+PROPOSAL = obj(
+    {
+        "result": RESULT,
+        "edits": {
+            "type": "array",
+            "maxItems": 20,
+            "items": obj(
+                {
+                    "path": text(1000),
+                    "old": {"type": ["string", "null"], "maxLength": 64000},
+                    "new": text(64000),
+                }
+            ),
+        },
+    }
+)
 FINDING = obj(
     {
         "severity": {"enum": ["critical", "high", "medium", "low", "info"]},
@@ -163,7 +179,11 @@ CONFIG = obj(
             }
         ),
         "approval": obj(
-            {"mode": {"const": "deferred"}, "require_preapproval_for_high_risk": {"const": True}}
+            {
+                "mode": {"const": "deferred"},
+                "require_preapproval_for_high_risk": {"const": True},
+                "routine_publication": {"type": "boolean"},
+            }
         ),
         "security": obj(
             {
@@ -171,7 +191,7 @@ CONFIG = obj(
                 "allow_destructive_operations": {"const": False},
                 "allow_unrestricted_execution": {"const": False},
                 "allow_model_execution": {"type": "boolean"},
-                "sandbox_executor": {"enum": ["codex", "unavailable"]},
+                "sandbox_executor": {"enum": ["codex", "proposal-docker", "unavailable"]},
             }
         ),
         "github": obj(
@@ -238,6 +258,7 @@ EVALUATION = obj(
 
 
 SCHEMAS = {
+    "proposal": PROPOSAL,
     "evaluation": EVALUATION,
     "task": TASK,
     "result": RESULT,
