@@ -70,7 +70,7 @@ loop stop
 loop report
 ```
 
-Only an explicit start can request a background controller. Init/import does not spawn one. Current start blocks at the unavailable isolation/authorization gate, so these commands are not a claim that the supplied machine is ready for unattended operation. Tests replace the transport/controller factory in code; no mock/unsafe selector is exposed by CLI or environment.
+Only an explicit start can request a background controller. Init/import does not spawn one. The source-only executor has actual runtime evidence, but start still rejects missing/stale isolation, authorization or image receipts. This is not a claim that the entire unattended merge workflow is ready. Tests replace the transport/controller factory in code; no mock/unsafe selector is exposed by CLI or environment.
 
 One task at a time, maximum3 worker attempts total including review repairs, maximum2 review-fix cycles. Time/task/run counters persist across pause/resume. Repeated explicit new start can begin a new run budget, but cannot reset a task's implementation attempts. Missing profiles, required skipped checks, malformed output, authentication failure, uncertain state and unavailable review never become success. Task, verification, review, approval, PR, CI and merge state remain distinct.
 
@@ -82,7 +82,7 @@ An approved committed base is required. `kanalia7355/Locus` is now public and it
 
 All worker-produced staged/index changes are refused before verification; the controller validates its own prospective staged tree before commit. No reset/clean/force-push, hook bypass or default-branch direct commit exists. Installed executable Git hooks/filters/custom configuration require separate assessment; the engine blocks instead of disabling them. Tests use isolated known fixtures and label their fixture-specific configuration treatment.
 
-Remote writes are disabled until exact repository/base/change publication approval. Effective fetch and all push destinations must match that authorization. PR create intent and lookup prevent blind duplicate replay; uncertain creation/commit outcomes require recovery assessment. PR creation alone never completes a task; exact head/base and required CI/trusted review identity must be evidenced for PR delivery.
+Remote writes require approved repository/base/publication scope. The operator has granted standing routine PR publication within that scope; a fresh human decision is still required for material scope/security changes, not every routine diff. Effective fetch and all push destinations must match that authorization. PR create intent and lookup prevent blind duplicate replay; uncertain creation/commit outcomes require recovery assessment. Exact PR identity and CI evidence are required for PR-only delivery; merge additionally requires trusted review and every merge gate.
 
 Auto-merge defaults off. Same-name Actions checks cannot establish independent review. A separately authenticated publisher must match branch-protection app identity and publish the exact head/base/policy binding. Strict current-base protection, resolved conversations, complete required checks, low risk, allowlisted paths and exact human authorization are necessary. The current gh API cannot atomically constrain the base ref at merge time, so the real adapter reports `atomic_base_binding=false` and does not merge—even if all other predicates pass. This limitation remains engineering work; no repository rule is weakened to hide it.
 

@@ -49,6 +49,9 @@ not trigger lock stealing or blind replay. This does not prove live GitHub rules
   credential completed write/read verification; only that owned item was removed
   and absence confirmed. Existing credential entries were not enumerated/read.
   This proves the storage API binding, not signer isolation or GitHub App auth.
+- Actual localhost receiver smoke: page/form rendering, hostile Host rejection,
+  callback processing and public-only result passed. GitHub conversion and vault
+  were in-memory substitutes in that smoke; it did not register a real App.
 
 - `scripts/verify.py --e2e --audit` before the final registration-parser hardening:
   all 12 checks passed; 176 Python tests, 11 frontend unit tests and 5 Chromium
@@ -59,8 +62,32 @@ not trigger lock stealing or blind replay. This does not prove live GitHub rules
   runtime database still records TASK-001 completed with 3 attempts and stopped
   control. No Goal, approval, task counter or frozen config was reset.
 
-Rebuilt QA image and remote CI outcomes are recorded below when observed.
-No skipped or mocked check is classified as live proof.
+The foundation implementation commit `f4f9315` passed all 11 observed GitHub
+checks. No trusted Review App check or approval was fabricated. Later heads
+require fresh CI results. No skipped or mocked check is classified as live proof.
+
+## Additional image-audit receipt defect
+
+The dependency-driven trusted QA rebuild reached its existing 1200-second cap.
+On Windows a terminated Job can produce a zero process return code despite a
+timeout outcome. The old builder tested only return code and reused an iidfile
+path across audit days. With an existing iidfile this could incorrectly stamp an
+old image as newly audited. In this run no fresh iidfile existed, so receipt
+publication failed and the previous receipt remained unchanged.
+
+The corrective change requires exit outcome plus zero code, uses a fresh UUID
+build directory, validates a new regular iidfile/immutable image ID, and atomically
+publishes only after success. The audit-day cache key and 1200-second cap remain.
+Seven regression cases cover non-exit zero codes, stale/missing output, malformed
+identity and valid success. The complete engine verifier/audit passed with
+**163 tests and 6 opt-in live skips** after this correction. The registration
+negative test additionally preserves a valid PEM header while corrupting its body.
+
+A separate fresh read-only security reviewer accepted only this newly discovered
+receipt-freshness fix with no findings and no fix cycles. It did not reopen the
+completed App/Broker review, use credentials/network, modify files or run tests.
+This is not a third repair cycle for the App/Broker scope. Rebuilt-image/runtime
+results are recorded separately when actually observed.
 
 ## Deliberately unfulfilled gates
 

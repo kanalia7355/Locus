@@ -14,6 +14,7 @@ from uuid import uuid4
 from loop_engine.process import ProcessResult, ProcessRunner
 from loop_engine.security import (
     SafetyError,
+    atomic_text,
     fingerprint,
     reject_secrets,
     reparse,
@@ -304,8 +305,10 @@ def prepare_image(root: Path) -> str:
     """Build only trusted manifests and supervisor, never the whole repository context."""
     contents = image_contents(root)
     reject_secrets(contents)
-    context = within(root, ".loop/runtime/image-build/" + fingerprint(contents))
-    context.mkdir(parents=True, exist_ok=True)
+    # Never reuse an iidfile from an earlier build/audit day, including when a
+    # Windows Job cancellation happens to leave a zero process return code.
+    context = within(root, ".loop/runtime/image-build/" + fingerprint(contents) + "/" + uuid4().hex)
+    context.mkdir(parents=True, exist_ok=False)
     for name, value in contents.items():
         path = context / name
         if path.exists() and path.read_text(encoding="utf-8") != value:
@@ -325,10 +328,16 @@ def prepare_image(root: Path) -> str:
         root,
         timeout=1200,
     )
-    if result.returncode != 0:
+    if result.outcome != "exit" or result.returncode != 0:
         raise SafetyError("Isolated QA image build failed")
-    image_id = (context / "image-id").read_text(encoding="utf-8").strip()
-    (root / ".loop/runtime/qa-image.json").write_text(
+    image_path = within(root, (context / "image-id").relative_to(root).as_posix())
+    if not image_path.is_file():
+        raise SafetyError("Successful build did not produce a fresh image identity")
+    image_id = image_path.read_text(encoding="utf-8").strip()
+    if not re.fullmatch(r"sha256:[a-f0-9]{64}", image_id):
+        raise SafetyError("Build image identity is invalid")
+    atomic_text(
+        within(root, ".loop/runtime/qa-image.json"),
         json.dumps(
             {
                 "image_id": image_id,
@@ -337,6 +346,5 @@ def prepare_image(root: Path) -> str:
                 "built_at": audit_epoch,
             }
         ),
-        encoding="utf-8",
     )
     return image_id

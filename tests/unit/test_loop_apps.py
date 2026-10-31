@@ -91,7 +91,8 @@ def test_unapproved_identity_never_reaches_vault(mutation: str) -> None:
 
 def test_malformed_key_is_not_written_to_vault() -> None:
     vault, data = MemoryVault(), response("merge")
-    data["pem"] = "not a private key"
+    lines = data["pem"].splitlines()
+    data["pem"] = lines[0] + "\ninvalid-base64\n" + lines[-1]
     setup = Registration("merge", "kanalia7355", vault, lambda code: data)
     with pytest.raises(SafetyError, match="key validation failed"):
         setup.accept(f"state={setup.state}&code=" + "x" * 40)
