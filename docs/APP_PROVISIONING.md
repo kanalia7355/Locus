@@ -82,3 +82,12 @@ the program joins all lines into one complete key before signing. An observed
 identity checks passed; it is not a PowerShell newline error. Flattening the
 entire key into one line exceeds the per-line limit and now reports
 `key / input_line_too_long` without echoing input.
+
+Merge authentication additionally compares the input key's public RSA identity
+with only the saved Review App 5555922 key, inside local memory. A match reports
+`key / matches_saved_review_key` before any API call; no fingerprint or key value
+is displayed. A 401 can include `key_comparison` (different/unavailable) and
+`server_clock_comparison` (within/outside 60 seconds/unknown), derived only from
+the HTTP Date header. A clock indication is a diagnostic, not proof of cause;
+no clock or authorization setting is changed. Different keys with a nearby
+clock still require checking the Merge App ID, its active key and revocation.

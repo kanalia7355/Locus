@@ -8,11 +8,16 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
+from cryptography.exceptions import UnsupportedAlgorithm
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+
 from loop_engine.app_onboarding import PERMISSIONS
 from loop_engine.github_app import AppConnectionError, GitHubApp
 from loop_engine.security import SafetyError, create_text, within
 
 REPOSITORY_ID = 1440108668
+REVIEW_APP_ID = 5555922
 
 
 class ProvisioningVault(Protocol):
@@ -49,6 +54,31 @@ class _InputKey:
 
     def get(self, role: str, app_id: int) -> bytes | None:
         return self.value if (role, app_id) == (self.role, self.app_id) else None
+
+
+def reject_review_key_for_merge(role: str, pem: bytes, vault: ProvisioningVault) -> str | None:
+    """Compare only the exact known reference, in memory, without identifiers.
+
+    No vault enumeration, fingerprints, private material or alternate-App
+    authentication is exposed. Failure never reassigns a key to another role.
+    """
+    if role != "merge":
+        return None
+    reference = vault.get("review", REVIEW_APP_ID)
+    if reference is None:
+        return "review_reference_unavailable"
+    try:
+        candidate = serialization.load_pem_private_key(pem, password=None)
+        saved = serialization.load_pem_private_key(reference, password=None)
+    except (ValueError, TypeError, UnsupportedAlgorithm):
+        return "review_reference_unavailable"  # Signing validation still rejects invalid input.
+    if (
+        isinstance(candidate, rsa.RSAPrivateKey)
+        and isinstance(saved, rsa.RSAPrivateKey)
+        and candidate.public_key().public_numbers() == saved.public_key().public_numbers()
+    ):
+        raise AppConnectionError("key", "matches_saved_review_key")
+    return "different_from_saved_review"
 
 
 def provision(
@@ -92,16 +122,22 @@ def provision(
         pem = masked_private_key()
     if not pem or len(pem) > 2560:
         raise SafetyError("Credential size rejected")
+    key_comparison = reject_review_key_for_merge(role, pem, vault)
     client = make_client(role, app_id, installation_id, REPOSITORY_ID, _InputKey(role, app_id, pem))
     # This performs actual App/installation/scope/repository authentication;
     # the operation itself is read-only, even for the Merge App.
-    branch = client.call("GET", "/repos/kanalia7355/Locus/branches/main")
-    if not isinstance(branch, dict) or branch.get("name") != "main":
-        raise SafetyError("Main identity not observed")
-    if role == "merge":
-        policy = client.call("GET", "/repos/kanalia7355/Locus/branches/main/protection")
-        if not isinstance(policy, dict) or "required_status_checks" not in policy:
-            raise SafetyError("Merge policy read not authenticated")
+    try:
+        branch = client.call("GET", "/repos/kanalia7355/Locus/branches/main")
+        if not isinstance(branch, dict) or branch.get("name") != "main":
+            raise SafetyError("Main identity not observed")
+        if role == "merge":
+            policy = client.call("GET", "/repos/kanalia7355/Locus/branches/main/protection")
+            if not isinstance(policy, dict) or "required_status_checks" not in policy:
+                raise SafetyError("Merge policy read not authenticated")
+    except AppConnectionError as error:
+        if error.status == 401:
+            error.key_comparison = key_comparison
+        raise
     if existing is None:
         vault.put(role, app_id, pem)
     if not create_text(path, json.dumps(public, indent=2) + "\n"):

@@ -7,6 +7,7 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
+from email.utils import parsedate_to_datetime
 from typing import Any, Literal, Protocol
 
 from cryptography.hazmat.primitives import hashes, serialization
@@ -25,13 +26,14 @@ class GitHubMissing(SafetyError):
 
 
 class GitHubHTTPFailure(SafetyError):
-    def __init__(self, status: int) -> None:
+    def __init__(self, status: int, clock: str = "unknown") -> None:
         self.status = status
+        self.clock = clock if clock in {"within_60s", "outside_60s"} else "unknown"
         super().__init__("GitHub HTTP request rejected")
 
 
 class AppConnectionError(SafetyError):
-    """Only fixed identifiers, HTTP status and bounded permission facts escape."""
+    """Only bounded, credential-free authentication and permission facts escape."""
 
     def __init__(
         self,
@@ -41,6 +43,7 @@ class AppConnectionError(SafetyError):
         *,
         expected_permissions: dict[str, str] | None = None,
         actual_permissions: object = None,
+        clock: str | None = None,
     ) -> None:
         stages = {"key", "installation", "token", "repository"}
         reasons = {
@@ -55,11 +58,14 @@ class AppConnectionError(SafetyError):
             "permissions",
             "repository_scope",
             "input_line_too_long",
+            "matches_saved_review_key",
         }
         self.stage = stage if stage in stages else "unknown"
         self.reason = reason if reason in reasons else "unknown"
         self.status = status if type(status) is int and 100 <= status <= 599 else None
         self.permission_difference: dict[str, object] | None = None
+        self.key_comparison: str | None = None
+        self.clock = clock if clock in {"within_60s", "outside_60s", "unknown"} else None
         if expected_permissions is not None:
             self.permission_difference = permission_difference(
                 expected_permissions, actual_permissions
@@ -75,7 +81,23 @@ class AppConnectionError(SafetyError):
         }
         if self.permission_difference is not None:
             report["permission_difference"] = self.permission_difference
+        if self.clock is not None:
+            report["server_clock_comparison"] = self.clock
+        if self.key_comparison in {"different_from_saved_review", "review_reference_unavailable"}:
+            report["key_comparison"] = self.key_comparison
         return report
+
+
+def server_clock_comparison(value: str | None, now: float) -> str:
+    if not value or len(value) > 100:
+        return "unknown"
+    try:
+        parsed = parsedate_to_datetime(value)
+        if parsed.tzinfo is None:
+            return "unknown"
+        return "within_60s" if abs(parsed.timestamp() - now) <= 60 else "outside_60s"
+    except (ValueError, TypeError, OverflowError):
+        return "unknown"
 
 
 def permission_difference(expected: dict[str, str], actual: object) -> dict[str, object]:
@@ -168,10 +190,13 @@ def github_request(
             return json.loads(raw) if raw else None
     except urllib.error.HTTPError as error:
         status = error.code
+        clock = server_clock_comparison(
+            error.headers.get("Date") if error.headers is not None else None, time.time()
+        )
         error.close()
         if status == 404:
             raise GitHubMissing("GitHub object unavailable") from None
-        raise GitHubHTTPFailure(status) from None
+        raise GitHubHTTPFailure(status, clock) from None
     except (OSError, ValueError, urllib.error.URLError):
         # No exception chaining: URLError/HTTPError may include one-time paths,
         # response bodies or request objects. A write may have succeeded.
@@ -222,7 +247,12 @@ class GitHubApp:
                 raise  # The global mutex needs definitive absence, not a retry.
             raise AppConnectionError(stage, "http_rejected", 404) from None
         except GitHubHTTPFailure as error:
-            raise AppConnectionError(stage, "http_rejected", error.status) from None
+            raise AppConnectionError(
+                stage,
+                "http_rejected",
+                error.status,
+                clock=error.clock if error.status == 401 else None,
+            ) from None
         except (SafetyError, OSError, ValueError):
             raise AppConnectionError(stage, "transport_or_response") from None
 
