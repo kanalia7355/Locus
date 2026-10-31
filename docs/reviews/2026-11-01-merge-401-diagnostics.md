@@ -21,4 +21,15 @@ A fresh read-only security reviewer found one low reporting gap: the second
 protected-branch read lacked comparison annotation on401. Fix/re-review cycle1
 covered both reads and passed without remaining findings. No runtime, vault,
 credentials, network, test execution, writes or delegation were performed by
-the reviewer. Actual Merge auth and the original cause remain unverified.
+the reviewer. Actual Merge auth and the original cause were unverified at that
+review checkpoint.
+
+## Subsequent live observation
+
+The operator subsequently reported successful Merge provisioning with the exact
+approved repository and permissions, `authenticated=true` and `activated=false`.
+A separate read-only probe using the saved local credentials authenticated both
+Apps and read main plus check-runs. The Merge policy observer also successfully
+read branch protection and rulesets. Its authorization and atomic-base results
+remain false; no remote mutation was performed. This establishes current
+authentication success, without identifying the cause of the earlier HTTP401.

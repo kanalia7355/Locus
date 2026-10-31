@@ -37,8 +37,30 @@ GitHub Secrets values are not extracted through CI.
   without issuing another merge. Incomplete acquisition, rejected preflight and
   uncertain release require explicit recovery, never a timer-based unlock.
 
-These components currently have **local/mock** evidence. They do not establish
-live exclusive-writer enforcement, trusted review publication or safe merging.
+The mutex/journal components currently have **local/mock** evidence. They do not
+establish live exclusive-writer enforcement, trusted review publication or safe
+merging. App authentication and read-only policy access now have separate live
+evidence, recorded below.
+
+## Live provisioning observation — 2026-11-01
+
+Both existing Apps were successfully provisioned locally. A subsequent read-only
+probe using Windows Credential Manager authenticated Review App 5555922 /
+installation 177234377 and Merge App 5556060 / installation 177236244. Each read
+main and its check-runs endpoint at
+`e3db371e0cb60634f251b25f5649a6c07373b20d`. Merge App also successfully read classic
+branch protection and repository rulesets using its approved Administration read
+permission. No extra Checks permission was needed for these observed reads.
+
+The policy observer still reports `app_bound_independent_review` and both missing
+broker writer rulesets. The existing user-created ruleset 26268631 is disabled;
+it was preserved. Required CI remains bound to GitHub Actions App 15368.
+`merge_authorized` and `atomic_base_binding` remain false. No review/check was
+published, protection changed, lock created or PR merged by these probes.
+
+Successful provisioning does not establish the cause of the earlier HTTP401,
+trusted service-account isolation, write access behavior or activation. Keys,
+JWTs and installation tokens were not printed or exported.
 
 ## One-time operator registration
 
