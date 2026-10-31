@@ -98,6 +98,27 @@ the recipe, configuration and all five tests. Tests, audit commands, timeouts,
 workflow settings and runtime sandbox controls were not relaxed. The complete
 unchanged E2E suite must still pass in the rebuilt image before runtime proof.
 
+## Final observed runtime evidence
+
+- Rebuilt immutable QA image `8aa2ea72e415` completed successfully with current
+  dependency audits. Two old-recipe builds reached the unchanged 1200-second cap;
+  the corrected recipe completed within that cap. Interrupted builds did not
+  publish a new receipt.
+- Six opt-in actual Docker containment tests passed with the new image.
+- The frozen repository verification profile ran against detached implementation
+  commit `8229643`: all four required checks passed (fresh image audit, complete
+  engine verification, wheel build, complete application verification with the
+  unchanged five Chromium E2E tests). No network was granted to source QA.
+- Actual `doctor --check-sandbox` passed zero-tool source-proposal, isolated QA
+  and timeout probes. This is source-only implementation readiness, not Broker
+  activation or live GitHub merge proof. The doctor status text was corrected to
+  describe inactive safe merge rather than attributing a blanket hold to the
+  operator, whose authorization is now conditional.
+- The approved narrow App roles do not grant the Administration read required
+  by GitHub's classic branch-protection REST endpoint. Anonymous Locus probing
+  returned 401. This remains a gate-reader design/integration issue; no App
+  privilege was expanded or owner OAuth credential copied into a new service.
+
 ## Deliberately unfulfilled gates
 
 [BROKER_SETUP.md](../BROKER_SETUP.md) lists service identity/source pinning,

@@ -128,7 +128,7 @@ def doctor(root: Path, *, check_sandbox: bool = False) -> dict[str, Any]:
         except (ValueError, OSError):
             result["sandbox"] = "unverified or stale: execution blocked"
         if config["github"]["delivery"] == "pull_request":
-            result["automatic_merge"] = "held by operator; PR-only delivery"
+            result["automatic_merge"] = "held: PR-only delivery; safe merge is not activated"
     elif check_sandbox:
         from loop_engine.diagnostics import sandbox_probe
 

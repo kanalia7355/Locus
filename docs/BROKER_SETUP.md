@@ -66,6 +66,13 @@ it is not evidence of that production boundary.
    gate reader/merge adapter. Every gate must be re-read while holding the global
    lock. The protocol's injected transport is a trusted-service interface, not an
    API exposed to model tasks. No production transport is wired to the Controller.
+   In particular, GitHub's classic branch-protection REST read requires
+   Administration read, which neither approved App role grants. An anonymous
+   read of Locus's protection endpoint returned HTTP 401. The policy evidence
+   source must be resolved and reviewed; do not silently expand App permissions,
+   copy the owner's OAuth credential into a service, or accept worker-supplied
+   protection booleans. The existing authenticated `gh` reader is not proof that
+   an isolated App service can make the same read.
 3. Apply/read back both writer rulesets alongside existing classic protection;
    pin the real Review App ID to its required check. Test rejection of UI/API
    merges, direct pushes, other identities and native queued requests. Personal
@@ -83,4 +90,5 @@ If any gate fails, continue authorized independent PR work and retain merge hold
 This document does not claim that the unattended environment is complete.
 
 References: [GitHub App manifest flow](https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-from-a-manifest),
-[ruleset API](https://docs.github.com/en/rest/repos/rules).
+[ruleset API](https://docs.github.com/en/rest/repos/rules),
+[classic branch-protection read permissions](https://docs.github.com/en/rest/branches/branch-protection#get-branch-protection).
