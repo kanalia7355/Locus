@@ -149,6 +149,14 @@ def parser() -> argparse.ArgumentParser:
     app_setup = commands.add_parser("app-register")
     app_setup.add_argument("role", choices=("review", "merge"))
     app_setup.add_argument("--owner", choices=("kanalia7355",), default="kanalia7355")
+    provision = commands.add_parser("app-provision")
+    provision.add_argument("role", choices=("review", "merge"))
+    provision.add_argument("--app-id", type=int, required=True)
+    provision.add_argument("--installation-id", type=int, required=True)
+    inspect_policy = commands.add_parser("app-policy")
+    inspect_policy.add_argument("--merge-app-id", type=int, required=True)
+    inspect_policy.add_argument("--installation-id", type=int, required=True)
+    inspect_policy.add_argument("--review-app-id", type=int, required=True)
     for name in ("status", "report", "pause", "stop", "decisions"):
         commands.add_parser(name)
     launch = commands.add_parser("launch")
@@ -249,6 +257,28 @@ def build_controller(root: Path, state: StateStore) -> Any:
 
 def run(args: argparse.Namespace) -> int:
     root = args.project.resolve()
+    if args.command == "app-provision":
+        from loop_engine.app_credentials import WindowsAppVault
+        from loop_engine.app_provisioning import provision
+
+        print(
+            json.dumps(
+                provision(root, args.role, args.app_id, args.installation_id, WindowsAppVault()),
+                indent=2,
+            )
+        )
+        return 0
+    if args.command == "app-policy":
+        from loop_engine.app_credentials import WindowsAppVault
+        from loop_engine.app_provisioning import REPOSITORY_ID
+        from loop_engine.broker_policy_reader import observe_policy
+        from loop_engine.github_app import GitHubApp
+
+        client = GitHubApp(
+            "merge", args.merge_app_id, args.installation_id, REPOSITORY_ID, WindowsAppVault()
+        )
+        print(json.dumps(observe_policy(client, args.merge_app_id, args.review_app_id), indent=2))
+        return 0
     if args.command == "app-register":
         from loop_engine.app_credentials import WindowsAppVault
         from loop_engine.app_onboarding import register

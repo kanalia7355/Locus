@@ -27,7 +27,7 @@ from loop_engine.security import SafetyError
 
 PERMISSIONS = {
     "review": {"contents": "read", "checks": "write", "pull_requests": "write"},
-    "merge": {"contents": "write", "pull_requests": "write"},
+    "merge": {"contents": "write", "pull_requests": "write", "administration": "read"},
 }
 
 

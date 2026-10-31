@@ -19,7 +19,8 @@ authenticated review publisher is also missing.
   write, Pull requests write. It invokes the fresh read-only reviewer, verifies
   current head/base/policy and test binding, and publishes the bound check plus
   the actual approving review. Model text alone is not signing authority.
-- A separate Merge App has only repo Contents/Pull requests write. A trusted
+- A separate Merge App has repo Contents/Pull requests write and, following
+  explicit operator approval in ADR0008, Administration read (never write). A trusted
   serialized broker is its only credential consumer and only merge entrypoint.
   It rechecks source, trusted review, CI, current base, conversations, risk,
   allowlists and approvals, then performs an immediate expected-head squash

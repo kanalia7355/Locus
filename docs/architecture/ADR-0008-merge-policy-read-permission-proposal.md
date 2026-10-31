@@ -1,7 +1,8 @@
 # ADR 0008 — Merge policy read permission proposal
 
-Status: PROPOSED; operator authorization is required before changing App scopes.
-ADR0007 implementation approval does not grant this additional permission.
+Status: APPROVED FOR IMPLEMENTATION by the operator on 2026-10-31.
+The operator explicitly approved Administration read for the repo-only Merge App.
+This authorizes implementation and requesting that read permission, not activation.
 
 ## Concrete blocker
 
@@ -12,7 +13,7 @@ App role grants it. An anonymous read of Locus's endpoint returned HTTP 401;
 the owner's existing authenticated `gh` can read it, which does not establish
 that a separately provisioned App service can.
 
-## Recommended permission delta, pending approval
+## Approved permission delta
 
 For the **Merge App installed on kanalia7355/Locus only**, change its requested
 repository permissions from:

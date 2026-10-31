@@ -4,6 +4,11 @@ ADR-0007 was approved for implementation on 2026-10-31. **It is not activated.**
 The existing Controller still delivers PRs and refuses atomic-base claims.
 Do not enable native queued auto-merge or replace its false atomic-base gate.
 
+For the existing operator-created Apps and keys currently in GitHub Actions
+Secrets, use [existing App provisioning](APP_PROVISIONING.md), not a second App
+registration. Keys must be entered locally through the masked import command;
+GitHub Secrets values are not extracted through CI.
+
 ## Implemented foundation
 
 - `loop app-register review` and `loop app-register merge`: bounded local
@@ -14,7 +19,8 @@ Do not enable native queued auto-merge or replace its false atomic-base gate.
   are not deliberately overwritten. A failed/uncertain conversion is not replayed;
   inspect GitHub's App settings before starting another session.
 - Review App permissions: Contents read, Checks/Pull requests write. Merge App:
-  Contents/Pull requests write. Both are private to the owner. Install each on
+  Contents/Pull requests write and Administration read, explicitly approved in
+  ADR0008. Administration write is not requested. Both are private to the owner. Install each on
   **kanalia7355/Locus only**, not all repositories. Registration does not install
   an App, approve a PR, change protection, start a service or activate merging.
 - `github_app.py`: RSA-signed short-lived App JWTs and repo-scoped installation
@@ -66,16 +72,17 @@ it is not evidence of that production boundary.
    gate reader/merge adapter. Every gate must be re-read while holding the global
    lock. The protocol's injected transport is a trusted-service interface, not an
    API exposed to model tasks. No production transport is wired to the Controller.
-   In particular, GitHub's classic branch-protection REST read requires
-   Administration read, which neither approved App role grants. An anonymous
-   read of Locus's protection endpoint returned HTTP 401. The policy evidence
-   source must be resolved and reviewed; do not silently expand App permissions,
+   GitHub's classic branch-protection REST read requires Administration read,
+   now approved for the Merge App in ADR0008. The read-only policy observer
+   reports exact classic protection and writer ruleset facts, but does not
+   establish activation or atomic-base proof. Do not silently expand permissions,
    copy the owner's OAuth credential into a service, or accept worker-supplied
    protection booleans. The existing authenticated `gh` reader is not proof that
    an isolated App service can make the same read.
    [ADR0008](architecture/ADR-0008-merge-policy-read-permission-proposal.md)
-   proposes a repo-only Merge App Administration read permission; it is pending
-   owner approval, and no requested/runtime App scope has been changed.
+   records the approved repo-only Merge App Administration read permission.
+   The App owner must update its GitHub settings/accept the installation update;
+   local requested scopes are not evidence that GitHub has granted them.
 3. Apply/read back both writer rulesets alongside existing classic protection;
    pin the real Review App ID to its required check. Test rejection of UI/API
    merges, direct pushes, other identities and native queued requests. Personal
