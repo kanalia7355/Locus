@@ -16,6 +16,8 @@ No Actions publication job is introduced by this permission declaration.
 The current local Controller publishes through existing GitHub CLI keyring
 authentication, not the Actions `GITHUB_TOKEN`. GitHub's setting that allows
 Actions to create/approve PRs does not authorize the implementation agent to
-approve its own review or lift the operator's merge hold. Branch protection,
+approve its own review. The operator now requests conditional auto-merge after
+making the repository public; see `../../docs/operations/SAFE_AUTO_MERGE_SETUP.md`.
+Branch protection,
 trusted independent-review publication and atomic merge-base enforcement remain
 separate prerequisites for safe automatic merging.

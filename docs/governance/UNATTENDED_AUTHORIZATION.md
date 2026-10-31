@@ -26,3 +26,13 @@ Publication authorization is not merge proof.
 Same-name push/PR CI contexts at one exact HEAD are acceptable only when every
 observed instance passes. Failed/pending/cancelled/skipped siblings still block.
 No check context is removed to obtain green status.
+
+## Subsequent public-repository request
+
+The operator subsequently made Locus public and requested a safe automatic-merge
+trial. The prior blanket hold is superseded conditionally, not by unconditional
+merge permission. Configure the documented branch protection and platform
+auto-merge capability, but do not merge or queue a future-head authorization
+until trusted independent review, exact source/policy binding and base-concurrency
+guarantees are established. See `../operations/SAFE_AUTO_MERGE_SETUP.md`. No
+controller approval is fabricated and no immutable plan/counter is reset.
