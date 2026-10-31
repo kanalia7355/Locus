@@ -121,6 +121,30 @@ it is not evidence of that production boundary.
 If any gate fails, continue authorized independent PR work and retain merge hold.
 This document does not claim that the unattended environment is complete.
 
+## Controller readiness observation — 2026-11-01
+
+`loop status` reports a stopped Controller, TASK-001 completed at its retained
+3/3 attempts, and Development not evaluated. The frozen runtime configuration
+still targets `feat/unattended-runtime`, uses PR-only delivery with auto-merge
+off, and disables Development with an empty allowed-path list. Do not simply
+edit that frozen configuration: migrate the approved main/policy and reconcile
+superseded decisions with explicit provenance while preserving earlier records.
+The next task must come from the approved Goal evaluation, not a reset of
+TASK-001 or an assertion that product development has already been authorized.
+
+`loop doctor` reports readiness for the verified source-proposal/container-QA
+execution boundary, separately from its explicit PR-only merge hold. This
+execution readiness is not completion of the activation gates above. Time,
+resume, stagnation and completion modules already exist; their complete live
+path through App publication and Broker merge remains to be demonstrated.
+
+PR6's failed `verify` run 41229058508 reached browser E2E after passing Python,
+frontend unit/build and secret checks. The attachment scenario submitted before
+its asynchronous removal completed. Its test now explicitly waits for the
+dropped attachment to disappear before submitting; all original assertions,
+timeouts, retry settings and CI checks are retained. Five fresh-fixture focused
+runs and the complete five-test browser suite passed locally, as did ESLint.
+
 References: [GitHub App manifest flow](https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-from-a-manifest),
 [ruleset API](https://docs.github.com/en/rest/repos/rules),
 [classic branch-protection read permissions](https://docs.github.com/en/rest/branches/branch-protection#get-branch-protection).
