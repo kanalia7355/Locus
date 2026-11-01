@@ -94,3 +94,10 @@ once. Neither operation accepts owner-supplied commands, paths, model results or
 credentials. The agent reports sanitized stage/status on failure and preserves
 uncertain intents. A diagnostic success is labelled separately from original
 trial completion, independent review publication and full loop readiness.
+
+If this update stopped at settings_and_binary with both settings and SCM still
+pointing at the old runtime, never rerun the upgrade. Its code/settings/permit may
+already be staged. Use only the exact-hash completion helper supplied after
+verification. It performs the pending settings/SCM switch using the corrected
+PowerShell null-string binding, with all staged artifacts revalidated. It does
+not redeploy code, reset authentication, recreate accounts or rotate passwords.

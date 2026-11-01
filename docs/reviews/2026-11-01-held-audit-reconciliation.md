@@ -53,3 +53,36 @@ native and Python3.11 Linux types, 420 tests, secret scan, dependency consistenc
 and dependency advisory checks. Seven tests skipped for the existing Windows
 symlink privilege and opt-in live Docker conditions. The unpublished project
 itself has no PyPI advisory record. These tests do not certify live deployment.
+
+## Settings switch completion
+
+Owner's first upgrade execution stopped at settings_and_binary. Read-only public
+metadata showed old settings and SCM path unchanged, the new sealed runtime,
+staged settings, backup and reconciliation permit already present, and Audit
+stopped. The operator started the matching old service using its existing SCM
+rights; all three services are Running again. No authentication/model operation
+was retried and private state was not changed.
+
+Windows PowerShell5.1 synthetic reproduction established that File.Replace's
+third string argument receives an empty path when passed ordinary PowerShell
+`$null`, causing ArgumentException. The actual upgrade statement now passes
+`[System.Management.Automation.Language.NullString]::Value`; real synthetic file
+replacement passed. Syntax/native compilation alone had not exercised this call.
+
+A completion-only helper binds old/new settings hashes, existing backup/permit,
+original upgrade intent, exact audit identity/SCM registration and every already
+installed new runtime file plus protected ACLs. It records its own exclusive
+intent, stops Audit, replaces settings with the corrected statement, switches only
+the Audit binary path and restarts. It cannot recopy code, recreate accounts,
+rotate passwords, modify authentication or replay either intent. Existing App
+services and credentials remain preserved. Failure includes bounded inner
+exception type/HRESULT diagnostics rather than arbitrary messages.
+
+Fix/re-review cycle1 in the same task scope passed with no findings. Three
+additional tests passed: completion boundary, actual Windows PowerShell5.1 .NET
+replacement and generated completion PowerShell/native compilation without
+privileged execution. Actual completion and live reconciliation remain pending.
+
+After this correction, full `scripts/verify_loop.py --audit` passed 423 tests
+with the same 7 skips, lint/format, both type checks, secret scanning, dependency
+consistency and advisory checks. The local package remains outside PyPI lookup.

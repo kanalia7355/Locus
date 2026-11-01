@@ -120,7 +120,9 @@ __NATIVE_HELPER__
     (Get-Service LocusLoopAuditV1).WaitForStatus('Stopped',[TimeSpan]::FromSeconds(30))
     $stage='settings_and_binary'
     if((Get-FileHash $settingsPath -Algorithm SHA256).Hash.ToLowerInvariant() -cne $plan.settings_sha256){throw 'Settings changed before switch'}
-    [IO.File]::Replace($staged,$settingsPath,$null)
+    $stage='settings_replace'
+    [IO.File]::Replace($staged,$settingsPath,[System.Management.Automation.Language.NullString]::Value)
+    $stage='binary_switch'
     $binary='"'+(Join-Path $target 'python.exe')+'" -I -B "'+
         (Join-Path $target 'service_bootstrap.py')+'" --role audit --manifest-hash '+$plan.payload_manifest
     [LocusAuditUpgradeNativeV1]::UpdateAuditBinary($binary)
