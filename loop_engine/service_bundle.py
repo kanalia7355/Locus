@@ -229,8 +229,8 @@ def completion_request(active_manifest: str, review_sid: str, merge_sid: str) ->
 
 
 def completion_script(installer: bytes, template: bytes) -> bytes:
-    source = installer.decode("utf-8")
-    body = template.decode("utf-8")
+    source = installer.decode("utf-8").replace("\r\n", "\n")
+    body = template.decode("utf-8").replace("\r\n", "\n")
     functions = source[source.index("function Assert-RegularPath") : source.index("\ntry {\n")]
     native = re.findall(r"Add-Type -TypeDefinition @'\n(.*?)\n'@", source, re.DOTALL)
     if (

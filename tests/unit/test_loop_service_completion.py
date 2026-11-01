@@ -72,6 +72,14 @@ def test_completion_uses_exact_shared_definitions_without_template_fallback() ->
         completion_script((ROOT / "scripts/Install-LocusLoopServices.ps1").read_bytes(), b"invalid")
 
 
+def test_completion_bytes_are_identical_for_lf_and_windows_crlf() -> None:
+    installer = (ROOT / "scripts/Install-LocusLoopServices.ps1").read_text(encoding="utf-8")
+    template = (ROOT / "scripts/Complete-LocusLoopServices.ps1").read_text(encoding="utf-8")
+    assert completion_script(installer.encode(), template.encode()) == completion_script(
+        installer.replace("\n", "\r\n").encode(), template.replace("\n", "\r\n").encode()
+    )
+
+
 @WINDOWS
 def test_generated_completion_helper_parses_without_execution() -> None:
     literal = _generated().decode().replace("'", "''")

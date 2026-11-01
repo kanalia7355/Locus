@@ -91,3 +91,12 @@ in that probe. Actual administrator completion, SCM/profile and vault persistenc
 remain unverified. Windows QA image audit freshness expired during this work;
 the trusted manifest-only image build was re-run successfully for the new UTC day,
 without changing dependencies or substituting a timestamp-only receipt refresh.
+
+Windows CI subsequently found two generated-helper tests reading CRLF checkout
+bytes, while the bundle builder uses immutable LF Git text. The generator now
+normalizes CRLF to LF before locating template boundaries; an equality regression
+covers both inputs. This routine text-format correction was not a third recovery
+re-review. The previously issued completion helper remains byte-identical and
+its source/manifest identity is unchanged; it is not replaced by this change.
+No tests or CI controls were removed or relaxed. Final deployed-system audit and
+activation remain held.
