@@ -13,6 +13,7 @@ from typing import Any
 
 from loop_engine.audit_auth_state import AuthState
 from loop_engine.audit_execution import AuditCodexModel
+from loop_engine.audit_failure import AuditFailure
 from loop_engine.audit_identity import AuditDeployment
 from loop_engine.audit_os_guard import require_private_crash_policy
 from loop_engine.audit_packet import PACKET_LIMIT, binding, canonical, decode, digest, hash_value
@@ -134,7 +135,12 @@ class RuntimeModel:
                 self.deployment.state / "empty",
                 boundary=RuntimeBoundary(self.deployment, relay),
             )
-            result = model.review(packet, timeout=deadline - time.monotonic(), cancelled=cancelled)
+            try:
+                result = model.review(
+                    packet, timeout=deadline - time.monotonic(), cancelled=cancelled
+                )
+            except Exception:
+                raise AuditFailure(relay.stage, relay.failure_reason, relay.http_status) from None
             if not relay.accepted:
                 raise SafetyError("Audit inference bypassed the mandatory zero-tool relay")
             authentication.finish("enrolled")
@@ -167,9 +173,20 @@ def review_request(
     return supervisor.dispatch(peer, body, deadline=deadline, cancelled=lambda: False)
 
 
-def fixed_self_test(deployment: AuditDeployment, *, deadline: float) -> dict[str, Any]:
+def fixed_self_test(
+    deployment: AuditDeployment, *, deadline: float, diagnostic: bool = False
+) -> dict[str, Any]:
     """One actual inference per deployed artifact, on an intentionally buggy fixture."""
-    intent = deployment.state / "synthetic-model-proof.json"
+    if diagnostic:
+        from loop_engine.audit_reconciliation import permit
+
+        if permit(deployment)["diagnostic_inference"] is not True:
+            raise SafetyError("Protected owner permit for one diagnostic inference required")
+    # A separate, once-only validation task preserves the uncertain original
+    # attempt. Neither artifact changes nor time permit replay of either intent.
+    intent = deployment.state / (
+        "transport-model-proof.json" if diagnostic else "synthetic-model-proof.json"
+    )
     if intent.exists():
         saved = decode(intent.read_bytes(), 8192)
         result = saved.get("result")
@@ -195,7 +212,7 @@ def fixed_self_test(deployment: AuditDeployment, *, deadline: float) -> dict[str
         ):
             raise SafetyError("Existing synthetic model trial requires reconciliation")
         hash_value(result["findings_hash"])
-        return {**result, "cached": True}
+        return {**result, "cached": True, "diagnostic_only": diagnostic}
     with intent.open("xb") as stream:
         stream.write(canonical({"identity": deployment.identity, "phase": "started"}))
         stream.flush()
@@ -232,11 +249,22 @@ def fixed_self_test(deployment: AuditDeployment, *, deadline: float) -> dict[str
             }
         ],
     }
-    findings = RuntimeModel(deployment).review(
-        packet,
-        timeout=deadline - time.monotonic(),
-        cancelled=lambda: False,
-    )
+    try:
+        findings = RuntimeModel(deployment).review(
+            packet,
+            timeout=deadline - time.monotonic(),
+            cancelled=lambda: False,
+        )
+    except AuditFailure as error:
+        if diagnostic:
+            failure = deployment.state / "transport-model-failure.json"
+            with failure.open("xb") as stream:
+                stream.write(canonical(error.diagnostic))
+                stream.flush()
+                import os
+
+                os.fsync(stream.fileno())
+        raise
     detected = findings["disposition"] != "pass" and any(
         item["blocking"] or item["severity"] in {"critical", "high"}
         for item in findings["findings"]
@@ -262,4 +290,4 @@ def fixed_self_test(deployment: AuditDeployment, *, deadline: float) -> dict[str
             }
         ).decode(),
     )
-    return {**result, "cached": False}
+    return {**result, "cached": False, "diagnostic_only": diagnostic}

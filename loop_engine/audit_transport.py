@@ -113,6 +113,7 @@ class AuditRelay:
                         or relay.used
                     ):
                         raise SafetyError("Invalid or repeated audit transport request")
+                    relay.stage = "local_request"
                     relay.used = True
                     raw = self.rfile.read(int(length[0]))
                     if len(raw) != int(length[0]):
@@ -169,8 +170,12 @@ class AuditRelay:
                         context=ssl.create_default_context(),
                     )
                     relay.connection = connection
+                    relay.stage = "upstream_connect"
                     connection.request("POST", PATH, body=raw, headers=headers)
+                    relay.stage = "upstream_headers"
                     response = connection.getresponse()
+                    relay.http_status = response.status
+                    relay.stage = "upstream_response"
                     if response.status != 200:
                         raise SafetyError(
                             "Audit upstream did not return success; no redirect/retry"
@@ -183,6 +188,7 @@ class AuditRelay:
                     self.send_header("Connection", "close")
                     self.end_headers()
                     total = 0
+                    relay.stage = "upstream_stream"
                     while True:
                         relay.remaining()
                         block = response.read1(8192)
@@ -193,7 +199,17 @@ class AuditRelay:
                             raise SafetyError("Audit inference response exceeded limit")
                         self.wfile.write(block)
                         self.wfile.flush()
-                except Exception:
+                    relay.stage = "complete"
+                except Exception as error:
+                    relay.failure_reason = (
+                        "timeout"
+                        if isinstance(error, TimeoutError)
+                        else "tls"
+                        if isinstance(error, ssl.SSLError)
+                        else "network"
+                        if isinstance(error, OSError)
+                        else "policy"
+                    )
                     # Caller sees only a closed/failed bounded request, not input
                     # or response content. The nonce stays reserved on uncertainty.
                     self.close_connection = True
@@ -203,6 +219,9 @@ class AuditRelay:
                         relay.connection = None
 
         self.server = Server(("127.0.0.1", 0), Handler)
+        self.stage = "waiting_client"
+        self.http_status: int | None = None
+        self.failure_reason = "client_or_output_rejected"
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
 
     def remaining(self) -> float:

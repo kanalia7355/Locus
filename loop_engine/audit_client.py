@@ -31,6 +31,8 @@ class AuditClient:
                 "preflight",
                 "auth_status",
                 "self_test",
+                "reconcile_auth",
+                "diagnose_transport",
                 "enroll_start",
                 "enroll_poll",
                 "enroll_cancel",
@@ -131,14 +133,24 @@ def main() -> int:
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "operation", choices=("health", "preflight", "auth_status", "self_test", "enroll")
+        "operation",
+        choices=(
+            "health",
+            "preflight",
+            "auth_status",
+            "self_test",
+            "enroll",
+            "reconcile_auth",
+            "diagnose_transport",
+        ),
     )
     args = parser.parse_args()
     answer = (
         enroll_owner()
         if args.operation == "enroll"
         else AuditClient().call(
-            args.operation, timeout=300 if args.operation == "self_test" else 120
+            args.operation,
+            timeout=300 if args.operation in {"self_test", "diagnose_transport"} else 120,
         )
     )
     print(json.dumps(answer))

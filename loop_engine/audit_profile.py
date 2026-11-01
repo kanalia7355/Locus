@@ -123,7 +123,9 @@ def check_profile(deployment: AuditDeployment, home: Path) -> None:
     if machine.exists() and any(machine.iterdir()):
         raise SafetyError("Machine Codex policy requires assessment before enrolment")
     expected = profile_text(
-        deployment.runtime, deployment.settings["model"], deployment.settings["reasoning_effort"]
+        getattr(deployment, "profile_runtime", deployment.runtime),
+        deployment.settings["model"],
+        deployment.settings["reasoning_effort"],
     ).encode()
     if protected_bytes(home / "config.toml") != expected:
         raise SafetyError("Audit authentication/model policy changed")
@@ -157,7 +159,7 @@ def check_profile(deployment: AuditDeployment, home: Path) -> None:
     identifier = (home / "installation_id").read_text(encoding="ascii")
     if str(UUID(identifier)) != identifier:
         raise SafetyError("Invalid audit installation metadata")
-    logs = deployment.runtime / "blocked-logs"
+    logs = getattr(deployment, "profile_runtime", deployment.runtime) / "blocked-logs"
     if not logs.is_dir() or any(logs.iterdir()):
         raise SafetyError("Audit logging is not disabled by filesystem policy")
     for directory in (home, logs):
@@ -195,7 +197,10 @@ def preflight(
     journal = deployment.state / "keyring-probe.json"
     if journal.exists():
         previous = decode(journal.read_bytes(), 4096)
-        if previous != {"identity": deployment.identity, "phase": "complete"}:
+        if previous != {
+            "identity": getattr(deployment, "state_identity", deployment.identity),
+            "phase": "complete",
+        }:
             raise SafetyError("Uncertain synthetic credential probe; reconcile without replay")
         if AuthState(home).check() != "probe_cleared":
             raise SafetyError("Completed synthetic authentication lifecycle changed")

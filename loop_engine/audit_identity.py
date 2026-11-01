@@ -48,7 +48,7 @@ def require_private_acl(
 def validate_settings(value: Any) -> dict[str, Any]:
     if (
         not isinstance(value, dict)
-        or set(value)
+        or set(value) - {"profile_runtime", "state_identity"}
         != {
             "protocol",
             "mode",
@@ -80,6 +80,14 @@ def validate_settings(value: Any) -> dict[str, Any]:
     if runtime.parent != PureWindowsPath(str(AUDIT_ROOT)) / "runtimes":
         raise SafetyError("Fixed audit runtime location required")
     hash_value(runtime.name)
+    if ("profile_runtime" in value) != ("state_identity" in value):
+        raise SafetyError("Closed prior profile identity required")
+    if "profile_runtime" in value:
+        if not isinstance(value["profile_runtime"], str):
+            raise SafetyError("Fixed prior profile path required")
+        prior = PureWindowsPath(value["profile_runtime"])
+        if prior.parent != runtime.parent or prior.name != hash_value(value["state_identity"]):
+            raise SafetyError("Exact previous audit profile runtime required")
     project = PureWindowsPath(value["project_root"])
     if not project.is_absolute() or str(project).startswith("\\\\"):
         raise SafetyError("Local audit project scope required")
@@ -189,6 +197,8 @@ class AuditDeployment(Deployment):
         }
         self.runtime = Path(self.settings["runtime_root"])
         self.identity = self.runtime.name
+        self.profile_runtime = Path(self.settings.get("profile_runtime", self.runtime))
+        self.state_identity = self.settings.get("state_identity", self.identity)
         if manifest_hash is not None and manifest_hash != self.identity:
             raise SafetyError("Audit service artifact changed")
         raw = protected_bytes(self.runtime.parent / (self.identity + ".manifest.json"))
@@ -205,6 +215,22 @@ class AuditDeployment(Deployment):
         ):
             raise SafetyError("Pinned clean audit source required")
         self.leases: list[SealedExecutable] = []
+        self.prior_catalog_lease: SealedExecutable | None = None
+        if self.profile_runtime != self.runtime:
+            prior_raw = protected_bytes(
+                self.profile_runtime.parent / (self.state_identity + ".manifest.json")
+            )
+            if hashlib.sha256(prior_raw).hexdigest() != self.state_identity:
+                raise SafetyError("Prior audit profile manifest changed")
+            prior = json.loads(prior_raw)
+            if any(
+                prior.get(key) != self.manifest.get(key)
+                for key in ("codex_sha256", "model", "reasoning_effort", "disabled_features")
+            ):
+                raise SafetyError("Profile/CLI policy cannot change through diagnostic upgrade")
+            self.prior_catalog_lease = SealedExecutable(
+                self.profile_runtime / "models.json", prior["files"]["models.json"]
+            )
 
     def require_role(self, role: str) -> None:
         if role != "audit" or Native().current_sid() != self.settings["audit_sid"]:
@@ -251,6 +277,9 @@ class AuditDeployment(Deployment):
         for lease in self.leases:
             lease.close()
         self.leases.clear()
+        if self.prior_catalog_lease is not None:
+            self.prior_catalog_lease.close()
+            self.prior_catalog_lease = None
 
     @property
     def state(self) -> Path:

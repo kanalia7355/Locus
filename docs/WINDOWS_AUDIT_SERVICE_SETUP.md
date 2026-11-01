@@ -74,3 +74,23 @@ and registers/starts the preparation service. It neither recopies runtime files
 nor changes the two existing App accounts, keys, passwords or services. Existing
 files and the old installation intent remain preserved. A completion intent or
 any subsequent authentication state prevents replay; do not rerun either script.
+
+## Held real-model trial
+
+If a real model trial leaves active_use and a started intent, retain both. A
+read-only metadata diagnostic does not prove provider completion. Do not run the
+old self_test or enrolment again, delete state or re-enter credentials.
+
+Use only an independently reviewed, exact-hash audit-runtime upgrade/reconciliation
+package supplied for that observed state. It retains the existing account and
+SCM password, encrypted cache/keyring, original profile policy, old runtime,
+trial and state records. Administrator execution permits a specific nonsecret
+state reconciliation and one separate synthetic diagnostic task; it is not a
+general retry/reset permission or automatic-merge activation.
+
+After upgrade, the agent verifies health, calls `audit_client reconcile_auth`
+once under the protected permit, then may call `audit_client diagnose_transport`
+once. Neither operation accepts owner-supplied commands, paths, model results or
+credentials. The agent reports sanitized stage/status on failure and preserves
+uncertain intents. A diagnostic success is labelled separately from original
+trial completion, independent review publication and full loop readiness.

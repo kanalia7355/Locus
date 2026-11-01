@@ -5,6 +5,7 @@ import json
 import os
 import sys
 
+from loop_engine.audit_failure import AuditFailure
 from loop_engine.service_identity import Deployment
 
 
@@ -56,6 +57,9 @@ def main() -> int:
         return 0
     except AppConnectionError as error:
         print(json.dumps({"connection_error": error.public()}))
+        return 2
+    except AuditFailure as error:
+        print(json.dumps({"audit_diagnostic": error.diagnostic}))
         return 2
 
 

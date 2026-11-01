@@ -30,12 +30,17 @@ def dispatch(
         "preflight",
         "auth_status",
         "self_test",
+        "reconcile_auth",
+        "diagnose_transport",
         *review_operations,
     }:
         raise SafetyError("Audit preparation cannot sign, merge or run arbitrary operations")
     if operation not in review_operations and set(body) != {"operation"}:
         raise SafetyError("Closed owner audit preparation operation required")
-    if operation in {"preflight", "self_test"} and peer != deployment.settings["operator_sid"]:
+    if (
+        operation in {"preflight", "self_test", "reconcile_auth", "diagnose_transport"}
+        and peer != deployment.settings["operator_sid"]
+    ):
         raise SafetyError("Owner-only audit authentication preparation")
     deployment.require_private_state()
     check_profile(deployment, deployment.state / "home")
@@ -63,14 +68,20 @@ def dispatch(
             "activated": False,
         }
     require_private_crash_policy(deployment)
+    if operation == "reconcile_auth":
+        from loop_engine.audit_reconciliation import reconcile_auth
+
+        return reconcile_auth(deployment, deadline=deadline)
     if operation in review_operations:
         from loop_engine.audit_runtime import review_request
 
         return review_request(deployment, peer, body, deadline=deadline)
-    if operation == "self_test":
+    if operation in {"self_test", "diagnose_transport"}:
         from loop_engine.audit_runtime import fixed_self_test
 
-        return fixed_self_test(deployment, deadline=deadline)
+        return fixed_self_test(
+            deployment, deadline=deadline, diagnostic=operation == "diagnose_transport"
+        )
     from loop_engine.audit_auth_state import AuthState
 
     authentication = AuthState(deployment.state / "home")

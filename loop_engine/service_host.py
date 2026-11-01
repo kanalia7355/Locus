@@ -71,6 +71,18 @@ def handle(
                     "connection_error": diagnostic["connection_error"],
                     "activated": False,
                 }
+            if (
+                role == "audit"
+                and isinstance(diagnostic, dict)
+                and set(diagnostic) == {"audit_diagnostic"}
+            ):
+                from loop_engine.audit_failure import validate_diagnostic
+
+                return {
+                    "status": "blocked",
+                    "activated": False,
+                    "audit_diagnostic": validate_diagnostic(diagnostic["audit_diagnostic"]),
+                }
         except ValueError:
             pass
         return {"status": "blocked", "reason": "service_operation_failed", "activated": False}
