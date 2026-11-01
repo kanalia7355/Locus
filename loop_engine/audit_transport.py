@@ -37,16 +37,32 @@ def validate_inference(raw: bytes, model: str) -> dict[str, Any]:
         return result
 
     try:
-        value = json.loads(raw, object_pairs_hook=unique)
+
+        def invalid_constant(_value: str) -> None:
+            raise ValueError("Nonstandard JSON constant")
+
+        value = json.loads(raw, object_pairs_hook=unique, parse_constant=invalid_constant)
         if (
             not isinstance(value, dict)
             or value.get("model") != model
             or value.get("tools", []) != []
             or "previous_response_id" in value
             or value.get("store") is not False
-            or "input" not in value
+            or not isinstance(value.get("input"), list)
         ):
             raise SafetyError("Audit inference capability/freshness differs")
+        # Responses Lite relocates tool definitions into additional_tools input
+        # items. Checking only top-level tools incorrectly admits those tools.
+        for item in value["input"]:
+            if not isinstance(item, dict):
+                raise SafetyError("Typed fresh inference input required")
+            kind = item.get("type", "message")
+            if not isinstance(kind, str) or kind.endswith(("_call", "_call_output")):
+                raise SafetyError("Tool calls/history are not fresh read-only input")
+            if kind == "additional_tools" and (
+                item.get("role") != "developer" or item.get("tools") != []
+            ):
+                raise SafetyError("Embedded inference tools are not permitted")
     except (ValueError, TypeError, UnicodeError, RecursionError):
         raise SafetyError("Audit inference rejected before forwarding") from None
     return value
@@ -119,6 +135,9 @@ class AuditRelay:
                     if len(raw) != int(length[0]):
                         raise SafetyError("Truncated inference request")
                     validate_inference(raw, relay.model)
+                    lite = self.headers.get_all("X-OpenAI-Internal-Codex-Responses-Lite", [])
+                    if len(lite) > 1 or (lite and lite != ["true"]):
+                        raise SafetyError("Invalid fixed Responses Lite protocol header")
                     relay.accepted = True
                     relay.observed.set()
                     if not relay.forwarding:
@@ -141,6 +160,8 @@ class AuditRelay:
                         "Accept": "text/event-stream",
                         "User-Agent": "locus-audit-relay/1",
                     }
+                    if lite:
+                        headers["X-OpenAI-Internal-Codex-Responses-Lite"] = "true"
                     for name in (
                         "User-Agent",
                         "Originator",
@@ -181,7 +202,7 @@ class AuditRelay:
                             "Audit upstream did not return success; no redirect/retry"
                         )
                     content_type = response.getheader("Content-Type", "")
-                    if not content_type.startswith("text/event-stream"):
+                    if content_type.split(";", 1)[0].strip().lower() != "text/event-stream":
                         raise SafetyError("Audit upstream response format rejected")
                     self.send_response(200)
                     self.send_header("Content-Type", "text/event-stream")

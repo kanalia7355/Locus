@@ -1,5 +1,12 @@
 # Dedicated audit service preparation
 
+Current hold2026-11-02: Responses Lite native tests invalidated the old top-level
+zero-tool receipt. The audit service is intentionally stopped. Do not restart,
+re-enrol or rerun model trials using these earlier preparation steps. Credentials
+and records are preserved. ADR0011 requires an owner-selected boundary and new
+implementation/deployment proof before resuming. App preparation services remain
+Running; automatic review/merge is not active.
+
 This adds the owner-approved ADR0009 audit account and ADR0010 encrypted model
 login storage. It does not replace either deployed App service or enable merging.
 Use only an independently reviewed package built from a clean committed tree.

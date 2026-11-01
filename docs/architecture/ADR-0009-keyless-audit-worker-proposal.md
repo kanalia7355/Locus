@@ -9,6 +9,13 @@ Administrator deployment and authentication enrolment require the concrete,
 audited package described below; production activation remains separately held.
 This does not activate signing, automatic merge or product development.
 
+2026-11-02 correction: native Responses Lite tests found embedded tool declarations
+missed by the preparation validator. Earlier zero-tool receipts are insufficient
+for activation. [ADR0011](ADR-0011-model-facing-zero-tool-gate-proposal.md) proposes
+a model-facing gate while retaining a populated native registry. That refinement
+requires owner decision; it is not yet an accepted replacement for the empty
+tool-surface boundary specified here. Keep real inference/review/merge held.
+
 ## Problem established after preparation deployment
 
 Both dedicated App services now run with separate Windows identities and working
