@@ -81,6 +81,45 @@ def assess(
         "Fresh Merge App policy probe." if remote else "No live App probe requested.",
         "Authenticate the repo-only Merge installation and read protection.",
     )
+    preparation = remote.get("preparation", {})
+
+    def prepared_role(role: str) -> bool:
+        registration = preparation.get(role, {}).get("registration", {})
+        health = preparation.get(role, {}).get("health", {})
+        return (
+            remote.get(role + "_authenticated") is True
+            and registration.get("role") == health.get("role") == role
+            and bool(registration.get("identity"))
+            and registration.get("identity") == health.get("identity")
+            and all(
+                registration.get(key) is True
+                for key in (
+                    "running",
+                    "system_owned",
+                    "exact_control_acl",
+                    "operator_cannot_reconfigure",
+                )
+            )
+            and all(
+                health.get(key) is True
+                for key in (
+                    "key_present",
+                    "isolated_account",
+                    "cross_role_key_absent",
+                    "other_state_denied",
+                    "source_write_denied",
+                )
+            )
+            and health.get("activated") is False
+        )
+
+    prepared = bool(preparation) and all(prepared_role(role) for role in ("review", "merge"))
+    add(
+        "preparation_services",
+        prepared,
+        "Fresh registration, denied mutation capability, health and App service probes.",
+        "Deploy and verify both isolated prepare services; observation never imports a key.",
+    )
     observation = remote.get("policy", {})
     add(
         "remote_protection",
@@ -118,8 +157,10 @@ def assess(
     for identity, evidence, action in (
         (
             "isolated_signer",
-            "No isolated, pinned service deployment is connected.",
-            "Deploy pinned isolated services; provision keys there and prove denied access.",
+            "Prepare-only services are verified; production signing authority is not connected."
+            if prepared
+            else "No verified isolated preparation deployment is connected.",
+            "Connect audited production authority and resolve legacy key custody.",
         ),
         (
             "controller_broker_connection",

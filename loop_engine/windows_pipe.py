@@ -243,11 +243,11 @@ class Native:
         if actual != wanted:
             raise SafetyError("Service endpoint grants unexpected rights")
 
-    def security(self, handle: Any) -> tuple[str, int, list[tuple[str, int, int]]]:
+    def security(self, handle: Any, kind: int = 6) -> tuple[str, int, list[tuple[str, int, int]]]:
         owner_pointer, acl, descriptor = (ctypes.c_void_p() for _ in range(3))
         if self.advapi.GetSecurityInfo(
             handle,
-            6,
+            kind,
             5,
             ctypes.byref(owner_pointer),
             None,

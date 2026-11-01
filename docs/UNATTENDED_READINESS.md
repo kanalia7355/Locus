@@ -28,8 +28,8 @@ head/base/policyに対する即時squashを使う。準備中の予約マージ�
 | R08 | mainとロックの更新者をMerge Appに限定。別のCI・レビュー保護を迂回しない | 提案・読取あり。実設定と代替経路の拒否実証が必要 |
 | R09 | リポジトリ全体の原子的ロック。時間経過やプロセス終了だけで解放しない | mutex/journalと模擬障害試験 |
 | R10 | ロック中に全gateを再取得。即時squash後にApp実行者・単一親base・main結果を確認 | transportコア。実経路は未配備 |
-| R11 | 鍵を持つサービスの隔離、監査済みソース固定、ReviewへのMerge鍵非開示 | 準備モード・専用Python・管理者installerを実装/ソース監査済み。**実配備・別SID実証待ち** |
-| R12 | Review→Brokerのpolicy通信は固定操作・認証・鮮度検証付き | SID認証pipeと固定policy操作を実装。同一SIDのkernel試験済み。**別SID・実policy通信は未実証** |
+| R11 | 鍵を持つサービスの隔離、監査済みソース固定、ReviewへのMerge鍵非開示 | **準備サービスの別SID実配備・SCM制御拒否・FS隔離・鍵移送・再起動後認証を実証**。本番署名authorityと旧鍵コピー整理は残件 |
+| R12 | Review→Brokerのpolicy通信は固定操作・認証・鮮度検証付き | operator→Mergeサービスの実policy読取と鮮度/応答照合を実証。**Reviewサービスからの接続は未実装** |
 | R13 | Controllerの残時間・取消をサービスにも強制。終了不明・書込み不明を再実行しない | 準備workerのdeadline/取消/Jobと取込みintentを実装。**公開/mergeのController接続が必要** |
 | R14 | 承認した旧/新仕様だけを版管理移行。受け入れ条件・QA・上限・履歴・試行・予算を保持 | 移行コア・CLI・競合/中断試験・独立監査済み。実状態未移行 |
 | R15 | 最新main再評価、根拠・再現・効果・受け入れ条件のある不足だけを重複なくタスク化 | Developmentコアは既存。現設定は無効・旧base |
@@ -45,11 +45,12 @@ head/base/policyに対する即時squashを使う。準備中の予約マージ�
 管理者操作が可能との所有者回答を受領。現在のエージェント端末は非管理者のまま。
 準備配備の具体的な手順は [WINDOWS_SERVICE_SETUP.md](WINDOWS_SERVICE_SETUP.md)。
 管理者操作の可否は、配備済み・稼働承認済みを意味しない。
-初回 accounts 停止後の所有者による部分復旧は services まで進んだ。両アカウントと
-runtime/設定/状態ACLは存在するがサービス未作成・鍵未移送。PSCredential の
-ユーザー名欠落を再現・修正し、[登録完了手順](WINDOWS_SERVICE_COMPLETION.md)を準備。
-両パスワードは保持しておらず、既存状態と両SIDを固定した未使用アカウントだけを
-対象にする。無条件再実行は禁止し、実起動・隔離・永続化は引き続き未実証。
+所有者による [登録完了手順](WINDOWS_SERVICE_COMPLETION.md) が成功した。
+両サービス Running、別SID、固定runtime、SYSTEM所有SCMと正確な制御ACL、通常operator
+による再設定/削除/ACL/所有者変更の拒否を確認した。両鍵を各サービスのCredential Managerへ
+移送し、サービス停止→起動後も鍵再送なしの認証が成功。policy読取も成功した。
+モードは prepare、activated=false。旧operator vault と GitHub Secretsのコピーは削除していない。
+詳細は [実配備証拠](reviews/2026-11-01-preparation-services-live.md)。旧ブロックは再実行しない。
 
 1. 隔離サービス、保護DBの証拠読取、認証付きpolicy通信、取消可能なController接続を完成させる。
    ReviewサービスにはMerge Appクライアントを渡さない。
@@ -70,6 +71,9 @@ runtime/設定/状態ACLは存在するがサービス未作成・鍵未移送�
 
 SQLiteはread-onlyで参照する。初期化・移行、レビュー公開、保護変更、ロック作成、マージ、
 Controller起動は行わない。`ready_for_activation_approval=false` なら稼働完了扱いにしない。
+live観測は両サービスの固定health/verify/policyを使い、operator側のApp秘密鍵を読まない。
+ghはoperator端末で対象PRの固定読取だけを行い、OAuthをサービスに渡さない。
+`preparation_services` 成功と、本番 `isolated_signer` / Controller接続は別gateである。
 
 移行案は旧/新の5文書を含むJSONに対する `migration-plan --file <path>` で準備する。
 `migration-apply <id>` は所有者の完全一致する承認を要求する。今回は実状態の承認・適用を

@@ -25,12 +25,21 @@ class ServiceClient:
     ) -> dict[str, Any]:
         if role not in ROLES or not 0 < timeout <= 300:
             raise SafetyError("Fixed role and bounded service window required")
+        if cancelled():
+            raise SafetyError("Service request cancelled before registration check")
+        from loop_engine.service_inspection import inspect_registration
+
+        deadline = time.monotonic() + timeout
+        inspect_registration(self.deployment, role, timeout=timeout, cancelled=cancelled)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 or cancelled():
+            raise SafetyError("Service registration check exceeded request window")
         answer = request(
             "Locus-" + role + "-v1",
             self.deployment.settings["roles"][role]["sid"],
             self.deployment.clients(role),
-            {"deadline_monotonic": time.monotonic() + timeout, "body": body},
-            timeout=timeout,
+            {"deadline_monotonic": deadline, "body": body},
+            timeout=remaining,
             cancelled=cancelled,
         )
         if answer.get("status") in {"blocked", "uncertain"}:
