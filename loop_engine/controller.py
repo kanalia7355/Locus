@@ -70,6 +70,8 @@ class Controller:
         self.state.transition(task_id, task.status, target, error, version=task.version)
 
     def _context(self) -> dict[str, Any]:
+        if self.state.metadata("policy_migration_pending"):
+            raise SafetyError("Policy migration is unsettled; reconcile before model execution")
         snapshot = source_snapshot(self.root)
         if fingerprint(snapshot) != self.state.metadata("spec_hash"):
             raise SafetyError(

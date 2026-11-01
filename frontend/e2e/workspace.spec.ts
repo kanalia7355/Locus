@@ -99,6 +99,7 @@ test("attachments preserve draft, quarantine, remove, and share the drop path", 
   await page
     .getByRole("button", { name: "drop.mdを取り外す", exact: true })
     .click();
+  await expect(page.getByText("drop.md", { exact: true })).not.toBeVisible();
   await input.fill("成膜");
   await page.getByRole("button", { name: "送信", exact: true }).click();
   await expect(

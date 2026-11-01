@@ -17,7 +17,7 @@ from loop_engine.security import safe_environment
 class WindowsJob:
     """Assign a suspended process before resuming; close kills all descendants."""
 
-    def __init__(self) -> None:
+    def __init__(self, active_process_limit: int | None = None) -> None:
         import ctypes
         from ctypes import wintypes as w
 
@@ -66,6 +66,12 @@ class WindowsJob:
         self.handle = self.kernel.CreateJobObjectW(None, None)
         info = Extended()
         info.basic.flags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        if active_process_limit is not None:
+            if type(active_process_limit) is not int or active_process_limit != 1:
+                self.close()
+                raise OSError("Only single-process audit containment is supported")
+            info.basic.flags |= 0x8  # JOB_OBJECT_LIMIT_ACTIVE_PROCESS
+            info.basic.active = 1
         if not self.handle or not self.kernel.SetInformationJobObject(
             self.handle, 9, ctypes.byref(info), ctypes.sizeof(info)
         ):
@@ -152,6 +158,8 @@ class ProcessRunner:
         cancelled: Callable[[], bool] = lambda: False,
         model: bool = False,
         output_limit: int = 1_000_000,
+        output_observer: Callable[[int, bytes], None] | None = None,
+        active_process_limit: int | None = None,
     ) -> ProcessResult:
         if timeout <= 0 or not argv:
             return ProcessResult("unavailable", None)
@@ -165,11 +173,13 @@ class ProcessRunner:
         try:
             options: dict[str, Any] = {}
             if sys.platform == "win32":
-                job = WindowsJob()
+                job = WindowsJob(active_process_limit)
                 options["creationflags"] = (
                     0x00000004 | subprocess.CREATE_NO_WINDOW
                 )  # CREATE_SUSPENDED
             else:
+                if active_process_limit is not None:
+                    return ProcessResult("unavailable", None)
                 options["start_new_session"] = True
             process = subprocess.Popen(  # noqa: S603 — argv only, never shell
                 argv,
@@ -183,16 +193,25 @@ class ProcessRunner:
             if job:
                 job.attach_and_resume(process)
 
-            def read(stream: Any, buffer: bytearray) -> None:
-                while chunk := stream.read(4096):
+            def read(stream: Any, buffer: bytearray, channel: int) -> None:
+                reader = stream.read1 if output_observer is not None else stream.read
+                while chunk := reader(4096):
                     if len(buffer) + len(chunk) > output_limit:
                         exceeded.set()
                     if len(buffer) < output_limit:
                         buffer.extend(chunk[: output_limit - len(buffer)])
+                    if output_observer is not None and not exceeded.is_set():
+                        try:
+                            output_observer(channel, chunk)
+                        except Exception:
+                            # Contain the consumer without a thread traceback.
+                            exceeded.set()
 
             readers = [
-                threading.Thread(target=read, args=(stream, buffer), daemon=True)
-                for stream, buffer in zip((process.stdout, process.stderr), buffers, strict=True)
+                threading.Thread(target=read, args=(stream, buffer, channel), daemon=True)
+                for channel, (stream, buffer) in enumerate(
+                    zip((process.stdout, process.stderr), buffers, strict=True)
+                )
             ]
             for reader in readers:
                 reader.start()
