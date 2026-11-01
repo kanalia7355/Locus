@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 import sys
 
 from loop_engine.service_identity import Deployment
@@ -9,11 +10,18 @@ from loop_engine.service_identity import Deployment
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--role", choices=("review", "merge"), required=True)
+    parser.add_argument("--role", choices=("review", "merge", "audit"), required=True)
     parser.add_argument("--manifest-hash", required=True)
     parser.add_argument("--worker", action="store_true")
     args = parser.parse_args()
-    deployment = Deployment(args.manifest_hash)
+    deployment: Deployment
+    if args.role == "audit":
+        from loop_engine.audit_identity import AuditDeployment
+
+        deployment = AuditDeployment(args.manifest_hash)
+        os.environ["CODEX_HOME"] = str(deployment.state / "home")
+    else:
+        deployment = Deployment(args.manifest_hash)
     deployment.require_role(args.role)
     if not args.worker:
         from loop_engine.service_host import scm
@@ -29,9 +37,21 @@ def main() -> int:
         return 2
     try:
         request = bounded_json(raw.decode("utf-8"), maximum=65536)
-        if not isinstance(request, dict) or set(request) != {"peer", "body"}:
+        fields = (
+            {"peer", "body", "deadline_monotonic"} if args.role == "audit" else {"peer", "body"}
+        )
+        if not isinstance(request, dict) or set(request) != fields:
             return 2
-        result = dispatch(deployment, args.role, request["peer"], request["body"])
+        if args.role == "audit":
+            from loop_engine.audit_service_worker import dispatch as audit_dispatch
+
+            if not isinstance(deployment, AuditDeployment):
+                return 2
+            result = audit_dispatch(
+                deployment, request["peer"], request["body"], deadline=request["deadline_monotonic"]
+            )
+        else:
+            result = dispatch(deployment, args.role, request["peer"], request["body"])
         print(json.dumps(result))
         return 0
     except AppConnectionError as error:

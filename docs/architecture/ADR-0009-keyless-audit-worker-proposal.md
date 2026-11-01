@@ -1,6 +1,10 @@
 # ADR 0009 — Keyless audit worker proposal
 
 Status: ACCEPTED for design/implementation by owner reply on2026-11-01.
+Authentication storage refinement: owner-approved [ADR0010](ADR-0010-encrypted-audit-auth-proposal.md)
+replaces direct OS storage of the entire model login with a standard encrypted
+audit-only cache and OS-stored encryption key, because the Windows direct-entry
+capacity probe fails. GitHub App key storage and identity separation are unchanged.
 Administrator deployment and authentication enrolment require the concrete,
 audited package described below; production activation remains separately held.
 This does not activate signing, automatic merge or product development.

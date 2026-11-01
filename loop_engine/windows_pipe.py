@@ -37,7 +37,7 @@ class _AclSize(ctypes.Structure):
 
 
 def pipe_name(name: str) -> str:
-    if not re.fullmatch(r"Locus-(?:review-v1|merge-v1|test-[0-9a-f]{32})", name):
+    if not re.fullmatch(r"Locus-(?:review-v1|merge-v1|audit-v1|test-[0-9a-f]{32})", name):
         raise SafetyError("Unsupported local service endpoint")
     return "\\\\.\\pipe\\" + name
 

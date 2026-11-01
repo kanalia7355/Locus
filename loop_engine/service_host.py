@@ -11,7 +11,7 @@ from typing import Any
 
 from loop_engine.process import ProcessRunner
 from loop_engine.security import SafetyError
-from loop_engine.service_identity import DEPLOYMENT_ROOT, ROLES, Deployment
+from loop_engine.service_identity import Deployment
 from loop_engine.windows_pipe import Native, ServiceIdentityLost, serve_once
 
 
@@ -41,8 +41,14 @@ def handle(
             "--manifest-hash",
             deployment.identity,
         ],
-        DEPLOYMENT_ROOT / "state" / role,
-        stdin=json.dumps({"peer": peer, "body": document["body"]}),
+        deployment.state_directory(role),
+        stdin=json.dumps(
+            {
+                "peer": peer,
+                "body": document["body"],
+                **({"deadline_monotonic": deadline} if role == "audit" else {}),
+            }
+        ),
         timeout=min(300, deadline - time.monotonic()),
         cancelled=stopped.is_set,
         output_limit=65536,
@@ -76,13 +82,74 @@ def handle(
 
 def serve(deployment: Deployment, role: str, stopped: threading.Event) -> None:
     deployment.require_role(role)
+    enrollment: Any = None
+    if role == "audit":
+        from loop_engine.audit_enrollment import Enrollment
+
+        def authentication_preflight() -> None:
+            result = handle(
+                deployment,
+                role,
+                deployment.settings["operator_sid"],
+                {"deadline_monotonic": enrollment.deadline, "body": {"operation": "preflight"}},
+                stopped,
+            )
+            if (
+                any(
+                    result.get(key) is not True
+                    for key in (
+                        "keyring_verified",
+                        "zero_tools_verified",
+                        "plaintext_cache_absent",
+                        "log_writes_denied",
+                    )
+                )
+                or result.get("activated") is not False
+            ):
+                raise SafetyError("Actual audit authentication preflight failed")
+
+        from loop_engine.audit_auth_state import AuthState
+
+        enrollment = Enrollment(
+            deployment.runtime / "codex.exe",
+            deployment.state_directory(role) / "empty",
+            preflight=authentication_preflight,
+            stopped=stopped.is_set,
+            authentication=AuthState(deployment.state_directory(role) / "home"),
+        )
+
+    def dispatch(peer: str, document: dict[str, Any]) -> dict[str, Any]:
+        body = document.get("body", {})
+        if (
+            role == "audit"
+            and isinstance(body, dict)
+            and body.get("operation") in {"enroll_start", "enroll_poll", "enroll_cancel"}
+        ):
+            if (
+                set(document) != {"deadline_monotonic", "body"}
+                or set(body) != {"operation"}
+                or peer != deployment.settings["operator_sid"]
+                or type(document["deadline_monotonic"]) not in {int, float}
+                or not 0 < document["deadline_monotonic"] - time.monotonic() <= 300
+                or stopped.is_set()
+            ):
+                raise SafetyError("Owner-only bounded private authentication UI required")
+            if body["operation"] == "enroll_start":
+                return enrollment.start(document["deadline_monotonic"])  # type: ignore[no-any-return]
+            if body["operation"] == "enroll_poll":
+                return enrollment.poll()  # type: ignore[no-any-return]
+            return enrollment.cancel()  # type: ignore[no-any-return]
+        if role == "audit" and enrollment.thread is not None and enrollment.thread.is_alive():
+            raise SafetyError("Owner authentication is in progress; no overlapping worker")
+        return handle(deployment, role, peer, document, stopped)
+
     failures = 0
     while not stopped.is_set():
         try:
             serve_once(
                 "Locus-" + role + "-v1",
                 deployment.clients(role),
-                lambda peer, data: handle(deployment, role, peer, data, stopped),
+                dispatch,
                 timeout=300,
                 cancelled=stopped.is_set,
             )
@@ -133,7 +200,7 @@ def scm(deployment: Deployment, role: str) -> None:
     advapi.StartServiceCtrlDispatcherW.restype = w.BOOL
     stopped = threading.Event()
     status_handle: Any = None
-    service_name = ROLES[role][0]
+    service_name = deployment.settings["roles"][role]["service"]
 
     def report(state: int, error: int = 0) -> None:
         status = Status(

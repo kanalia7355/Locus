@@ -192,3 +192,8 @@ class Deployment:
         if role == "merge":
             values.add(self.settings["roles"]["review"]["sid"])
         return values
+
+    def state_directory(self, role: str) -> Path:
+        if role not in ROLES:
+            raise SafetyError("Fixed preparation role required")
+        return DEPLOYMENT_ROOT / "state" / role

@@ -18,6 +18,15 @@ from loop_engine.process import ProcessRunner
 from loop_engine.schemas import SCHEMAS, validate
 from loop_engine.security import SafetyError, reject_secrets
 
+# CLI0.166.0 reports its intentionally disabled executor as an item diagnostic
+# before starting a text-only turn. This exact notice grants no tool capability;
+# all other error items, and this notice during a turn, still fail closed.
+DISABLED_EXECUTOR_NOTICE = (
+    "Code Mode is unavailable because code-mode host is disabled. "
+    "Code mode will fail closed; enable `features.code_mode_host` "
+    "and install `codex-code-mode-host`."
+)
+
 
 def contract_artifacts() -> dict[str, bytes]:
     """Build-time only; the worker writes no schema/config file at invocation."""
@@ -111,8 +120,15 @@ class AuditCodexModel:
             "--output-schema",
             str(self.contracts / "review.transport.schema.json"),
         ]
-        for feature in (*DISABLED, "shell_tool", "enable_request_compression"):
+        for feature in (
+            *DISABLED,
+            "shell_tool",
+            "enable_request_compression",
+            "responses_websockets",
+            "responses_websockets_v2",
+        ):
             argv.extend(["--disable", feature])
+        argv.extend(["--enable", "secret_auth_storage"])
         argv.append("-")
         outcome = self.process.run(
             self.boundary.command(argv),
@@ -130,6 +146,7 @@ class AuditCodexModel:
             cancelled=cancelled,
             model=True,
             output_limit=1024 * 1024,
+            active_process_limit=1,
         )
         remaining()
         if outcome.outcome != "exit" or outcome.returncode != 0:
@@ -137,6 +154,7 @@ class AuditCodexModel:
             raise SafetyError("Audit model did not complete; execution remains reserved")
         final: dict[str, Any] | None = None
         phase = 0
+        disabled_executor_notice = False
         try:
             for line in outcome.stdout.splitlines():
                 event = _json(line)
@@ -151,6 +169,17 @@ class AuditCodexModel:
                     phase = 3
                     continue
                 item = event.get("item")
+                if (
+                    phase == 1
+                    and not disabled_executor_notice
+                    and kind == "item.completed"
+                    and isinstance(item, dict)
+                    and item.get("type") == "error"
+                    and item.get("message") == DISABLED_EXECUTOR_NOTICE
+                    and set(item) == {"id", "type", "message"}
+                ):
+                    disabled_executor_notice = True
+                    continue
                 if (
                     phase == 2
                     and isinstance(item, dict)

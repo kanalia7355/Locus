@@ -36,3 +36,16 @@ auto-merge capability, but do not merge or queue a future-head authorization
 until trusted independent review, exact source/policy binding and base-concurrency
 guarantees are established. See `../operations/SAFE_AUTO_MERGE_SETUP.md`. No
 controller approval is fabricated and no immutable plan/counter is reset.
+
+## Consolidated completion instruction — 2026-11-01
+
+The operator explicitly requested completing automatic review/merge as one batch,
+authorized automatic merges, and asked to move to product development promptly.
+This is standing authorization for the approved ADR0007/0008/0009 design and its
+conditional merge path; do not request that same merge permission again.
+Complete implementation, audited deployment, authenticated independent review,
+required checks and exact-bound merge proofs before enabling that path. It is
+not permission to bypass missing engineering gates or fabricate approval of a
+different Goal, source hash or architecture. Any unavoidable administrator/device
+login work must be consolidated into concrete verified instructions. Existing
+product acceptance, confidentiality boundaries and execution limits stay intact.

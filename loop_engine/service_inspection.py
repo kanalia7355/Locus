@@ -11,6 +11,8 @@ from loop_engine.security import SafetyError
 from loop_engine.service_identity import DEPLOYMENT_ROOT, ROLES, Deployment
 from loop_engine.windows_pipe import Native
 
+SERVICE_NAMES = {role: values[0] for role, values in ROLES.items()} | {"audit": "LocusLoopAuditV1"}
+
 
 class _Config(ctypes.Structure):
     _fields_ = [
@@ -36,7 +38,7 @@ class _Status(ctypes.Structure):
 def require_registration(
     deployment: Deployment, role: str, facts: dict[str, Any]
 ) -> dict[str, Any]:
-    if role not in ROLES:
+    if role not in SERVICE_NAMES:
         raise SafetyError("Fixed preparation role required")
     item = deployment.settings["roles"][role]
     expected_binary = (
@@ -49,6 +51,8 @@ def require_registration(
         "S-1-5-32-544": 0xF01FF,
         deployment.settings["operator_sid"]: 0x200B5,
     }
+    if role == "audit":
+        wanted[deployment.settings["review_sid"]] = 0x20005
     entries = facts["entries"]
     actual = {identity: mask for identity, mask, flags in entries if flags == 0}
     if (
@@ -76,10 +80,13 @@ def require_registration(
 
 
 def _inspect_registration(deployment: Deployment, role: str) -> dict[str, Any]:
-    if role not in ROLES:
+    if role not in SERVICE_NAMES:
         raise SafetyError("Fixed preparation role required")
     native = Native()
-    if native.current_sid() != deployment.settings["operator_sid"]:
+    readers = {deployment.settings["operator_sid"]}
+    if role == "audit":
+        readers.add(deployment.settings["review_sid"])
+    if native.current_sid() not in readers:
         raise SafetyError("Configured nonprivileged operator required")
     api = native.advapi
     api.OpenSCManagerW.argtypes, api.OpenSCManagerW.restype = (
@@ -99,7 +106,7 @@ def _inspect_registration(deployment: Deployment, role: str) -> dict[str, Any]:
         raise SafetyError("Local SCM read unavailable")
     handle = None
     try:
-        name = ROLES[role][0]
+        name = SERVICE_NAMES[role]
         handle = api.OpenServiceW(manager, name, 0x20005)  # READ_CONTROL/config/status only.
         if not handle:
             raise SafetyError("Preparation service not registered or not readable")
@@ -153,7 +160,7 @@ def inspect_registration(
     from loop_engine.planning import bounded_json
     from loop_engine.process import ProcessRunner
 
-    if role not in ROLES or not 0 < timeout <= 300 or cancelled():
+    if role not in SERVICE_NAMES or not 0 < timeout <= 300 or cancelled():
         raise SafetyError("Bounded active registration inspection required")
     result = ProcessRunner().run(
         [
@@ -194,11 +201,17 @@ def main() -> int:
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--role", choices=tuple(ROLES), required=True)
+    parser.add_argument("--role", choices=tuple(SERVICE_NAMES), required=True)
     parser.add_argument("--identity", required=True)
     args = parser.parse_args()
     try:
-        print(json.dumps(_inspect_registration(Deployment(args.identity), args.role)))
+        if args.role == "audit":
+            from loop_engine.audit_identity import AuditDeployment
+
+            deployment: Deployment = AuditDeployment(args.identity)
+        else:
+            deployment = Deployment(args.identity)
+        print(json.dumps(_inspect_registration(deployment, args.role)))
         return 0
     except Exception:
         print('{"status":"blocked","reason":"registration_not_verified"}')

@@ -5,7 +5,11 @@ import json
 import pytest
 from test_loop_audit_spool import findings, packet
 
-from loop_engine.audit_execution import AuditCodexModel, contract_artifacts
+from loop_engine.audit_execution import (
+    DISABLED_EXECUTOR_NOTICE,
+    AuditCodexModel,
+    contract_artifacts,
+)
 from loop_engine.audit_packet import decode
 from loop_engine.process import ProcessResult
 from loop_engine.security import SafetyError
@@ -97,6 +101,25 @@ def test_default_boundary_never_executes_or_reuses_operator_auth(tmp_path):
     with pytest.raises(SafetyError, match="not proven"):
         runner.review(value, timeout=10, cancelled=lambda: False)
     assert not process.calls
+
+
+def test_exact_disabled_executor_notice_is_not_a_failed_turn(tmp_path):
+    stream = events()
+    notice = {
+        "type": "item.completed",
+        "item": {
+            "id": "item_0",
+            "type": "error",
+            "message": DISABLED_EXECUTOR_NOTICE,
+        },
+    }
+    stream.insert(1, notice)
+    runner, _, _, value = setup(tmp_path, Process(stream))
+    assert runner.review(value, timeout=10, cancelled=lambda: False) == findings()
+    for invalid in (events()[:2] + [notice] + events()[2:], [*stream[:2], notice, *stream[2:]]):
+        runner.process.values = invalid
+        with pytest.raises(SafetyError):
+            runner.review(value, timeout=10, cancelled=lambda: False)
 
 
 @pytest.mark.parametrize("name", list(contract_artifacts()))
