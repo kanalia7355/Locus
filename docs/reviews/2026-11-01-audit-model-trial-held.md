@@ -26,3 +26,28 @@ including unchanged file snapshots and suppression of extra record fields.
 Ruff and secret scanning passed. Independent read-only security review passed
 with no findings and no fix/re-review cycle. This review authorizes no mutation
 or retry. Actual private lifecycle state remains unverified until owner execution.
+
+## Diagnostic correction
+
+Owner execution of the first diagnostic returned MethodInvocationException,
+HRESULT 0x80131501. No stage or inner error was available, so the exact cause
+remains unconfirmed. Source inspection shows service-created lifecycle files
+inherit only the audit Modify ACE: SYSTEM/Administrators full-control ACEs on
+the containing directory do not propagate. Ordinary administrator File.Open may
+therefore fail. Do not widen ACLs to compensate.
+
+The corrected reader opens only the same four fixed nonsecret records. On access
+denied only, an already elevated administrator may temporarily enable its existing
+SeBackupPrivilege, open a read-only backup-semantics handle and restore the prior
+token privilege before reading. It rejects reparse/directory handles and changed
+final paths, caps reads at 8192 bytes and never opens credential files or stores.
+This follows the [Windows backup access mechanism](https://learn.microsoft.com/en-us/windows/win32/fileio/file-security-and-access-rights).
+Neither ACLs nor persistent service/authentication state are changed.
+
+Finite stage/record fields and a bounded exception type/HRESULT chain now identify
+future failures without exception messages, file contents or traces. Actual
+PowerShell/native synthetic tests passed, including credential filename rejection,
+oversized record rejection, field filtering and unchanged file snapshots. The
+administrator backup fallback itself has not been exercised by the non-admin
+agent. Diagnostic fix/re-review cycle1 passed with no findings. Original inference
+and authentication holds remain intact; no replay or reset is authorized here.

@@ -41,7 +41,12 @@ def test_read_only_diagnostic_filters_nonsecret_record_fields(tmp_path):
     body = body.replace(
         "'C:\\ProgramData\\LocusLoopAuditV1'", "'" + str(fixture).replace("'", "''") + "'"
     )
+    body = body.replace('@"C:\\ProgramData\\LocusLoopAuditV1\\state"', '@"' + str(state) + '"')
     script = tmp_path / "synthetic-diagnostic.ps1"
+    body += (
+        "\n$rejected=$false;try {[LocusAuditRecordReaderV1]::Read('auth.json')}"
+        " catch {$rejected=$true};if(-not $rejected){throw 'Credential filename admitted'}\n"
+    )
     script.write_text(body, encoding="utf-8")
     before = {p: p.read_bytes() for p in fixture.rglob("*") if p.is_file()}
     result = ProcessRunner().run(
@@ -58,4 +63,21 @@ def test_read_only_diagnostic_filters_nonsecret_record_fields(tmp_path):
     assert phases["synthetic-model-proof.json"] == "started"
     assert phases["keyring-probe.json"] == "unknown"
     assert "synthetic-field-must-not-be-displayed" not in result.stdout
+    assert before == {p: p.read_bytes() for p in fixture.rglob("*") if p.is_file()}
+    # Reject an oversized nonsecret fixture with useful, bounded diagnostics,
+    # without forwarding file contents or changing anything.
+    (state / "home-authentication.json").write_bytes(b"x" * 9000)
+    before = {p: p.read_bytes() for p in fixture.rglob("*") if p.is_file()}
+    rejected = ProcessRunner().run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-File", str(script)],
+        tmp_path,
+        timeout=20,
+    )
+    assert rejected.returncode == 2
+    failure = json.loads(rejected.stdout)
+    assert failure["stage"] == "nonsecret_record_read"
+    assert failure["record"] == "home-authentication.json"
+    assert 0 < len(failure["error_chain"]) <= 8
+    assert all(set(entry) == {"error_type", "hresult"} for entry in failure["error_chain"])
+    assert "x" * 20 not in rejected.stdout
     assert before == {p: p.read_bytes() for p in fixture.rglob("*") if p.is_file()}
