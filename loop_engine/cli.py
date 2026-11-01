@@ -167,6 +167,10 @@ def parser() -> argparse.ArgumentParser:
     service_bundle = commands.add_parser("service-bundle")
     service_bundle.add_argument("--recover-partial-from")
     service_bundle.add_argument("--review-sid")
+    completion_bundle = commands.add_parser("service-completion-bundle")
+    completion_bundle.add_argument("--active-manifest", required=True)
+    completion_bundle.add_argument("--review-sid", required=True)
+    completion_bundle.add_argument("--merge-sid", required=True)
     commands.add_parser("service-health")
     commands.add_parser("service-policy")
     service_import = commands.add_parser("service-provision")
@@ -271,22 +275,33 @@ def build_controller(root: Path, state: StateStore) -> Any:
 
 def run(args: argparse.Namespace) -> int:
     root = args.project.resolve()
-    if args.command == "service-bundle":
+    if args.command in {"service-bundle", "service-completion-bundle"}:
         from loop_engine.planning import bounded_json
         from loop_engine.process import ProcessRunner
-        from loop_engine.service_bundle import admin_command, recovery_request
+        from loop_engine.service_bundle import admin_command, completion_request, recovery_request
 
-        recovery = recovery_request(args.recover_partial_from, args.review_sid)
-        build_arguments = [sys.executable, "-m", "loop_engine.service_bundle", "--build", str(root)]
-        if recovery is not None:
-            build_arguments.extend(
-                [
-                    "--recover-partial-from",
-                    recovery["previous_manifest_sha256"],
-                    "--review-sid",
-                    recovery["review_sid"],
-                ]
-            )
+        build_arguments = [sys.executable, "-m", "loop_engine.service_bundle"]
+        if args.command == "service-completion-bundle":
+            completion = completion_request(args.active_manifest, args.review_sid, args.merge_sid)
+            build_arguments.extend(["--complete-services", str(root)])
+            for key, flag in (
+                ("active_manifest_sha256", "--active-manifest"),
+                ("review_sid", "--review-sid"),
+                ("merge_sid", "--merge-sid"),
+            ):
+                build_arguments.extend([flag, completion[key]])
+        else:
+            recovery = recovery_request(args.recover_partial_from, args.review_sid)
+            build_arguments.extend(["--build", str(root)])
+            if recovery is not None:
+                build_arguments.extend(
+                    [
+                        "--recover-partial-from",
+                        recovery["previous_manifest_sha256"],
+                        "--review-sid",
+                        recovery["review_sid"],
+                    ]
+                )
         built = ProcessRunner().run(
             build_arguments,
             root,

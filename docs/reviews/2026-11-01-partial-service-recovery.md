@@ -49,3 +49,45 @@ These tests do not execute password reset, account creation, protected intent
 creation/crash recovery, actual SCM startup, profile creation or vault persistence.
 The prepared recovery has not yet been executed by the owner. All live deployment,
 Controller, migration, merge proofs and final activation gates remain held.
+
+## Services-stage completion — final recovery cycle 2
+
+The owner ran the earlier partial recovery. It reached services after creating
+both accounts and the sealed runtime/settings/state. No dedicated service was
+present on read-only inspection; both LastLogon values remained null.
+
+The credential bug was reproduced in actual Windows PowerShell with a synthetic
+SecureString: the previous New-Object expression returns PSCredential type but
+UserName is null. The earlier type-only test was insufficient. Explicit
+PSCredential::new now preserves the username, tested for both roles and both
+installation paths without real credentials or service creation.
+
+The helper-only completion bundle uses immutable same-commit shared functions,
+native definitions and a completion template. Its new manifest pins the existing
+active artifact and both SIDs. The helper validates existing ACL policies,
+inventories, exact roles, canary-only state and prior intent before exclusively
+creating a new durable completion intent. It rechecks each unused identity before
+SID-only rotation and registers services using the existing artifact. It changes
+no prior runtime, settings, state or intent bytes/ACLs. The existing runtime source
+commit is not relabelled as the new helper source commit.
+
+Final source-only re-review cycle 2 accepted the correction and completion path
+with no blocking findings. Both recovery fix/re-review cycles are now exhausted.
+The reviewer did not execute tests, inspect deployed state or access credentials.
+The original preparation review remains closed; no activation is approved.
+
+Implementer verification: 54 focused tests passed, including 17 completion
+preflight scenarios batched in a synthetic fixture run with exact failure reasons
+and per-path ACL policies. Generated-helper parsing and sanitized diagnostics
+exclude an opaque exception-message sentinel and retain native code5. Final
+engine verifier/audit passed 289 tests with the same seven explicit skips,
+Ruff, native/Python3.11 typing, zero secret findings, dependency consistency and
+no known advisory findings (unpublished local engine is not in PyPI lookup).
+
+A non-admin read-only probe on the real active deployment validated its public
+sealed files/ACLs and identity predicates, then stopped at the expected protected
+old intent boundary. No rotation, service creation/start or key transfer occurred
+in that probe. Actual administrator completion, SCM/profile and vault persistence
+remain unverified. Windows QA image audit freshness expired during this work;
+the trusted manifest-only image build was re-run successfully for the new UTC day,
+without changing dependencies or substituting a timestamp-only receipt refresh.

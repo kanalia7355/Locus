@@ -214,6 +214,87 @@ def recovery_request(
     return {"previous_manifest_sha256": previous_manifest, "review_sid": review_sid}
 
 
+def completion_request(active_manifest: str, review_sid: str, merge_sid: str) -> dict[str, str]:
+    if (
+        recovery_request(active_manifest, review_sid) is None
+        or recovery_request(active_manifest, merge_sid) is None
+        or review_sid == merge_sid
+    ):
+        raise BundleError("Service completion requires distinct pinned role SIDs")
+    return {
+        "active_manifest_sha256": active_manifest,
+        "review_sid": review_sid,
+        "merge_sid": merge_sid,
+    }
+
+
+def completion_script(installer: bytes, template: bytes) -> bytes:
+    source = installer.decode("utf-8")
+    body = template.decode("utf-8")
+    functions = source[source.index("function Assert-RegularPath") : source.index("\ntry {\n")]
+    native = re.findall(r"Add-Type -TypeDefinition @'\n(.*?)\n'@", source, re.DOTALL)
+    if (
+        len(native) != 1
+        or body.count("# LOCUS_SHARED_FUNCTIONS") != 1
+        or body.count("    # LOCUS_SHARED_NATIVE") != 1
+    ):
+        raise BundleError("Committed completion template boundaries differ")
+    return (
+        body.replace("# LOCUS_SHARED_FUNCTIONS", functions)
+        .replace(
+            "    # LOCUS_SHARED_NATIVE", "    Add-Type -TypeDefinition @'\n" + native[0] + "\n'@"
+        )
+        .encode("utf-8")
+    )
+
+
+def completion_bundle(
+    root: Path, active_manifest: str, review_sid: str, merge_sid: str
+) -> dict[str, Any]:
+    from loop_engine.process import ProcessRunner
+    from loop_engine.windows_pipe import Native
+
+    pins = completion_request(active_manifest, review_sid, merge_sid)
+    root = root.resolve()
+
+    def git(args: list[str]) -> str:
+        result = ProcessRunner().run(["git", *args], root, timeout=20, output_limit=1_000_000)
+        if result.outcome != "exit" or result.returncode:
+            raise BundleError("Committed completion source unavailable")
+        return result.stdout
+
+    if git(["status", "--porcelain"]):
+        raise BundleError("Commit and review completion source first")
+    commit = git(["rev-parse", "HEAD"]).strip()
+    if not re.fullmatch(r"[a-f0-9]{40}", commit):
+        raise BundleError("Exact completion source commit required")
+    script = completion_script(
+        git(["show", commit + ":scripts/Install-LocusLoopServices.ps1"]).encode(),
+        git(["show", commit + ":scripts/Complete-LocusLoopServices.ps1"]).encode(),
+    )
+    directory = root / ".loop/runtime/service-completions" / uuid4().hex
+    directory.mkdir(parents=True, exist_ok=False)
+    (directory / "Install-LocusLoopServices.ps1").write_bytes(script)
+    manifest = {
+        "protocol": "locus-service-completion-v1",
+        "source_commit": commit,
+        "source_clean": True,
+        "project_root": str(root),
+        "operator_sid": Native().current_sid(),
+        "service_completion": pins,
+        "installer_sha256": hashlib.sha256(script).hexdigest(),
+    }
+    raw = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
+    (directory / "manifest.json").write_bytes(raw)
+    return {
+        "bundle": str(directory),
+        "manifest_sha256": hashlib.sha256(raw).hexdigest(),
+        "deployed_manifest_sha256": active_manifest,
+        "source_commit": commit,
+        "activated": False,
+    }
+
+
 def build(
     root: Path, previous_manifest: str | None = None, review_sid: str | None = None
 ) -> dict[str, Any]:
@@ -342,9 +423,25 @@ def main() -> int:
     actions = parser.add_mutually_exclusive_group(required=True)
     actions.add_argument("--fetch-wheels", type=Path)
     actions.add_argument("--build", type=Path)
+    actions.add_argument("--complete-services", type=Path)
     parser.add_argument("--recover-partial-from")
     parser.add_argument("--review-sid")
+    parser.add_argument("--merge-sid")
+    parser.add_argument("--active-manifest")
     args = parser.parse_args()
+    if args.complete_services:
+        if args.recover_partial_from is not None:
+            parser.error("Completion cannot rerun partial recovery")
+        print(
+            json.dumps(
+                completion_bundle(
+                    args.complete_services, args.active_manifest, args.review_sid, args.merge_sid
+                )
+            )
+        )
+        return 0
+    if args.merge_sid is not None or args.active_manifest is not None:
+        parser.error("Completion pins require --complete-services")
     if args.build:
         print(json.dumps(build(args.build, args.recover_partial_from, args.review_sid)))
         return 0

@@ -93,22 +93,40 @@ function Assert-PrivateAcl([string]$Path) {
     }
 }
 
-function Assert-RecoveryAccount($User, [string]$ExpectedSid, [bool]$ProfilePresent, [bool]$InUse) {
-    if ($null -eq $User -or $User.Name -ne 'locus_loop_review' -or
+function Write-SafeSetupFailure([string]$Stage, [Exception]$Failure) {
+    $result = @{ installed = $false; activated = $false; stage = $Stage;
+        reason = 'setup_failed_preserve_partial_state'; error_type = $Failure.GetType().Name;
+        hresult = ('0x' + $Failure.HResult.ToString('x8')); native_error_code = $null }
+    $cursor = $Failure
+    for ($index = 0; $index -lt 8 -and $null -ne $cursor; $index++) {
+        if ($cursor -is [ComponentModel.Win32Exception]) {
+            $result.native_error_code = $cursor.NativeErrorCode
+            break
+        }
+        $cursor = $cursor.InnerException
+    }
+    [Console]::Error.WriteLine(($result | ConvertTo-Json -Compress))
+}
+
+function Assert-RecoveryAccount($User, [string]$ExpectedSid, [bool]$ProfilePresent, [bool]$InUse,
+    [string]$ExpectedName = 'locus_loop_review') {
+    if ($ExpectedName -notin @('locus_loop_review', 'locus_loop_merge') -or
+        $null -eq $User -or $User.Name -ne $ExpectedName -or
         $User.SID.Value -cne $ExpectedSid -or -not $User.Enabled -or
         $null -ne $User.LastLogon -or $ProfilePresent -or $InUse) {
         throw 'Partial Review identity differs or has been used; preserve for explicit recovery'
     }
 }
 
-function Assert-UnusedRecoveryAccount($User, [string]$ExpectedSid) {
+function Assert-UnusedRecoveryAccount($User, [string]$ExpectedSid,
+    [string]$ExpectedName = 'locus_loop_review') {
     $profileRegistry = 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList'
     $profileRoot = [Environment]::ExpandEnvironmentVariables((Get-ItemProperty -LiteralPath $profileRegistry).ProfilesDirectory)
-    $profile = (Test-Path -LiteralPath (Join-Path $profileRoot 'locus_loop_review')) -or
+    $profile = (Test-Path -LiteralPath (Join-Path $profileRoot $ExpectedName)) -or
         (Test-Path -LiteralPath ($profileRegistry + '\' + $ExpectedSid))
-    $accountNames = @('locus_loop_review', '.\locus_loop_review', ([Environment]::MachineName + '\locus_loop_review'))
+    $accountNames = @($ExpectedName, ('.\' + $ExpectedName), ([Environment]::MachineName + '\' + $ExpectedName))
     $inUse = @(Get-CimInstance -ClassName Win32_Service | Where-Object { $_.StartName -in $accountNames }).Count -ne 0
-    Assert-RecoveryAccount $User $ExpectedSid $profile $inUse
+    Assert-RecoveryAccount $User $ExpectedSid $profile $inUse $ExpectedName
     foreach ($group in @(Get-LocalGroup)) {
         if (@(Get-LocalGroupMember -Group $group | Where-Object { $_.SID.Value -eq $ExpectedSid }).Count -ne 0) {
             throw 'Grouped Review account preserved'
@@ -179,6 +197,157 @@ function Assert-PartialRecovery($Recovery, $NewManifest, [string]$Root) {
     $review = Find-LocalUser 'locus_loop_review'
     Assert-UnusedRecoveryAccount $review $Recovery.review_sid
     return $review
+}
+
+function Assert-SealedAcl([string]$Path, $Rules) {
+    Assert-RegularPath $Path
+    $acl = Get-Acl -LiteralPath $Path
+    if ($acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne 'S-1-5-18' -or
+        -not $acl.AreAccessRulesProtected -or @($acl.Access).Count -ne $Rules.Count) {
+        throw 'Sealed ownership or ACL differs'
+    }
+    $seen = @()
+    foreach ($rule in @($acl.Access)) {
+        $identity = $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+        if (-not $Rules.ContainsKey($identity) -or $identity -in $seen -or $rule.IsInherited -or
+            $rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow -or
+            [int]$rule.FileSystemRights -ne $Rules[$identity]) { throw 'Unexpected sealed ACL grant' }
+        $seen += $identity
+    }
+}
+
+function Assert-SealedInventory([string]$Runtime, $Manifest, $Rules) {
+    Assert-SealedAcl $Runtime $Rules
+    $files = @($Manifest.files.PSObject.Properties.Name)
+    if ($files.Count -lt 1 -or $files.Count -gt 5000 -or
+        @(Get-ChildItem -LiteralPath $Runtime -File -Recurse -Force).Count -ne $files.Count) {
+        throw 'Completion file inventory differs'
+    }
+    $directories = New-Object 'Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    foreach ($name in $files) {
+        $path = Resolve-Child $Runtime $name
+        Assert-SealedAcl $path $Rules
+        if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $Manifest.files.$name) {
+            throw 'Completion runtime changed'
+        }
+        $parent = [IO.Path]::GetDirectoryName($path)
+        while ($parent -ne $Runtime) {
+            [void]$directories.Add($parent)
+            $parent = [IO.Path]::GetDirectoryName($parent)
+        }
+    }
+    $actual = @(Get-ChildItem -LiteralPath $Runtime -Directory -Recurse -Force)
+    if ($actual.Count -ne $directories.Count) { throw 'Completion directory inventory differs' }
+    foreach ($directory in $actual) {
+        if (-not $directories.Contains($directory.FullName)) { throw 'Unknown completion directory' }
+        Assert-SealedAcl $directory.FullName $Rules
+    }
+}
+
+function Assert-ServiceCompletion($NewManifest, [string]$Root) {
+    $pins = $NewManifest.service_completion
+    if (@($pins.PSObject.Properties.Name).Count -ne 3 -or
+        $pins.active_manifest_sha256 -cnotmatch '^[a-f0-9]{64}$' -or
+        $pins.review_sid -cnotmatch '^S-1-5-21(-[0-9]{1,10}){4}$' -or
+        $pins.merge_sid -cnotmatch '^S-1-5-21(-[0-9]{1,10}){4}$' -or
+        @($pins.review_sid, $pins.merge_sid, $NewManifest.operator_sid | Select-Object -Unique).Count -ne 3) {
+        throw 'Exact completion pins required'
+    }
+    $readers = @{ 'S-1-5-18' = 2032127; 'S-1-5-32-544' = 2032127 }
+    foreach ($identity in @($pins.review_sid, $pins.merge_sid, $NewManifest.operator_sid)) {
+        $parsed = [Security.Principal.SecurityIdentifier]::new($identity)
+        if ($parsed.Value -cne $identity) { throw 'Canonical completion SID required' }
+        $readers[$identity] = 0x1200a9
+    }
+    Assert-SealedAcl $Root $readers
+    $expected = @('runtimes', 'settings.json', 'state', 'partial-recovery-intent.json')
+    if (@(Compare-Object $expected @((Get-ChildItem -LiteralPath $Root -Force).Name) -CaseSensitive).Count -ne 0) {
+        throw 'Unknown completion state or prior completion intent preserved'
+    }
+    $settingsPath = Join-Path $Root 'settings.json'
+    Assert-SealedAcl $settingsPath $readers
+    $settings = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json
+    $runtime = Join-Path (Join-Path $Root 'runtimes') $pins.active_manifest_sha256
+    if (@($settings.PSObject.Properties.Name).Count -ne 6 -or $settings.protocol -ne 'locus-services-v1' -or
+        $settings.mode -cne 'prepare' -or $settings.runtime_root -ne $runtime -or
+        $settings.operator_sid -cne $NewManifest.operator_sid -or
+        $settings.project_root -ne $NewManifest.project_root -or
+        @(Compare-Object @('review','merge') @($settings.roles.PSObject.Properties.Name) -CaseSensitive).Count -ne 0) {
+        throw 'Completion settings differ'
+    }
+    $definitions = @{
+        review = @('LocusLoopReviewV1', 'locus_loop_review', 5555922, 177234377)
+        merge = @('LocusLoopMergeV1', 'locus_loop_merge', 5556060, 177236244)
+    }
+    foreach ($role in @('review', 'merge')) {
+        $item = $settings.roles.$role
+        $expectedSid = $pins.($role + '_sid')
+        if (@($item.PSObject.Properties.Name).Count -ne 5 -or $item.sid -cne $expectedSid -or
+            $item.service -cne $definitions[$role][0] -or $item.account -cne $definitions[$role][1] -or
+            $item.app_id -ne $definitions[$role][2] -or $item.installation_id -ne $definitions[$role][3]) {
+            throw 'Completion role differs'
+        }
+        $present = $false
+        try { Get-Service -Name $item.service -ErrorAction Stop | Out-Null; $present = $true }
+        catch { if ($_.FullyQualifiedErrorId -notlike 'NoServiceFoundForGivenName,*') { throw } }
+        if ($present) { throw 'Existing completion service preserved' }
+        Assert-UnusedRecoveryAccount (Find-LocalUser $item.account) $expectedSid $item.account
+    }
+    $manifestPath = $runtime + '.manifest.json'
+    Assert-SealedAcl $manifestPath $readers
+    if ((Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant() -cne $pins.active_manifest_sha256) {
+        throw 'Active completion manifest changed'
+    }
+    $active = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+    if ($active.protocol -ne 'locus-service-bundle-v1' -or $active.source_clean -ne $true -or
+        $active.python_version -cne '3.14.10' -or $active.operator_sid -cne $settings.operator_sid -or
+        $active.project_root -ne $settings.project_root -or
+        $active.partial_recovery.review_sid -cne $pins.review_sid -or
+        $active.partial_recovery.previous_manifest_sha256 -cnotmatch '^[a-f0-9]{64}$') {
+        throw 'Active completion manifest identity differs'
+    }
+    Assert-SealedInventory $runtime $active $readers
+    $private = @{ 'S-1-5-18' = 2032127; 'S-1-5-32-544' = 2032127 }
+    $intentPath = Join-Path $Root 'partial-recovery-intent.json'
+    Assert-SealedAcl $intentPath $private
+    $intent = Get-Content -LiteralPath $intentPath -Raw | ConvertFrom-Json
+    $oldHash = $active.partial_recovery.previous_manifest_sha256
+    if (@($intent.PSObject.Properties.Name).Count -ne 4 -or $intent.protocol -cne 'locus-partial-recovery-v1' -or
+        $intent.manifest_sha256 -cne $pins.active_manifest_sha256 -or $intent.review_sid -cne $pins.review_sid -or
+        $intent.previous_manifest_sha256 -cne $oldHash) { throw 'Partial recovery intent differs' }
+    $runtimes = Join-Path $Root 'runtimes'
+    Assert-SealedAcl $runtimes $readers
+    $expected = @($oldHash, ($oldHash+'.manifest.json'), $pins.active_manifest_sha256, ($pins.active_manifest_sha256+'.manifest.json'))
+    if (@(Compare-Object $expected @((Get-ChildItem -LiteralPath $runtimes -Force).Name) -CaseSensitive).Count -ne 0) {
+        throw 'Unknown completion runtime version preserved'
+    }
+    $oldPath = Join-Path $runtimes ($oldHash + '.manifest.json')
+    Assert-SealedAcl $oldPath $private
+    if ((Get-FileHash -LiteralPath $oldPath -Algorithm SHA256).Hash.ToLowerInvariant() -cne $oldHash) {
+        throw 'Old completion manifest changed'
+    }
+    Assert-SealedInventory (Join-Path $runtimes $oldHash) (Get-Content -LiteralPath $oldPath -Raw | ConvertFrom-Json) $private
+    $state = Join-Path $Root 'state'
+    Assert-SealedAcl $state $readers
+    if (@(Compare-Object @('review','merge') @((Get-ChildItem -LiteralPath $state -Force).Name) -CaseSensitive).Count -ne 0) {
+        throw 'Unknown completion state directory preserved'
+    }
+    foreach ($role in @('review','merge')) {
+        $roleState = Join-Path $state $role
+        $rules = @{ 'S-1-5-18'=2032127; 'S-1-5-32-544'=2032127 }
+        $rules[$settings.operator_sid] = 0x1200a9
+        $rules[$settings.roles.$role.sid] = 0x1301bf
+        Assert-SealedAcl $roleState $rules
+        $children = @(Get-ChildItem -LiteralPath $roleState -Force)
+        if ($children.Count -ne 1 -or $children[0].Name -cne 'isolation-canary.txt' -or $children[0].PSIsContainer) {
+            throw 'Nonempty completion state preserved'
+        }
+        Assert-SealedAcl $children[0].FullName $rules
+        if ((Get-Content -LiteralPath $children[0].FullName -Raw) -cne 'synthetic role isolation canary') {
+            throw 'Completion state canary differs'
+        }
+    }
+    return $settings
 }
 
 try {
@@ -300,7 +469,7 @@ public static class LocusBootstrapNativeV1 {
         IntPtr descriptor = Descriptor(true);
         try {
             var attributes = new SecurityAttributes { Length=(uint)Marshal.SizeOf(typeof(SecurityAttributes)), Descriptor=descriptor, Inherit=0 };
-            if (!CreateDirectory(path, ref attributes)) throw new InvalidOperationException();
+            if (!CreateDirectory(path, ref attributes)) throw new Win32Exception(Marshal.GetLastWin32Error());
         } finally { LocalFree(descriptor); }
     }
     public static void MakeTree(string root, string path) {
@@ -319,7 +488,7 @@ public static class LocusBootstrapNativeV1 {
         try {
             var attributes = new SecurityAttributes { Length=(uint)Marshal.SizeOf(typeof(SecurityAttributes)), Descriptor=descriptor, Inherit=0 };
             IntPtr handle = CreateFile(path, 0x40000000, 0, ref attributes, 1, 0x80, IntPtr.Zero);
-            if (handle==new IntPtr(-1)) throw new InvalidOperationException();
+            if (handle==new IntPtr(-1)) throw new Win32Exception(Marshal.GetLastWin32Error());
             return new System.IO.FileStream(new Microsoft.Win32.SafeHandles.SafeFileHandle(handle,true), System.IO.FileAccess.Write);
         } finally { LocalFree(descriptor); }
     }
@@ -342,13 +511,13 @@ public static class LocusBootstrapNativeV1 {
     }
     public static void ProtectService(string name, string operatorSid) {
         IntPtr manager=OpenSCManager(null,null,1);
-        if(manager==IntPtr.Zero) throw new InvalidOperationException();
+        if(manager==IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
         IntPtr service=IntPtr.Zero, descriptor=IntPtr.Zero;
         try {
             service=OpenService(manager,name,0xf01ff);
-            if(service==IntPtr.Zero) throw new InvalidOperationException();
+            if(service==IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
             string sddl="O:SYD:P(A;;0xf01ff;;;SY)(A;;0xf01ff;;;BA)(A;;0x200b5;;;"+operatorSid+")";
-            if(!ConvertStringSecurityDescriptorToSecurityDescriptor(sddl,1,out descriptor,IntPtr.Zero) || !SetServiceObjectSecurity(service,5,descriptor)) throw new InvalidOperationException();
+            if(!ConvertStringSecurityDescriptorToSecurityDescriptor(sddl,1,out descriptor,IntPtr.Zero) || !SetServiceObjectSecurity(service,5,descriptor)) throw new Win32Exception(Marshal.GetLastWin32Error());
         } finally { if(descriptor!=IntPtr.Zero) LocalFree(descriptor); if(service!=IntPtr.Zero) CloseServiceHandle(service); CloseServiceHandle(manager); }
     }
     public static void PrepareIdentity(byte[] sid) {
@@ -409,7 +578,8 @@ public static class LocusBootstrapNativeV1 {
         $user.SID.GetBinaryForm($sidBytes, 0)
         $installStage = ($role + '_logon_rights')
         [LocusBootstrapNativeV1]::PrepareIdentity($sidBytes)
-        $credentials[$role] = New-Object Management.Automation.PSCredential('.\' + $account, $secure)
+        $credentials[$role] = [System.Management.Automation.PSCredential]::new(('.\' + $account), $secure)
+        if ($credentials[$role].UserName -cne ('.\' + $account)) { throw 'Service credential identity differs' }
     }
     $installStage = 'permissions'
     $readers = @($manifest.operator_sid, $roleDefinitions.review.sid, $roleDefinitions.merge.sid)
@@ -436,18 +606,22 @@ public static class LocusBootstrapNativeV1 {
     }
     $installStage = 'services'
     foreach ($role in @('review', 'merge')) {
+        $installStage = ($role + '_service_creation')
         $binary = '"' + (Join-Path $targetRuntime 'python.exe') + '" -I -B "' +
             (Join-Path $targetRuntime 'service_bootstrap.py') + '" --role ' + $role +
             ' --manifest-hash ' + $ManifestSha256
         New-Service -Name $roleDefinitions[$role].service -DisplayName ('Locus Loop ' + $role + ' preparation') `
             -BinaryPathName $binary -StartupType Manual -Credential $credentials[$role] | Out-Null
+        $installStage = ($role + '_service_protection')
         [LocusBootstrapNativeV1]::ProtectService($roleDefinitions[$role].service, $manifest.operator_sid)
     }
-    foreach ($role in @('review', 'merge')) { Start-Service -Name $roleDefinitions[$role].service }
+    foreach ($role in @('review', 'merge')) {
+        $installStage = ($role + '_service_start')
+        Start-Service -Name $roleDefinitions[$role].service
+    }
     @{ installed = $true; mode = 'prepare'; activated = $false; manifest_sha256 = $ManifestSha256;
        review_sid = $roleDefinitions.review.sid; merge_sid = $roleDefinitions.merge.sid } | ConvertTo-Json
 } catch {
-    [Console]::Error.WriteLine(('{"installed":false,"activated":false,"stage":"' + $installStage +
-        '","reason":"setup_failed_preserve_partial_state"}'))
+    Write-SafeSetupFailure $installStage $_.Exception
     exit 2
 }
