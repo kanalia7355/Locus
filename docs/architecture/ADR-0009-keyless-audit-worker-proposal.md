@@ -1,6 +1,8 @@
 # ADR 0009 — Keyless audit worker proposal
 
-Status: PROPOSED; owner approval required before implementation/provisioning.
+Status: ACCEPTED for design/implementation by owner reply on2026-11-01.
+Administrator deployment and authentication enrolment require the concrete,
+audited package described below; production activation remains separately held.
 This does not activate signing, automatic merge or product development.
 
 ## Problem established after preparation deployment
@@ -23,8 +25,8 @@ ADR0007 approved dedicated App signing/brokering. It did not select a model
 execution identity or authorize a new principal holding model credentials.
 AGENTS.md requires asking before material confidentiality/security/scope changes,
 and the implementation specification forbids automatically finalizing major
-architecture changes. This document requests that decision, not a fabricated
-approval of an unfinished implementation.
+architecture changes. The owner approved the dedicated audit account option.
+That decision is not implementation evidence or production activation approval.
 
 ## Proposed addition
 
