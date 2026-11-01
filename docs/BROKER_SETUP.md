@@ -8,8 +8,9 @@ The complete requirements/status matrix is [UNATTENDED_READINESS.md](UNATTENDED_
 New inactive review-publication and remote-gate/merge transport cores have mock
 integration coverage. Versioned source/policy migration now has an explicitly
 approved apply/recovery CLI and synthetic crash/concurrent-edit coverage.
-No real migration was applied. Controller/service wiring, isolated deployment,
-authenticated policy communication and live merge proofs are still incomplete.
+No real migration was applied. Production signer/Controller wiring, Review-to-Merge
+communication and live merge proofs are still incomplete. Prepare services and
+operator-to-Merge policy reads are verified separately below.
 Use `loop activation-readiness --live --pull 6` for read-only current facts;
 approval cannot turn those missing components into a deployed system.
 
@@ -93,9 +94,16 @@ service account whose credentials cannot be read by untrusted source/QA/model
 execution. Registration under the development account is provisioning only;
 it is not evidence of that production boundary.
 
-## Remaining activation gates (not implemented or proven by this foundation)
+## Preparation deployed; production activation gates remain
 
-1. Trusted service packaging/account isolation and source pinning; actual fresh
+The two prepare-only Windows services are now deployed under separate identities.
+Actual SCM denied-mutation, source/state isolation, per-role authentication and
+restart persistence evidence is recorded in
+[preparation-services-live](reviews/2026-11-01-preparation-services-live.md).
+This proves preparation, not fresh model-review execution or production authority.
+Operator App-vault/GitHub Secrets copies are retained pending custody reconciliation.
+
+1. Preparation packaging/account isolation/source pinning are verified. Actual fresh
    independent review invocation and App review/check publication. Check binding
    must include exact source, base, policy and QA identity; no caller-supplied
    `passed=true` or implementer-published success substitutes for review.
