@@ -82,6 +82,9 @@ try {
         $appBefore[$role] = $appService.PathName + '|' + $appService.StartName + '|' + $appService.StartMode
     }
     $files = @($manifest.files.PSObject.Properties)
+    foreach ($feature in $manifest.disabled_features) {
+        if ($feature -cnotmatch '^[a-z_][a-z0-9_]*$') { throw 'Invalid fixed capability name' }
+    }
     if ($files.Count -lt 10 -or $files.Count -gt 5000) { throw 'Complete audit inventory required' }
     $sourceRuntime = Join-Path $bundleRoot 'runtime'
     Assert-RegularPath $sourceRuntime
@@ -134,6 +137,7 @@ __NATIVE_HELPER__
         $user.SID.GetBinaryForm($sidBytes,0)
         [LocusAuditBootstrapNativeV1]::PrepareIdentity($sidBytes)
         $readers = @($manifest.operator_sid,$manifest.review_sid,$auditSid)
+        $installStage = 'audit_state'
         $state = Join-Path $deploymentRoot 'state'
         [LocusAuditBootstrapNativeV1]::MakeTree($deploymentRoot,$state)
         Set-SealedAcl $state @() $auditSid
@@ -156,11 +160,13 @@ __NATIVE_HELPER__
             'otel.log_user_prompt=false','otel.log_agent_responses=false','otel.log_guardian_assessments=false',
             'hide_agent_reasoning=true','show_raw_agent_reasoning=false','mcp_servers={}',
             '[history]','persistence="none"','[features]','secret_auth_storage=true')
+        $installStage = 'audit_profile_policy'
         foreach ($feature in $manifest.disabled_features) {
-            if ($feature -cnotmatch '^[a-z_]+$') { throw 'Invalid fixed capability name' }
+            if ($feature -cnotmatch '^[a-z_][a-z0-9_]*$') { throw 'Invalid fixed capability name' }
             $profileLines += ($feature + '=false')
         }
         foreach ($profileName in @('home','probe-home')) {
+            $installStage = ('audit_profile_' + $profileName)
             $homePath = Join-Path $state $profileName
             [LocusAuditBootstrapNativeV1]::MakeTree($deploymentRoot,$homePath)
             [LocusAuditBootstrapNativeV1]::WritePrivate((Join-Path $homePath 'config.toml'), (($profileLines -join "`n") + "`n"))
@@ -177,6 +183,7 @@ __NATIVE_HELPER__
             Set-SealedAcl $homePath @($auditSid)
         }
         foreach ($item in @(Get-ChildItem -LiteralPath $targetRuntime -Recurse -Force)) {
+            $installStage = 'audit_runtime_acl'
             Set-SealedAcl $item.FullName $readers
         }
         foreach ($path in @($targetRuntime,$runtimeParent,$installedManifest)) { Set-SealedAcl $path $readers }
@@ -185,6 +192,7 @@ __NATIVE_HELPER__
             merge_sid=$manifest.merge_sid;audit_sid=$auditSid;app_manifest=$manifest.app_manifest;
             model=$manifest.model;reasoning_effort=$manifest.reasoning_effort }
         $settingsPath = Join-Path $deploymentRoot 'settings.json'
+        $installStage = 'audit_settings'
         [LocusAuditBootstrapNativeV1]::WritePrivate($settingsPath,($settings | ConvertTo-Json -Depth 5))
         Set-SealedAcl $settingsPath $readers
         Set-SealedAcl $deploymentRoot $readers
@@ -208,7 +216,9 @@ __NATIVE_HELPER__
     @{ installed=$true; activated=$false; app_services_preserved=$true; manifest_sha256=$ManifestSha256 } |
         ConvertTo-Json -Compress
 } catch {
-    @{ installed=$false; activated=$false; stage=$installStage; reason='audit_setup_failed_preserve_partial_state' } |
+    @{ installed=$false; activated=$false; stage=$installStage;
+        reason='audit_setup_failed_preserve_partial_state'; error_type=$_.Exception.GetType().Name;
+        hresult=('0x' + $_.Exception.HResult.ToString('x8')) } |
         ConvertTo-Json -Compress
     exit 1
 }

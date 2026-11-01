@@ -54,3 +54,23 @@ before further CLI invocation. Never delete files, reset the lifecycle, regenera
 the key or run logout as a recovery shortcut. Preserve state for a scoped repair.
 Successful synthetic probe cleanup applies only to that exact known probe, not
 to real authentication. No real-authentication cleanup is automated by this setup.
+
+## Pre-authentication installer failure
+
+The first audit package stopped after creating the account and empty state
+workspace: its feature-name validator rejected the digit in the fixed
+`responses_websockets_v2` setting. Syntax/native compilation tests had not
+exercised that runtime branch. The fixed installer validates versioned capability
+names before creating anything; a regression test executes the actual PowerShell
+guard with all fixed names and rejects unsafe names.
+
+For this exact partial state, use only the separately audited completion package
+provided by the agent. It verifies the original deployed manifest/inventory and
+private ACLs, exact unused SID, no profile/group/service use, exact service/deny
+logon rights and state containing only the empty workspace. Any difference stops
+before password change. It records an exclusive intent, regenerates only the
+unused audit account's lost service password, creates missing profiles/settings
+and registers/starts the preparation service. It neither recopies runtime files
+nor changes the two existing App accounts, keys, passwords or services. Existing
+files and the old installation intent remain preserved. A completion intent or
+any subsequent authentication state prevents replay; do not rerun either script.
