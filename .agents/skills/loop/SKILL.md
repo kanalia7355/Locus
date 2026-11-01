@@ -1,6 +1,6 @@
 ---
 name: loop
-description: Start or resume autonomous implementation, QA, PR and safe merge workflows for the current repository.
+description: Start or resume bounded implementation, QA and configured local commit/Push or legacy PR delivery workflows.
 ---
 
 Read AGENTS.md and its required governance documents, then `.loop/goal.md`,
@@ -25,7 +25,16 @@ increase the configured six-hour ceiling.
 Interpret this invocation only within the user's current scope: a Bootstrap
 request is not permission to start product development.
 
-The Development Loop evaluates immutable Goal criteria against the latest
+For an explicitly migrated `github.delivery: local_commit_push` policy, use
+the same launch/resume commands. Evaluate the configured `loop/*` integration
+branch before selecting work and after confirmed task Push; do not fetch/select
+main, create PRs, activate Apps or merge. Verified/reviewed Conventional Commits
+are fast-forwarded locally and ordinarily pushed before task completion.
+Failed/unsettled delivery stops the run; resume reconciles recorded intents.
+See `docs/LOCAL_COMMIT_PUSH_LOOP.md`. The main/merge description below applies
+to the legacy PR delivery modes. Never bypass a stale execution-boundary receipt.
+
+In the legacy PR delivery modes, evaluate the latest
 approved repository `main`, before selecting work and after each observed
 merge. New gaps need file evidence, reproduction, expected effect and
 acceptance. SQLite deduplicates findings; attempted task scopes and counters

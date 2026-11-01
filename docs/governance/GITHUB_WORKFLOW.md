@@ -1,6 +1,18 @@
 # GitHub PR / Merge Governance
 
 ## Objective
+
+### Dedicated development branch exception (operator authorized 2026-11-02)
+
+The normal autonomous path may use `local_commit_push` as documented in
+`../LOCAL_COMMIT_PUSH_LOOP.md`: task-local implementation, mandatory local QA
+and independent review, Conventional Commit, fast-forward local integration,
+then ordinary Push to the matching dedicated `loop/*` branch. A PR, Review App,
+Merge Broker and automatic merge are not prerequisites on this path. Existing
+Actions remain additional Push verification. Main Push is not authorized.
+Protected-branch merging continues to use every gate below. No force Push,
+history rewriting, secret storage, execution-boundary weakening or implicit
+approval is permitted. Frozen policy changes use versioned migration.
 Every implementation change goes through a short-lived branch and pull request. The default integration strategy is **squash merge** with a Conventional Commits subject. Do not push directly to `main`.
 
 ## Commit and merge subjects

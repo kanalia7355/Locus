@@ -209,6 +209,7 @@
         "delivery": {
           "enum": [
             "local",
+            "local_commit_push",
             "pull_request",
             "merged"
           ]

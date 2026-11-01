@@ -80,6 +80,7 @@ def doctor(root: Path, *, check_sandbox: bool = False) -> dict[str, Any]:
                 probe.stdout.splitlines()[0][:100] if probe.returncode == 0 else "unavailable"
             )
     config = load(root / ".loop/config.yaml")
+    result["delivery"] = config["github"]["delivery"]
     result["model_execution_enabled"] = config["security"]["allow_model_execution"]
     result["sandbox"] = "unverified: live execution blocked until complete capability probes pass"
     result["github_writes_enabled"] = config["github"]["enabled"]
@@ -133,6 +134,10 @@ def doctor(root: Path, *, check_sandbox: bool = False) -> dict[str, Any]:
         from loop_engine.diagnostics import sandbox_probe
 
         result["sandbox_probe"] = sandbox_probe(root)
+    if config["github"]["delivery"] == "local_commit_push":
+        result["automatic_merge"] = (
+            "not used: verified commits push to a dedicated development branch"
+        )
     return result
 
 
@@ -235,13 +240,17 @@ def build_controller(root: Path, state: StateStore) -> Any:
     git = GitManager(
         root,
         state,
-        "refs/remotes/origin/main"
-        if config["development"]["enabled"]
-        else config["github"]["base"],
+        "refs/heads/" + config["github"]["base"]
+        if config["github"]["delivery"] == "local_commit_push"
+        else (
+            "refs/remotes/origin/main"
+            if config["development"]["enabled"]
+            else config["github"]["base"]
+        ),
     )
     development = None
     if config["development"]["enabled"]:
-        from loop_engine.development import DevelopmentLoop, MainSnapshot
+        from loop_engine.development import DevelopmentLoop, LocalSnapshot, MainSnapshot
         from loop_engine.goal_evaluator import GoalEvaluator
         from loop_engine.improvement_planner import ImprovementPlanner
 
@@ -251,7 +260,9 @@ def build_controller(root: Path, state: StateStore) -> Any:
         development = DevelopmentLoop(
             root,
             state,
-            MainSnapshot(root, git, config["github"]["repository"]),
+            LocalSnapshot(root, git, config["github"]["repository"], config["github"]["base"])
+            if config["github"]["delivery"] == "local_commit_push"
+            else MainSnapshot(root, git, config["github"]["repository"]),
             GoalEvaluator(runner),
             Verifier(profiles, boundary=qa_boundary),
             ImprovementPlanner(
@@ -261,6 +272,13 @@ def build_controller(root: Path, state: StateStore) -> Any:
                 "repository",
             ),
         )
+    from loop_engine.local_delivery import LocalDelivery
+
+    publisher = (
+        LocalDelivery(root, state, git, config["github"])
+        if config["github"]["delivery"] == "local_commit_push"
+        else GitHubManager(root, state, git, config["github"])
+    )
     return Controller(
         root,
         state,
@@ -268,7 +286,7 @@ def build_controller(root: Path, state: StateStore) -> Any:
         Verifier(config["verification"], boundary=qa_boundary),
         Reviewer(runner),
         git,
-        GitHubManager(root, state, git, config["github"]),
+        publisher,
         development,
     )
 

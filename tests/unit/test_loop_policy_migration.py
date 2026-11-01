@@ -52,6 +52,30 @@ def approve(state: StateStore, proposal: dict) -> None:
     )
 
 
+def test_local_push_policy_migration_preserves_all_acceptance_and_limits(tmp_path: Path) -> None:
+    state, proposed = fixture(tmp_path)
+    # Set the approved identity in both frozen and proposed fixture policies.
+    config_path = tmp_path / ".loop/config.yaml"
+    config = yaml.safe_load(config_path.read_text())
+    config["github"].update(enabled=True, repository="fixture/repository")
+    config_path.write_text(yaml.safe_dump(config))
+    old = source_snapshot(tmp_path)
+    state.set_metadata("spec_hash", fingerprint(old))
+    proposed = deepcopy(old)
+    proposed["policy"]["github"].update(base="loop/development", delivery="local_commit_push")
+    migration = PolicyMigration(tmp_path, state)
+    plan = migration.prepare(proposed)
+    with pytest.raises(SafetyError, match="operator approval"):
+        migration.apply(plan["id"])
+    approve(state, plan)
+    migration.apply(plan["id"])
+    assert source_snapshot(tmp_path)["acceptance.md"] == old["acceptance.md"]
+    assert state.task("TASK-001").attempts == 3
+    assert state.metadata("run_budget")["consumed_seconds"] == 314
+    for section in ("loop", "security", "verification", "qa", "approval"):
+        assert source_snapshot(tmp_path)["policy"][section] == old["policy"][section]
+
+
 def test_exact_approval_and_preserved_task_budget_and_history(tmp_path: Path) -> None:
     state, proposed = fixture(tmp_path)
     migration = PolicyMigration(tmp_path, state)

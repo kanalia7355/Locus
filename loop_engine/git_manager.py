@@ -18,6 +18,8 @@ class GitManager:
         self.state = state
         self.base = base
         self.process = ProcessRunner()
+        self.recoverable_commits = False
+        self.operation_cancelled: Callable[[], bool] = lambda: False
 
     def _git(
         self,
@@ -27,10 +29,13 @@ class GitManager:
         timeout: float = 30,
         cancelled: Callable[[], bool] = lambda: False,
     ) -> str:
-        if cancelled() or timeout <= 0:
+        if cancelled() or self.operation_cancelled() or timeout <= 0:
             raise SafetyError("Git operation cancelled")
         result = self.process.run(
-            ["git", *args], cwd or self.root, timeout=timeout, cancelled=cancelled
+            ["git", *args],
+            cwd or self.root,
+            timeout=timeout,
+            cancelled=lambda: cancelled() or self.operation_cancelled(),
         )
         if result.outcome != "exit" or result.returncode != 0:
             raise SafetyError("Git operation failed; no unsafe fallback")
@@ -111,11 +116,26 @@ class GitManager:
             raise SafetyError("A committed approved base is required")
         for dependency in task.dependencies:
             checkpoint = self.state.get_checkpoint(dependency)
-            if not checkpoint.get("merge_sha"):
+            integrated = (
+                checkpoint.get("integrated_head")
+                if self.recoverable_commits
+                else checkpoint.get("merge_sha")
+            )
+            if (
+                self.recoverable_commits
+                and not integrated
+                and self.state.task(dependency).status == "completed"
+                and checkpoint.get("verified")
+            ):
+                # Historical PR-only completion may predate integration receipts.
+                # A recorded verified commit is usable ONLY if the ancestry check
+                # below proves it is already in the explicitly approved local base.
+                integrated = checkpoint.get("merge_sha") or checkpoint.get("committed_head")
+            if not integrated:
                 raise SafetyError(
                     "Dependency implementation is not integrated into the approved base"
                 )
-            self._git(["merge-base", "--is-ancestor", checkpoint["merge_sha"], base_sha])
+            self._git(["merge-base", "--is-ancestor", integrated, base_sha])
         branch = self.branch(task)
         directory = within(self.root, ".loop/runtime/worktrees/" + task.id)
         checkpoint = self.state.get_checkpoint(task.id)
@@ -145,7 +165,10 @@ class GitManager:
         return directory
 
     def snapshot(self, task: Task, workspace: Path) -> dict[str, Any]:
-        self._git(["diff", "--cached", "--quiet", "--exit-code"], workspace)
+        if not self.recoverable_commits or not self.state.get_checkpoint(task.id).get(
+            "local_commit_intent"
+        ):
+            self._git(["diff", "--cached", "--quiet", "--exit-code"], workspace)
         checkpoint = self.state.get_checkpoint(task.id)
         if not checkpoint.get("base"):
             raise SafetyError("No trusted worktree baseline")
@@ -183,6 +206,8 @@ class GitManager:
         return data
 
     def finalize(self, task: Task, workspace: Path, binding: str) -> dict[str, Any]:
+        if self.recoverable_commits:
+            return self._finalize_recoverable(task, workspace, binding)
         self._safe_configuration(workspace)
         checkpoint = self.state.get_checkpoint(task.id)
         snapshot = self.snapshot(task, workspace)
@@ -209,6 +234,64 @@ class GitManager:
         head = self._git(["rev-parse", "HEAD"], workspace)
         if self._git(["rev-parse", "HEAD^{tree}"], workspace) != prospective_tree:
             raise SafetyError("Committed tree differs from the verified prospective index")
+        self.state.checkpoint(
+            task.id, {**self.state.get_checkpoint(task.id), "committed_head": head}
+        )
+        return {"head": head, "branch": checkpoint["branch"]}
+
+    def _finalize_recoverable(self, task: Task, workspace: Path, binding: str) -> dict[str, Any]:
+        """Reconcile only a recorded parent/tree/source; never guess a commit outcome."""
+        self._safe_configuration(workspace)
+        checkpoint = self.state.get_checkpoint(task.id)
+        snapshot = self.snapshot(task, workspace)
+        if checkpoint.get("binding") != binding or checkpoint.get("snapshot") != snapshot:
+            raise SafetyError("Verified source changed before commit/recovery")
+        head = self._git(["rev-parse", "HEAD"], workspace)
+        if self._git(["symbolic-ref", "--short", "HEAD"], workspace) != checkpoint["branch"]:
+            raise SafetyError("Task branch identity changed")
+        if checkpoint.get("committed_head"):
+            if head != checkpoint["committed_head"]:
+                raise SafetyError("Recorded commit changed")
+            self._git(["diff", "--cached", "--quiet", "--exit-code"], workspace)
+            return {"head": head, "branch": checkpoint["branch"]}
+        intent = checkpoint.get("local_commit_intent")
+        if not intent:
+            if head != checkpoint["base"] or not snapshot["paths"]:
+                raise SafetyError("A nonempty verified change on the approved base is required")
+            intent = {"parent": head, "binding": binding, "tree": None}
+            self.state.checkpoint(task.id, {**checkpoint, "local_commit_intent": intent})
+        if intent["binding"] != binding:
+            raise SafetyError("Commit intent binding changed")
+        if head != intent["parent"]:
+            if (
+                not intent["tree"]
+                or self._git(["rev-list", "--parents", "-n", "1", "HEAD"], workspace).split()
+                != [head, intent["parent"]]
+                or self._git(["rev-parse", "HEAD^{tree}"], workspace) != intent["tree"]
+                or self._git(["log", "-1", "--format=%s"], workspace)
+                != f"feat: implement {task.id}"
+                or self._git(["status", "--porcelain"], workspace)
+            ):
+                raise SafetyError("Unrecognized commit outcome")
+        else:
+            for name in snapshot["paths"]:
+                self._git(["add", "--", name], workspace)
+            staged = self._git(
+                ["diff", "--cached", "--name-only", "-z", intent["parent"]], workspace
+            )
+            if sorted(filter(None, staged.split("\0"))) != snapshot["paths"]:
+                raise SafetyError("Index contains unverified paths")
+            self._git(["diff", "--quiet", "--exit-code"], workspace)
+            tree = self._git(["write-tree"], workspace)
+            if intent["tree"] and intent["tree"] != tree:
+                raise SafetyError("Prospective tree changed")
+            intent = {**intent, "tree": tree}
+            self.state.checkpoint(
+                task.id, {**self.state.get_checkpoint(task.id), "local_commit_intent": intent}
+            )
+            self._git(["commit", "-m", f"feat: implement {task.id}"], workspace)
+            # Re-enter the reconciliation path to check parent, tree, hooks and source.
+            return self._finalize_recoverable(task, workspace, binding)
         self.state.checkpoint(
             task.id, {**self.state.get_checkpoint(task.id), "committed_head": head}
         )

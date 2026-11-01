@@ -49,3 +49,15 @@ not permission to bypass missing engineering gates or fabricate approval of a
 different Goal, source hash or architecture. Any unavoidable administrator/device
 login work must be consolidated into concrete verified instructions. Existing
 product acceptance, confidentiality boundaries and execution limits stay intact.
+
+## Local commit / development-branch Push instruction — 2026-11-02
+
+The operator supersedes mandatory PR/App/Broker/automatic-merge delivery with
+the existing Controller's `local_commit_push` mode. Local implementation, QA,
+independent review, Conventional Commit, fast-forward integration to a dedicated
+local `loop/*` branch and ordinary Push to that corresponding GitHub branch are
+authorized. The next task uses integrated local HEAD only after confirmed Push.
+Existing Actions are retained as additional evidence. This is no new permission
+for PR creation, main Push, automatic merge, altered execution boundaries or
+weakened acceptance/checks. Earlier PR/main-specific descriptions are historical
+for this mode; versioned frozen-policy migration and exact approvals still apply.

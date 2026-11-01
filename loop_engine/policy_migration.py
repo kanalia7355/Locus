@@ -54,7 +54,11 @@ class PolicyMigration:
         if set(proposed) != {*SOURCE_FILES, "policy"}:
             raise SafetyError("Complete exact source snapshot required")
         validate("config", proposed["policy"])
-        if proposed["policy"]["github"]["base"] != "main":
+        if proposed["policy"]["github"]["delivery"] == "local_commit_push":
+            from loop_engine.local_delivery import validate_policy
+
+            validate_policy(proposed["policy"]["github"])
+        elif proposed["policy"]["github"]["base"] != "main":
             raise SafetyError("This integration migration targets main only")
         if len(yaml.safe_dump(proposed["policy"]).encode()) > 65536:
             raise SafetyError("Proposed policy exceeds the runtime configuration limit")

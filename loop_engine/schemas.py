@@ -204,7 +204,7 @@ CONFIG = obj(
                 "protect_default_branch": {"const": True},
                 "required_checks": strings(),
                 "auto_merge_allowed_paths": strings(),
-                "delivery": {"enum": ["local", "pull_request", "merged"]},
+                "delivery": {"enum": ["local", "local_commit_push", "pull_request", "merged"]},
             }
         ),
         "verification": {

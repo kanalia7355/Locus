@@ -1,5 +1,15 @@
 # Autonomous loop engine — usage and current limits
 
+2026-11-02: the authorized normal delivery is the additive
+[`local_commit_push` mode](LOCAL_COMMIT_PUSH_LOOP.md), reusing this Controller
+and Development Loop with a dedicated local/remote development branch. PR,
+App/Broker and merge activation descriptions below concern legacy delivery.
+The current frozen project remains migration-pending; see the
+[exact activation proposal](plans/LOCAL_DELIVERY_ACTIVATION.md). Live model
+execution is still held: current code has no matching runtime receipt, and the
+installed client's actual tool request shape requires validation before any
+new proof is trusted. Do not refresh a receipt merely to unblock launch.
+
 The user specification is preserved verbatim in [AUTONOMOUS_LOOP_SPEC.md](requirements/AUTONOMOUS_LOOP_SPEC.md). The engine is additive: the research UI/API remains in frontend/backend. Python3.11+ CLI code has no FastAPI/React dependency. State is in `.loop/runtime/state.sqlite3`, excluded from Git.
 
 The source-only `proposal-docker` transport is described in [ADR0006](architecture/ADR-0006-source-only-runtime.md), with actual versus mocked evidence in the [runtime review ledger](reviews/2026-10-31-unattended-runtime.md). It requires a pinned project client, fresh containment receipt, audited immutable QA image and explicit model authorization. Other executors remain fail-closed. The operator has authorized conditional safe merge and approved [ADR0007](architecture/ADR-0007-safe-merge-broker-proposal.md) implementation. Its [App/Broker foundation and remaining activation gates](BROKER_SETUP.md) do not yet provide atomic-base enforcement; runtime delivery remains PR-only. No full Goal completion is claimed.

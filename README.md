@@ -31,6 +31,8 @@ v2の開発・セキュリティ・運用文書は残している。画面の判
 
 ## 自律開発Controller（2026-10-31追加）
 
+2026-11-02の通常配送方針は [ローカルコミット＋開発ブランチへのPush](docs/LOCAL_COMMIT_PUSH_LOOP.md)。既存Controllerを使い、ローカルQA・独立レビュー後にコミットとPushを行う。PR・専用App・Broker・自動マージは必須としない。以下のApp/merge稼働手順は従来モード用であり、新モードの起動条件ではない。凍結済み設定の移行と実行境界の有効な検証は引き続き必要。
+
 研究支援アプリと独立したPython CLI基盤を `loop_engine/` に追加。[完全指示書](docs/requirements/AUTONOMOUS_LOOP_SPEC.md)、[利用方法と未完了の実機ゲート](docs/LOOP_ENGINE.md)、[各Phaseの実装状況](docs/plans/LOOP_IMPLEMENTATION.md) を参照。ローカル・モック検証の成功を、実機での自律実行や安全な自動マージの完成とは扱わない。
 
 専用 GitHub App / Merge Broker の設計は実装着手を承認済み。[登録手順と稼働前の残件](docs/BROKER_SETUP.md) を参照。App 登録と自動マージの稼働許可は別であり、現在はマージを保留している。

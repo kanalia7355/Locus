@@ -47,7 +47,11 @@ def main() -> int:
         print(f"Running engine {name}", flush=True)
         started = time.monotonic()
         try:
-            code = subprocess.run(command, cwd=ROOT, timeout=180, check=False).returncode  # noqa: S603
+            # Real Git crash-recovery scenarios add bounded Windows subprocess time.
+            # Keep every test enabled; only this aggregate test-command window grows.
+            code = subprocess.run(  # noqa: S603
+                command, cwd=ROOT, timeout=600 if name == "tests" else 180, check=False
+            ).returncode
         except subprocess.TimeoutExpired:
             code = 124
         results.append(
