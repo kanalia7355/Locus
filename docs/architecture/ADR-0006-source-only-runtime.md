@@ -1,5 +1,13 @@
 # ADR 0006 — Text proposals and isolated QA
 
+C-min refinement (owner-approved 2026-11-03): normal development adopts the narrow
+[ADR0011 supplement](../plans/MODEL_BOUNDARY_APPROVAL_PROPOSAL.md), manifest
+`4c936fec3615b09d2352e1308dee8835bf20ec709ae14585efecd9b4d27ddcb4`.
+Model-facing zero declarations plus rejection before native dispatch replaces
+reliance on an empty native registry. Proposal validation, isolated QA, budgets,
+independent review and local_commit_push remain. Implementation approval is not
+live verification, authentication permission or permission to start the Loop.
+
 Validation correction (2026-11-02): the zero-tool behavior described below is
 the approved requirement, not a currently established capability. Lite tool
 definitions were missed by the former probe. Current startup repair rejects

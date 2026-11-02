@@ -1,6 +1,24 @@
 # ADR 0011 — Model-facing zero-tool protocol gate
 
-Status: PROPOSED. Owner decision required before adopting this architecture.
+Status: ACCEPTED for C-min normal-development design/offline implementation only,
+by owner approval on 2026-11-03 (Asia/Tokyo), manifest SHA256
+`4c936fec3615b09d2352e1308dee8835bf20ec709ae14585efecd9b4d27ddcb4`.
+
+Normative scope: [approved C-min supplement](../plans/MODEL_BOUNDARY_APPROVAL_PROPOSAL.md)
+and [exact reviewed design](../plans/MODEL_BOUNDARY_FINAL_DESIGN.md). For normal
+Worker/Reviewer/GoalEvaluator, reject nonempty declarations rather than stripping
+them; support only the pinned Lite/HTTP combination; enforce response rejection
+before native dispatch, durable one-send reservations and unchanged source/QA/
+delivery restrictions. These rules supersede the broader historical proposal below
+for normal development only. Native registry emptiness is not asserted.
+
+Real authentication/inference, service operations and unattended Loop remain
+UNAPPROVED. Historical audit-service deployment remains PROPOSED/HELD; its SID,
+single-process, empty-workspace and authentication conditions are unchanged.
+No additional API billing, auth extraction/recovery or storage exception is granted.
+
+## Historical proposal (preserved; narrower accepted scope above takes precedence)
+
 Existing automatic-merge authorization remains conditional; this proposal does
 not activate reviews, merge, a third real-model trial or authentication recovery.
 
