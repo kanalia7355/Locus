@@ -29,7 +29,7 @@ def file_security(path: Path) -> tuple[str, int, list[tuple[str, int, int]]]:
     if handle == ctypes.c_void_p(-1).value:
         raise SafetyError("Profile/log security unavailable")
     try:
-        return native.security(handle)
+        return native.security(handle, kind=1)  # SE_FILE_OBJECT for this file/directory handle
     finally:
         native.kernel.CloseHandle(handle)
 
@@ -130,24 +130,54 @@ def verify_profile(state: StateStore) -> None:
     import os
 
     profile = state.metadata("c_min_auth_profile")
-    if not isinstance(profile, dict) or set(profile) != {
-        "home",
-        "backend",
-        "config_hash",
-        "key_metadata",
-        "ciphertext_identity",
-        "sid",
-        "protection",
-    }:
+    common = {"home", "backend", "config_hash", "sid", "protection"}
+    file_backed = isinstance(profile, dict) and profile.get("backend") == "existing-file"
+    expected = common | (
+        {"file_identity"}
+        if file_backed
+        else {
+            "home",
+            "backend",
+            "config_hash",
+            "key_metadata",
+            "ciphertext_identity",
+            "sid",
+            "protection",
+        }
+    )
+    if not isinstance(profile, dict) or set(profile) != expected:
         raise SafetyError("Nonsecret operator auth profile requires reconciliation")
     original_home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))).absolute()
     if any(reparse(part) for part in (original_home, *original_home.parents)):
         raise SafetyError("Original operator profile traverses reparse boundary")
     home = original_home.resolve()
+    # The pinned CLI loads this before processing its config. Never read its
+    # values: they can reintroduce provider/proxy/auth environment overrides.
+    if (home / ".env").exists() or reparse(home / ".env"):
+        raise SafetyError("Unassessed client dotenv file; no authentication loaded")
     if reparse(home) or not (home / "config.toml").is_file() or reparse(home / "config.toml"):
         raise SafetyError("Nonsecret profile path differs")
     raw = (home / "config.toml").read_text(encoding="utf-8")
     settings = tomllib.loads(raw)
+    if file_backed:
+        from loop_engine.auth_file_profile import inspect_existing
+
+        if (
+            profile["home"] != str(home)
+            or profile["sid"] != Native().current_sid()
+            or fingerprint(raw) != profile["config_hash"]
+            or settings.get("cli_auth_credentials_store") not in {None, "file"}
+            or settings.get("features", {}).get("secret_auth_storage", False) is not False
+            or (home / "secrets/codex_auth.age").exists()
+        ):
+            raise SafetyError("Registered existing-file profile differs")
+        actual = inspect_existing(home, profile["sid"])
+        if actual != {
+            "file_identity": profile["file_identity"],
+            "protection": profile["protection"],
+        }:
+            raise SafetyError("Existing auth file changed; no repair/retry")
+        return
     encrypted = profile["backend"] == "encrypted-keyring"
     if (
         profile["home"] != str(home)
