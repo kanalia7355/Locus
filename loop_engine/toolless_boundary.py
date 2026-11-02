@@ -18,6 +18,119 @@ from loop_engine.process import ProcessRunner
 from loop_engine.security import SafetyError, create_text, fingerprint, within
 
 
+def tool_surface(body: Any) -> dict[str, Any]:
+    """Inspect standard and Lite declarations; retain no input/header values."""
+    fields = {
+        "model",
+        "input",
+        "instructions",
+        "tools",
+        "tool_choice",
+        "parallel_tool_calls",
+        "reasoning",
+        "text",
+        "stream",
+        "store",
+        "include",
+        "max_output_tokens",
+        "service_tier",
+        "prompt_cache_key",
+        "prompt_cache_retention",
+        "metadata",
+        "client_metadata",
+        "temperature",
+        "top_p",
+        "truncation",
+        "safety_identifier",
+    }
+    valid = (
+        isinstance(body, dict)
+        and isinstance(body.get("model"), str)
+        and bool(body["model"].strip())
+        and set(body) <= fields
+    )
+    fresh = valid and not any(key in body for key in ("previous_response_id", "conversation"))
+    count = 0
+
+    def inspect(value: Any) -> None:
+        nonlocal valid, fresh, count
+        if isinstance(value, dict):
+            if "tools" in value:
+                if not isinstance(value["tools"], list):
+                    valid = False
+                else:
+                    count += len(value["tools"])
+            kind = value.get("type", "")
+            if isinstance(kind, str) and (kind.endswith("_call") or kind.endswith("_call_output")):
+                fresh = False
+            if kind == "additional_tools" and not isinstance(value.get("tools"), list):
+                valid = False
+            for item in value.values():
+                inspect(item)
+        elif isinstance(value, list):
+            for item in value:
+                inspect(item)
+
+    if valid:
+        inputs = body.get("input")
+        if not isinstance(inputs, (list, str)):
+            valid = False
+        elif isinstance(inputs, list):
+            for item in inputs:
+                if not isinstance(item, dict) or item.get("type", "message") not in {
+                    "message",
+                    "additional_tools",
+                }:
+                    valid = False
+                elif item.get("type") == "additional_tools":
+                    if set(item) != {"type", "tools"}:
+                        valid = False
+                else:
+                    content = item.get("content")
+                    if (
+                        not set(item) <= {"type", "role", "content"}
+                        or item.get("role") not in {"system", "developer", "user"}
+                        or not isinstance(content, (str, list))
+                    ):
+                        valid = False
+                    elif isinstance(content, list) and any(
+                        not isinstance(part, dict)
+                        or set(part) != {"type", "text"}
+                        or part.get("type") != "input_text"
+                        or not isinstance(part.get("text"), str)
+                        for part in content
+                    ):
+                        valid = False
+    # Unsupported metadata still cannot hide executable definitions from the
+    # diagnostic count; unsupported shape remains a failed proof independently.
+    if isinstance(body, dict):
+        inspect(body)
+    return {
+        "surface_version": 2,
+        "no_tools": bool(valid and count == 0),
+        "fresh_request": bool(fresh and valid),
+        "declared_tools": count,
+        "request_shape_supported": bool(valid),
+    }
+
+
+def probe_json(raw: bytes) -> Any:
+    """Duplicate keys and non-JSON numeric constants cannot prove absence."""
+
+    def pairs(items: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in items:
+            if key in result:
+                raise ValueError("Duplicate probe field")
+            result[key] = value
+        return result
+
+    def constant(_: str) -> Any:
+        raise ValueError("Invalid JSON constant")
+
+    return json.loads(raw, object_pairs_hook=pairs, parse_constant=constant)
+
+
 def configured_hooks(value: Any) -> bool:
     if isinstance(value, dict):
         return any(
@@ -152,6 +265,10 @@ class ToollessBoundary:
         observation: dict[str, Any] = {}
 
         class Handler(BaseHTTPRequestHandler):
+            def setup(self) -> None:
+                super().setup()
+                self.connection.settimeout(min(2, max(0.1, timeout)))
+
             def log_message(self, *_: Any) -> None:
                 pass
 
@@ -160,53 +277,67 @@ class ToollessBoundary:
                 self.end_headers()
 
             def do_POST(self) -> None:
-                length = int(self.headers.get("Content-Length", "0"))
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                except (ValueError, TypeError):
+                    self.send_error(400)
+                    return
                 if not 0 < length <= 5_000_000:
                     self.send_error(413)
                     return
                 try:
-                    body = json.loads(self.rfile.read(length))
+                    body = probe_json(self.rfile.read(length))
                     if (
                         self.path.rstrip("/").endswith("/responses")
                         and isinstance(body, dict)
                         and "input" in body
                         and "model" in body
                     ):
-                        tools = body.get("tools", [])
-                        observation.update(
-                            {
-                                "no_tools": tools == [],
-                                "fresh_request": "previous_response_id" not in body,
-                            }
-                        )
+                        observation.update(tool_surface(body))
                         captured.set()
-                except (ValueError, TypeError):
+                except (ValueError, TypeError, OSError, RecursionError):
                     pass
-                self.send_response(400)
-                self.end_headers()
+                try:
+                    self.send_response(400)
+                    self.end_headers()
+                except OSError:
+                    pass
 
         with HTTPServer(("127.0.0.1", 0), Handler) as server:
-            threading.Thread(target=server.serve_forever, daemon=True).start()
             binary = codex_binary(self.root)
             argv = self._command(
                 [str(binary), "exec", "--json", "--ephemeral", "--cd", str(workspace), "-"],
                 workspace,
             )
-            argv += ["-c", f'openai_base_url="http://127.0.0.1:{server.server_port}"']
-            outcome = ProcessRunner().run(
-                argv,
-                workspace,
-                timeout=min(timeout, 35),
-                stdin="Capability inspection only. No tools or external inference.",
-                cancelled=lambda: captured.is_set() or cancelled(),
-                model=True,
-            )
-            server.shutdown()
+            from loop_engine.audit_profile import relay_overrides
+
+            # Reuse the existing fixed-loopback transport alias: CLI0.166.0
+            # ignores the former built-in openai_base_url override. This endpoint
+            # rejects requests, never forwards inference and never logs auth.
+            argv += relay_overrides(f"http://127.0.0.1:{server.server_port}")
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                outcome = ProcessRunner().run(
+                    argv,
+                    workspace,
+                    timeout=min(timeout, 35),
+                    stdin="Capability inspection only. No tools or external inference.",
+                    cancelled=lambda: captured.is_set() or cancelled(),
+                    model=True,
+                )
+            finally:
+                server.shutdown()
+                thread.join(2)
         self.proof = {
-            "passed": captured.is_set()
-            and observation.get("no_tools") is True
-            and observation.get("fresh_request") is True
-            and binding == self._binding(workspace),
+            # The fixed local alias safely diagnoses actual Lite declarations,
+            # but it is not proof that a different provider identifier advertises
+            # an identical surface. Never promote that unresolved equivalence
+            # into permission to run the normal provider.
+            "passed": False,
+            "diagnostic_only": True,
+            "native_provider_equivalence_verified": False,
+            "binding_unchanged": binding == self._binding(workspace),
             "binding": binding,
             "transport": "local rejecting inference endpoint",
             "client_outcome": outcome.outcome,

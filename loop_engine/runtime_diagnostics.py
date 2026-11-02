@@ -80,5 +80,16 @@ print(json.dumps(d))
 
 def require_receipt(root: Path) -> None:
     receipt = json.loads(within(root, ".loop/runtime/live-runtime.json").read_text())
-    if receipt.get("passed") is not True or receipt.get("identity") != runtime_identity(root):
+    if not isinstance(receipt, dict):
+        raise SafetyError("Runtime receipt must be an object")
+    surface = receipt.get("tool_surface", {})
+    if (
+        receipt.get("passed") is not True
+        or receipt.get("identity") != runtime_identity(root)
+        or not isinstance(surface, dict)
+        or surface.get("surface_version") != 2
+        or surface.get("passed") is not True
+        or surface.get("no_tools") is not True
+        or surface.get("fresh_request") is not True
+    ):
         raise SafetyError("Runtime changed or live containment checks have not passed")

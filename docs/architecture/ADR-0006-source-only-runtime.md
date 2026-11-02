@@ -1,5 +1,14 @@
 # ADR 0006 — Text proposals and isolated QA
 
+Validation correction (2026-11-02): the zero-tool behavior described below is
+the approved requirement, not a currently established capability. Lite tool
+definitions were missed by the former probe. Current startup repair rejects
+that proof and keeps native execution held; see
+[current evidence](../operations/LOCAL_LOOP_STARTUP_REPAIR.md). No boundary is
+relaxed and ADR0011 is not adopted. The PR/main paragraphs below describe the
+historical delivery mode; local_commit_push now uses the approved development
+branch instead.
+
 Scope: the operator-authorized, source-only development runtime. Product data,
 production deployment and external research-model connections remain excluded.
 See [operator authorization](../governance/UNATTENDED_AUTHORIZATION.md).
