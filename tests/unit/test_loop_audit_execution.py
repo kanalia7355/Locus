@@ -103,6 +103,41 @@ def test_default_boundary_never_executes_or_reuses_operator_auth(tmp_path):
     assert not process.calls
 
 
+@pytest.mark.parametrize("tick", [237.99999999999997, 0.000000000000028, 100000000.1])
+def test_timeout_never_grows_when_clock_has_fractional_origin(tmp_path, monkeypatch, tick):
+    runner, process, _, value = setup(tmp_path)
+    monkeypatch.setattr("loop_engine.audit_execution.time.monotonic", lambda: tick)
+    assert runner.review(value, timeout=10, cancelled=lambda: False) == findings()
+    assert process.calls[0][2]["timeout"] == 10
+
+
+def test_preparation_consumes_shared_timeout_and_expiry_stops_before_process(tmp_path, monkeypatch):
+    runner, process, guard, value = setup(tmp_path)
+    now = [237.99999999999997]
+    monkeypatch.setattr("loop_engine.audit_execution.time.monotonic", lambda: now[0])
+    original = guard.require
+
+    def consume():
+        original()
+        now[0] += 2
+
+    guard.require = consume
+    assert runner.review(value, timeout=10, cancelled=lambda: False) == findings()
+    assert 5.99 < process.calls[0][2]["timeout"] <= 6
+    process.calls.clear()
+    with pytest.raises(SafetyError, match="expired"):
+        runner.review(value, timeout=3, cancelled=lambda: False)
+    assert not process.calls
+
+
+@pytest.mark.parametrize("timeout", [0, -1, 301, float("nan"), float("inf")])
+def test_invalid_timeout_is_rejected_before_boundary_or_process(tmp_path, timeout):
+    runner, process, guard, value = setup(tmp_path)
+    with pytest.raises(SafetyError):
+        runner.review(value, timeout=timeout, cancelled=lambda: False)
+    assert not process.calls and guard.checks == 0
+
+
 def test_exact_disabled_executor_notice_is_not_a_failed_turn(tmp_path):
     stream = events()
     notice = {

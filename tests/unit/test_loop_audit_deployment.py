@@ -316,13 +316,20 @@ def test_generated_admin_script_parses_and_native_helper_compiles_without_mutati
     inspector = tmp_path / "inspect.ps1"
     inspector.write_text(
         "param([string]$Source)\n$ErrorActionPreference='Stop'\n"
+        "[Console]::Error.WriteLine('compile-host-entered')\n"
+        '$env:PSModulePath="$PSHOME\\Modules"\n'
+        'Import-Module "$PSHOME\\Modules\\Microsoft.PowerShell.Utility" -ErrorAction Stop\n'
+        "[Console]::Error.WriteLine('compile-module-ready')\n"
         "$tokens=$null;$errors=$null\n"
         "$ast=[Management.Automation.Language.Parser]::ParseFile($Source,[ref]$tokens,[ref]$errors)\n"
         "if($errors.Count){throw 'Generated installer syntax failed'}\n"
         "$nodes=$ast.FindAll({param($n) $n -is [Management.Automation.Language.CommandAst] "
         "-and $n.GetCommandName() -eq 'Add-Type'},$true)\n"
         "if($nodes.Count -ne 1){throw 'Unexpected native helper count'}\n"
-        "Add-Type -TypeDefinition $nodes[0].CommandElements[2].Value\n"
+        "[Console]::Error.WriteLine('compile-started')\n"
+        "Microsoft.PowerShell.Utility\\Add-Type "
+        "-TypeDefinition $nodes[0].CommandElements[2].Value -ErrorAction Stop\n"
+        "[Console]::Error.WriteLine('compile-finished')\n"
         "Write-Output 'parsed-and-compiled-no-mutation'\n",
         encoding="utf-8",
     )
@@ -332,5 +339,5 @@ def test_generated_admin_script_parses_and_native_helper_compiles_without_mutati
         timeout=30,
         output_limit=8192,
     )
-    assert result.outcome == "exit" and result.returncode == 0, result.stderr
+    assert result.outcome == "exit" and result.returncode == 0, result
     assert "parsed-and-compiled-no-mutation" in result.stdout

@@ -78,11 +78,14 @@ class AuditCodexModel:
         timeout: float,
         cancelled: Callable[[], bool],
     ) -> dict[str, Any]:
-        deadline = time.monotonic() + timeout
+        if not 0 < timeout <= 300:
+            raise SafetyError("Audit model timeout outside its fixed budget")
+        started = time.monotonic()
 
         def remaining() -> float:
-            left = deadline - time.monotonic()
-            if cancelled() or not 0 < left <= 300:
+            elapsed = time.monotonic() - started
+            left = timeout - elapsed
+            if cancelled() or elapsed < 0 or not 0 < left <= timeout:
                 raise SafetyError("Audit model deadline expired or cancelled")
             return left
 
