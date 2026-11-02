@@ -98,9 +98,98 @@ def test_missing_changed_authorization_stops_before_reservation(tmp_path, monkey
         preflight(tmp_path, state, "artifact")  # Trial approval cannot unlock normal calls.
 
 
-@pytest.mark.parametrize("mode", ["success", "input", "unknown", "disconnect", "source_changed"])
-def test_shared_adapter_one_shot_complete_input_and_no_replay(tmp_path, monkeypatch, mode):
+@pytest.mark.parametrize(
+    "mode,versioned",
+    [
+        (mode, versioned)
+        for mode in ("success", "input", "unknown", "disconnect", "source_changed")
+        for versioned in (False, True)
+    ]
+    + [
+        (mode, True)
+        for mode in (
+            "header",
+            "permit_changed",
+            "history_changed",
+            "contract_changed",
+            "path_changed",
+            "peer_changed",
+            "binding_changed",
+        )
+    ],
+)
+def test_shared_adapter_one_shot_complete_input_and_no_replay(
+    tmp_path, monkeypatch, mode, versioned
+):
     state, work, body, permit, decision = fixture(tmp_path, monkeypatch)
+    if versioned:
+        from test_trial_input_binding import fixture as input_fixture
+
+        from loop_engine.trial_input_binding import VERSION
+
+        spec, body, _ = input_fixture()
+        profile = {"sid": "synthetic-sid", "home": str(tmp_path / "synthetic-home")}
+        state.set_metadata("c_min_auth_profile", profile)
+        permit["profile"] = fingerprint(profile)
+        spec["headers"] = {"x-openai-internal-codex-responses-lite": "true"}
+        spec["launch"] = {
+            "runtime": "runtime",
+            "artifact": "artifact",
+            "workspace": str(work.resolve()),
+            "profile": permit["profile"],
+            "history": permit["history"],
+            "model": "gpt-6.1-sol",
+            "destination": "https://chatgpt.com/backend-api/codex/responses",
+            "argv": ["synthetic-cli", "exec"],
+            "schema": fingerprint(SCHEMA),
+        }
+        permit.update(input_version=VERSION, input_hash=fingerprint(spec))
+        state.set_metadata("c_min_trial_input_contract", spec)
+        state.set_metadata("c_min_trial_permit", permit)
+        queue = ApprovalQueue(state)
+        decision = queue.request(None, "scope", fingerprint(permit), "Synthetic versioned fixture")
+        queue.resolve(
+            [
+                {
+                    "id": decision,
+                    "action": "approve",
+                    "target_hash": fingerprint(permit),
+                    "reason": "Offline synthetic test only",
+                }
+            ],
+            "fixture",
+        )
+
+        class Arg0:
+            calls = 0
+
+            def __init__(self, *args):
+                pass
+
+            def check(self, *args):
+                self.calls += 1
+                return {
+                    "volume": 1,
+                    "index": self.calls if mode == "path_changed" else 2,
+                    "created": 3,
+                }
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr("loop_engine.trial_arg0.Arg0Guard", Arg0)
+        if mode == "binding_changed":
+            original_bind = InvocationJournal.bind_trial_input
+
+            def corrupt(self, identifier, binding):
+                original_bind(self, identifier, binding)
+                with state.connect() as db:
+                    db.execute(
+                        "UPDATE trial_input_bindings SET document=? WHERE invocation=?",
+                        (json.dumps({**binding, "request": "changed"}), identifier),
+                    )
+
+            monkeypatch.setattr(InvocationJournal, "bind_trial_input", corrupt)
     created = []
     response_item = item()
     response_item["content"][0]["text"] = json.dumps({"ok": True, "proof": "C_MIN_SYNTHETIC_OK"})
@@ -123,6 +212,7 @@ def test_shared_adapter_one_shot_complete_input_and_no_replay(tmp_path, monkeypa
             created.append("connection")
 
         def request(self, *_args, **_kwargs):
+            assert _kwargs["body"] == json.dumps(body).encode()
             created.append("sent")
             if mode == "disconnect":
                 raise OSError("synthetic lost response")
@@ -142,6 +232,12 @@ def test_shared_adapter_one_shot_complete_input_and_no_replay(tmp_path, monkeypa
             # the reserved permit remains the absolute authority.
             assert 0 < options["timeout"] <= 90
             options["before_resume"](123, object())
+            if mode == "permit_changed":
+                state.set_metadata("c_min_trial_permit", None)
+            if mode == "history_changed":
+                state.set_metadata("c_min_trial_history", None)
+            if mode == "contract_changed":
+                state.set_metadata("c_min_trial_input_contract", None)
             url = next(
                 json.loads(x.split("=", 1)[1]) for x in argv if x.startswith("openai_base_url=")
             )
@@ -157,6 +253,7 @@ def test_shared_adapter_one_shot_complete_input_and_no_replay(tmp_path, monkeypa
                         "Authorization": "Bearer synthetic-only",
                         "ChatGPT-Account-ID": "synthetic-account",
                         "X-OpenAI-Internal-Codex-Responses-Lite": "true",
+                        **({"Unknown-Header": "unassessed"} if mode == "header" else {}),
                     },
                 )
                 reply = client.getresponse()
@@ -193,6 +290,8 @@ def test_shared_adapter_one_shot_complete_input_and_no_replay(tmp_path, monkeypa
 
     # A real callable identity substitute; real kernel peer tests run separately.
     class Peer:
+        calls = 0
+
         def bind(self, *_):
             pass
 
@@ -201,6 +300,14 @@ def test_shared_adapter_one_shot_complete_input_and_no_replay(tmp_path, monkeypa
 
         def __call__(self, _):
             return True
+
+        def identity(self):
+            self.calls += 1
+            return {
+                "pid": 123 if mode != "peer_changed" else self.calls,
+                "creation": 456,
+                "sid": "synthetic-sid",
+            }
 
     monkeypatch.setattr("loop_engine.c_min_runtime.OwnedCliPeer", lambda _: Peer())
     boundary = SimpleNamespace(
@@ -231,6 +338,12 @@ def test_shared_adapter_one_shot_complete_input_and_no_replay(tmp_path, monkeypa
         outcome, journal, identifier = call()
         proof = record_result(state, journal, identifier, permit, outcome.stdout)
         assert proof["purpose"] == "c-min-single-validation" and proof["passed"]
+        if versioned:
+            assert proof["input_contract"] == permit["input_hash"]
+            assert (
+                proof["request_hash"]
+                == __import__("hashlib").sha256(json.dumps(body).encode()).hexdigest()
+            )
         assert status(state) == {
             "purpose": "c-min-single-validation",
             "phase": "completed",
@@ -248,7 +361,17 @@ def test_shared_adapter_one_shot_complete_input_and_no_replay(tmp_path, monkeypa
         with pytest.raises(SafetyError):
             call()
         assert not status(state)["passed"]
-    assert created == ([] if mode == "input" else ["connection", "sent"])
+    blocked_before_send = {
+        "input",
+        "header",
+        "permit_changed",
+        "history_changed",
+        "contract_changed",
+        "path_changed",
+        "peer_changed",
+        "binding_changed",
+    }
+    assert created == ([] if mode in blocked_before_send else ["connection", "sent"])
     with pytest.raises(SafetyError):
         call()
     assert process.calls == 1

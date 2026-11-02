@@ -49,6 +49,15 @@ def authorize(
         "refresh",
         "offline_review",
     }
+    versioned = isinstance(permit, dict) and "input_version" in permit
+    if versioned:
+        from loop_engine.trial_input_binding import VERSION, contract
+
+        fields.add("input_version")
+        if permit.get("input_version") != VERSION or fingerprint(
+            contract(state.metadata("c_min_trial_input_contract"))
+        ) != permit.get("input_hash"):
+            raise SafetyError("Exact versioned trial input contract required")
     check(
         {
             "type": "object",
@@ -182,6 +191,16 @@ def record_result(
         "calls": 1,
         "schema_validated": True,
     }
+    if "input_version" in permit:
+        binding = journal.trial_binding(identifier, "cli_validated")
+        if binding["contract"] != permit["input_hash"]:
+            raise SafetyError("Trial final input contract differs")
+        proof.update(
+            input_version=permit["input_version"],
+            input_contract=binding["contract"],
+            request_hash=binding["request"],
+            input_binding=fingerprint(binding),
+        )
     with state.connect() as db:
         db.execute("PRAGMA synchronous=FULL")
         db.execute("BEGIN IMMEDIATE")

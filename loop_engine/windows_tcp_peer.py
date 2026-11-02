@@ -90,6 +90,11 @@ class OwnedCliPeer:
         self._require_active()
         return True
 
+    def identity(self) -> dict[str, Any]:
+        """Nonsecret identity of the retained, active invocation; never a claimed PID."""
+        self._require_active()
+        return {"pid": self.pid, "creation": self.creation, "sid": self.owner}
+
     def close(self) -> None:
         if self.process:
             self.native.kernel.CloseHandle(self.process)

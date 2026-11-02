@@ -143,6 +143,81 @@ class InvocationJournal:
             )
             self.state._event(db, "model.held", None, {"id": identifier})
 
+    def bind_trial_input(self, identifier: str, binding: dict[str, Any]) -> None:
+        """Atomically consume all generated aliases with request_validated, once."""
+        with self.state.connect() as db:
+            self._begin(db)
+            try:
+                row = db.execute(
+                    "SELECT * FROM model_invocations WHERE id=?", (identifier,)
+                ).fetchone()
+                if (
+                    row is None
+                    or json.loads(row["owner"])["role"] != "trial"
+                    or row["phase"] != "launch_reserved"
+                    or time.time() >= row["deadline"]
+                    or binding["expires"] != row["deadline"]
+                    or set(binding)
+                    != {
+                        "contract",
+                        "request",
+                        "aliases",
+                        "values",
+                        "pid",
+                        "creation",
+                        "utc",
+                        "monotonic",
+                        "expires",
+                    }
+                ):
+                    raise SafetyError("Trial input reservation identity differs")
+                if not db.execute(
+                    "SELECT 1 FROM c_min_trials WHERE slot=1 AND owner_key=? AND phase='reserved'",
+                    (row["owner_key"],),
+                ).fetchone():
+                    raise SafetyError("Trial lifetime slot changed")
+                db.execute(
+                    "CREATE TABLE IF NOT EXISTS trial_input_bindings ("
+                    "invocation TEXT PRIMARY KEY REFERENCES model_invocations(id), "
+                    "document TEXT NOT NULL)"
+                )
+                db.execute(
+                    "CREATE TABLE IF NOT EXISTS trial_input_aliases (identity TEXT PRIMARY KEY, "
+                    "invocation TEXT NOT NULL REFERENCES model_invocations(id))"
+                )
+                db.execute(
+                    "INSERT INTO trial_input_bindings VALUES (?,?)",
+                    (identifier, self.state.encode(binding)),
+                )
+                for alias in binding["aliases"]:
+                    db.execute("INSERT INTO trial_input_aliases VALUES (?,?)", (alias, identifier))
+                db.execute(
+                    "UPDATE model_invocations SET phase='request_validated' WHERE id=?",
+                    (identifier,),
+                )
+                self.state._event(
+                    db, "model.phase", None, {"id": identifier, "phase": "request_validated"}
+                )
+                db.commit()
+            except sqlite3.IntegrityError:
+                db.rollback()
+                raise SafetyError("Generated trial value already reserved; no replay") from None
+            except BaseException:
+                db.rollback()
+                raise
+
+    def trial_binding(self, identifier: str, phase: str) -> dict[str, Any]:
+        with self.state.connect() as db:
+            row = db.execute(
+                "SELECT b.document FROM trial_input_bindings b JOIN model_invocations m "
+                "ON b.invocation=m.id JOIN c_min_trials t ON t.owner_key=m.owner_key "
+                "WHERE m.id=? AND m.phase=? AND t.slot=1 AND t.phase='reserved'",
+                (identifier, phase),
+            ).fetchone()
+            if row is None:
+                raise SafetyError("Durable trial input evidence missing")
+            return dict(json.loads(row["document"]))
+
     def acknowledge(self, identifier: str) -> None:
         with self.state.connect() as db:
             self._begin(db)

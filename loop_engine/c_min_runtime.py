@@ -280,14 +280,23 @@ def invoke(
         deadline = min(deadline, time.monotonic() + max(0, trial["expires"] - time.time()))
         owner = reserve_trial(state, trial, artifact)
     journal = InvocationJournal(state)
-    identifier = journal.claim(owner, artifact, time.time() + max(0, deadline - time.monotonic()))
+    expires = time.time() + max(0, deadline - time.monotonic())
+    if trial is not None:
+        expires = min(expires, trial["expires"])
+    identifier = journal.claim(owner, artifact, expires)
     peer = OwnedCliPeer(argv[0])
     temp_relative = ".loop/runtime/c_min/invocations/" + identifier + "/temp"
     temporary = private_directory(root, temp_relative)
+    versioned = trial is not None and "input_version" in trial
+    arg0 = None
+    packet: dict[str, Any] = {}
+    anchors: dict[str, Any] = {}
 
     def bind_child(pid: int, job: Any) -> None:
         private_directory(root, temp_relative)
         peer.bind(pid, job)
+        if versioned:
+            anchors.update(utc=time.time(), monotonic=time.monotonic())
 
     def remaining() -> float:
         left = deadline - time.monotonic()
@@ -298,20 +307,85 @@ def invoke(
     def request(raw: bytes) -> Any:
         remaining()
         result = validate_request(raw, "gpt-6.1-sol", schema, {str(root), str(workspace)})
-        if trial is not None:
+        if versioned:
+            packet["raw"] = raw
+        elif trial is not None:
             from loop_engine.c_min_trial import exact_input
 
             exact_input(result, trial)
-        journal.advance(identifier, "launch_reserved", "request_validated")
+        if not versioned:
+            journal.advance(identifier, "launch_reserved", "request_validated")
         return result
+
+    def binding() -> dict[str, Any]:
+        from loop_engine.trial_input_binding import validate
+
+        remaining()
+        assert trial is not None and arg0 is not None
+        identity = peer.identity()
+        profile = state.metadata("c_min_auth_profile")
+        if identity["sid"] != profile["sid"]:
+            raise SafetyError("Trial issuing operator changed")
+        context = {
+            **anchors,
+            **identity,
+            "active": True,
+            "now": time.time(),
+            "monotonic_now": time.monotonic(),
+            "expires": expires,
+            "not_before": trial["expires"] - 180,
+            "launch": {
+                "runtime": trial["runtime"],
+                "artifact": artifact,
+                "workspace": str(workspace.resolve()),
+                "profile": trial["profile"],
+                "history": trial["history"],
+                "model": "gpt-6.1-sol",
+                "destination": "https://chatgpt.com/backend-api/codex/responses",
+                "argv": argv,
+                "schema": fingerprint(schema),
+            },
+        }
+        return validate(
+            state.metadata("c_min_trial_input_contract"),
+            packet["raw"],
+            packet["headers"],
+            context,
+            arg0.check,
+        )
+
+    def headers(values: dict[str, str]) -> None:
+        packet["headers"] = values
+        packet["binding"] = binding()
+        journal.bind_trial_input(identifier, packet["binding"])
 
     def reserve() -> None:
         remaining()
         if artifact != boundary._binding(workspace):
             raise SafetyError("C-min launch binding changed")
+        if versioned:
+            from loop_engine.c_min_trial import authorize
+
+            assert trial is not None and trial_approval is not None
+            if authorize(root, state, workspace, artifact, trial_approval) != trial:
+                raise SafetyError("Trial approval changed before send")
+            verify_profile(state)
+            if not boundary.docker.audit_evidence(root):
+                raise SafetyError("Trial QA audit changed before send")
+            if packet["binding"] != binding():
+                raise SafetyError("Trial request identity changed before send")
+            if journal.trial_binding(identifier, "request_validated") != packet["binding"]:
+                raise SafetyError("Durable trial input binding changed")
         journal.advance(identifier, "request_validated", "upstream_reserved")
+        if arg0 is not None:
+            arg0.close()
 
     try:
+        if versioned:
+            from loop_engine.trial_arg0 import Arg0Guard
+
+            profile = state.metadata("c_min_auth_profile")
+            arg0 = Arg0Guard(Path(profile["home"]), profile["sid"], remaining)
         with AuditRelay(
             "gpt-6.1-sol",
             deadline=time.monotonic() + remaining(),
@@ -320,6 +394,7 @@ def invoke(
             forwarding=True,
             request_validator=request,
             reserve_upstream=reserve,
+            trial_headers=headers if versioned else None,
         ) as relay:
             command = (
                 boundary.command(argv, workspace)
@@ -369,4 +444,6 @@ def invoke(
         journal.hold(identifier)
         raise
     finally:
+        if arg0 is not None:
+            arg0.close()
         peer.close()
