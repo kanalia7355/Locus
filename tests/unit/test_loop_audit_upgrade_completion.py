@@ -102,13 +102,20 @@ def test_completion_parses_and_compiles_without_privileged_execution(tmp_path):
     path.write_bytes(source())
     inspector = tmp_path / "inspect.ps1"
     inspector.write_text(
-        "param($Path)\n$t=$null;$e=$null\n"
+        "param($Path)\n$ErrorActionPreference='Stop'\n"
+        "[Console]::Error.WriteLine('compile-host-entered')\n"
+        '$env:PSModulePath="$PSHOME\\Modules"\n'
+        'Import-Module "$PSHOME\\Modules\\Microsoft.PowerShell.Utility" -ErrorAction Stop\n'
+        "[Console]::Error.WriteLine('compile-module-ready')\n$t=$null;$e=$null\n"
         "$ast=[Management.Automation.Language.Parser]::ParseFile($Path,[ref]$t,[ref]$e)\n"
         "if($e.Count){throw 'Syntax failed'}\n"
         "$nodes=$ast.FindAll({param($n) $n -is [Management.Automation.Language.CommandAst] "
         "-and $n.GetCommandName() -eq 'Add-Type'},$true)\n"
         "if($nodes.Count -ne 1){throw 'Native boundary differs'}\n"
-        "Add-Type -TypeDefinition $nodes[0].CommandElements[2].Value\n'compiled-only'\n",
+        "[Console]::Error.WriteLine('compile-started')\n"
+        "Microsoft.PowerShell.Utility\\Add-Type "
+        "-TypeDefinition $nodes[0].CommandElements[2].Value -ErrorAction Stop\n"
+        "[Console]::Error.WriteLine('compile-finished')\n'compiled-only'\n",
         encoding="utf-8",
     )
     result = ProcessRunner().run(
@@ -116,5 +123,6 @@ def test_completion_parses_and_compiles_without_privileged_execution(tmp_path):
         tmp_path,
         timeout=30,
     )
-    assert result.returncode == 0 and result.outcome == "exit", result.stderr
+    assert result.returncode == 0 and result.outcome == "exit", result
     assert "compiled-only" in result.stdout
+    assert "compile-finished" in result.stderr
