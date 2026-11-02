@@ -56,7 +56,8 @@ def test_actual_upgrade_replace_statement_handles_null_backup(tmp_path):
     # These are new generated synthetic files only. Execute the real statement
     # through Windows PowerShell5.1, not the parent shell's .NET runtime.
     script.write_text(
-        "param($Root)\n$ErrorActionPreference='Stop'\n"
+        "param($Root)\n[Console]::Error.WriteLine('locus-test-script-entered')\n"
+        "$ErrorActionPreference='Stop'\n"
         "$staged=Join-Path $Root 'new.json';$settingsPath=Join-Path $Root 'old.json'\n"
         "[IO.File]::WriteAllText($staged,'synthetic-new')\n"
         "[IO.File]::WriteAllText($settingsPath,'synthetic-old')\n"
@@ -70,11 +71,22 @@ def test_actual_upgrade_replace_statement_handles_null_backup(tmp_path):
         encoding="utf-8",
     )
     result = ProcessRunner().run(
-        ["powershell.exe", "-NoProfile", "-NonInteractive", "-File", str(script), str(tmp_path)],
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "[Console]::Error.WriteLine('locus-test-host-entered'); & '"
+            + str(script).replace("'", "''")
+            + "' '"
+            + str(tmp_path).replace("'", "''")
+            + "'",
+        ],
         tmp_path,
         timeout=20,
     )
     assert result.returncode == 0 and result.outcome == "exit", result
+    assert "locus-test-script-entered" in result.stderr
     assert "actual-replacement-passed" in result.stdout
 
 

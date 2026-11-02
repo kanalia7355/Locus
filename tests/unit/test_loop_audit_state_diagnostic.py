@@ -38,6 +38,12 @@ def test_read_only_diagnostic_filters_nonsecret_record_fields(tmp_path):
     # Execute the actual body solely against this generated synthetic namespace.
     # The production admin requirement and protected namespace are not changed.
     body = "\n".join(line for line in source.splitlines() if not line.startswith("#Requires"))
+    # Keep param first; marker is synthetic diagnostic output, never state data.
+    body = body.replace(
+        "Set-StrictMode -Version Latest",
+        "[Console]::Error.WriteLine('locus-test-script-entered')\nSet-StrictMode -Version Latest",
+        1,
+    )
     body = body.replace(
         "'C:\\ProgramData\\LocusLoopAuditV1'", "'" + str(fixture).replace("'", "''") + "'"
     )
@@ -50,11 +56,20 @@ def test_read_only_diagnostic_filters_nonsecret_record_fields(tmp_path):
     script.write_text(body, encoding="utf-8")
     before = {p: p.read_bytes() for p in fixture.rglob("*") if p.is_file()}
     result = ProcessRunner().run(
-        ["powershell.exe", "-NoProfile", "-NonInteractive", "-File", str(script)],
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "[Console]::Error.WriteLine('locus-test-host-entered'); & '"
+            + str(script).replace("'", "''")
+            + "'",
+        ],
         tmp_path,
         timeout=20,
     )
     assert result.outcome == "exit" and result.returncode == 0, result
+    assert "locus-test-script-entered" in result.stderr
     response = json.loads(result.stdout)
     assert response["state_changed"] is False and response["credential_values_accessed"] is False
     assert response["provider_request_sent"] is False

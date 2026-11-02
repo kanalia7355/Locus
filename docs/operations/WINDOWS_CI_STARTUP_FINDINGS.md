@@ -42,3 +42,20 @@ If hosted failures persist after setup, investigate them rather than silently
 increasing test deadlines or accepting a failure as success.
 
 See [startup repair](LOCAL_LOOP_STARTUP_REPAIR.md) for independent model/QA gates.
+
+## Hosted follow-up and next bounded diagnostic
+
+Run41405792339 at c85c552 still failed the same three tests on Windows3.13;
+Windows3.11 was cancelled. PowerShell preflight itself passed: cold2.367s,
+warm0.230s. The failing results had empty stdout/stderr and elapsed20.02–20.037s.
+This disproves simple interpreter cold startup as a sufficient explanation;
+the setup change alone is not reported as a fix.
+
+The next small diagnostic preserves the same PowerShell5.1 executable, actual
+generated script files, assertions and20s deadline. It invokes each file with
+the call operator through `-Command` instead of the ConsoleHost `-File` entry,
+quotes every file/argument as a PowerShell literal, and emits fixed synthetic
+stderr markers on host entry and script entry. These markers distinguish process
+startup, file dispatch and script-body stalls without displaying protected state.
+The three related test modules passed locally (seven cases,8.71s). Hosted results
+are still required; no failure is retried into success or silently ignored.

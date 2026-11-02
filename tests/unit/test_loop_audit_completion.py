@@ -60,7 +60,10 @@ def test_actual_installer_feature_guard_accepts_fixed_versioned_features(tmp_pat
     guard = template[start:end]
     # Run the actual installer guard, not a Python regex copy. No installer
     # account/filesystem/service operation is executed in this diagnostic.
-    code = "$ErrorActionPreference='Stop'\nfunction Validate($manifest) {\n" + guard + "\n}\n"
+    code = (
+        "[Console]::Error.WriteLine('locus-test-script-entered')\n"
+        "$ErrorActionPreference='Stop'\nfunction Validate($manifest) {\n" + guard + "\n}\n"
+    )
     code += (
         "$manifest = "
         + "'"
@@ -73,12 +76,21 @@ def test_actual_installer_feature_guard_accepts_fixed_versioned_features(tmp_pat
     path = tmp_path / "feature-runtime.ps1"
     path.write_text(code, encoding="utf-8")
     result = ProcessRunner().run(
-        ["powershell.exe", "-NoProfile", "-NonInteractive", "-File", str(path)],
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "[Console]::Error.WriteLine('locus-test-host-entered'); & '"
+            + str(path).replace("'", "''")
+            + "'",
+        ],
         tmp_path,
         timeout=20,
     )
     assert result.outcome == "exit" and result.returncode == 0, result
     assert "fixed-features-pass" in result.stdout
+    assert "locus-test-script-entered" in result.stderr
     assert start < template.index("::MakeDirectory($deploymentRoot)")
 
 
