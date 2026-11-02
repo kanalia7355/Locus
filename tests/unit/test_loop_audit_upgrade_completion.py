@@ -76,7 +76,12 @@ def test_actual_upgrade_replace_statement_handles_null_backup(tmp_path):
             "-NoProfile",
             "-NonInteractive",
             "-Command",
-            "[Console]::Error.WriteLine('locus-test-host-entered'); & '"
+            "[Console]::Error.WriteLine('locus-test-host-entered'); "
+            '$env:PSModulePath="$PSHOME\\Modules"; '
+            "[Console]::Error.WriteLine('locus-test-modules-start'); "
+            'Import-Module "$PSHOME\\Modules\\Microsoft.PowerShell.Utility" -ErrorAction Stop; '
+            'Import-Module "$PSHOME\\Modules\\Microsoft.PowerShell.Management" -ErrorAction Stop; '
+            "[Console]::Error.WriteLine('locus-test-modules-ready'); & '"
             + str(script).replace("'", "''")
             + "' '"
             + str(tmp_path).replace("'", "''")
@@ -87,6 +92,7 @@ def test_actual_upgrade_replace_statement_handles_null_backup(tmp_path):
     )
     assert result.returncode == 0 and result.outcome == "exit", result
     assert "locus-test-script-entered" in result.stderr
+    assert "locus-test-modules-ready" in result.stderr
     assert "actual-replacement-passed" in result.stdout
 
 

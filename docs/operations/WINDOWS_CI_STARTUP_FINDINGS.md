@@ -59,3 +59,19 @@ stderr markers on host entry and script entry. These markers distinguish process
 startup, file dispatch and script-body stalls without displaying protected state.
 The three related test modules passed locally (seven cases,8.71s). Hosted results
 are still required; no failure is retried into success or silently ignored.
+
+Run41407174718 at b55692f again failed the three Windows3.13 cases. Both host
+and script-entry markers appeared before each20s timeout. Thus startup and file
+dispatch completed; changing the entry did not fix the failure. Windows3.11 was
+cancelled by fail-fast again. The three script bodies first use standard Utility
+or Management cmdlets, while the startup probe uses only .NET Console methods.
+
+The next bounded check loads Utility/Management explicitly from the running
+Windows PowerShell's `$PSHOME\Modules` and confines `PSModulePath` to that system
+directory **inside each synthetic test process only**. Import-start/import-ready
+markers separate module resolution from script execution. This pins the required
+5.1 module implementation instead of relying on mixed installed-version/user
+module discovery. It does not change ProcessRunner's environment whitelist,
+machine/user environment, execution policy, production scripts, test deadlines
+or existing assertions. An additional assertion requires the import-ready marker.
+All seven related cases passed locally in8.91s; hosted validation is pending.

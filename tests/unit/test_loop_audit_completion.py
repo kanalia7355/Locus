@@ -81,7 +81,12 @@ def test_actual_installer_feature_guard_accepts_fixed_versioned_features(tmp_pat
             "-NoProfile",
             "-NonInteractive",
             "-Command",
-            "[Console]::Error.WriteLine('locus-test-host-entered'); & '"
+            "[Console]::Error.WriteLine('locus-test-host-entered'); "
+            '$env:PSModulePath="$PSHOME\\Modules"; '
+            "[Console]::Error.WriteLine('locus-test-modules-start'); "
+            'Import-Module "$PSHOME\\Modules\\Microsoft.PowerShell.Utility" -ErrorAction Stop; '
+            'Import-Module "$PSHOME\\Modules\\Microsoft.PowerShell.Management" -ErrorAction Stop; '
+            "[Console]::Error.WriteLine('locus-test-modules-ready'); & '"
             + str(path).replace("'", "''")
             + "'",
         ],
@@ -91,6 +96,7 @@ def test_actual_installer_feature_guard_accepts_fixed_versioned_features(tmp_pat
     assert result.outcome == "exit" and result.returncode == 0, result
     assert "fixed-features-pass" in result.stdout
     assert "locus-test-script-entered" in result.stderr
+    assert "locus-test-modules-ready" in result.stderr
     assert start < template.index("::MakeDirectory($deploymentRoot)")
 
 
