@@ -4,8 +4,8 @@
 [`local_commit_push` mode](LOCAL_COMMIT_PUSH_LOOP.md), reusing this Controller
 and Development Loop with a dedicated local/remote development branch. PR,
 App/Broker and merge activation descriptions below concern legacy delivery.
-The current frozen project remains migration-pending; see the
-[exact activation proposal](plans/LOCAL_DELIVERY_ACTIVATION.md). Live model
+The frozen project was migrated with exact operator approval; see the
+[migration result](plans/LOCAL_DELIVERY_MIGRATION_RESULT.md). Live model
 execution is still held: current code has no matching runtime receipt, and the
 installed client's actual tool request shape requires validation before any
 new proof is trusted. Do not refresh a receipt merely to unblock launch.

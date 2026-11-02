@@ -10,4 +10,4 @@ See `../planning/ui-and-multiuser-design.md` for proposed model adapters, bounde
 
 ## Existing implementation conventions
 
-The synthetic prototype uses the approved SQLite/lexical adapters in ADR0002. Production PostgreSQL/vector/model choices remain open. Development execution uses ADR0006 zero-tool proposals and source-only Docker QA; protected merge guarantees remain unresolved. The outer latest-main loop stays held because main does not exist and all merges are held.
+The synthetic prototype uses the approved SQLite/lexical adapters in ADR0002. Production PostgreSQL/vector/model choices remain open. Development execution uses ADR0006 zero-tool proposals and source-only Docker QA; existing execution-boundary proof is still required and cannot be inferred from delivery tests. The existing Development Loop evaluates integrated local loop/local-development HEAD after confirmed ordinary Push. PR/App/Broker/automatic-merge guarantees are optional legacy concerns, outside this normal delivery path. No new orchestrator or executor is introduced.

@@ -1,5 +1,18 @@
 # Local delivery activation proposal
 
+## Applied with exact operator approval
+
+The operator approved target hash
+`f6b99a048bbe2a31acdb3dd66796fe564a079f5983963f7b498623d44290f44a`
+and explicitly limited authorization to settings migration. Existing
+`PolicyMigration` applied it successfully; the active specification hash is
+`78eb0872fb0b0fb2778ffece140573f64b01751482e8ca0fce95fb08fb76cb71`.
+Idempotent reapplication and preserved history/safety were verified. See the
+[migration result](LOCAL_DELIVERY_MIGRATION_RESULT.md). The original proposal
+and commands below are retained as the audit trail, not a new approval request.
+No unattended launch, boundary relaxation, ADR-0011 adoption or audit-service
+restart is authorized by this approval.
+
 Prepared from the frozen project, without replacing it. Complete exact proposal:
 [`local-delivery-snapshot.json`](local-delivery-snapshot.json).
 
