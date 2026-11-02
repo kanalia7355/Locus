@@ -54,7 +54,7 @@ def test_read_only_diagnostic_filters_nonsecret_record_fields(tmp_path):
         tmp_path,
         timeout=20,
     )
-    assert result.outcome == "exit" and result.returncode == 0, result.stderr
+    assert result.outcome == "exit" and result.returncode == 0, result
     response = json.loads(result.stdout)
     assert response["state_changed"] is False and response["credential_values_accessed"] is False
     assert response["provider_request_sent"] is False

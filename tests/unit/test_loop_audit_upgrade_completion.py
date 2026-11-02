@@ -74,7 +74,7 @@ def test_actual_upgrade_replace_statement_handles_null_backup(tmp_path):
         tmp_path,
         timeout=20,
     )
-    assert result.returncode == 0 and result.outcome == "exit", result.stderr
+    assert result.returncode == 0 and result.outcome == "exit", result
     assert "actual-replacement-passed" in result.stdout
 
 

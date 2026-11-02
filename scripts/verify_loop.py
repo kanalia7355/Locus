@@ -44,6 +44,42 @@ def main() -> int:
         commands.append(("dependency-advisories", [sys.executable, "-m", "pip_audit"]))
     results = []
     for name, command in commands:
+        if name == "tests" and sys.platform == "win32":
+            # Windows PowerShell5.1 is a different runtime from the hosted pwsh
+            # workflow shell. Separate its one-time cold startup from the actual
+            # script assertions; all existing 20s test deadlines stay unchanged.
+            from loop_engine.process import ProcessRunner
+
+            startup_ok = True
+            for phase, limit in (("cold", 45), ("warm", 20)):
+                outcome = ProcessRunner().run(
+                    [
+                        "powershell.exe",
+                        "-NoProfile",
+                        "-NonInteractive",
+                        "-Command",
+                        "[Console]::Out.WriteLine('locus-powershell-ready')",
+                    ],
+                    ROOT,
+                    timeout=limit,
+                )
+                startup_ok = (
+                    outcome.outcome == "exit"
+                    and outcome.returncode == 0
+                    and outcome.stdout.strip() == "locus-powershell-ready"
+                )
+                evidence = {
+                    "name": "windows-powershell-" + phase,
+                    "exit_code": 0 if startup_ok else 1,
+                    "elapsed_seconds": outcome.elapsed,
+                    "outcome": outcome.outcome,
+                }
+                print(json.dumps(evidence), flush=True)
+                results.append(evidence)
+                if not startup_ok:
+                    break
+            if not startup_ok:
+                break
         print(f"Running engine {name}", flush=True)
         started = time.monotonic()
         try:

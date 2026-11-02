@@ -77,7 +77,7 @@ def test_actual_installer_feature_guard_accepts_fixed_versioned_features(tmp_pat
         tmp_path,
         timeout=20,
     )
-    assert result.outcome == "exit" and result.returncode == 0, result.stderr
+    assert result.outcome == "exit" and result.returncode == 0, result
     assert "fixed-features-pass" in result.stdout
     assert start < template.index("::MakeDirectory($deploymentRoot)")
 
