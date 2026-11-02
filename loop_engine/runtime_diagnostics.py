@@ -91,7 +91,11 @@ def require_receipt(root: Path) -> None:
         receipt.get("passed") is not True
         or receipt.get("identity") != runtime_identity(root)
         or not isinstance(surface, dict)
-        or surface.get("surface_version") != 2
+        or surface.get("surface_version") != 3
+        or surface.get("protocol") != "c-min-lite-v3"
+        or surface.get("response_gate_verified") is not True
+        or surface.get("auth_profile_verified") is not True
+        or surface.get("live_path_verified") is not True
         or surface.get("passed") is not True
         or surface.get("no_tools") is not True
         or surface.get("fresh_request") is not True

@@ -236,7 +236,7 @@ def build_controller(root: Path, state: StateStore) -> Any:
         boundary = UnprovenBoundary()
         boundary.require(root, root)
         qa_boundary = boundary
-    runner = CodexRunner(root, boundary=boundary)
+    runner = CodexRunner(root, boundary=boundary, state=state)
     git = GitManager(
         root,
         state,

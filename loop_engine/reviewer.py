@@ -14,6 +14,9 @@ class Reviewer:
     def __init__(self, runner: CodexRunner) -> None:
         self.runner = runner
 
+    def acknowledge(self) -> None:
+        self.runner.acknowledge()
+
     def evaluate(
         self,
         task: Task,

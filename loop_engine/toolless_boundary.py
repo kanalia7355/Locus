@@ -15,7 +15,7 @@ from loop_engine.codex_runner import codex_binary
 from loop_engine.docker_boundary import DockerBoundary
 from loop_engine.native_boundary import NativeBoundary
 from loop_engine.process import ProcessRunner
-from loop_engine.security import SafetyError, create_text, fingerprint, within
+from loop_engine.security import SafetyError, create_text, fingerprint, reparse, within
 
 
 def tool_surface(body: Any) -> dict[str, Any]:
@@ -144,6 +144,7 @@ def configured_hooks(value: Any) -> bool:
 
 class ToollessBoundary:
     file_proposals = True
+    c_min = True
 
     def __init__(self, root: Path, image_id: str, mcp_names: list[str]) -> None:
         self.root = root.resolve()
@@ -152,6 +153,18 @@ class ToollessBoundary:
         self.proof: dict[str, Any] | None = None
         home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
         catalog = (home / "models_cache.json").read_text(encoding="utf-8")
+        values = json.loads(catalog)
+        selected = [item for item in values["models"] if item.get("slug") == "gpt-6.1-sol"]
+        if len(selected) != 1 or selected[0].get("use_responses_lite") is not True:
+            raise SafetyError("Pinned C-min Lite model missing")
+        selected[0].update(
+            tool_mode="direct",
+            experimental_supported_tools=[],
+            apply_patch_tool_type=None,
+            shell_type="disabled",
+            multi_agent_version=None,
+        )
+        catalog = json.dumps(values, sort_keys=True)
         self.catalog = within(root, ".loop/runtime/catalogs/" + fingerprint(catalog) + ".json")
         create_text(self.catalog, catalog)
         if self.catalog.read_text(encoding="utf-8") != catalog:
@@ -162,9 +175,14 @@ class ToollessBoundary:
         if argv[0] != codex_binary(self.root):
             raise SafetyError("Unexpected model client")
         if "exec" not in argv:
+            if argv[1:] != ["--version"]:
+                raise SafetyError("C-min authentication commands are not preflight")
             if argv[1:] not in (["--version"], ["login", "status"]):
                 raise SafetyError("Unknown preflight")
             return argv
+        from loop_engine.c_min_runtime import privacy_options
+
+        privacy = privacy_options(self.root)
         result = []
         index = 0
         while index < len(argv):
@@ -179,6 +197,7 @@ class ToollessBoundary:
         return (
             result
             + self.native.settings(workspace, True)
+            + privacy
             + [
                 "--disable",
                 "shell_tool",
@@ -187,10 +206,53 @@ class ToollessBoundary:
                 "--strict-config",
                 "-c",
                 "model_catalog_json=" + json.dumps(str(self.catalog)),
+                "-c",
+                'model="gpt-6.1-sol"',
+                "-c",
+                "features.multi_agent_v2={enabled=false,disable_native_tools=true}",
+                "-c",
+                "tools.experimental_request_user_input.enabled=false",
+                "-c",
+                "tools.update_plan.enabled=false",
+                "-c",
+                'history.persistence="none"',
+                "-c",
+                "analytics.enabled=false",
+                "-c",
+                "feedback.enabled=false",
+                "-c",
+                'otel.exporter="none"',
+                "-c",
+                'otel.trace_exporter="none"',
+                "-c",
+                'otel.metrics_exporter="none"',
+                "-c",
+                "otel.log_user_prompt=false",
+                "-c",
+                "otel.log_agent_responses=false",
+                *[
+                    value
+                    for feature in (
+                        "view_image",
+                        "sleep_tool",
+                        "current_time_reminder",
+                        "token_budget",
+                        "deferred_executor",
+                        "request_permissions_tool",
+                        "send_message_to_user_async",
+                        "code_mode",
+                        "code_mode_only",
+                        "multi_agent_v2_dynamic_tools",
+                    )
+                    for value in ("--disable", feature)
+                ],
             ]
         )
 
     def _binding(self, workspace: Path) -> str:
+        machine = Path("C:/ProgramData/OpenAI/Codex")
+        if machine.exists() and any(machine.iterdir()):
+            raise SafetyError("Machine model policy requires separate assessment; no bypass")
         binary = codex_binary(self.root)
         if binary is None:
             raise SafetyError("Missing model client")
@@ -237,6 +299,14 @@ class ToollessBoundary:
 
     def require(self, workspace: Path, control_root: Path) -> None:
         self.docker.require(workspace, control_root)
+        from loop_engine.runtime_diagnostics import require_receipt
+
+        require_receipt(self.root)
+        if self.c_min:
+            if control_root.resolve() != self.root or reparse(workspace) or not workspace.is_dir():
+                raise SafetyError("Unsafe C-min workspace")
+            self._binding(workspace)  # Includes mandatory hook/skill assessment.
+            return
         if (
             not self.proof
             or self.proof.get("passed") is not True
@@ -260,6 +330,18 @@ class ToollessBoundary:
         Headers and request input are neither inspected nor logged. No request
         is forwarded. Only the tool count and request shape become evidence.
         """
+        # An ordinary home may load/refresh credentials even for a rejecting mock.
+        # Offline C-min conformance runs use explicitly isolated test profiles;
+        # never call the legacy credential-bearing probe as an implicit preflight.
+        if self.c_min:
+            return {
+                "passed": False,
+                "surface_version": 3,
+                "diagnostic_only": True,
+                "no_tools": False,
+                "fresh_request": False,
+                "reason": "isolated_offline_proof_and_separate_live_permission_required",
+            }
         binding = self._binding(workspace)
         captured = threading.Event()
         observation: dict[str, Any] = {}

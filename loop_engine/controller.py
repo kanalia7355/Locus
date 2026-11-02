@@ -248,6 +248,7 @@ class Controller:
         try:
             attempt_context = {
                 **context,
+                "source_binding": fingerprint(initial),
                 "previous_failure": self.state.get_checkpoint(task.id).get("failure_context"),
                 "effective_risk": self.state.effective_risk(task.id),
             }
@@ -261,6 +262,12 @@ class Controller:
                 execution, "failed", {"code": "worker_unavailable_or_invalid"}
             )
             self._transition(task.id, "blocked", "worker_unavailable_or_invalid")
+            return
+        try:
+            if hasattr(self.worker, "acknowledge"):
+                self.worker.acknowledge()
+        except (ValueError, OSError):
+            self._transition(task.id, "blocked", "model_result_reconciliation_required")
             return
         if task_cancelled():
             self._transition(task.id, "blocked", "interrupted_requires_assessment")
@@ -323,6 +330,8 @@ class Controller:
                 cancelled=task_cancelled,
             )
             self.state.evidence("reviews", task.id, review, binding)
+            if hasattr(self.reviewer, "acknowledge"):
+                self.reviewer.acknowledge()
         except (ValueError, OSError):
             self._transition(task.id, "blocked", "independent_review_unavailable")
             return

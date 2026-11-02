@@ -202,6 +202,8 @@ class DevelopmentLoop:
             spec_hash=binding,
             receipt=receipt,
         )
+        if hasattr(self.evaluator, "acknowledge"):
+            self.evaluator.acknowledge()
         report, verification = receipt["report"], receipt["verification"]
         remaining()
         if fingerprint(source_snapshot(self.root)) != binding:

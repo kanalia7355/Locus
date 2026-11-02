@@ -16,6 +16,7 @@ from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
 
+from loop_engine.model_gate import ResponseGate, strict_json
 from loop_engine.security import SafetyError
 
 HOST = "chatgpt.com"
@@ -77,13 +78,19 @@ class AuditRelay:
         cancelled: Callable[[], bool],
         forwarding: bool = False,
         peer_authorized: Callable[[socket.socket], bool] = lambda _: False,
+        request_validator: Callable[[bytes], Any] | None = None,
+        reserve_upstream: Callable[[], None] | None = None,
     ) -> None:
         self.model, self.deadline, self.cancelled = model, deadline, cancelled
         self.forwarding = forwarding
         self.observed = threading.Event()
         self.accepted = False
         self.used = False
+        self.failed = False
+        self.upgrade_rejected = 0
+        self.response_gate = ResponseGate(model) if request_validator else None
         self.connection: http.client.HTTPSConnection | None = None
+        self.client_socket: socket.socket | None = None
         relay = self
 
         class Server(HTTPServer):
@@ -100,8 +107,11 @@ class AuditRelay:
                     client.settimeout(min(5, relay.remaining()))
                     if not peer_authorized(client):
                         raise SafetyError("Audit relay client not authenticated")
+                    relay.client_socket = client
                     return client, address
                 except Exception:
+                    if request_validator:
+                        relay.failed = True
                     client.close()
                     raise OSError("Audit relay client rejected") from None
 
@@ -109,15 +119,82 @@ class AuditRelay:
                 pass  # Never print exception, request, header or traceback.
 
         class Handler(BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1" if request_validator else "HTTP/1.0"
+
+            def parse_request(self) -> bool:
+                if not request_validator:
+                    return super().parse_request()
+                original = self.rfile
+
+                class Budget:
+                    total = 0
+
+                    def readline(self, size: int = -1) -> bytes:
+                        data = original.readline(min(size if size > 0 else 65537, 65537))
+                        self.total += len(data)
+                        if self.total > 65536:
+                            raise http.client.LineTooLong("C-min bounded headers")
+                        return data
+
+                self.rfile = Budget()  # type: ignore[assignment]
+                try:
+                    return super().parse_request()
+                finally:
+                    self.rfile = original
+
+            def send_error(
+                self, code: int, message: str | None = None, explain: str | None = None
+            ) -> None:
+                if request_validator:
+                    relay.failed = True
+                    self.send_response(code)
+                    self.end_headers()
+                    self.close_connection = True
+                else:
+                    super().send_error(code, message, explain)
+
             def log_message(self, *_: Any) -> None:
                 pass
 
             def do_GET(self) -> None:
+                if request_validator:
+                    if (
+                        self.path == "/responses"
+                        and self.headers.get("Upgrade", "").lower() == "websocket"
+                        and self.headers.get("Connection", "").lower() == "upgrade"
+                        and self.headers.get("Sec-WebSocket-Version") == "13"
+                        and self.headers.get("Content-Length", "0") == "0"
+                        and "Transfer-Encoding" not in self.headers
+                        and not relay.used
+                        and relay.upgrade_rejected < 1
+                    ):
+                        # Pinned official client treats 426 as immediate HTTP selection.
+                        # No WebSocket is established and no bytes go to provider.
+                        relay.upgrade_rejected += 1
+                        self.send_response(426)
+                        self.send_header("Content-Length", "0")
+                        self.send_header("Connection", "close")
+                        self.end_headers()
+                        return
+                    relay.failed = True
                 self.send_response(405)
                 self.end_headers()
 
             def do_POST(self) -> None:
                 try:
+                    if request_validator and (
+                        len(self.headers) > 64 or len(bytes(self.headers)) > 65536
+                    ):
+                        raise SafetyError("C-min header bound exceeded")
+                    if request_validator and (
+                        self.headers.get_all("Content-Type", []) != ["application/json"]
+                        or any(
+                            len(values) != 1
+                            for key in self.headers
+                            if (values := self.headers.get_all(key, []))
+                        )
+                    ):
+                        raise SafetyError("C-min duplicate/type headers rejected")
                     length = self.headers.get_all("Content-Length", [])
                     if (
                         self.path != "/responses"
@@ -134,10 +211,15 @@ class AuditRelay:
                     raw = self.rfile.read(int(length[0]))
                     if len(raw) != int(length[0]):
                         raise SafetyError("Truncated inference request")
-                    validate_inference(raw, relay.model)
+                    if request_validator:
+                        parsed_request = request_validator(raw)
+                    else:
+                        validate_inference(raw, relay.model)
                     lite = self.headers.get_all("X-OpenAI-Internal-Codex-Responses-Lite", [])
                     if len(lite) > 1 or (lite and lite != ["true"]):
                         raise SafetyError("Invalid fixed Responses Lite protocol header")
+                    if request_validator and lite != ["true"]:
+                        raise SafetyError("C-min Lite marker required")
                     relay.accepted = True
                     relay.observed.set()
                     if not relay.forwarding:
@@ -152,6 +234,14 @@ class AuditRelay:
                         or not 8 < len(auth[0]) <= 16384
                         or len(account) > 1
                         or (account and len(account[0]) > 256)
+                        or (request_validator is not None and len(account) != 1)
+                        or (
+                            request_validator is not None
+                            and any(
+                                not value or any(not 32 <= ord(c) < 127 for c in value)
+                                for value in [*auth, *account]
+                            )
+                        )
                     ):
                         raise SafetyError("Audit authentication header unavailable")
                     headers = {
@@ -181,10 +271,27 @@ class AuditRelay:
                         ):
                             raise SafetyError("Invalid fixed audit client metadata header")
                         if values:
+                            if request_validator:
+                                if name == "X-Codex-Turn-State":
+                                    raise SafetyError("C-min continuation header rejected")
+                                if name == "OpenAI-Beta" and values != ["responses=experimental"]:
+                                    raise SafetyError("C-min protocol extension header rejected")
+                                if name == "X-Codex-Turn-Metadata":
+                                    encoded = parsed_request.get("client_metadata", {}).get(
+                                        "x-codex-turn-metadata"
+                                    )
+                                    if not isinstance(encoded, str) or strict_json(
+                                        values[0].encode()
+                                    ) != strict_json(encoded.encode()):
+                                        raise SafetyError("C-min authoritative header differs")
                             headers[name] = values[0]
                     if account:
                         headers["ChatGPT-Account-ID"] = account[0]
                     relay.remaining()
+                    if request_validator:
+                        if reserve_upstream is None:
+                            raise SafetyError("C-min durable reservation required")
+                        reserve_upstream()
                     connection = http.client.HTTPSConnection(
                         HOST,
                         timeout=min(10, relay.remaining()),
@@ -218,10 +325,16 @@ class AuditRelay:
                         total += len(block)
                         if total > OUTPUT_LIMIT:
                             raise SafetyError("Audit inference response exceeded limit")
-                        self.wfile.write(block)
-                        self.wfile.flush()
+                        for safe in (
+                            relay.response_gate.feed(block) if relay.response_gate else [block]
+                        ):
+                            self.wfile.write(safe)
+                            self.wfile.flush()
+                    if relay.response_gate:
+                        relay.response_gate.finish()
                     relay.stage = "complete"
                 except Exception as error:
+                    relay.failed = True
                     relay.failure_reason = (
                         "timeout"
                         if isinstance(error, TimeoutError)
@@ -243,7 +356,9 @@ class AuditRelay:
         self.stage = "waiting_client"
         self.http_status: int | None = None
         self.failure_reason = "client_or_output_rejected"
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread = threading.Thread(
+            target=lambda: self.server.serve_forever(poll_interval=0.05), daemon=True
+        )
 
     def remaining(self) -> float:
         left = self.deadline - time.monotonic()
@@ -265,7 +380,18 @@ class AuditRelay:
             raise
 
     def __exit__(self, *_: Any) -> None:
+        if self.client_socket:
+            try:
+                self.client_socket.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            self.client_socket.close()
         if self.connection:
+            try:
+                if self.connection.sock:
+                    self.connection.sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
             self.connection.close()
         self.server.shutdown()
         self.server.server_close()

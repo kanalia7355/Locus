@@ -126,6 +126,9 @@ def test_probe_uses_existing_loopback_alias_and_detects_lite_tools(
     from loop_engine.toolless_boundary import ToollessBoundary
 
     boundary = object.__new__(ToollessBoundary)
+    # Preserve coverage of the historical rejecting alias diagnostic. Normal
+    # C-min must not invoke it with the operator's authentication profile.
+    boundary.c_min = False
     boundary.root = tmp_path
     boundary.proof = None
     monkeypatch.setattr(boundary, "_binding", lambda _: "binding")

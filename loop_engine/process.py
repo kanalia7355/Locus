@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from loop_engine.security import safe_environment
+from loop_engine.security import SafetyError, reparse, safe_environment
 
 
 class WindowsJob:
@@ -78,7 +78,11 @@ class WindowsJob:
             self.close()
             raise OSError("Windows job containment unavailable")
 
-    def attach_and_resume(self, process: subprocess.Popen[bytes]) -> None:
+    def attach_and_resume(
+        self,
+        process: subprocess.Popen[bytes],
+        before_resume: Callable[[int, "WindowsJob"], None] | None = None,
+    ) -> None:
         import ctypes
         from ctypes import wintypes as w
 
@@ -90,6 +94,9 @@ class WindowsJob:
                 raise OSError("Cannot contain owned child process")
         finally:
             self.kernel.CloseHandle(handle)
+
+        if before_resume is not None:
+            before_resume(process.pid, self)
 
         class ThreadEntry(ctypes.Structure):
             _fields_ = [
@@ -160,6 +167,8 @@ class ProcessRunner:
         output_limit: int = 1_000_000,
         output_observer: Callable[[int, bytes], None] | None = None,
         active_process_limit: int | None = None,
+        before_resume: Callable[[int, WindowsJob], None] | None = None,
+        private_temp: Path | None = None,
     ) -> ProcessResult:
         if timeout <= 0 or not argv:
             return ProcessResult("unavailable", None)
@@ -178,20 +187,30 @@ class ProcessRunner:
                     0x00000004 | subprocess.CREATE_NO_WINDOW
                 )  # CREATE_SUSPENDED
             else:
-                if active_process_limit is not None:
+                if active_process_limit is not None or before_resume is not None:
                     return ProcessResult("unavailable", None)
                 options["start_new_session"] = True
+            environment = safe_environment(model=model)
+            if private_temp is not None:
+                if not private_temp.is_dir() or any(
+                    reparse(part) for part in (private_temp, *private_temp.parents)
+                ):
+                    raise SafetyError("Unsafe invocation temporary directory")
+                environment.update(TEMP=str(private_temp), TMP=str(private_temp))
             process = subprocess.Popen(  # noqa: S603 — argv only, never shell
                 argv,
                 cwd=cwd,
-                env=safe_environment(model=model),
+                env=environment,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 **options,
             )
             if job:
-                job.attach_and_resume(process)
+                if before_resume is None:
+                    job.attach_and_resume(process)
+                else:
+                    job.attach_and_resume(process, before_resume)
 
             def read(stream: Any, buffer: bytearray, channel: int) -> None:
                 reader = stream.read1 if output_observer is not None else stream.read
@@ -258,6 +277,10 @@ class ProcessRunner:
             if process:
                 self._terminate(process, job)
             return ProcessResult("spawn_error", None, elapsed=round(time.monotonic() - started, 3))
+        except BaseException:
+            if process:
+                self._terminate(process, job)
+            raise
         finally:
             if job:
                 job.close()
