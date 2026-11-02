@@ -55,24 +55,22 @@ def test_read_only_diagnostic_filters_nonsecret_record_fields(tmp_path):
     )
     script.write_text(body, encoding="utf-8")
     before = {p: p.read_bytes() for p in fixture.rglob("*") if p.is_file()}
-    result = ProcessRunner().run(
-        [
-            "powershell.exe",
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            "[Console]::Error.WriteLine('locus-test-host-entered'); "
-            '$env:PSModulePath="$PSHOME\\Modules"; '
-            "[Console]::Error.WriteLine('locus-test-modules-start'); "
-            'Import-Module "$PSHOME\\Modules\\Microsoft.PowerShell.Utility" -ErrorAction Stop; '
-            'Import-Module "$PSHOME\\Modules\\Microsoft.PowerShell.Management" -ErrorAction Stop; '
-            "[Console]::Error.WriteLine('locus-test-modules-ready'); & '"
-            + str(script).replace("'", "''")
-            + "'",
-        ],
-        tmp_path,
-        timeout=20,
-    )
+    command = [
+        "powershell.exe",
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "$ErrorActionPreference='Stop'; $global:LASTEXITCODE=0; "
+        "[Console]::Error.WriteLine('locus-test-host-entered'); "
+        '$env:PSModulePath="$PSHOME\\Modules"; '
+        "[Console]::Error.WriteLine('locus-test-modules-start'); "
+        'Import-Module "$PSHOME\\Modules\\Microsoft.PowerShell.Utility" -ErrorAction Stop; '
+        'Import-Module "$PSHOME\\Modules\\Microsoft.PowerShell.Management" -ErrorAction Stop; '
+        "[Console]::Error.WriteLine('locus-test-modules-ready'); & '"
+        + str(script).replace("'", "''")
+        + "'; exit $LASTEXITCODE",
+    ]
+    result = ProcessRunner().run(command, tmp_path, timeout=20)
     assert result.outcome == "exit" and result.returncode == 0, result
     assert "locus-test-script-entered" in result.stderr
     assert "locus-test-modules-ready" in result.stderr
@@ -90,11 +88,12 @@ def test_read_only_diagnostic_filters_nonsecret_record_fields(tmp_path):
     (state / "home-authentication.json").write_bytes(b"x" * 9000)
     before = {p: p.read_bytes() for p in fixture.rglob("*") if p.is_file()}
     rejected = ProcessRunner().run(
-        ["powershell.exe", "-NoProfile", "-NonInteractive", "-File", str(script)],
+        command,
         tmp_path,
         timeout=20,
     )
-    assert rejected.returncode == 2
+    assert rejected.outcome == "exit" and rejected.returncode == 2, rejected
+    assert "locus-test-modules-ready" in rejected.stderr
     failure = json.loads(rejected.stdout)
     assert failure["stage"] == "nonsecret_record_read"
     assert failure["record"] == "home-authentication.json"

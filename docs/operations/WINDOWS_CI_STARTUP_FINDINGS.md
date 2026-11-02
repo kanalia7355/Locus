@@ -75,3 +75,17 @@ module discovery. It does not change ProcessRunner's environment whitelist,
 machine/user environment, execution policy, production scripts, test deadlines
 or existing assertions. An additional assertion requires the import-ready marker.
 All seven related cases passed locally in8.91s; hosted validation is pending.
+
+Run41408474025 at ac39bc7 passed those three initialized invocations. Its sole
+Windows3.11 failure was the oversized-record negative case later in the diagnostic
+test, which still used the original uninitialized `-File` invocation. It timed out
+after script entry; 480 other cases passed and six were skipped. This separates
+the synthetic test's module environment from interpreter startup/file dispatch.
+
+The diagnostic test now reuses its initialized command for both positive and
+oversized-record cases. The wrapper explicitly propagates the script's native
+exit code; parent error handling remains terminating. The negative case still
+requires exit2, bounded nonsecret diagnostics and byte-for-byte unchanged fixture
+files, and now additionally requires a normal process exit and the module-ready
+marker. Its20s deadline is unchanged. Local regression passed in3.14s; final
+hosted results must be observed separately before claiming all CI green.
