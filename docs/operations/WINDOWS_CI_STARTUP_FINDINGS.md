@@ -89,3 +89,20 @@ requires exit2, bounded nonsecret diagnostics and byte-for-byte unchanged fixtur
 files, and now additionally requires a normal process exit and the module-ready
 marker. Its20s deadline is unchanged. Local regression passed in3.14s; final
 hosted results must be observed separately before claiming all CI green.
+
+## Hosted validation succeeded
+
+[Run41409459276](https://github.com/kanalia7355/Locus/actions/runs/41409459276)
+at251eb5e succeeded in Ubuntu3.11/3.13 and Windows3.11/3.13. The
+[product workflow](https://github.com/kanalia7355/Locus/actions/runs/41409459275)
+also succeeded. Windows3.11 reported481 passed and six existing skips in370.65s;
+its startup probes were2.094s cold/0.187s warm. No test was removed, no assertion
+was relaxed and the original20s script limits were preserved throughout.
+
+The controlled sequence isolates implicit standard-module initialization in
+the sanitized synthetic PowerShell environment as the issue addressed by explicit
+native-module loading. The precise hosted OS/module-discovery internals remain
+unproven; neither cold startup nor the entry form alone explained the failures.
+Future image/version drift remains a regression risk. The final QA receipt
+normal-completion correction is a separate small change and its HEAD's CI must
+be distinguished from this completed successful run.

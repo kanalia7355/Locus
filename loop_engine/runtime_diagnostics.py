@@ -58,7 +58,11 @@ print(json.dumps(d))
 """
     result = boundary.docker.run([sys.executable, "-c", code], work, timeout=20)
     expected = {"uid": 1000, "daemon_absent": True, "network_denied": True, "lease_denied": True}
-    qa = result.returncode == 0 and json.loads(result.stdout) == expected
+    qa = (
+        result.outcome == "exit"
+        and result.returncode == 0
+        and json.loads(result.stdout) == expected
+    )
     qa = qa and (work / "canary.txt").read_text() == "synthetic"
     timed = boundary.docker.run(
         [sys.executable, "-c", "import time;time.sleep(60)"], work, timeout=2

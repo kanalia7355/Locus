@@ -76,6 +76,11 @@ it is not implemented by this repair and ADR-0011 remains PROPOSED.
   scan, dependency consistency and advisory checks passed.
 - Final tool-surface/HTTP cleanup regression: 30 passed. This includes two
   follow-up cases beyond the earlier full collection.
+- QA receipt correction additionally requires `outcome == exit` as well as
+  exit code zero: a timed-out/cancelled Windows Job can return zero. Three
+  synthetic normal/timeout/cancel regressions passed (33 together with the
+  tool-surface tests). This subsequent monotonic success-predicate correction
+  was tested separately from the capability/routing security review.
 - Related real Windows PowerShell/process-lifetime regression: 36 passed before
   those final additions. No installer or deployed service operation is executed
   by these synthetic tests.
