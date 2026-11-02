@@ -17,6 +17,7 @@ def verify(root: Path, before: str, after: str) -> int:
     binary = shutil.which("git")
     if binary is None:
         raise ValueError("Git unavailable")
+
     def git(*args: str) -> str:
         return subprocess.run(  # noqa: S603
             [binary, *args], cwd=root, check=True, capture_output=True, text=True, timeout=20

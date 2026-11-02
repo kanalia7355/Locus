@@ -127,6 +127,42 @@ Exact-commit hosted job outcomes are recorded separately after actual completion
 Current offline PASS never establishes real auth/entitlement, official refresh
 behavior or live Lite protocol compatibility.
 
+### Additional actual verification / newly established holds
+
+On2000a8e all FOUR engine matrix jobs, including Windows3.11/3.13, succeeded;
+the additive conventional-title Push job also succeeded. Product CI alone stopped
+on one missing blank line in check_commit_subjects.py. Ruff formatting added only
+that line; parsed AST equality was verified. Independent CI reviewer cycle2
+confirmed the sole non-executable diff. Its resulting SHA256 is
+449ea2c167ed6bd8755acea7ec51dd4dfe6ed42cc198c9b6018589beb7d023be.
+Core main/trial review cycles were not reopened. The final pushed SHA's CI still
+must be observed; this earlier success is not substituted for it.
+
+The Windows application aggregate --cov command exceeded its existing120s window;
+no timeout was increased and that run is recorded failed, not passed. The same
+unchanged product verifier --e2e then ran in the current immutable, network-none
+source-only Linux QA image:607 Python tests passed/54 platform/opt-in skips,
+backend coverage88%, lint/format/types/secret scan passed, frontend11 tests/build
+and5 browser E2E passed; container exit0 in96.351s. Two existing ResourceWarnings
+about test SQLite lifetime remain visible and were not suppressed. Image dependency
+advisories were already current; network advisories are separate from this offline
+container run. Native Windows evidence is the632-test engine run above.
+
+Nonsecret operator config/existence/owner inspection (no credential-file contents
+or credential store opened, no state changes) found unset credential-store config,
+encrypted feature disabled and auth.json present. This conflicts with the current
+keyring-only validator. NORMAL_AUTH_STORAGE_DECISION.md records two options; a
+fresh read-only architecture/security reviewer found no design findings and
+requires owner choice before implementation. The keyring-only guard was NOT
+relaxed. The actual auth state/account/access remains unverified.
+
+Read-only GitManager configuration validation also holds on existing approved LF
+.gitattributes while global LFS filters are registered: its conservative guard
+requires separate filter assessment. Ordinary manual authorized development Push
+does not prove the Controller gate ready. No Git filter/hook/config bypass or
+implicit exception was installed. This joins the live receipt, profile/history,
+complete input and multiple-workspace authorization blockers before a Loop trial.
+
 ## Decisions still separate
 
 See C_MIN_LIVE_ACTIVATION_PROPOSAL.md and MAIN_PRODUCTION_ACTIVATION_PROPOSAL.md.
