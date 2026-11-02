@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from loop_engine.git_manager import GitManager
+from loop_engine.main_integration import MainIntegration
 from loop_engine.models import Task
 from loop_engine.security import SafetyError
 from loop_engine.state_store import StateStore
@@ -30,10 +31,17 @@ def validate_policy(policy: dict[str, Any]) -> None:
 
 class LocalDelivery:
     def __init__(
-        self, root: Path, state: StateStore, git: GitManager, policy: dict[str, Any]
+        self,
+        root: Path,
+        state: StateStore,
+        git: GitManager,
+        policy: dict[str, Any],
+        *,
+        promotion: MainIntegration | None = None,
     ) -> None:
         validate_policy(policy)
         self.root, self.state, self.git, self.policy = root, state, git, policy
+        self.promotion = promotion  # Explicit offline dependency; no activation/config change.
         self.ref = "refs/heads/" + policy["base"]
         git.recoverable_commits = True
 
@@ -83,6 +91,10 @@ class LocalDelivery:
     def deliver(
         self, task: Task, checkpoint: dict[str, Any], *, cancelled: Callable[[], bool]
     ) -> dict[str, Any]:
+        if cancelled():
+            observed = self.reconcile(task, checkpoint)
+            if observed is not None:
+                return observed
         self.git.operation_cancelled = cancelled
         if (
             cancelled()
@@ -157,4 +169,13 @@ class LocalDelivery:
             task.id, {**self.state.get_checkpoint(task.id), "pushed_head": committed}
         )
         self.state.set_metadata("local_published_head", committed)
+        if self.promotion is not None:
+            return self.promotion.deliver(
+                task, self.state.get_checkpoint(task.id), cancelled=cancelled
+            )
         return {"complete": True, "integrated_head": committed, "pushed_head": committed}
+
+    def reconcile(self, task: Task, checkpoint: dict[str, Any]) -> dict[str, Any] | None:
+        if self.promotion is None:
+            return None
+        return self.promotion.reconcile(task, checkpoint)

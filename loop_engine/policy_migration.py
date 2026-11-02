@@ -41,6 +41,13 @@ class PolicyMigration:
         if self.state.metadata("control") not in {"paused", "stopped"}:
             raise SafetyError("Stop the Controller before migrating policy")
         with self.state.connect() as db:
+            if (
+                db.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='main_promotions'"
+                ).fetchone()
+                and db.execute("SELECT 1 FROM main_promotions WHERE phase!='recorded'").fetchone()
+            ):
+                raise SafetyError("Unsettled main promotion prevents policy migration")
             if db.execute("SELECT 1 FROM executions WHERE status='running'").fetchone():
                 raise SafetyError("An executor is unsettled; do not migrate")
             if db.execute(

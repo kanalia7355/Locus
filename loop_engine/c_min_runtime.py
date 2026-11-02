@@ -229,9 +229,26 @@ def invoke(
     owner: dict[str, Any],
     deadline: float,
     cancelled: Callable[[], bool],
+    *,
+    trial_approval: str | None = None,
 ) -> tuple[ProcessResult, InvocationJournal, str]:
     artifact = boundary._binding(workspace)
-    preflight(root, state, artifact)
+    trial = None
+    if trial_approval is None:
+        preflight(root, state, artifact)
+    else:
+        from loop_engine.c_min_trial import PROMPT, SCHEMA, authorize
+        from loop_engine.c_min_trial import reserve as reserve_trial
+
+        trial = authorize(root, state, workspace, artifact, trial_approval)
+        if prompt != PROMPT or schema != SCHEMA:
+            raise SafetyError("Fixed synthetic trial contract required")
+        boundary.docker.require(workspace, root)
+        if not boundary.docker.audit_evidence(root):
+            raise SafetyError("Current source QA image audit required before trial")
+        verify_profile(state)
+        deadline = min(deadline, time.monotonic() + max(0, trial["expires"] - time.time()))
+        owner = reserve_trial(state, trial, artifact)
     journal = InvocationJournal(state)
     identifier = journal.claim(owner, artifact, time.time() + max(0, deadline - time.monotonic()))
     peer = OwnedCliPeer(argv[0])
@@ -251,6 +268,10 @@ def invoke(
     def request(raw: bytes) -> Any:
         remaining()
         result = validate_request(raw, "gpt-6.1-sol", schema, {str(root), str(workspace)})
+        if trial is not None:
+            from loop_engine.c_min_trial import exact_input
+
+            exact_input(result, trial)
         journal.advance(identifier, "launch_reserved", "request_validated")
         return result
 
@@ -270,7 +291,11 @@ def invoke(
             request_validator=request,
             reserve_upstream=reserve,
         ) as relay:
-            command = boundary.command(argv, workspace) + [
+            command = (
+                boundary.command(argv, workspace)
+                if trial is None
+                else boundary._command(argv, workspace)
+            ) + [
                 "-c",
                 'model_provider="openai"',
                 "-c",
@@ -300,6 +325,13 @@ def invoke(
             journal.advance(identifier, "upstream_reserved", "terminal_validated")
             verify_profile(state)
             privacy_options(root)
+            if trial is not None:
+                from loop_engine.runtime_diagnostics import runtime_identity
+
+                if runtime_identity(root) != trial["runtime"] or not boundary.docker.audit_evidence(
+                    root
+                ):
+                    raise SafetyError("Trial runtime/source QA changed before final proof")
             if any(temporary.iterdir()):
                 raise SafetyError("Unexpected model temporary artifact; preserve and hold")
         return outcome, journal, identifier

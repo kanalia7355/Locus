@@ -385,6 +385,11 @@ class Controller:
 
     def _deliver(self, task: Task) -> None:
         if self.cancelled():
+            if self.publisher and hasattr(self.publisher, "reconcile"):
+                try:
+                    self.publisher.reconcile(task, self.state.get_checkpoint(task.id))
+                except (ValueError, OSError):
+                    self.state.event("local_delivery.reconciliation_held", task.id)
             if self.state.task(task.id).status != "awaiting_approval":
                 self._transition(task.id, "awaiting_approval", "delivery_paused_or_limited")
             return

@@ -42,7 +42,12 @@ class InvocationJournal:
             or not isinstance(owner.get("role"), str)
             or not isinstance(owner.get("schema"), str)
             or (owner["role"], owner["schema"])
-            not in {("worker", "proposal"), ("reviewer", "review"), ("evaluator", "evaluation")}
+            not in {
+                ("worker", "proposal"),
+                ("reviewer", "review"),
+                ("evaluator", "evaluation"),
+                ("trial", "trial"),
+            }
             or any(
                 not isinstance(owner[k], str) or not 0 < len(owner[k]) <= 256
                 for k in ("owner_id", "spec", "binding")
@@ -56,6 +61,18 @@ class InvocationJournal:
         with self.state.connect() as db:
             self._begin(db)
             try:
+                if owner["role"] == "trial":
+                    if (
+                        not db.execute(
+                            "SELECT 1 FROM sqlite_master WHERE name='c_min_trials'"
+                        ).fetchone()
+                        or not db.execute(
+                            "SELECT 1 FROM c_min_trials WHERE slot=1 "
+                            "AND owner_key=? AND phase='reserved'",
+                            (fingerprint(owner),),
+                        ).fetchone()
+                    ):
+                        raise SafetyError("Dedicated one-shot trial slot required")
                 existing = db.execute(
                     "SELECT * FROM model_invocations WHERE owner_key=?", (fingerprint(owner),)
                 ).fetchone()
@@ -144,6 +161,12 @@ class InvocationJournal:
                     "SELECT id FROM reviews WHERE binding_hash=? AND created>=?",
                     (owner["binding"], row["created"]),
                 ).fetchone()
+            elif owner["role"] == "trial":
+                result = db.execute(
+                    "SELECT owner_key FROM c_min_trials WHERE slot=1 AND owner_key=? "
+                    "AND phase IN ('validated','completed')",
+                    (fingerprint(owner),),
+                ).fetchone()
             else:
                 result = db.execute(
                     "SELECT binding FROM development_evaluations WHERE binding=? AND created>=?",
@@ -161,5 +184,15 @@ class InvocationJournal:
                 "UPDATE model_invocations SET phase='completed',result_ref=? WHERE id=?",
                 (str(result[0]), identifier),
             )
+            if owner["role"] == "trial":
+                trial = db.execute("SELECT document FROM c_min_trials WHERE slot=1").fetchone()
+                proof = json.loads(trial[0])
+                if proof.get("invocation") != identifier:
+                    raise SafetyError("Trial result identity differs")
+                proof["passed"] = True
+                db.execute(
+                    "UPDATE c_min_trials SET phase='completed',document=? WHERE slot=1",
+                    (self.state.encode(proof),),
+                )
             self.state._event(db, "model.completed", None, {"id": identifier})
             db.commit()

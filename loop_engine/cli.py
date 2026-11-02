@@ -151,6 +151,10 @@ def parser() -> argparse.ArgumentParser:
     init = commands.add_parser("init")
     init.add_argument("--goal-file", type=Path)
     commands.add_parser("doctor").add_argument("--check-sandbox", action="store_true")
+    trial = commands.add_parser("c-min-trial")
+    trial.add_argument("--plan", type=Path, required=True)
+    trial.add_argument("--approval", required=True)
+    trial.add_argument("--status", action="store_true")
     app_setup = commands.add_parser("app-register")
     app_setup.add_argument("role", choices=("review", "merge"))
     app_setup.add_argument("--owner", choices=("kanalia7355",), default="kanalia7355")
@@ -293,6 +297,18 @@ def build_controller(root: Path, state: StateStore) -> Any:
 
 def run(args: argparse.Namespace) -> int:
     root = args.project.resolve()
+    if args.command == "c-min-trial":
+        from loop_engine.c_min_trial import run as single_trial
+        from loop_engine.c_min_trial import status as trial_status
+
+        state = open_state(root)
+        result = (
+            trial_status(state)
+            if args.status
+            else single_trial(root, state, args.plan, args.approval)
+        )
+        print(json.dumps(result))
+        return 0
     if args.command in {"service-bundle", "service-completion-bundle"}:
         from loop_engine.planning import bounded_json
         from loop_engine.process import ProcessRunner
