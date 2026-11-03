@@ -48,7 +48,8 @@ approval, live transport or account/entitlement evidence.
 Independent read-only security audit runtime_input_binding_implementation_audit:
 initial no findings; supplemental review identified one low test-isolation issue
 (unsupported-window descriptor also had an invalid template placeholder). Fix/
-re-review cycle1 resolved it; final findings empty. One further cycle remains.
+re-review cycle1 resolved it. The final CI-fixture re-review cycle2 below also
+has findings empty; the two-cycle allowance is exhausted for this implementation.
 Reviewer inspected source/test evidence, did not run tests, edit, use network,
 access credentials/state/services or run models. Separate usage/time unavailable.
 
@@ -100,3 +101,27 @@ arg0/auth lifecycle permission still precede a real test. Normal v3 receipt,
 per-role/task/workspace/run grants, Git-attributes assessment and explicit Loop
 permission remain separate. No real authentication/inference, audit service,
 credential lifecycle, main update, protection change, PR/merge or Loop was run.
+
+## Hosted Windows fixture correction
+
+At d010232, engine run41549152481 Windows3.11 failed six new Arg0 cases at
+private_directory's strict owner/ACL check during synthetic setup (750 passed,
+11 skipped). Windows3.13 was cancelled by matrix failure, not verified. The
+Ubuntu jobs, application run41549152261 and convention run41549152349 passed.
+Do not represent that SHA as green.
+
+The exact original security tuple was not logged, so the default elevated-owner
+hypothesis is not a reproduced sole root cause. Setup had not assigned an exact
+operator owner. The corrected fixture establishes that valid-input precondition
+on its fresh test tree only: native owner metadata is checked, /setowner is used
+only if different, and exact owner is asserted afterwards. All command targets
+resolve beneath pytest tmp_path. The original private_directory three-ACE/owner
+guard and every Arg0 positive/negative assertion remain. Production code, actual
+auth/config/ACLs, test deadlines and CI requirements are unchanged.
+
+An intermediate unconditional descendant /setowner failed under local Modify
+rights; the final conditional form avoids that redundant operation when the
+required owner is already present. Final related selection:83 passed in6.32s,
+Ruff/format/secret scan passed. Independent source-only security fix/re-review
+cycle2 found no findings or weakened tests. This local result is not evidence of
+hosted-run success; verify the final pushed SHA separately.
