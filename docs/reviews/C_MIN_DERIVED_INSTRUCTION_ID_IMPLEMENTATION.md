@@ -28,7 +28,7 @@ its hashed contract. The implementer fixed this and added all six unequal v1/v2/
 version pairs as rejection tests. Fix/re-review cycle 1 returned no findings and no
 remaining blocking issue. The reviewer independently ran pure validator tests
 (40 passed, 7 deselected); it did not access credentials, provider connections,
-services, durable production state or modify source. No second fix cycle was needed.
+services, durable production state or modify source. A final CI repair used cycle 2; see the evidence below. The two-cycle cap is exhausted.
 
 ## Verification
 
@@ -95,3 +95,30 @@ the earlier failing two-launch test. Those are historical design-stage statement
 Owner approval and the implementation/tests above supersede that status; changing
 those bytes would invalidate the approved hash. The historical test filename
 `test_trial_input_native_v2.py` is retained, but its explicit contract is now v3.
+
+## Windows CI repair and final review
+
+Implementation commit `bae70522fd545932ad870a30f0dc5271aee810ae` passed Linux
+3.11/3.13, product QA and commit convention CI. Its Windows 3.13 engine job failed
+two tests; Windows 3.11 was cancelled by matrix fail-fast, not independently failed.
+The initial run is not a successful final CI result.
+
+The fake adapter constructed time-sensitive IDs before SQLite setup. Injecting a
+2.2-second reservation delay locally reproduced the same send-before-assertion
+failure. Its fake CLI now uses paired deterministic clocks; production freshness,
+expiry and clock-drift checks and native real-clock tests remain unchanged. The
+new native fixture now prepares its synthetic home only after the shared harness
+has checked pinned native prerequisites. It establishes the current SID (elevated
+Windows can default to Administrators) and exact ACL, then runs the unchanged
+production private_directory and Arg0Guard checks. No new skip was introduced.
+
+After repair, 72 related tests passed, including the actual native capture and two
+validating launches; the injected 2.2-second-delay reproduction also passed. The
+independent read-only security reviewer returned no findings in final cycle 2 and
+independently ran 79 selected validator tests (10 deselected). This exhausts the
+two fix/re-review cycles. Final CI must use the new repair commit SHA, not the
+failed initial run. Production source is unchanged by this repair.
+
+The rebuilt image also passed all six opt-in real Docker containment tests in
+17.80 seconds. This is separate from the six skips in the standard engine run;
+test totals must not be added together.

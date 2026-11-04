@@ -11,7 +11,8 @@ from test_loop_c_min_native import (
     test_installed_cli_zero_declarations_clean_mock_json_and_owned_peer as native_case,
 )
 
-from loop_engine.c_min_runtime import private_directory
+from loop_engine.c_min_runtime import file_security, private_directory
+from loop_engine.process import ProcessRunner
 from loop_engine.security import fingerprint
 from loop_engine.trial_arg0 import Arg0Guard
 from loop_engine.trial_input_binding import APPROVAL3, VERSION3, contract, locate, validate
@@ -19,9 +20,6 @@ from loop_engine.trial_input_binding import APPROVAL3, VERSION3, contract, locat
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Pinned Windows native CLI")
 def test_two_native_synthetic_launches_match_prefrozen_contract(tmp_path):
-    # Provision only this test's synthetic home. No auth file exists or is read.
-    private_directory(tmp_path, "home")
-
     class Probe:
         spec = None
         hashes = []
@@ -33,7 +31,35 @@ def test_two_native_synthetic_launches_match_prefrozen_contract(tmp_path):
         def before_launch(self, home, work):
             from loop_engine.windows_pipe import Native
 
-            self.guard = Arg0Guard(home, Native().current_sid())
+            # Only the fresh synthetic home, after the native harness has checked
+            # its pinned CLI prerequisites. Elevated CI may default ownership to
+            # Administrators; establish the exact current SID, then keep every
+            # production owner/ACL check intact.
+            owner = Native().current_sid()
+            assert home.resolve() == (tmp_path / "home").resolve()
+            if file_security(home)[0] != owner:
+                result = ProcessRunner().run(
+                    ["icacls.exe", str(home), "/setowner", "*" + owner], tmp_path, timeout=10
+                )
+                assert result.outcome == "exit" and result.returncode == 0
+            if not getattr(self, "prepared", False):
+                result = ProcessRunner().run(
+                    [
+                        "icacls.exe",
+                        str(home),
+                        "/inheritance:r",
+                        "/grant:r",
+                        "*" + owner + ":(OI)(CI)(M)",
+                        "*S-1-5-18:(OI)(CI)(F)",
+                        "*S-1-5-32-544:(OI)(CI)(F)",
+                    ],
+                    tmp_path,
+                    timeout=10,
+                )
+                assert result.outcome == "exit" and result.returncode == 0
+                self.prepared = True
+            private_directory(tmp_path, "home")
+            self.guard = Arg0Guard(home, owner)
             self.launch = {"workspace": str(work), "scope": "native-synthetic-test-only"}
 
         def bound(self, identity):
