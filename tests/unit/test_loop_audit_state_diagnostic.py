@@ -9,6 +9,30 @@ import pytest
 from loop_engine.process import ProcessRunner
 
 
+def powershell_command(script, *arguments):
+    """Pin inbox modules instead of depending on per-runner automatic discovery."""
+    quoted = " ".join("'" + str(value).replace("'", "''") + "'" for value in arguments)
+    return [
+        "powershell.exe",
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "$ErrorActionPreference='Stop'; $global:LASTEXITCODE=0; "
+        "[Console]::Error.WriteLine('locus-test-host-entered'); "
+        '$env:PSModulePath="$PSHOME\\Modules"; '
+        "[Console]::Error.WriteLine('locus-test-modules-start'); "
+        'Import-Module "$PSHOME\\Modules\\Microsoft.PowerShell.Utility" -ErrorAction Stop; '
+        'Import-Module "$PSHOME\\Modules\\Microsoft.PowerShell.Management" -ErrorAction Stop; '
+        'Import-Module "$PSHOME\\Modules\\Microsoft.PowerShell.Security" -ErrorAction Stop; '
+        "$PSModuleAutoLoadingPreference='None'; "
+        "[Console]::Error.WriteLine('locus-test-modules-ready'); & '"
+        + str(script).replace("'", "''")
+        + "' "
+        + quoted
+        + "; exit $LASTEXITCODE",
+    ]
+
+
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows PowerShell runtime required")
 def test_read_only_diagnostic_filters_nonsecret_record_fields(tmp_path):
     from loop_engine.windows_pipe import Native
@@ -55,21 +79,7 @@ def test_read_only_diagnostic_filters_nonsecret_record_fields(tmp_path):
     )
     script.write_text(body, encoding="utf-8")
     before = {p: p.read_bytes() for p in fixture.rglob("*") if p.is_file()}
-    command = [
-        "powershell.exe",
-        "-NoProfile",
-        "-NonInteractive",
-        "-Command",
-        "$ErrorActionPreference='Stop'; $global:LASTEXITCODE=0; "
-        "[Console]::Error.WriteLine('locus-test-host-entered'); "
-        '$env:PSModulePath="$PSHOME\\Modules"; '
-        "[Console]::Error.WriteLine('locus-test-modules-start'); "
-        'Import-Module "$PSHOME\\Modules\\Microsoft.PowerShell.Utility" -ErrorAction Stop; '
-        'Import-Module "$PSHOME\\Modules\\Microsoft.PowerShell.Management" -ErrorAction Stop; '
-        "[Console]::Error.WriteLine('locus-test-modules-ready'); & '"
-        + str(script).replace("'", "''")
-        + "'; exit $LASTEXITCODE",
-    ]
+    command = powershell_command(script)
     result = ProcessRunner().run(command, tmp_path, timeout=20)
     assert result.outcome == "exit" and result.returncode == 0, result
     assert "locus-test-script-entered" in result.stderr
@@ -170,21 +180,20 @@ def test_connection_preparation_reads_two_records_and_acl_only(tmp_path):
     manifest_path = bundle / "manifest.json"
     manifest_path.write_text(json.dumps(manifest))
     digest = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
-    command = [
-        "powershell.exe",
-        "-NoProfile",
-        "-NonInteractive",
-        "-File",
-        str(script),
-        "-ConnectionPreparation",
-        "-Bundle",
-        str(bundle),
-        "-ManifestSha256",
-        digest,
-    ]
+    # Switches must remain command syntax, not quoted positional strings.
+    command = powershell_command(script)
+    command[-1] = command[-1].replace(
+        "; exit $LASTEXITCODE",
+        " -ConnectionPreparation -Bundle '"
+        + str(bundle).replace("'", "''")
+        + "' -ManifestSha256 '"
+        + digest
+        + "'; exit $LASTEXITCODE",
+    )
     before = {p: p.read_bytes() for p in fixture.rglob("*") if p.is_file()}
     result = ProcessRunner().run(command, tmp_path, timeout=20)
     assert result.outcome == "exit" and result.returncode == 0, result
+    assert "locus-test-modules-ready" in result.stderr
     response = json.loads(result.stdout)
     assert response["operation"] == "read_only_connection_preparation"
     assert not response["state_changed"] and not response["credential_values_accessed"]
@@ -218,7 +227,8 @@ def test_connection_preparation_reads_two_records_and_acl_only(tmp_path):
     denied = ProcessRunner().run(command, tmp_path, timeout=20)
     assert denied.returncode == 2 and json.loads(denied.stdout)["stage"] == "manifest_validation"
     outside_digest = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
-    outside = ProcessRunner().run(command[:-1] + [outside_digest], tmp_path, timeout=20)
+    outside_command = [*command[:-1], command[-1].replace(digest, outside_digest)]
+    outside = ProcessRunner().run(outside_command, tmp_path, timeout=20)
     assert outside.returncode == 2
     assert json.loads(outside.stdout)["stage"] == "operator_acl_metadata"
     manifest_path.write_bytes(b"x" * 9000)
@@ -226,3 +236,27 @@ def test_connection_preparation_reads_two_records_and_acl_only(tmp_path):
     assert oversized.returncode == 2
     assert json.loads(oversized.stdout)["stage"] == "manifest_validation"
     assert "x" * 20 not in oversized.stdout
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows PowerShell runtime required")
+def test_inbox_module_loading_ignores_shadow_module_search_path(tmp_path):
+    shadow = tmp_path / "shadow/Microsoft.PowerShell.Security"
+    shadow.mkdir(parents=True)
+    (shadow / "Microsoft.PowerShell.Security.psm1").write_text(
+        "function Get-Acl { throw 'locus-untrusted-shadow-module' }; "
+        "Export-ModuleMember -Function Get-Acl"
+    )
+    (shadow / "Microsoft.PowerShell.Security.psd1").write_text(
+        "@{RootModule='Microsoft.PowerShell.Security.psm1';ModuleVersion='1.0';FunctionsToExport=@('Get-Acl')}"
+    )
+    script = tmp_path / "inbox.ps1"
+    script.write_text("[Console]::Out.WriteLine((Get-Command Get-Acl).Module.Name)")
+    command = powershell_command(script)
+    command[-1] = (
+        "$env:PSModulePath='" + str(shadow.parent).replace("'", "''") + "'; " + command[-1]
+    )
+    result = ProcessRunner().run(command, tmp_path, timeout=20)
+    assert result.outcome == "exit" and result.returncode == 0, result
+    assert result.stdout.strip() == "Microsoft.PowerShell.Security"
+    assert "locus-untrusted-shadow-module" not in result.stdout + result.stderr
+    assert "locus-test-modules-ready" in result.stderr
