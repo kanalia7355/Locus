@@ -13,7 +13,17 @@ from loop_engine.windows_pipe import Native
 
 
 class Arg0Guard:
-    def __init__(self, home: Path, sid: str, remaining: Callable[[], Any] = lambda: None) -> None:
+    def __init__(
+        self,
+        home: Path,
+        sid: str,
+        remaining: Callable[[], Any] = lambda: None,
+        *,
+        runtime_acl: Any = None,
+    ) -> None:
+        from loop_engine.runtime_acl import RuntimeAcl
+
+        self.runtime = RuntimeAcl(home, sid, runtime_acl) if runtime_acl is not None else None
         self.home, self.sid = home, sid
         self.root = home / "tmp/arg0-windows"
         self.native = Native()
@@ -72,7 +82,10 @@ class Arg0Guard:
         ):
             raise SafetyError("Arg0 path/attribute identity differs")
         security = self.native.security(handle, kind=1)
-        private_acl(security, self.sid)
+        if self.runtime is None:
+            private_acl(security, self.sid)
+        else:
+            self.runtime.validate(path, directory, security)
         identity = {
             "volume": info.volume,
             "index": info.index_low | info.index_high << 32,

@@ -5,6 +5,7 @@ import json
 import time
 import tomllib
 from collections.abc import Callable
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
 
@@ -132,6 +133,14 @@ def verify_profile(state: StateStore) -> None:
     profile = state.metadata("c_min_auth_profile")
     common = {"home", "backend", "config_hash", "sid", "protection"}
     file_backed = isinstance(profile, dict) and profile.get("backend") == "existing-file"
+    if file_backed and "runtime_acl" in profile:
+        common.add("runtime_acl")
+    if file_backed and "lease_approval" in profile:
+        from loop_engine.auth_file_profile import LEASE_APPROVAL
+
+        if profile["lease_approval"] != LEASE_APPROVAL:
+            raise SafetyError("Unknown credential lifetime capability approval")
+        common.add("lease_approval")
     expected = common | (
         {"file_identity"}
         if file_backed
@@ -157,6 +166,27 @@ def verify_profile(state: StateStore) -> None:
         raise SafetyError("Unassessed client dotenv file; no authentication loaded")
     if reparse(home) or not (home / "config.toml").is_file() or reparse(home / "config.toml"):
         raise SafetyError("Nonsecret profile path differs")
+    runtime = None
+    if file_backed:
+        from loop_engine.auth_file_profile import inspect_existing
+        from loop_engine.runtime_acl import RuntimeAcl, local_sandbox_group
+
+        if profile["home"] != str(home) or profile["sid"] != Native().current_sid():
+            raise SafetyError("Registered existing-file profile differs")
+        if "runtime_acl" in profile:
+            runtime = RuntimeAcl(home, profile["sid"], profile["runtime_acl"])
+            if runtime.group != local_sandbox_group():
+                raise SafetyError("Registered local sandbox group differs")
+        actual = (
+            inspect_existing(home, profile["sid"], runtime)
+            if runtime
+            else inspect_existing(home, profile["sid"])
+        )
+        if actual != {
+            "file_identity": profile["file_identity"],
+            "protection": profile["protection"],
+        }:
+            raise SafetyError("Existing auth file changed; no repair/retry")
     raw = (home / "config.toml").read_text(encoding="utf-8")
     settings = tomllib.loads(raw)
     if file_backed:
@@ -171,12 +201,6 @@ def verify_profile(state: StateStore) -> None:
             or (home / "secrets/codex_auth.age").exists()
         ):
             raise SafetyError("Registered existing-file profile differs")
-        actual = inspect_existing(home, profile["sid"])
-        if actual != {
-            "file_identity": profile["file_identity"],
-            "protection": profile["protection"],
-        }:
-            raise SafetyError("Existing auth file changed; no repair/retry")
         return
     encrypted = profile["backend"] == "encrypted-keyring"
     if (
@@ -247,7 +271,7 @@ def preflight(root: Path, state: StateStore, artifact: str) -> None:
     require_receipt(root)
 
 
-def invoke(
+def _invoke(
     root: Path,
     state: StateStore,
     boundary: Any,
@@ -261,11 +285,32 @@ def invoke(
     cancelled: Callable[[], bool],
     *,
     trial_approval: str | None = None,
+    resources: ExitStack,
 ) -> tuple[ProcessResult, InvocationJournal, str]:
     artifact = boundary._binding(workspace)
     trial = None
+    lease = None
+
+    def acquire_lease() -> Any:
+        from loop_engine.auth_file_profile import CredentialLease
+        from loop_engine.runtime_acl import RuntimeAcl
+
+        profile = state.metadata("c_min_auth_profile")
+        if not isinstance(profile, dict) or profile.get("backend") != "existing-file":
+            return None
+        runtime = (
+            RuntimeAcl(Path(profile["home"]), profile["sid"], profile["runtime_acl"])
+            if "runtime_acl" in profile
+            else None
+        )
+        held = CredentialLease(Path(profile["home"]), profile["sid"], profile, runtime)
+        resources.callback(held.close)
+        verify_profile(state)
+        return held
+
     if trial_approval is None:
         preflight(root, state, artifact)
+        lease = acquire_lease()
     else:
         from loop_engine.c_min_trial import PROMPT, SCHEMA, authorize
         from loop_engine.c_min_trial import reserve as reserve_trial
@@ -277,6 +322,7 @@ def invoke(
         if not boundary.docker.audit_evidence(root):
             raise SafetyError("Current source QA image audit required before trial")
         verify_profile(state)
+        lease = acquire_lease()
         deadline = min(deadline, time.monotonic() + max(0, trial["expires"] - time.time()))
         owner = reserve_trial(state, trial, artifact)
     journal = InvocationJournal(state)
@@ -293,6 +339,8 @@ def invoke(
     anchors: dict[str, Any] = {}
 
     def bind_child(pid: int, job: Any) -> None:
+        if lease is not None:
+            lease.check()
         private_directory(root, temp_relative)
         peer.bind(pid, job)
         if versioned:
@@ -300,6 +348,8 @@ def invoke(
 
     def remaining() -> float:
         left = deadline - time.monotonic()
+        if lease is not None:
+            lease.check()
         if cancelled() or left <= 0:
             raise SafetyError("C-min invocation expired")
         return min(left, 300)
@@ -377,7 +427,7 @@ def invoke(
             if journal.trial_binding(identifier, "request_validated") != packet["binding"]:
                 raise SafetyError("Durable trial input binding changed")
         journal.advance(identifier, "request_validated", "upstream_reserved")
-        if arg0 is not None:
+        if arg0 is not None and lease is None:
             arg0.close()
 
     try:
@@ -385,7 +435,8 @@ def invoke(
             from loop_engine.trial_arg0 import Arg0Guard
 
             profile = state.metadata("c_min_auth_profile")
-            arg0 = Arg0Guard(Path(profile["home"]), profile["sid"], remaining)
+            options = {"runtime_acl": profile["runtime_acl"]} if "runtime_acl" in profile else {}
+            arg0 = Arg0Guard(Path(profile["home"]), profile["sid"], remaining, **options)
         with AuditRelay(
             "gpt-6.1-sol",
             deadline=time.monotonic() + remaining(),
@@ -408,16 +459,29 @@ def invoke(
                 "openai_base_url=" + json.dumps(relay.url),
             ]
             journal.advance(identifier, "prepared", "launch_reserved")
+            call_timeout = remaining()
+            if lease is not None:
+                lease.launch_started()
+
+            def stop() -> bool:
+                if lease is not None:
+                    lease.check()
+                return cancelled() or relay.failed
+
+            run_options: dict[str, Any] = {"require_settlement": True} if lease is not None else {}
             outcome = process.run(
                 command,
                 workspace,
-                timeout=remaining(),
+                timeout=call_timeout,
                 stdin=prompt,
                 model=True,
                 before_resume=bind_child,
                 private_temp=temporary,
-                cancelled=lambda: cancelled() or relay.failed,
+                cancelled=stop,
+                **run_options,
             )
+            if lease is not None:
+                lease.process_finished(outcome.tree_settled)
             if (
                 outcome.outcome != "exit"
                 or outcome.returncode != 0
@@ -448,3 +512,36 @@ def invoke(
         if arg0 is not None:
             arg0.close()
         peer.close()
+
+
+def invoke(
+    root: Path,
+    state: StateStore,
+    boundary: Any,
+    process: ProcessRunner,
+    argv: list[str],
+    prompt: str,
+    workspace: Path,
+    schema: dict[str, Any],
+    owner: dict[str, Any],
+    deadline: float,
+    cancelled: Callable[[], bool],
+    *,
+    trial_approval: str | None = None,
+) -> tuple[ProcessResult, InvocationJournal, str]:
+    with ExitStack() as resources:
+        return _invoke(
+            root,
+            state,
+            boundary,
+            process,
+            argv,
+            prompt,
+            workspace,
+            schema,
+            owner,
+            deadline,
+            cancelled,
+            trial_approval=trial_approval,
+            resources=resources,
+        )

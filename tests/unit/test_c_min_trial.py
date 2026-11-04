@@ -103,7 +103,7 @@ def test_missing_changed_authorization_stops_before_reservation(tmp_path, monkey
     [
         (mode, versioned)
         for mode in ("success", "input", "unknown", "disconnect", "source_changed")
-        for versioned in (False, True, "v2", "v3")
+        for versioned in (False, True, "v2", "v3", "leased-v3")
     ]
     + [
         (mode, True)
@@ -116,12 +116,15 @@ def test_missing_changed_authorization_stops_before_reservation(tmp_path, monkey
             "peer_changed",
             "binding_changed",
         )
-    ],
+    ]
+    + [(mode, "leased-v3") for mode in ("lease_drift", "unsettled")],
 )
 def test_shared_adapter_one_shot_complete_input_and_no_replay(
     tmp_path, monkeypatch, mode, versioned
 ):
     state, work, body, permit, decision = fixture(tmp_path, monkeypatch)
+    leased = versioned == "leased-v3"
+    lifetime = []
     incoming = {}
     if versioned:
         from test_trial_input_binding import fixture as input_fixture
@@ -129,7 +132,7 @@ def test_shared_adapter_one_shot_complete_input_and_no_replay(
         from loop_engine.trial_input_binding import VERSION
 
         spec, body, input_context = input_fixture()
-        if versioned == "v3":
+        if versioned in {"v3", "leased-v3"}:
             from test_trial_input_binding_v3 import fixture as v3_fixture
 
             from loop_engine.trial_input_binding import VERSION3
@@ -152,6 +155,10 @@ def test_shared_adapter_one_shot_complete_input_and_no_replay(
         monkeypatch.setattr("loop_engine.c_min_runtime.time.time", lambda: input_context["now"])
         monkeypatch.setattr("loop_engine.c_min_runtime.time.monotonic", lambda: 1000.0)
         profile = {"sid": "synthetic-sid", "home": str(tmp_path / "synthetic-home")}
+        if leased:
+            from loop_engine.auth_file_profile import LEASE_APPROVAL
+
+            profile.update(backend="existing-file", lease_approval=LEASE_APPROVAL)
         state.set_metadata("c_min_auth_profile", profile)
         permit["profile"] = fingerprint(profile)
         spec["headers"]["x-openai-internal-codex-responses-lite"] = "true"
@@ -257,7 +264,13 @@ def test_shared_adapter_one_shot_complete_input_and_no_replay(
             # Even a direct adapter caller below supplies a much longer timeout;
             # the reserved permit remains the absolute authority.
             assert 0 < options["timeout"] <= 90
+            if leased:
+                assert options["require_settlement"] is True
+                assert lifetime[-1] == "launch"
             options["before_resume"](123, object())
+            if mode == "lease_drift":
+                lifetime.append("drift")
+                options["cancelled"]()
             if mode == "permit_changed":
                 state.set_metadata("c_min_trial_permit", None)
             if mode == "history_changed":
@@ -286,7 +299,7 @@ def test_shared_adapter_one_shot_complete_input_and_no_replay(
                 reply = client.getresponse()
                 reply.read()
             except (OSError, http.client.HTTPException):
-                return ProcessResult("cancelled", None)
+                return ProcessResult("cancelled", None, tree_settled=True if leased else None)
             finally:
                 client.close()
             output = [
@@ -302,10 +315,38 @@ def test_shared_adapter_one_shot_complete_input_and_no_replay(
                 monkeypatch.setattr(
                     "loop_engine.runtime_diagnostics.runtime_identity", lambda _: "changed-runtime"
                 )
-            return ProcessResult("exit", 0, "\n".join(map(json.dumps, output)))
+            return ProcessResult(
+                "exit",
+                0,
+                "\n".join(map(json.dumps, output)),
+                tree_settled=(mode != "unsettled") if leased else None,
+            )
 
     monkeypatch.setattr("loop_engine.audit_transport.http.client.HTTPSConnection", HTTPS)
     monkeypatch.setattr("loop_engine.c_min_runtime.verify_profile", lambda _: None)
+    if leased:
+
+        class Lease:
+            def __init__(self, home, sid, expected, runtime):
+                assert expected["lease_approval"] == LEASE_APPROVAL
+                lifetime.append("acquire")
+
+            def check(self):
+                if "drift" in lifetime:
+                    raise SafetyError("synthetic lifetime drift")
+
+            def launch_started(self):
+                lifetime.append("launch")
+
+            def process_finished(self, settled):
+                lifetime.append("settled" if settled is True else "unknown")
+                if settled is not True:
+                    raise SafetyError("synthetic unknown process settlement")
+
+            def close(self):
+                lifetime.append("close")
+
+        monkeypatch.setattr("loop_engine.auth_file_profile.CredentialLease", Lease)
 
     def private(root, relative):
         path = root / relative
@@ -397,11 +438,19 @@ def test_shared_adapter_one_shot_complete_input_and_no_replay(
         "path_changed",
         "peer_changed",
         "binding_changed",
+        "lease_drift",
     }
     assert created == ([] if mode in blocked_before_send else ["connection", "sent"])
+    first_lifetime = list(lifetime)
     with pytest.raises(SafetyError):
         call()
     assert process.calls == 1
+    if leased:
+        assert first_lifetime[0] == "acquire" and first_lifetime[-1] == "close"
+        assert first_lifetime.count("acquire") == 1
+        assert lifetime.count("launch") == 1  # Re-entry never launches or sends again.
+        if mode == "success":
+            assert first_lifetime == ["acquire", "launch", "settled", "close"]
     with pytest.raises(SafetyError):
         reserve(StateStore(state.path), {**permit, "nonce": "new"}, "other")
 
