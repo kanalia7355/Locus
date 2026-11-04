@@ -137,6 +137,13 @@ class FixtureAcl:
         self.guard(path)
         return file_security(path)
 
+    def assign_fixture_owner(self, path):
+        # Model a normal owner CLI even when an elevated CI host creates objects
+        # with Administrators as their default owner. Exact owner checks stay on.
+        if self.security(path)[0] != self.owner:
+            self.write(path, self.sddl(path), owner=True)
+        assert self.security(path)[0] == self.owner
+
     def sddl(self, path):
         owner, control, entries = self.security(path)
         flags = ("P" if control & 0x1000 else "") + ("AI" if control & 0x400 else "")
@@ -282,6 +289,8 @@ def test_nonpropagating_acl_repair_preserves_helpers_and_exact_rollback():
     fresh.mkdir()
     for name in (".lock", "apply_patch.bat", "applypatch.bat"):
         (fresh / name).write_bytes(b"SYNTHETIC_NOT_A_CREDENTIAL")
+        f.assign_fixture_owner(fresh / name)
+    f.assign_fixture_owner(fresh)
     try:
         guard.check(str(fresh), time.time() - 2, time.time() + 2)
     finally:
@@ -422,6 +431,7 @@ def test_readonly_noninheriting_home_preserves_fresh_shims_and_private_recreatio
         f.guard(saved)
         p.rename(saved)  # Move only a guarded canary; never a credential backup.
         p.write_bytes(b"SYNTHETIC_NOT_A_CREDENTIAL")
+        f.assign_fixture_owner(p)
         private_acl(f.security(p), f.owner)
         assert not f.can_read_as_synthetic_group(p)
     snapshot = {p: f.security(p) for p in f.targets}
