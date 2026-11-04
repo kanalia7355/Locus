@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 #Requires -RunAsAdministrator
 # Read-only, fixed nonsecret lifecycle records. Never open credential stores/files.
-param([string]$Bundle, [string]$ManifestSha256)
+param([string]$Bundle, [string]$ManifestSha256, [switch]$ConnectionPreparation)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $diagnosticStage = 'path_validation'
@@ -87,7 +87,8 @@ public static class LocusAuditRecordReaderV1 {
     }
     public static byte[] Read(string name) {
         if(name!="home-authentication.json" && name!="probe-home-authentication.json" &&
-            name!="keyring-probe.json" && name!="synthetic-model-proof.json")
+            name!="keyring-probe.json" && name!="synthetic-model-proof.json" &&
+            name!="transport-model-proof.json")
             throw new InvalidOperationException("Fixed nonsecret record required");
         string path=Path.Combine(@"C:\ProgramData\LocusLoopAuditV1\state",name);
         using(var handle=Open(path)) {
@@ -123,9 +124,41 @@ public static class LocusAuditRecordReaderV1 {
     }
     $state = Join-Path $root 'state'
     Assert-RegularAuditPath $state
+    $recordNames = @('home-authentication.json','probe-home-authentication.json',
+        'keyring-probe.json','synthetic-model-proof.json')
+    $preparationManifest = $null
+    if ($ConnectionPreparation) {
+        $diagnosticStage = 'manifest_validation'
+        $manifestPath = Join-Path $Bundle 'manifest.json'
+        Assert-RegularAuditPath $manifestPath
+        if ($ManifestSha256 -cnotmatch '^[a-f0-9]{64}$') { throw 'Exact manifest hash required' }
+        $manifestStream = [IO.File]::Open($manifestPath,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+        try {
+            if ($manifestStream.Length -le 0 -or $manifestStream.Length -gt 8192) {
+                throw 'Bounded exact manifest required'
+            }
+            $manifestBytes = New-Object byte[] ([int]$manifestStream.Length)
+            $offset = 0
+            while ($offset -lt $manifestBytes.Length) {
+                $count = $manifestStream.Read($manifestBytes,$offset,$manifestBytes.Length-$offset)
+                if ($count -le 0) { throw 'Incomplete diagnostic manifest' }
+                $offset += $count
+            }
+        } finally { $manifestStream.Dispose() }
+        $sha = [Security.Cryptography.SHA256]::Create()
+        try { $actualHash = ([BitConverter]::ToString($sha.ComputeHash($manifestBytes))).Replace('-','').ToLowerInvariant() }
+        finally { $sha.Dispose() }
+        if ($actualHash -cne $ManifestSha256) { throw 'Diagnostic manifest differs' }
+        $preparationManifest = [Text.Encoding]::UTF8.GetString($manifestBytes) | ConvertFrom-Json
+        if ($preparationManifest.protocol -cne 'locus-connection-preparation-diagnostic-v1' -or
+            $preparationManifest.mutations_allowed -ne $false -or
+            $preparationManifest.operator_sid -cne $settings.operator_sid) {
+            throw 'Exact read-only operator diagnostic required'
+        }
+        $recordNames = @('synthetic-model-proof.json','transport-model-proof.json')
+    }
     $records = @()
-    foreach ($name in @('home-authentication.json','probe-home-authentication.json',
-        'keyring-probe.json','synthetic-model-proof.json')) {
+    foreach ($name in $recordNames) {
         $diagnosticStage = 'nonsecret_record_read'
         $diagnosticRecord = $name
         $path = Join-Path $state $name
@@ -146,6 +179,64 @@ public static class LocusAuditRecordReaderV1 {
             finally { $sha.Dispose() }
         }
         $records += $entry
+    }
+    if ($ConnectionPreparation) {
+        $diagnosticStage = 'operator_acl_metadata'
+        $diagnosticRecord = $null
+        $operatorRoot = [IO.Path]::GetFullPath([Environment]::GetFolderPath('UserProfile')).TrimEnd('\')
+        $operatorHome = [IO.Path]::GetFullPath([string]$preparationManifest.operator_home).TrimEnd('\')
+        if (-not $operatorHome.StartsWith($operatorRoot + '\',[StringComparison]::OrdinalIgnoreCase)) {
+            throw 'Operator home must be within the same owner profile'
+        }
+        $targets = @(
+            @{label='auth_file';path=(Join-Path $operatorHome 'auth.json');ancestor=$false},
+            @{label='home';path=$operatorHome;ancestor=$false},
+            @{label='config';path=(Join-Path $operatorHome 'config.toml');ancestor=$false}
+        )
+        $parent = [IO.Path]::GetDirectoryName($operatorHome)
+        while ($parent.StartsWith($operatorRoot,[StringComparison]::OrdinalIgnoreCase)) {
+            if ($targets.Count -ge 16) { throw 'Ancestor limit' }
+            $targets += @{label='ancestor';path=$parent;ancestor=$true}
+            if ($parent -ieq $operatorRoot) { break }
+            $parent = [IO.Path]::GetDirectoryName($parent)
+        }
+        $trusted = @([string]$settings.operator_sid,'S-1-5-18','S-1-5-32-544')
+        $aclResults = @()
+        foreach ($target in $targets) {
+            Assert-RegularAuditPath $target.path
+            # Get-Acl queries only the security descriptor; no file data handle,
+            # credential parsing, account-name resolution or ACL repair occurs.
+            $acl = Get-Acl -LiteralPath $target.path
+            $owner = $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value
+            $rules = @($acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]))
+            if ($rules.Count -gt 64) { throw 'ACL entry limit' }
+            $entries = @()
+            foreach ($rule in $rules) {
+                $sid = $rule.IdentityReference.Value
+                $mask = [int64]$rule.FileSystemRights -band 0xffffffffL
+                $unapproved = $sid -cnotin $trusted
+                $inheritOnly = ([int]$rule.PropagationFlags -band 2) -ne 0
+                $dangerousAncestor = $unapproved -and -not $inheritOnly -and (($mask -band 0x500d0156L) -ne 0)
+                $entries += @{
+                    sid=$sid;mask=('0x{0:x8}' -f $mask);access_type=[string]$rule.AccessControlType;
+                    inherited=[bool]$rule.IsInherited;inheritance_flags=[string]$rule.InheritanceFlags;
+                    propagation_flags=[string]$rule.PropagationFlags;unapproved_principal=$unapproved;
+                    validator_principal_rejection=($unapproved -and (-not $target.ancestor -or $dangerousAncestor))
+                }
+            }
+            $aclResults += @{
+                target=$target.label;path=$target.path;owner_sid=$owner;
+                owner_matches_operator=($owner -ceq $settings.operator_sid);
+                dacl_protected=[bool]$acl.AreAccessRulesProtected;entries=$entries
+            }
+        }
+        @{
+            operation='read_only_connection_preparation';records=$records;acl=$aclResults;
+            budget=@{historical_records_expected=2;remaining_trials_verified=$false;additional_slots_granted=0;
+                subscription_quota_verified=$false;note='Record presence or outcome never grants a retry or a new slot'};
+            credential_values_accessed=$false;provider_request_sent=$false;state_changed=$false;activated=$false
+        } | ConvertTo-Json -Depth 8
+        return
     }
     $profiles = @()
     $diagnosticStage = 'profile_metadata'
