@@ -395,6 +395,7 @@ def invoke(
             request_validator=request,
             reserve_upstream=reserve,
             trial_headers=headers if versioned else None,
+            trial_input_version=trial["input_version"] if versioned and trial is not None else None,
         ) as relay:
             command = (
                 boundary.command(argv, workspace)

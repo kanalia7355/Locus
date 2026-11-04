@@ -103,7 +103,7 @@ def test_missing_changed_authorization_stops_before_reservation(tmp_path, monkey
     [
         (mode, versioned)
         for mode in ("success", "input", "unknown", "disconnect", "source_changed")
-        for versioned in (False, True)
+        for versioned in (False, True, "v2", "v3")
     ]
     + [
         (mode, True)
@@ -122,16 +122,33 @@ def test_shared_adapter_one_shot_complete_input_and_no_replay(
     tmp_path, monkeypatch, mode, versioned
 ):
     state, work, body, permit, decision = fixture(tmp_path, monkeypatch)
+    incoming = {}
     if versioned:
         from test_trial_input_binding import fixture as input_fixture
 
         from loop_engine.trial_input_binding import VERSION
 
         spec, body, _ = input_fixture()
+        if versioned == "v3":
+            from test_trial_input_binding_v3 import fixture as v3_fixture
+
+            from loop_engine.trial_input_binding import VERSION3
+
+            spec, body, incoming, _ = v3_fixture()
+            selected_version = VERSION3
+        elif versioned == "v2":
+            from test_trial_input_binding_v2 import fixture as v2_fixture
+
+            from loop_engine.trial_input_binding import VERSION2
+
+            spec, body, incoming, _ = v2_fixture()
+            selected_version = VERSION2
+        else:
+            selected_version = VERSION
         profile = {"sid": "synthetic-sid", "home": str(tmp_path / "synthetic-home")}
         state.set_metadata("c_min_auth_profile", profile)
         permit["profile"] = fingerprint(profile)
-        spec["headers"] = {"x-openai-internal-codex-responses-lite": "true"}
+        spec["headers"]["x-openai-internal-codex-responses-lite"] = "true"
         spec["launch"] = {
             "runtime": "runtime",
             "artifact": "artifact",
@@ -143,7 +160,7 @@ def test_shared_adapter_one_shot_complete_input_and_no_replay(
             "argv": ["synthetic-cli", "exec"],
             "schema": fingerprint(SCHEMA),
         }
-        permit.update(input_version=VERSION, input_hash=fingerprint(spec))
+        permit.update(input_version=selected_version, input_hash=fingerprint(spec))
         state.set_metadata("c_min_trial_input_contract", spec)
         state.set_metadata("c_min_trial_permit", permit)
         queue = ApprovalQueue(state)
@@ -213,6 +230,9 @@ def test_shared_adapter_one_shot_complete_input_and_no_replay(
 
         def request(self, *_args, **_kwargs):
             assert _kwargs["body"] == json.dumps(body).encode()
+            from loop_engine.trial_input_binding import NATIVE_HEADERS
+
+            assert not {name.lower() for name in _kwargs["headers"]} & NATIVE_HEADERS
             created.append("sent")
             if mode == "disconnect":
                 raise OSError("synthetic lost response")
@@ -253,6 +273,7 @@ def test_shared_adapter_one_shot_complete_input_and_no_replay(
                         "Authorization": "Bearer synthetic-only",
                         "ChatGPT-Account-ID": "synthetic-account",
                         "X-OpenAI-Internal-Codex-Responses-Lite": "true",
+                        **incoming,
                         **({"Unknown-Header": "unassessed"} if mode == "header" else {}),
                     },
                 )

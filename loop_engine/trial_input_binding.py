@@ -7,7 +7,7 @@ import math
 import re
 import xml.etree.ElementTree as ET
 from typing import Any
-from uuid import UUID
+from uuid import NAMESPACE_OID, UUID, uuid5
 
 from loop_engine.model_gate import strict_json
 from loop_engine.security import SafetyError, fingerprint
@@ -16,6 +16,22 @@ VERSION = "c-min-trial-input-contract-v1"
 # Public owner-approved design manifest, not authentication material.
 # pragma: allowlist nextline secret
 APPROVAL = "43bd4b6b8159ec2c7fadef9c9e2f5e305f8d93d019a044af8297c20960c452a0"
+VERSION2 = "c-min-trial-input-contract-v2"
+# Public owner-approved addendum, not authentication material.
+# pragma: allowlist nextline secret
+APPROVAL2 = "6f84090f99d0cd5fc6d921ea935d05b8c45a36049184a3832ef38429820bf605"
+VERSION3 = "c-min-trial-input-contract-v3"
+# Public owner-approved exact derived-ID design, not authentication material.
+# pragma: allowlist nextline secret
+APPROVAL3 = "05ebaeb6cdbd3b082356f987a8f017dd4921059b6f29640f8dbaef64912e5f10"
+VERSIONS = {VERSION: APPROVAL, VERSION2: APPROVAL2, VERSION3: APPROVAL3}
+NATIVE_HEADERS = {
+    "session-id",
+    "thread-id",
+    "version",
+    "x-codex-beta-features",
+    "x-codex-window-id",
+}
 HEADERS = {
     "user-agent",
     "originator",
@@ -40,12 +56,35 @@ def locate(root: Any, path: list[Any]) -> tuple[Any, Any]:
     return node, path[-1]
 
 
-def allowed_slot(slot: dict[str, Any]) -> bool:
+def input_headers(version: str) -> set[str]:
+    if version not in VERSIONS:
+        reject()
+    return HEADERS | (NATIVE_HEADERS if version in {VERSION2, VERSION3} else set())
+
+
+def allowed_slot(slot: dict[str, Any], version: str = VERSION) -> bool:
     path, kind = slot["path"], slot["kind"]
     if not isinstance(path, list) or any(type(p) not in {str, int} for p in path):
         return False
     if any(type(p) is int and not 0 <= p < 1024 for p in path):
         return False
+    if kind == "base_instruction_id":
+        return version == VERSION3 and path == ["body", "input", 0, "id"]
+    if version in {VERSION2, VERSION3}:
+        if kind == "session_id" and path in [["headers", "session-id"], ["headers", "thread-id"]]:
+            return True
+        if kind == "window":
+            return path in [
+                ["body", "client_metadata", "x-codex-window-id"],
+                ["body", "client_metadata", "x-codex-turn-metadata", "window_id"],
+                ["headers", "x-codex-turn-metadata", "window_id"],
+                ["headers", "x-codex-window-id"],
+            ]
+        if kind == "context_id":
+            return path in [
+                ["body", "client_metadata", "x-codex-turn-metadata", "context_window_id"],
+                ["headers", "x-codex-turn-metadata", "context_window_id"],
+            ]
     if len(path) == 4 and path[:2] == ["body", "input"] and type(path[2]) is int:
         return bool(kind == "message_id" and path[3] == "id")
     if len(path) == 5 and path[:2] == ["body", "input"] and type(path[2]) is int:
@@ -106,11 +145,12 @@ def contract(value: Any) -> dict[str, Any]:
         if (
             not isinstance(value, dict)
             or set(value) != {"version", "approval", "body", "headers", "slots", "launch"}
-            or value["version"] != VERSION
-            or value["approval"] != APPROVAL
+            or not isinstance(value["version"], str)
+            or value["version"] not in VERSIONS
+            or value["approval"] != VERSIONS[value["version"]]
             or not isinstance(value["body"], dict)
             or not isinstance(value["headers"], dict)
-            or set(value["headers"]) - HEADERS
+            or set(value["headers"]) - input_headers(value["version"])
             or not isinstance(value["launch"], dict)
             or not isinstance(value["slots"], list)
             or not 0 < len(value["slots"]) <= 64
@@ -126,13 +166,18 @@ def contract(value: Any) -> dict[str, Any]:
                 | (
                     {"prefix", "suffix"}
                     if slot.get("kind") == "arg0"
+                    else {"thread_group"}
+                    if slot.get("kind") == "window"
+                    else {"thread_group", "text_sha256"}
+                    if slot.get("kind") == "base_instruction_id"
                     else {"uuid_version"}
-                    if slot.get("kind") in {"message_id", "turn_id", "session_id", "request_id"}
+                    if slot.get("kind")
+                    in {"message_id", "turn_id", "session_id", "request_id", "context_id"}
                     else set()
                 )
                 or not isinstance(slot["group"], str)
                 or not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", slot["group"])
-                or not allowed_slot(slot)
+                or not allowed_slot(slot, value["version"])
             ):
                 reject()
             key = fingerprint(slot["path"])
@@ -142,13 +187,55 @@ def contract(value: Any) -> dict[str, Any]:
             if "uuid_version" in slot and (
                 type(slot["uuid_version"]) is not int
                 or slot["uuid_version"] not in {4, 7}
-                or slot["kind"] in {"message_id", "turn_id"}
+                or slot["kind"] in {"message_id", "turn_id", "context_id"}
+                and slot["uuid_version"] != 7
+                or value["version"] in {VERSION2, VERSION3}
+                and slot["kind"] == "session_id"
                 and slot["uuid_version"] != 7
             ):
                 reject()
             parent, leaf = locate(value, slot["path"])
             if parent[leaf] != {"$slot": i}:
                 reject()
+            if slot["kind"] in {"window", "base_instruction_id"} and (
+                not isinstance(slot["thread_group"], str)
+                or not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", slot["thread_group"])
+            ):
+                reject()
+            if slot["kind"] == "base_instruction_id":
+                first = value["body"]["input"][0]
+                expected_provenance = {
+                    "content_item_kinds": ["model.base_instructions"],
+                    "content_item_metadata": [{"provenance": {"type": "harness", "hook": False}}],
+                }
+                if (
+                    set(first)
+                    != {
+                        "type",
+                        "role",
+                        "content",
+                        "id",
+                        "internal_chat_message_metadata_passthrough",
+                    }
+                    or first["type"] != "message"
+                    or first["role"] != "developer"
+                    or not isinstance(first["content"], list)
+                    or len(first["content"]) != 1
+                    or set(first["content"][0]) != {"type", "text"}
+                    or first["content"][0]["type"] != "input_text"
+                    or not isinstance(first["content"][0]["text"], str)
+                    or not first["content"][0]["text"]
+                    or slot["text_sha256"]
+                    != hashlib.sha256(first["content"][0]["text"].encode()).hexdigest()
+                    or fingerprint(first["internal_chat_message_metadata_passthrough"])
+                    != fingerprint(expected_provenance)
+                    or any(
+                        s["path"][:3] == ["body", "input", 0]
+                        and s["path"] != ["body", "input", 0, "id"]
+                        for s in value["slots"]
+                    )
+                ):
+                    reject()
             if slot["kind"] == "arg0":
                 arg0 += 1
                 if (
@@ -159,6 +246,48 @@ def contract(value: Any) -> dict[str, Any]:
                 ):
                     reject()
         if arg0 != 1:
+            reject()
+        if value["version"] in {VERSION2, VERSION3}:
+            if (
+                not NATIVE_HEADERS <= set(value["headers"])
+                or value["headers"]["version"] != "0.166.0"
+                or value["headers"]["x-codex-beta-features"] != "remote_compaction_v2"
+            ):
+                reject()
+            for meta in (
+                value["body"]["client_metadata"]["x-codex-turn-metadata"],
+                *(
+                    [value["headers"]["x-codex-turn-metadata"]]
+                    if "x-codex-turn-metadata" in value["headers"]
+                    else []
+                ),
+            ):
+                if type(meta["window_number"]) is not int or meta["window_number"] != 0:
+                    reject()
+            required = {
+                ("body", "prompt_cache_key"),
+                ("body", "client_metadata", "session_id"),
+                ("body", "client_metadata", "thread_id"),
+                ("body", "client_metadata", "x-codex-window-id"),
+                ("body", "client_metadata", "x-codex-turn-metadata", "window_id"),
+                ("body", "client_metadata", "x-codex-turn-metadata", "context_window_id"),
+                ("headers", "session-id"),
+                ("headers", "thread-id"),
+                ("headers", "x-codex-window-id"),
+            }
+            if "x-codex-turn-metadata" in value["headers"]:
+                required.update(
+                    {
+                        ("headers", "x-codex-turn-metadata", "window_id"),
+                        ("headers", "x-codex-turn-metadata", "context_window_id"),
+                    }
+                )
+            if not required <= {tuple(slot["path"]) for slot in value["slots"]}:
+                reject()
+        if (
+            value["version"] == VERSION3
+            and sum(s["kind"] == "base_instruction_id" for s in value["slots"]) != 1
+        ):
             reject()
 
         # Every placeholder has a descriptor; no free structural holes.
@@ -228,6 +357,9 @@ def validate(
         groups: dict[str, Any] = {}
         aliases: set[str] = set()
         messages: set[str] = set()
+        identities: dict[str, set[str]] = {}
+        windows: list[tuple[str, str]] = []
+        instructions: list[tuple[str, str]] = []
         evidence = []
         for i, slot in enumerate(spec["slots"]):
             parent, leaf = locate(packet, slot["path"])
@@ -240,6 +372,16 @@ def validate(
                     or not low <= value / scale <= high
                 ):
                     reject()
+            elif kind == "base_instruction_id":
+                if not isinstance(value, str):
+                    reject()
+                instructions.append((value, slot["thread_group"]))
+                aliases.add(fingerprint({"domain": "c-min-generated-id-v1", "value": value}))
+            elif kind == "window":
+                if not isinstance(value, str):
+                    reject()
+                windows.append((value, slot["thread_group"]))
+                aliases.add(fingerprint({"domain": "c-min-generated-id-v1", "value": value}))
             elif kind == "arg0":
                 if (
                     not isinstance(value, str)
@@ -296,13 +438,48 @@ def validate(
                         reject()
                     messages.add(value)
                 aliases.add(fingerprint({"domain": "c-min-generated-id-v1", "value": value}))
+                identities.setdefault(kind, set()).add(token)
+                if kind == "context_id":
+                    aliases.add(
+                        fingerprint({"domain": "c-min-generated-id-v1", "value": "msg_" + token})
+                    )
             if slot["group"] in groups and groups[slot["group"]] != value:
                 reject()
             groups[slot["group"]] = value
             evidence.append(fingerprint({"slot": i, "value": value}))
             parent[leaf] = {"$slot": i}
+        if spec["version"] in {VERSION2, VERSION3}:
+            threads = {
+                groups[slot["group"]] for slot in spec["slots"] if slot["kind"] == "session_id"
+            }
+            if len(threads) != 1:
+                reject()
+            thread = next(iter(threads))
+            if any(
+                groups.get(group) != thread or value != thread + ":0" for value, group in windows
+            ):
+                reject()
+            contexts = identities.get("context_id", set())
+            turns = identities.get("turn_id", set())
+            messages_set = identities.get("message_id", set())
+            if (
+                len(contexts) != 1
+                or len(turns) != 1
+                or contexts & (turns | messages_set | {thread})
+                or turns & (messages_set | {thread})
+                or thread in messages_set
+            ):
+                reject()
         if fingerprint(packet) != fingerprint({"body": spec["body"], "headers": spec["headers"]}):
             reject()
+        if spec["version"] == VERSION3:
+            text = spec["body"]["input"][0]["content"][0]["text"]
+            for supplied, group in instructions:
+                if groups.get(group) != thread:
+                    reject()
+                namespace = uuid5(NAMESPACE_OID, thread)
+                if supplied != "msg_" + str(uuid5(namespace, text)):
+                    reject()
         return {
             "contract": fingerprint(spec),
             "request": hashlib.sha256(raw).hexdigest(),

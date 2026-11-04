@@ -26,6 +26,7 @@ def test_installed_cli_zero_declarations_clean_mock_json_and_owned_peer(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     mode: str,
+    probe: Any = None,
 ) -> None:
     root = Path(__file__).resolve().parents[2]
     if not (root / ".loop/runtime/codex-client.json").is_file():
@@ -46,7 +47,7 @@ def test_installed_cli_zero_declarations_clean_mock_json_and_owned_peer(
     )
     home, work, logs = tmp_path / "home", tmp_path / "empty", tmp_path / "logs"
     for folder in (home, work, logs):
-        folder.mkdir()
+        folder.mkdir(exist_ok=probe is not None)
     catalog = home / "models.json"
     catalog.write_text(json.dumps(values), encoding="utf-8")
     config = "\n".join(
@@ -77,6 +78,10 @@ def test_installed_cli_zero_declarations_clean_mock_json_and_owned_peer(
         "required": ["ok", "proof"],
         "additionalProperties": False,
     }
+    if probe is not None:
+        from loop_engine.c_min_trial import SCHEMA
+
+        schema = SCHEMA
     contract = home / "contract.json"
     contract.write_text(json.dumps(schema), encoding="utf-8")
     peer = OwnedCliPeer(binary)
@@ -98,7 +103,12 @@ def test_installed_cli_zero_declarations_clean_mock_json_and_owned_peer(
             {
                 "type": "output_text",
                 "text": json.dumps(
-                    {"ok": True, "proof": "locus-synthetic-output-canary-never-persist"}
+                    {
+                        "ok": True,
+                        "proof": "C_MIN_SYNTHETIC_OK"
+                        if probe is not None
+                        else "locus-synthetic-output-canary-never-persist",
+                    }
                 ),
                 "annotations": [],
             }
@@ -188,6 +198,18 @@ def test_installed_cli_zero_declarations_clean_mock_json_and_owned_peer(
                 assert 0 < length <= 4 * 1024 * 1024
                 raw = self.rfile.read(length)
                 validate_request(raw, "gpt-6.1-sol", schema, {str(root), str(work)})
+                if probe is not None:
+                    from loop_engine.trial_input_binding import VERSION2, input_headers
+
+                    probe.request(
+                        raw,
+                        {
+                            name.lower(): self.headers[name]
+                            for name in self.headers.keys()
+                            if name.lower() in input_headers(VERSION2)
+                        },
+                        peer.identity(),
+                    )
                 observation["zero_tools"] = True
                 assert self.headers.get("x-openai-internal-codex-responses-lite") == "true"
                 observation["requests"] = observation.get("requests", 0) + 1
@@ -286,13 +308,23 @@ def test_installed_cli_zero_declarations_clean_mock_json_and_owned_peer(
             ]
             argv = boundary._command(argv, work)
             temporary = private_directory(tmp_path, "invocation-temp")
+
+            def bind(pid, job):
+                peer.bind(pid, job)
+                if probe is not None:
+                    probe.bound(peer.identity())
+
+            if probe is not None:
+                probe.before_launch(home, work)
+            from loop_engine.c_min_trial import PROMPT
+
             result = ProcessRunner().run(
                 argv + ["-"],
                 work,
                 timeout=25,
                 model=True,
-                stdin="locus-synthetic-input-canary-never-persist",
-                before_resume=peer.bind,
+                stdin=PROMPT if probe is not None else "locus-synthetic-input-canary-never-persist",
+                before_resume=bind,
                 private_temp=temporary,
                 cancelled=cancellation.is_set,
             )
@@ -401,7 +433,9 @@ def test_installed_cli_zero_declarations_clean_mock_json_and_owned_peer(
             if mode == "success":
                 assert len(final) == 1 and json.loads(final[0]) == {
                     "ok": True,
-                    "proof": "locus-synthetic-output-canary-never-persist",
+                    "proof": "C_MIN_SYNTHETIC_OK"
+                    if probe is not None
+                    else "locus-synthetic-output-canary-never-persist",
                 }
             assert not any(
                 x.get("item", {}).get("type")
@@ -418,7 +452,11 @@ def test_installed_cli_zero_declarations_clean_mock_json_and_owned_peer(
                     assert b"synthetic-nonfunctional-local-marker" not in raw
                     assert b"locus-synthetic-output-canary-never-persist" not in raw
                     assert b"locus-synthetic-reasoning-canary-never-persist" not in raw
+                    if probe is not None:
+                        assert PROMPT.encode() not in raw
         finally:
+            if probe is not None:
+                probe.close()
             server.shutdown()
             server.server_close()
             thread.join(2)

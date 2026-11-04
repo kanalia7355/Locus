@@ -51,12 +51,16 @@ def authorize(
     }
     versioned = isinstance(permit, dict) and "input_version" in permit
     if versioned:
-        from loop_engine.trial_input_binding import VERSION, contract
+        from loop_engine.trial_input_binding import VERSIONS, contract
 
         fields.add("input_version")
-        if permit.get("input_version") != VERSION or fingerprint(
-            contract(state.metadata("c_min_trial_input_contract"))
-        ) != permit.get("input_hash"):
+        normalized = contract(state.metadata("c_min_trial_input_contract"))
+        if (
+            not isinstance(permit.get("input_version"), str)
+            or permit["input_version"] not in VERSIONS
+            or normalized["version"] != permit["input_version"]
+            or fingerprint(normalized) != permit.get("input_hash")
+        ):
             raise SafetyError("Exact versioned trial input contract required")
     check(
         {

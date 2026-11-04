@@ -81,6 +81,7 @@ class AuditRelay:
         request_validator: Callable[[bytes], Any] | None = None,
         reserve_upstream: Callable[[], None] | None = None,
         trial_headers: Callable[[dict[str, str]], None] | None = None,
+        trial_input_version: str | None = None,
     ) -> None:
         self.model, self.deadline, self.cancelled = model, deadline, cancelled
         self.forwarding = forwarding
@@ -289,7 +290,9 @@ class AuditRelay:
                     if account:
                         headers["ChatGPT-Account-ID"] = account[0]
                     if trial_headers is not None:
-                        from loop_engine.trial_input_binding import HEADERS
+                        from loop_engine.trial_input_binding import VERSION, input_headers
+
+                        allowed_headers = input_headers(trial_input_version or VERSION)
 
                         mechanical = {
                             "host",
@@ -303,7 +306,7 @@ class AuditRelay:
                         if (
                             len(names) != len(set(names))
                             or set(names)
-                            - HEADERS
+                            - allowed_headers
                             - mechanical
                             - {"authorization", "chatgpt-account-id"}
                             or self.headers.get("Host")
@@ -312,7 +315,7 @@ class AuditRelay:
                             raise SafetyError("Trial HTTP header inventory differs")
                         # Authentication is never passed to the binding hook, hashed or recorded.
                         trial_headers(
-                            {name: self.headers[name] for name in names if name in HEADERS}
+                            {name: self.headers[name] for name in names if name in allowed_headers}
                         )
                     relay.remaining()
                     if request_validator:
