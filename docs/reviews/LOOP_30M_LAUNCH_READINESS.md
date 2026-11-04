@@ -56,6 +56,24 @@ service reservations remain held/unknown, with no refund, reset or new live gran
    This activation composition gap needs the bounded, separately approved change
    described in ../plans/LOOP_30M_ACTIVATION_REMAINDER.md. No wildcard, new executor
    or implicit delegation is implemented by the doctor fix.
+4. A later configuration assessment found a nonempty root notify array. The
+   pinned official CLI schema identifies this as an external notification command,
+   which the old hooks-only predicate missed. A separate minimal admission fix
+   rejects notify except None/empty-list, including malformed/nested values. It
+   neither executes nor disables the actual callback. The current real artifact
+   check now correctly rejects the profile before authentication/model execution;
+   the earlier calculated artifact is not a current admission approval.
+
+The notify fix passed eleven focused tests, independently reproduced by a separate
+read-only security reviewer (1.51s); Ruff check/format passed. Its separate bounded
+offline suppression proposal is ../plans/C_MIN_NOTIFY_SUPPRESSION_APPROVAL.md.
+Two clarification/re-review cycles passed, with no blocking findings. Suppression
+is unimplemented until owner approval, and actual config/callback values were
+neither changed nor published. This is a distinct newly discovered executable
+callback issue; it does not reopen the completed doctor review cycles.
+Full engine QA with both fixes passed: 892 passed / 7 skipped in414.93s, plus
+lint/format, both type configurations, secret scan, dependency consistency and
+third-party advisory audit. Counts overlap the earlier run and are not additive.
 
 The independent reviewer confirmed these causes and reviewed the minimal offline
 proposal through the two permitted clarification/re-review cycles, without

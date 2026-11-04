@@ -134,7 +134,9 @@ def probe_json(raw: bytes) -> Any:
 def configured_hooks(value: Any) -> bool:
     if isinstance(value, dict):
         return any(
-            (key == "hooks" and not isinstance(item, bool) and bool(item)) or configured_hooks(item)
+            (key == "hooks" and not isinstance(item, bool) and bool(item))
+            or (key == "notify" and item not in (None, []))
+            or configured_hooks(item)
             for key, item in value.items()
         )
     if isinstance(value, list):
