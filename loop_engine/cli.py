@@ -92,6 +92,18 @@ def doctor(root: Path, *, check_sandbox: bool = False) -> dict[str, Any]:
         ("codex", ["login", "status"]),
         ("gh", ["auth", "status", "--hostname", "github.com"]),
     ):
+        if tool == "codex":
+            from loop_engine.runtime_diagnostics import require_receipt
+
+            # A diagnostic/launch request cannot bootstrap authentication through
+            # an unverified execution boundary. A missing proof remains unknown,
+            # never a failed login or permission to refresh/recover credentials.
+            try:
+                require_receipt(root)
+            except (ValueError, OSError):
+                result[tool]["authenticated"] = None
+                result[tool]["authentication_probe"] = "not_run_execution_boundary_unverified"
+                continue
         executable = codex_binary(root) if tool == "codex" else shutil.which(tool)
         result[tool]["authenticated"] = bool(
             executable
