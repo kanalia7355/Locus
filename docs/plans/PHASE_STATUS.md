@@ -27,6 +27,11 @@ references, and open the related original through a fresh authorized chunk read.
 Pending retrieval is cancelled when its view is discarded. A persistent graph
 index, semantic GraphRAG and graph visualization remain unimplemented.
 
+Citation links and related-document links open the exact indexed chunk, show the
+document name, and focus/scroll to the referenced page and chunk. A removed or
+reindexed target is reported as unavailable rather than silently substituted.
+The source heading and Close control remain visible while reading long documents.
+
 Publication UI now explicitly chooses read-only (the default) or read plus
 retrieval, previews that choice with the role and project scope, and warns that
 saving replaces existing grants. Failed saves retain the input. Browser tests

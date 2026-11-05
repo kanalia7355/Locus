@@ -21,7 +21,19 @@ def main() -> None:
             service.assign(
                 username, "synthetic-project", "project_lead" if index == 0 else "researcher"
             )
-            service.seed_synthetic(username, "synthetic-project")
+            document = service.seed_synthetic(username, "synthetic-project")
+            if index == 7:
+                # Fixed, non-research fixture only: exercise an actual second-page citation.
+                content = (
+                    "【合成資料の第1頁】\n"
+                    + "索引と画面移動を確認するための説明文です。\n" * 70
+                    + "\f【合成資料の第2頁】\nuniqueanchor は出典移動の検証語です。"
+                )
+                with service.db() as db:
+                    db.execute("UPDATE documents SET content=? WHERE id=?", (content, document))
+                    service._index(
+                        db, db.execute("SELECT * FROM documents WHERE id=?", (document,)).fetchone()
+                    )
         service.seed_synthetic("test-researcher-0", "synthetic-project", "shared")
         try:
             uvicorn.run(

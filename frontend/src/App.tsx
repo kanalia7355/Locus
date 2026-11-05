@@ -13,13 +13,13 @@ import {
 import { api, errorText, json, statusName } from "./api";
 import { RelatedDocuments } from "./RelatedDocuments";
 import type {
-  Citation,
   Conversation,
   Document,
   Message,
   Project,
   Role,
   Roles,
+  SourceChunk,
   User,
 } from "./api";
 
@@ -265,13 +265,18 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
-  const [source, setSource] = useState<Citation[] | null>(null);
+  const [source, setSource] = useState<{
+    document: Document;
+    chunks: SourceChunk[];
+    selectedChunk: string | null;
+  } | null>(null);
   const [sourceError, setSourceError] = useState("");
   const conversationPromise = useRef<Promise<string> | null>(null);
   const conversationRef = useRef<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const personalInput = useRef<HTMLInputElement>(null);
   const sourceClose = useRef<HTMLButtonElement>(null);
+  const sourceTarget = useRef<HTMLDivElement>(null);
   const sourceTrigger = useRef<HTMLElement | null>(null);
   const sourceRequest = useRef(0);
   const project = projects.find((project) => project.id === projectId);
@@ -366,7 +371,10 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
   }, [attachments]);
 
   useEffect(() => {
-    if (source) sourceClose.current?.focus();
+    if (source?.selectedChunk && sourceTarget.current) {
+      sourceTarget.current.focus();
+      sourceTarget.current.scrollIntoView({ block: "nearest" });
+    } else if (source) sourceClose.current?.focus();
   }, [source]);
 
   function toggleSidebar() {
@@ -538,15 +546,29 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
       setBusy(false);
     }
   }
-  async function openSource(document: string) {
+  async function openSource(document: string, chunkId?: string) {
     if (!source) sourceTrigger.current = documentElement();
     const request = ++sourceRequest.current;
     setSourceError("");
     try {
-      const chunks = await api<Citation[]>(
-        `/documents/${document}/chunks${conversationId ? `?conversation_id=${conversationId}` : ""}`,
-      );
-      if (request === sourceRequest.current) setSource(chunks);
+      const query = conversationId
+        ? `?conversation_id=${encodeURIComponent(conversationId)}`
+        : "";
+      const path = `/documents/${encodeURIComponent(document)}`;
+      const [metadata, chunks] = await Promise.all([
+        api<Document>(`${path}${query}`),
+        api<SourceChunk[]>(`${path}/chunks${query}`),
+      ]);
+      if (chunkId && !chunks.some((chunk) => chunk.id === chunkId))
+        throw new Error(
+          "引用箇所が更新または削除されています。最新の資料を確認してください。",
+        );
+      if (request === sourceRequest.current)
+        setSource({
+          document: metadata,
+          chunks,
+          selectedChunk: chunkId ?? null,
+        });
     } catch (error) {
       if (request === sourceRequest.current) {
         if (source) setSourceError(errorText(error));
@@ -728,7 +750,10 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
                           <button
                             className="text-link"
                             onClick={() => {
-                              void openSource(citation.document_id);
+                              void openSource(
+                                citation.document_id,
+                                citation.id,
+                              );
                             }}
                           >
                             {citation.name} · p.{citation.page} · chunk{" "}
@@ -993,25 +1018,43 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
               }
             }}
           >
-            <div className="section-toolbar">
-              <h2>出典の原文</h2>
-              <button ref={sourceClose} onClick={closeSource}>
-                閉じる
-              </button>
+            <div className="source-heading">
+              <div className="section-toolbar">
+                <h2>出典の原文</h2>
+                <button ref={sourceClose} onClick={closeSource}>
+                  閉じる
+                </button>
+              </div>
+              <p className="source-document-name">{source.document.name}</p>
             </div>
             {sourceError && <p role="alert">{sourceError}</p>}
-            {source.map((chunk) => (
-              <div key={chunk.id}>
+            {source.chunks.map((chunk) => (
+              <div
+                key={chunk.id}
+                ref={source.selectedChunk === chunk.id ? sourceTarget : null}
+                className={
+                  source.selectedChunk === chunk.id
+                    ? "selected-source"
+                    : undefined
+                }
+                role={source.selectedChunk === chunk.id ? "region" : undefined}
+                aria-label={
+                  source.selectedChunk === chunk.id
+                    ? `引用箇所 p.${chunk.page} chunk ${chunk.ordinal}`
+                    : undefined
+                }
+                tabIndex={source.selectedChunk === chunk.id ? -1 : undefined}
+              >
                 <p className="muted">
                   p.{chunk.page} · chunk {chunk.ordinal}
                 </p>
                 <pre>{chunk.text}</pre>
               </div>
             ))}
-            {source[0] && can("retrieve") && (
+            {can("retrieve") && (
               <RelatedDocuments
-                key={`${source[0].document_id}:${conversationId ?? ""}`}
-                documentId={source[0].document_id}
+                key={`${source.document.id}:${conversationId ?? ""}`}
+                documentId={source.document.id}
                 conversationId={conversationId}
                 onOpen={openSource}
               />

@@ -59,6 +59,10 @@ test("first login, source retrieval, history and logout use actual API", async (
     name: "関連資料を確認",
     exact: true,
   });
+  await expect(
+    sourceDialog.getByRole("region", { name: "引用箇所 p.1 chunk 1" }),
+  ).toBeFocused();
+  await page.keyboard.press("Tab");
   await expect(close).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(related).toBeFocused();
@@ -74,7 +78,9 @@ test("first login, source retrieval, history and logout use actual API", async (
   await relatedRegion
     .getByRole("button", { name: "合成サンプル_成膜条件.txt" })
     .click();
-  await expect(close).toBeFocused();
+  await expect(
+    sourceDialog.getByRole("region", { name: "引用箇所 p.1 chunk 1" }),
+  ).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).not.toBeVisible();
   await page.getByRole("button", { name: "調査履歴", exact: true }).click();
@@ -87,6 +93,48 @@ test("first login, source retrieval, history and logout use actual API", async (
     page.getByRole("heading", { name: "ログイン", exact: true }),
   ).toBeVisible();
   expect(failures).toEqual([]);
+});
+
+test("citations open the actual page and chunk and reject stale targets", async ({
+  page,
+}) => {
+  await enter(page, 7);
+  await page
+    .getByRole("textbox", { name: "メッセージ", exact: true })
+    .fill("uniqueanchor");
+  await page.getByRole("button", { name: "送信", exact: true }).click();
+  const citation = page.getByRole("button", {
+    name: /合成サンプル_成膜条件.txt · p.2 · chunk 1/,
+  });
+  await citation.click();
+  const dialog = page.getByRole("dialog", { name: "出典の原文" });
+  const selected = dialog.getByRole("region", { name: "引用箇所 p.2 chunk 1" });
+  await expect(selected).toBeVisible();
+  await expect(selected).toBeFocused();
+  await expect(selected).toContainText("uniqueanchor");
+  await expect(dialog.locator(".source-document-name")).toHaveText(
+    "合成サンプル_成膜条件.txt",
+  );
+  await expect(dialog.locator(".source-document-name")).toBeInViewport();
+  await expect(
+    dialog.getByRole("button", { name: "閉じる", exact: true }),
+  ).toBeInViewport();
+  expect(await dialog.evaluate((element) => element.scrollTop)).toBeGreaterThan(
+    0,
+  );
+  await page.screenshot({
+    path: test.info().outputPath("citation-target.png"),
+  });
+  await page.keyboard.press("Escape");
+  await expect(citation).toBeFocused();
+  await page.route("**/api/documents/*/chunks**", (route) =>
+    route.fulfill({ json: [] }),
+  );
+  await citation.click();
+  await expect(page.getByRole("alert")).toContainText(
+    "引用箇所が更新または削除",
+  );
+  await expect(dialog).not.toBeVisible();
 });
 
 test("related sources retain keyboard focus while pending and wrap long names", async ({

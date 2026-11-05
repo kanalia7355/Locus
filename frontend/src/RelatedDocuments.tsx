@@ -9,7 +9,7 @@ export function RelatedDocuments({
 }: {
   documentId: string;
   conversationId: string | null;
-  onOpen: (id: string) => Promise<void>;
+  onOpen: (id: string, chunkId?: string) => Promise<void>;
 }) {
   const [items, setItems] = useState<RelatedDocument[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -61,7 +61,14 @@ export function RelatedDocuments({
         <ul>
           {items.map((item) => (
             <li key={item.document.id}>
-              <button onClick={() => void onOpen(item.document.id)}>
+              <button
+                onClick={() =>
+                  void onOpen(
+                    item.document.id,
+                    item.evidence[0]?.target_chunk_id,
+                  )
+                }
+              >
                 {item.document.name}
               </button>
               <p>共通語句 {item.shared_term_count}件</p>

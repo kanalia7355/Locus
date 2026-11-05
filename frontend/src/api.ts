@@ -22,13 +22,15 @@ export interface Document {
   created: number;
   owned: boolean;
 }
-export interface Citation {
+export interface SourceChunk {
   id: string;
   document_id: string;
-  name: string;
   page: number;
   ordinal: number;
   text: string;
+}
+export interface Citation extends SourceChunk {
+  name: string;
 }
 export interface Message {
   id: string;

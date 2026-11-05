@@ -45,7 +45,7 @@ it("loads only on demand, shows provenance, and opens the authorized target", as
   );
   expect(screen.getByText(/この資料 p.1 → 関連資料 p.3/)).toBeVisible();
   fireEvent.click(target);
-  expect(onOpen).toHaveBeenCalledWith("target");
+  expect(onOpen).toHaveBeenCalledWith("target", "b");
 });
 
 it("distinguishes an empty authorized result from a denied request", async () => {
