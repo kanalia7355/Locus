@@ -214,6 +214,12 @@ def create_app(*, service: Service | None = None, start_worker: bool = True) -> 
     ) -> list[dict[str, Any]]:
         return svc.chunks(user, document, conversation_id)
 
+    @app.get("/api/documents/{document}/related")
+    def related(
+        document: str, user: Actor, conversation_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        return svc.related(user, document, conversation_id)
+
     @app.delete("/api/documents/{document}", status_code=204)
     def delete_document(document: str, user: Actor) -> None:
         svc.delete_document(user, document)

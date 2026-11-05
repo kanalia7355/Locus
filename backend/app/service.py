@@ -479,6 +479,76 @@ class Service:
                 ).fetchall()
             ]
 
+    def related(
+        self, actor: Principal, document: str, conversation: str | None = None
+    ) -> list[Json]:
+        """Explain local lexical relationships using only currently retrievable chunks."""
+        with self.db() as db:
+            if conversation is not None:
+                context = self._conversation(db, actor, conversation)
+            source = self._document(db, actor, document, conversation)
+            if conversation is not None and context["project_id"] != source["project_id"]:
+                fail(404, "資料が見つかりません")
+            if not self._can_read(db, actor, source, "retrieve", conversation):
+                fail(404, "資料が見つかりません")
+            if source["status"] != "ready":
+                fail(409, "この資料はまだ参照できません")
+            self._limit("related:" + actor.id, 20)
+
+            def terms(text: str) -> set[str]:
+                # Bounded by the existing upload limit. Exact Unicode words, not semantic claims.
+                words = {word for word in re.findall(r"\w+", text.lower()) if 1 < len(word) <= 80}
+                for run in re.findall(r"[一-龯ぁ-んァ-ヶー]+", text):
+                    words.update(run[index : index + 2] for index in range(len(run) - 1))
+                return words
+
+            source_terms: dict[str, sqlite3.Row] = {}
+            for chunk in db.execute(
+                "SELECT * FROM chunks WHERE document_id=? ORDER BY page,ordinal", (document,)
+            ).fetchall():
+                for word in terms(chunk["text"]):
+                    source_terms.setdefault(word, chunk)
+            results: list[Json] = []
+            for candidate in db.execute(
+                "SELECT id,owner_id,project_id,kind,name,status,reason,conversation_id,"
+                "grants,created "
+                "FROM documents WHERE project_id=? AND status='ready' AND id<>? "
+                "ORDER BY id",
+                (source["project_id"], document),
+            ).fetchall():
+                if not self._can_read(
+                    db, actor, candidate, "retrieve", conversation
+                ) or not self._can_read(db, actor, candidate, "read", conversation):
+                    continue
+                matches: dict[str, sqlite3.Row] = {}
+                for chunk in db.execute(
+                    "SELECT * FROM chunks WHERE document_id=? ORDER BY page,ordinal",
+                    (candidate["id"],),
+                ).fetchall():
+                    for word in terms(chunk["text"]) & source_terms.keys():
+                        matches.setdefault(word, chunk)
+                if matches:
+                    results.append(
+                        {
+                            "document": self._metadata(candidate, actor.id),
+                            "method": "lexical-common-terms",
+                            "shared_term_count": len(matches),
+                            "evidence": [
+                                {
+                                    "term": word,
+                                    "source_chunk_id": source_terms[word]["id"],
+                                    "source_page": source_terms[word]["page"],
+                                    "target_chunk_id": matches[word]["id"],
+                                    "target_page": matches[word]["page"],
+                                }
+                                for word in sorted(matches)[:10]
+                            ],
+                        }
+                    )
+            return sorted(
+                results, key=lambda item: (-item["shared_term_count"], item["document"]["id"])
+            )[:10]
+
     def upload(
         self,
         actor: Principal,

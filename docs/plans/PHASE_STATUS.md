@@ -13,6 +13,17 @@ Date: 2026-10-31. This tracks implementation progress, not production approval. 
 
 ## Acceptance interpretation
 
+2026-11-06: the optional local provenance slice exposes
+`GET /api/documents/{id}/related` (optional `conversation_id`). It returns up to ten
+currently readable/retrievable same-project documents, ranked by shared lexical
+terms, with up to ten actual source/target chunk IDs and page references per link.
+Japanese character bigrams support non-whitespace-delimited text. This is an
+explainable lexical relationship, not a semantic graph or model-generated finding.
+Private documents and conversation-bound attachments retain their live ACLs.
+Requests are rate-limited; authorized chunks are still scanned under the prototype
+transaction lock, so this is not a production capacity claim. No relationship UI
+or persistent graph index is included in this backend slice.
+
 Isolation and citation tests verify the implemented local paths. They do not prove every path of an unimplemented vector/graph/model subsystem. The application emits quoted source excerpts, not generated research findings. Quarantined uploads are not called indexed/read. Queue limits are development safety limits, not tested user capacity.
 
 The remaining production decisions are not silently resolved. No production/LAN deployment, GitHub operation or external AI call is part of this delivery.
