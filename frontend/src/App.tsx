@@ -279,6 +279,8 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
   const sourceTarget = useRef<HTMLDivElement>(null);
   const sourceTrigger = useRef<HTMLElement | null>(null);
   const sourceRequest = useRef(0);
+  const activeProject = useRef("");
+  const libraryRequest = useRef(0);
   const project = projects.find((project) => project.id === projectId);
   const can = (permission: string) =>
     project?.permissions.includes(permission) ?? false;
@@ -289,6 +291,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
       .then((items) => {
         if (active) {
           setProjects(items);
+          activeProject.current = items[0]?.id ?? "";
           setProjectId(items[0]?.id ?? "");
         }
       })
@@ -297,27 +300,15 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
       });
     return () => {
       active = false;
+      activeProject.current = "";
     };
   }, []);
 
   const reload = useCallback(async () => {
-    if (!projectId) return;
-    const [docs, conversations] = await Promise.all([
-      api<Document[]>(`/documents?project_id=${encodeURIComponent(projectId)}`),
-      project?.permissions.includes("retrieve")
-        ? api<Conversation[]>(
-            `/conversations?project_id=${encodeURIComponent(projectId)}`,
-          )
-        : Promise.resolve([]),
-    ]);
-    setDocuments(docs);
-    setHistory(conversations);
-  }, [projectId, project]);
-
-  useEffect(() => {
-    let active = true;
-    if (projectId) {
-      void Promise.all([
+    if (!projectId || activeProject.current !== projectId) return;
+    const request = ++libraryRequest.current;
+    try {
+      const [docs, conversations] = await Promise.all([
         api<Document[]>(
           `/documents?project_id=${encodeURIComponent(projectId)}`,
         ),
@@ -326,21 +317,39 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
               `/conversations?project_id=${encodeURIComponent(projectId)}`,
             )
           : Promise.resolve([]),
-      ])
-        .then(([docs, conversations]) => {
-          if (active) {
-            setDocuments(docs);
-            setHistory(conversations);
-          }
-        })
-        .catch((error) => {
-          if (active) setError(errorText(error));
-        });
+      ]);
+      if (
+        request === libraryRequest.current &&
+        activeProject.current === projectId
+      ) {
+        setDocuments(docs);
+        setHistory(conversations);
+      }
+    } catch (error) {
+      if (
+        request === libraryRequest.current &&
+        activeProject.current === projectId
+      )
+        throw error;
     }
+  }, [projectId, project]);
+
+  const scopedError = useCallback(
+    (message: string) => {
+      if (activeProject.current === projectId) setError(message);
+    },
+    [projectId],
+  );
+
+  useEffect(() => {
+    let active = true;
+    void reload().catch((error) => {
+      if (active) setError(errorText(error));
+    });
     return () => {
       active = false;
     };
-  }, [projectId, project]);
+  }, [reload]);
 
   useEffect(() => {
     if (
@@ -384,6 +393,8 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
     });
   }
   function navigate(next: Page) {
+    sourceRequest.current++;
+    setSource(null);
     setPage(next);
     setError("");
     setNotice("");
@@ -632,6 +643,8 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
           value={projectId}
           disabled={busy}
           onChange={(e) => {
+            activeProject.current = e.target.value;
+            libraryRequest.current++;
             newChat();
             setProjectId(e.target.value);
             setDocuments([]);
@@ -942,7 +955,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
               canManageRoles={can("manage_roles")}
               onSource={openSource}
               onChanged={reload}
-              onError={setError}
+              onError={scopedError}
             />
           </>
         )}
@@ -965,10 +978,10 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
                     onClick={() => {
                       void api(`/conversations/${conv.id}`, json("DELETE"))
                         .then(() => {
-                          if (conversationId === conv.id) newChat();
+                          if (conversationRef.current === conv.id) newChat();
                           return reload();
                         })
-                        .catch((error) => setError(errorText(error)));
+                        .catch((error) => scopedError(errorText(error)));
                     }}
                   >
                     削除

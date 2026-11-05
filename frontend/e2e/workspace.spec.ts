@@ -254,6 +254,65 @@ test("attachments preserve draft, quarantine, remove, and share the drop path", 
   ).toBeVisible();
 });
 
+test("late project responses cannot overwrite the active library", async ({
+  page,
+}) => {
+  await enter(page, 9);
+  await page.getByRole("button", { name: "個人資料", exact: true }).click();
+  await expect(
+    page.getByRole("button", {
+      name: "合成サンプル_成膜条件.txt",
+      exact: true,
+    }),
+  ).toBeVisible();
+  let release!: () => void;
+  let completed!: () => void;
+  const hold = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const finished = new Promise<void>((resolve) => {
+    completed = resolve;
+  });
+  const originalQuery = (url: URL) =>
+    url.pathname === "/api/documents" &&
+    url.searchParams.get("project_id") === "synthetic-project";
+  await page.route(originalQuery, async (route) => {
+    const response = await route.fetch();
+    await hold;
+    await route.fulfill({ response });
+    completed();
+  });
+  const pending = page.waitForRequest((request) =>
+    originalQuery(new URL(request.url())),
+  );
+  await page.getByRole("button", { name: "更新", exact: true }).click();
+  await pending;
+  await page
+    .getByLabel("プロジェクト", { exact: true })
+    .selectOption("synthetic-project-b");
+  await page.getByRole("button", { name: "個人資料", exact: true }).click();
+  const active = page.getByRole("button", {
+    name: "別プロジェクトの合成資料.txt",
+    exact: true,
+  });
+  await expect(active).toBeVisible();
+  release();
+  await finished;
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  await expect(active).toBeVisible();
+  await expect(
+    page.getByRole("button", {
+      name: "合成サンプル_成膜条件.txt",
+      exact: true,
+    }),
+  ).not.toBeVisible();
+});
+
 test("personal batch uploads report accepted and rejected files accurately", async ({
   page,
 }) => {

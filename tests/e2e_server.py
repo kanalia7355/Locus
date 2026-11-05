@@ -15,6 +15,7 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="locus-e2e-") as temp:
         service = Service(Path(temp) / "test.sqlite3")
         service.create_project("synthetic-org", "synthetic-project", "検証用プロジェクト")
+        service.create_project("synthetic-org", "synthetic-project-b", "追加の検証プロジェクト")
         for index in range(12):
             username = f"test-researcher-{index}"
             service.provision(username, "Synthetic-test-password-01!", system_admin=index == 0)
@@ -33,6 +34,14 @@ def main() -> None:
                     db.execute("UPDATE documents SET content=? WHERE id=?", (content, document))
                     service._index(
                         db, db.execute("SELECT * FROM documents WHERE id=?", (document,)).fetchone()
+                    )
+            if index == 9:
+                service.assign(username, "synthetic-project-b", "researcher")
+                other = service.seed_synthetic(username, "synthetic-project-b")
+                with service.db() as db:
+                    db.execute(
+                        "UPDATE documents SET name=? WHERE id=?",
+                        ("別プロジェクトの合成資料.txt", other),
                     )
         service.seed_synthetic("test-researcher-0", "synthetic-project", "shared")
         try:
