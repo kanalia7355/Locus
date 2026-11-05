@@ -63,7 +63,8 @@ button:hover {
 button:active {
   background: var(--color-selected);
 }
-button:disabled {
+button:disabled,
+button[aria-disabled="true"] {
   opacity: 0.48;
   cursor: default;
 }
@@ -656,6 +657,18 @@ pre {
   overflow-wrap: anywhere;
   font-family: var(--font-body);
   line-height: 1.9;
+}
+.related-documents {
+  border-top: 1px solid var(--color-line);
+  margin-top: 24px;
+  padding-top: 16px;
+  overflow-wrap: anywhere;
+}
+.related-documents button {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+  text-align: left;
 }
 @media (min-width: 48rem) {
   .workspace.sidebar-open {

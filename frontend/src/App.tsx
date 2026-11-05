@@ -11,6 +11,7 @@ import {
   X,
 } from "lucide-react";
 import { api, errorText, json, statusName } from "./api";
+import { RelatedDocuments } from "./RelatedDocuments";
 import type {
   Citation,
   Conversation,
@@ -264,12 +265,14 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [source, setSource] = useState<Citation[] | null>(null);
+  const [sourceError, setSourceError] = useState("");
   const conversationPromise = useRef<Promise<string> | null>(null);
   const conversationRef = useRef<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const personalInput = useRef<HTMLInputElement>(null);
   const sourceClose = useRef<HTMLButtonElement>(null);
   const sourceTrigger = useRef<HTMLElement | null>(null);
+  const sourceRequest = useRef(0);
   const project = projects.find((project) => project.id === projectId);
   const can = (permission: string) =>
     project?.permissions.includes(permission) ?? false;
@@ -535,18 +538,23 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
     }
   }
   async function openSource(document: string) {
-    sourceTrigger.current = documentElement();
+    if (!source) sourceTrigger.current = documentElement();
+    const request = ++sourceRequest.current;
+    setSourceError("");
     try {
-      setSource(
-        await api<Citation[]>(
-          `/documents/${document}/chunks${conversationId ? `?conversation_id=${conversationId}` : ""}`,
-        ),
+      const chunks = await api<Citation[]>(
+        `/documents/${document}/chunks${conversationId ? `?conversation_id=${conversationId}` : ""}`,
       );
+      if (request === sourceRequest.current) setSource(chunks);
     } catch (error) {
-      setError(errorText(error));
+      if (request === sourceRequest.current) {
+        if (source) setSourceError(errorText(error));
+        else setError(errorText(error));
+      }
     }
   }
   function closeSource() {
+    sourceRequest.current++;
     setSource(null);
     sourceTrigger.current?.focus();
   }
@@ -959,8 +967,25 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
             onKeyDown={(event) => {
               if (event.key === "Escape") closeSource();
               if (event.key === "Tab") {
-                event.preventDefault();
-                sourceClose.current?.focus();
+                const controls =
+                  event.currentTarget.querySelectorAll<HTMLButtonElement>(
+                    "button:not(:disabled)",
+                  );
+                const first = controls[0];
+                const last = controls[controls.length - 1];
+                const inside = Array.from(controls).some(
+                  (control) => control === document.activeElement,
+                );
+                if (!inside) {
+                  event.preventDefault();
+                  (event.shiftKey ? last : first)?.focus();
+                } else if (event.shiftKey && document.activeElement === first) {
+                  event.preventDefault();
+                  last?.focus();
+                } else if (!event.shiftKey && document.activeElement === last) {
+                  event.preventDefault();
+                  first?.focus();
+                }
               }
             }}
           >
@@ -970,6 +995,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
                 閉じる
               </button>
             </div>
+            {sourceError && <p role="alert">{sourceError}</p>}
             {source.map((chunk) => (
               <div key={chunk.id}>
                 <p className="muted">
@@ -978,6 +1004,14 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
                 <pre>{chunk.text}</pre>
               </div>
             ))}
+            {source[0] && can("retrieve") && (
+              <RelatedDocuments
+                key={`${source[0].document_id}:${conversationId ?? ""}`}
+                documentId={source[0].document_id}
+                conversationId={conversationId}
+                onOpen={openSource}
+              />
+            )}
           </section>
         </div>
       )}

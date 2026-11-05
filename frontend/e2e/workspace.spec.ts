@@ -50,6 +50,31 @@ test("first login, source retrieval, history and logout use actual API", async (
   await expect(
     page.getByRole("dialog").getByText("処理温度180°C", { exact: false }),
   ).toBeVisible();
+  const sourceDialog = page.getByRole("dialog", { name: "出典の原文" });
+  const close = sourceDialog.getByRole("button", {
+    name: "閉じる",
+    exact: true,
+  });
+  const related = sourceDialog.getByRole("button", {
+    name: "関連資料を確認",
+    exact: true,
+  });
+  await expect(close).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(related).toBeFocused();
+  await related.click();
+  const relatedRegion = sourceDialog.getByRole("region", { name: "関連資料" });
+  await expect(relatedRegion.getByText(/共通語句 \d+件/)).toBeVisible();
+  await expect(
+    relatedRegion.getByText(/この資料 p.1 → 関連資料 p.1/).first(),
+  ).toBeVisible();
+  await page.screenshot({
+    path: test.info().outputPath("related-documents.png"),
+  });
+  await relatedRegion
+    .getByRole("button", { name: "合成サンプル_成膜条件.txt" })
+    .click();
+  await expect(close).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).not.toBeVisible();
   await page.getByRole("button", { name: "調査履歴", exact: true }).click();
@@ -62,6 +87,80 @@ test("first login, source retrieval, history and logout use actual API", async (
     page.getByRole("heading", { name: "ログイン", exact: true }),
   ).toBeVisible();
   expect(failures).toEqual([]);
+});
+
+test("related sources retain keyboard focus while pending and wrap long names", async ({
+  page,
+}) => {
+  await enter(page, 4);
+  await page
+    .getByRole("textbox", { name: "メッセージ", exact: true })
+    .fill("成膜");
+  await page.getByRole("button", { name: "送信", exact: true }).click();
+  const source = page
+    .getByRole("button", { name: /合成サンプル_成膜条件.txt · p./ })
+    .first();
+  await source.click();
+  const dialog = page.getByRole("dialog", { name: "出典の原文" });
+  let release!: () => void;
+  const responseReady = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const longName = "検証用の長い資料名".repeat(18) + ".txt";
+  let requests = 0;
+  await page.route("**/api/documents/*/related**", async (route) => {
+    requests++;
+    await responseReady;
+    await route.fulfill({
+      json: [
+        {
+          document: { id: "synthetic-target", name: longName },
+          method: "lexical-common-terms",
+          shared_term_count: 1,
+          evidence: [
+            {
+              term: "成膜",
+              source_page: 1,
+              target_page: 2,
+              source_chunk_id: "source-chunk",
+              target_chunk_id: "target-chunk",
+            },
+          ],
+        },
+      ],
+    });
+  });
+  const load = dialog.getByRole("button", {
+    name: "関連資料を確認",
+    exact: true,
+  });
+  await load.click();
+  await expect(
+    dialog.getByRole("button", { name: "関連資料を確認中", exact: true }),
+  ).toHaveAttribute("aria-disabled", "true");
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Tab");
+  await expect(
+    dialog.getByRole("button", { name: "閉じる", exact: true }),
+  ).toBeFocused();
+  release();
+  const target = dialog.getByRole("button", { name: longName });
+  await expect(target).toBeVisible();
+  expect(requests).toBe(1);
+  await page.setViewportSize({ width: 320, height: 900 });
+  await expect
+    .poll(() =>
+      dialog.evaluate((element) => element.scrollWidth <= element.clientWidth),
+    )
+    .toBe(true);
+  await expect
+    .poll(() =>
+      target.evaluate((element) => element.scrollWidth <= element.clientWidth),
+    )
+    .toBe(true);
+  await page.keyboard.press("Escape");
+  await expect(dialog).not.toBeVisible();
+  await expect(source).toBeFocused();
 });
 
 test("attachments preserve draft, quarantine, remove, and share the drop path", async ({

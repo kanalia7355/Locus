@@ -21,8 +21,11 @@ Japanese character bigrams support non-whitespace-delimited text. This is an
 explainable lexical relationship, not a semantic graph or model-generated finding.
 Private documents and conversation-bound attachments retain their live ACLs.
 Requests are rate-limited; authorized chunks are still scanned under the prototype
-transaction lock, so this is not a production capacity claim. No relationship UI
-or persistent graph index is included in this backend slice.
+transaction lock, so this is not a production capacity claim. The existing source
+dialog can load these relationships on demand, show common terms and page
+references, and open the related original through a fresh authorized chunk read.
+Pending retrieval is cancelled when its view is discarded. A persistent graph
+index, semantic GraphRAG and graph visualization remain unimplemented.
 
 Isolation and citation tests verify the implemented local paths. They do not prove every path of an unimplemented vector/graph/model subsystem. The application emits quoted source excerpts, not generated research findings. Quarantined uploads are not called indexed/read. Queue limits are development safety limits, not tested user capacity.
 

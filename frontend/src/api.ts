@@ -36,6 +36,18 @@ export interface Message {
   scope: string;
   citations: Citation[];
 }
+export interface RelatedDocument {
+  document: Document;
+  method: "lexical-common-terms";
+  shared_term_count: number;
+  evidence: {
+    term: string;
+    source_chunk_id: string;
+    source_page: number;
+    target_chunk_id: string;
+    target_page: number;
+  }[];
+}
 export interface Conversation {
   id: string;
   project_id: string;
