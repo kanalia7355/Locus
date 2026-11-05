@@ -1,6 +1,7 @@
 """No real model/auth: standard/Lite request guards and local probe routing."""
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
 from unittest.mock import Mock
@@ -144,15 +145,21 @@ def test_probe_uses_existing_loopback_alias_and_detects_lite_tools(
         assert not any(item.startswith("openai_base_url=") for item in argv)
         if runner_failure:
             raise RuntimeError("synthetic failure before request")
-        malformed = urllib.request.Request(  # noqa: S310 — generated loopback endpoint only
-            url + "/responses",
-            data=b"{}",
-            method="POST",
-            headers={"Content-Length": "invalid-synthetic-length"},
-        )
-        with pytest.raises(urllib.error.HTTPError) as malformed_error:
-            urllib.request.urlopen(malformed, timeout=3)  # noqa: S310 — synthetic loopback only
-        assert malformed_error.value.code == 400
+        for payload in (b"", b"{}"):
+            malformed = urllib.request.Request(  # noqa: S310 — generated loopback endpoint only
+                url + "/responses",
+                data=payload,
+                method="POST",
+                headers={"Content-Length": "invalid-synthetic-length"},
+            )
+            with pytest.raises((urllib.error.HTTPError, ConnectionAbortedError)) as malformed_error:
+                urllib.request.urlopen(malformed, timeout=3)  # noqa: S310 — synthetic loopback only
+            if isinstance(malformed_error.value, urllib.error.HTTPError):
+                assert malformed_error.value.code == 400
+            else:
+                # Closing with unread malformed bytes can reset Windows TCP.
+                assert payload and sys.platform == "win32"
+                assert getattr(malformed_error.value, "winerror", None) == 10053
         body = {
             "model": "fixture",
             "input": [
