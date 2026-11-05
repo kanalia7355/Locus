@@ -21,7 +21,8 @@ def observe(root: Path, pull: int, *, timeout: float = 120) -> dict[str, Any]:
         value = deadline - time.monotonic()
         if value <= 0:
             raise SafetyError("Preparation observation window expired")
-        return value
+        # Floating-point addition/subtraction must never enlarge the granted cap.
+        return min(timeout, value)
 
     remote: dict[str, Any] = {"preparation": {}}
     for role in ("review", "merge"):

@@ -65,3 +65,16 @@ service, main update or Loop launch occurred in this offline implementation.
 
 The frozen design documents retain their original proposal wording intentionally;
 this implementation record distinguishes approved implementation from live use.
+
+## CI repair after initial delivery
+
+Initial delivery 18a2087 passed Linux 3.11/3.13, Windows 3.13, product QA and
+convention CI. Windows 3.11 exposed a pre-existing observation deadline rounding
+bug: a 120-second timeout became 120.00000000000006 and correctly failed the
+existing cap assertion. Clamp the computed remainder to the original timeout;
+retain the expiry guard and every assertion. An added synthetic clock reproduces
+the overshoot. The isolated reviewer approved this first fix/re-review cycle and
+independently passed all 18 observation tests. No service operation occurred.
+Final full local QA: 934 passed, 7 opt-in Docker skips, 466.37 seconds; lint,
+format, both type targets, secrets, dependency consistency/advisories all passed.
+Exact repaired-commit remote CI remains separately verified in the final report.

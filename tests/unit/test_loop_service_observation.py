@@ -174,9 +174,14 @@ def test_inspection_accepts_only_complete_bound_boolean_result(
         inspect_registration(deployment(), "review")
 
 
+@pytest.mark.parametrize("clock", [None, 8.002])
 def test_observation_uses_services_and_fixed_owner_read_only(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clock: float | None
 ) -> None:
+    if clock is not None:
+        # Reproduce deadline subtraction rounding above the original 120s cap.
+        assert (clock + 120) - clock > 120
+        monkeypatch.setattr("loop_engine.service_observation.time.monotonic", lambda: clock)
     calls: list[tuple[str, str]] = []
     registered = {
         "running": True,
