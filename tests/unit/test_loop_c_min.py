@@ -3,6 +3,7 @@
 import copy
 import http.client
 import json
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -383,9 +384,14 @@ def test_actual_relay_filters_before_writing_and_reserves_once(
         assert relay.failed and not relay.response_gate.completed
         client.close()
         second = http.client.HTTPConnection("127.0.0.1", relay.server.server_port, timeout=2)
-        with pytest.raises(http.client.HTTPException):
+        with pytest.raises((http.client.HTTPException, ConnectionAbortedError)) as rejected:
             second.request("POST", "/responses", json.dumps(request()))
             second.getresponse()
+        if isinstance(rejected.value, ConnectionAbortedError):
+            # Windows may report fail-closed TCP shutdown as WSAECONNABORTED
+            # rather than HTTP RemoteDisconnected. No other socket error is accepted.
+            assert sys.platform == "win32"
+            assert getattr(rejected.value, "winerror", None) == 10053
         second.close()
     assert reserved == [True]
     assert calls == ["POST/backend-api/codex/responses"]
