@@ -11,7 +11,6 @@ def launch(
 ) -> dict[str, Any]:
     from loop_engine.cli import doctor, open_state, parser, run
 
-    health = doctor(root)
     try:
         with ProjectLock(root / ".loop/runtime/controller.lock"):
             pass
@@ -30,6 +29,7 @@ def launch(
             "status": "plan_required_or_complete",
             "next": "Review Goal and loop plan --file; no worker started.",
         }
+    health = doctor(root)
     if not health["ready_for_live_execution"]:
         return {"status": "execution_boundary_unverified", "doctor": health}
     mode = "resume" if resume or duration_seconds is None else "start"

@@ -27,6 +27,7 @@ def test_installed_cli_zero_declarations_clean_mock_json_and_owned_peer(
     monkeypatch: pytest.MonkeyPatch,
     mode: str,
     probe: Any = None,
+    suppression: bool = False,
 ) -> None:
     root = Path(__file__).resolve().parents[2]
     if not (root / ".loop/runtime/codex-client.json").is_file():
@@ -72,6 +73,22 @@ def test_installed_cli_zero_declarations_clean_mock_json_and_owned_peer(
         ]
     )
     (home / "config.toml").write_text(config, encoding="utf-8")
+    callback_marker = tmp_path / "synthetic-notify-callback"
+    if suppression:
+        config += (
+            "\nnotify="
+            + json.dumps(
+                [
+                    sys.executable,
+                    "-c",
+                    "from pathlib import Path;Path("
+                    + repr(str(callback_marker))
+                    + ").write_text('SYNTHETIC_CALLBACK_EXECUTED')",
+                ]
+            )
+            + "\n"
+        )
+        (home / "config.toml").write_text(config, encoding="utf-8")
     schema = {
         "type": "object",
         "properties": {"ok": {"type": "boolean"}, "proof": {"type": "string"}},
@@ -87,6 +104,16 @@ def test_installed_cli_zero_declarations_clean_mock_json_and_owned_peer(
     peer = OwnedCliPeer(binary)
     boundary = object.__new__(ToollessBoundary)
     boundary.root = tmp_path
+    if suppression:
+        from loop_engine.notification_policy import APPROVAL, VERSION
+        from loop_engine.security import fingerprint
+
+        boundary.home = home
+        boundary.notification_policy = {
+            "version": VERSION,
+            "approval": APPROVAL,
+            "config_hash": fingerprint(config),
+        }
     boundary.catalog = catalog
     boundary.native = NativeBoundary(root, [])
     # QA itself is tested separately; exercise the actual production CLI command
@@ -307,6 +334,8 @@ def test_installed_cli_zero_declarations_clean_mock_json_and_owned_peer(
                 "openai_base_url=" + json.dumps(url),
             ]
             argv = boundary._command(argv, work)
+            if suppression:
+                assert argv[-2:] == ["-c", "notify=[]"]
             temporary = private_directory(tmp_path, "invocation-temp")
 
             def bind(pid, job):
@@ -461,3 +490,6 @@ def test_installed_cli_zero_declarations_clean_mock_json_and_owned_peer(
             server.server_close()
             thread.join(2)
             peer.close()
+    if suppression:
+        assert not callback_marker.exists()
+        assert (home / "config.toml").read_text(encoding="utf-8") == config

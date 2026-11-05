@@ -16,6 +16,17 @@ python -m loop_engine.cli doctor
 python -m loop_engine.cli launch
 ```
 
+For an enabled C-min bounded-run policy, the agent first uses `prepare-run 30m`
+to prepare an exact owner approval request; it does not approve that request.
+Preparation validates the profile and current QA audit. Launch and model calls
+also require current normal execution evidence; synthetic or single-trial
+evidence does not substitute for normal readiness.
+After explicit live authorization, launch uses that prepared run ID and deadline.
+Resume retains its original deadline and cannot extend it or replay an unsettled
+send. An expired/changed proposal requires explicit reconciliation. Internal
+Python commands are agent operations; the owner's entry point remains `$loop`.
+Offline implementation approval never authorizes authentication or inference.
+
 For `$loop 2h`, execute `python -m loop_engine.cli launch 2h` (a new bounded run).
 For `$loop resume 2h`, execute `python -m loop_engine.cli launch --resume 2h`
 (a new time window for the same run, retaining its task/cycle caps).

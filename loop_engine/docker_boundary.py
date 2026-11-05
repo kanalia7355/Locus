@@ -23,6 +23,27 @@ from loop_engine.security import (
 )
 
 
+def image_audit_evidence(root: Path, image_id: str, workspace: Path) -> bool:
+    """Verify existing immutable QA audit evidence without starting Docker."""
+    receipt = json.loads((root / ".loop/runtime/qa-image.json").read_text())
+    if (
+        receipt.get("image_id") != image_id
+        or receipt.get("audited") is not True
+        or not 0 <= time.time() - receipt.get("built_at", 0) <= 86400
+        or receipt.get("source_hash") != fingerprint(image_contents(root))
+    ):
+        return False
+    return all(
+        within(workspace, name).read_bytes() == (root / name).read_bytes()
+        for name in (
+            "pyproject.toml",
+            "backend/requirements.lock",
+            "frontend/package.json",
+            "frontend/package-lock.json",
+        )
+    )
+
+
 class DockerBoundary:
     requires_image_audit = True
 
@@ -70,24 +91,7 @@ class DockerBoundary:
         raise SafetyError("Use supervised run; a detached container argv is not a safe executor")
 
     def audit_evidence(self, workspace: Path) -> bool:
-        """Online audits ran during the trusted image build, before untrusted QA starts."""
-        receipt = json.loads((self.root / ".loop/runtime/qa-image.json").read_text())
-        if (
-            receipt.get("image_id") != self.image_id
-            or receipt.get("audited") is not True
-            or not 0 <= time.time() - receipt.get("built_at", 0) <= 86400
-            or receipt.get("source_hash") != fingerprint(image_contents(self.root))
-        ):
-            return False
-        return all(
-            within(workspace, name).read_bytes() == (self.root / name).read_bytes()
-            for name in (
-                "pyproject.toml",
-                "backend/requirements.lock",
-                "frontend/package.json",
-                "frontend/package-lock.json",
-            )
-        )
+        return image_audit_evidence(self.root, self.image_id, workspace)
 
     def source_files(self, workspace: Path) -> list[str]:
         """Copy only Git's visible source set, never ignored runtime or credential files."""

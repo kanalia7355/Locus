@@ -104,6 +104,12 @@ def doctor(root: Path, *, check_sandbox: bool = False) -> dict[str, Any]:
                 result[tool]["authenticated"] = None
                 result[tool]["authentication_probe"] = "not_run_execution_boundary_unverified"
                 continue
+            from loop_engine.run_authorization import auth_probe_authorized
+
+            if not auth_probe_authorized(root):
+                result[tool]["authenticated"] = None
+                result[tool]["authentication_probe"] = "not_run_live_authorization_absent"
+                continue
         executable = codex_binary(root) if tool == "codex" else shutil.which(tool)
         result[tool]["authenticated"] = bool(
             executable
@@ -167,6 +173,8 @@ def parser() -> argparse.ArgumentParser:
     trial.add_argument("--plan", type=Path, required=True)
     trial.add_argument("--approval", required=True)
     trial.add_argument("--status", action="store_true")
+    prepare_run = commands.add_parser("prepare-run")
+    prepare_run.add_argument("duration", type=parse_duration)
     app_setup = commands.add_parser("app-register")
     app_setup.add_argument("role", choices=("review", "merge"))
     app_setup.add_argument("--owner", choices=("kanalia7355",), default="kanalia7355")
@@ -309,6 +317,12 @@ def build_controller(root: Path, state: StateStore) -> Any:
 
 def run(args: argparse.Namespace) -> int:
     root = args.project.resolve()
+    if args.command == "prepare-run":
+        from loop_engine.controller import Controller
+
+        scope = Controller.prepare_run(root, open_state(root), args.duration)
+        print(json.dumps({"status": "run_approval_required", "scope": scope}, indent=2))
+        return 0
     if args.command == "c-min-trial":
         from loop_engine.c_min_trial import run as single_trial
         from loop_engine.c_min_trial import status as trial_status

@@ -37,6 +37,16 @@ class Workspaces(Protocol):
 
 
 class Controller:
+    @staticmethod
+    def prepare_run(
+        root: Path, state: StateStore, duration_seconds: float = 1800
+    ) -> dict[str, Any]:
+        """Stage a scope/approval request only; never construct or start a worker."""
+        from loop_engine.run_authorization import prepare
+
+        with ProjectLock(root / ".loop/runtime/controller.lock"):
+            return prepare(root, state, duration_seconds)
+
     def __init__(
         self,
         root: Path,
@@ -96,7 +106,11 @@ class Controller:
             maximum = self.config["loop"]["max_runtime_minutes"] * 60
             if duration_seconds is not None and not 0 < duration_seconds <= maximum:
                 raise SafetyError("Requested window exceeds the configured runtime cap")
-            if not budget:
+            if self.state.metadata("c_min_run_proposal") is not None:
+                from loop_engine.run_authorization import adopt
+
+                budget = adopt(self.root, self.state, resume=resume, duration=duration_seconds)
+            elif not budget:
                 now = time.time()
                 budget = {
                     "id": uuid4().hex,

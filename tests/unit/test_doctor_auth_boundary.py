@@ -63,6 +63,7 @@ def test_verified_boundary_still_requires_existing_authentication_check(
 
     monkeypatch.setattr("loop_engine.process.ProcessRunner.run", run)
     monkeypatch.setattr("loop_engine.runtime_diagnostics.require_receipt", lambda root: None)
+    monkeypatch.setattr("loop_engine.run_authorization.auth_probe_authorized", lambda root: True)
     monkeypatch.setattr(
         "loop_engine.runtime_diagnostics.boundary_for",
         lambda root: SimpleNamespace(docker=SimpleNamespace(audit_evidence=lambda root: True)),
@@ -71,3 +72,25 @@ def test_verified_boundary_still_requires_existing_authentication_check(
     assert ["pinned-codex", "login", "status"] in calls
     assert result["codex"]["authenticated"] is authenticated
     assert result["ready_for_live_execution"] is authenticated
+
+
+def test_valid_receipt_without_owner_grant_never_probes_auth(tmp_path, monkeypatch):
+    initialize(tmp_path)
+    monkeypatch.setattr("loop_engine.cli.shutil.which", lambda name: name)
+    monkeypatch.setattr("loop_engine.codex_runner.codex_binary", lambda root: "pinned-codex")
+    monkeypatch.setattr(
+        "loop_engine.cli.subprocess.run",
+        lambda *a, **k: SimpleNamespace(returncode=0, stdout="synthetic"),
+    )
+    monkeypatch.setattr("loop_engine.runtime_diagnostics.require_receipt", lambda root: None)
+    monkeypatch.setattr("loop_engine.run_authorization.auth_probe_authorized", lambda root: False)
+
+    def run(self, argv, *args, **kwargs):
+        assert argv[0] != "pinned-codex"
+        return SimpleNamespace(outcome="exit", returncode=0, stdout="synthetic")
+
+    monkeypatch.setattr("loop_engine.process.ProcessRunner.run", run)
+    result = doctor(tmp_path)
+    assert result["codex"]["authenticated"] is None
+    assert result["codex"]["authentication_probe"] == "not_run_live_authorization_absent"
+    assert result["ready_for_live_execution"] is False

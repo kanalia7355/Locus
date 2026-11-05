@@ -154,6 +154,7 @@ class DevelopmentLoop:
         workspace, snapshot = self.snapshots.refresh(expected_merge)
         remaining()
         usage["cycles"] += 1
+        usage["started"] = time.time()
         state.set_metadata("development_budget", usage)
         local_deadline = time.monotonic() + remaining()
 

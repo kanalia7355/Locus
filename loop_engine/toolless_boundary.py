@@ -148,12 +148,16 @@ class ToollessBoundary:
     file_proposals = True
     c_min = True
 
-    def __init__(self, root: Path, image_id: str, mcp_names: list[str]) -> None:
+    def __init__(
+        self, root: Path, image_id: str, mcp_names: list[str], *, notification_policy: Any = None
+    ) -> None:
         self.root = root.resolve()
         self.native = NativeBoundary(root, mcp_names)
         self.docker = DockerBoundary(root, image_id)
         self.proof: dict[str, Any] | None = None
+        self.notification_policy = notification_policy
         home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
+        self.home = home
         catalog = (home / "models_cache.json").read_text(encoding="utf-8")
         values = json.loads(catalog)
         selected = [item for item in values["models"] if item.get("slug") == "gpt-6.1-sol"]
@@ -173,6 +177,9 @@ class ToollessBoundary:
             raise SafetyError("Pinned model catalog changed")
 
     def _command(self, argv: list[str], workspace: Path) -> list[str]:
+        policy = getattr(self, "notification_policy", None)
+        if policy is not None:
+            self._notification_settings()
         self.docker.require(workspace, self.root)
         if argv[0] != codex_binary(self.root):
             raise SafetyError("Unexpected model client")
@@ -248,8 +255,24 @@ class ToollessBoundary:
                     )
                     for value in ("--disable", feature)
                 ],
+                *(["-c", "notify=[]"] if policy is not None else []),
             ]
         )
+
+    def _notification_settings(self) -> dict[str, Any]:
+        from loop_engine.notification_policy import assess
+
+        home = getattr(
+            self, "home", Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
+        )
+        path = home / "config.toml"
+        if any(reparse(p) for p in (path, *path.parents)):
+            raise SafetyError("Notification config reparse boundary")
+        raw = path.read_text(encoding="utf-8")
+        settings = assess(raw, tomllib.loads(raw), getattr(self, "notification_policy", None))
+        if configured_hooks(settings):
+            raise SafetyError("Other lifecycle hooks require assessment")
+        return settings
 
     def _binding(self, workspace: Path) -> str:
         machine = Path("C:/ProgramData/OpenAI/Codex")
@@ -260,6 +283,8 @@ class ToollessBoundary:
             raise SafetyError("Missing model client")
         configuration: dict[str, str] = {}
         home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
+        if hasattr(self, "home") and home != self.home:
+            raise SafetyError("Operator home changed after boundary construction")
         candidates = [
             home / "config.toml",
             home / "AGENTS.md",
@@ -276,9 +301,15 @@ class ToollessBoundary:
                     candidates.extend(folder.rglob("SKILL.md"))
         for path in sorted(set(candidates)):
             if path.is_file():
-                if path.name == "config.toml" and configured_hooks(
-                    tomllib.loads(path.read_text(encoding="utf-8"))
-                ):
+                settings = None
+                if path.name == "config.toml":
+                    settings = tomllib.loads(path.read_text(encoding="utf-8"))
+                    if (
+                        path == home / "config.toml"
+                        and getattr(self, "notification_policy", None) is not None
+                    ):
+                        settings = self._notification_settings()
+                if settings is not None and configured_hooks(settings):
                     raise SafetyError(
                         "Installed lifecycle hooks require assessment; hooks are not bypassed"
                     )
@@ -296,6 +327,7 @@ class ToollessBoundary:
                 "settings": self.native.settings(workspace, True),
                 "mode": "text-only",
                 "configuration": configuration,
+                "notification_policy": getattr(self, "notification_policy", None),
             }
         )
 

@@ -135,6 +135,8 @@ def verify_profile(state: StateStore) -> None:
     file_backed = isinstance(profile, dict) and profile.get("backend") == "existing-file"
     if file_backed and "runtime_acl" in profile:
         common.add("runtime_acl")
+    if isinstance(profile, dict) and "notification_policy" in profile:
+        common.add("notification_policy")
     if file_backed and "lease_approval" in profile:
         from loop_engine.auth_file_profile import LEASE_APPROVAL
 
@@ -189,6 +191,10 @@ def verify_profile(state: StateStore) -> None:
             raise SafetyError("Existing auth file changed; no repair/retry")
     raw = (home / "config.toml").read_text(encoding="utf-8")
     settings = tomllib.loads(raw)
+    if "notification_policy" in profile:
+        from loop_engine.notification_policy import assess
+
+        assess(raw, settings, profile["notification_policy"])
     if file_backed:
         from loop_engine.auth_file_profile import inspect_existing
 
@@ -246,10 +252,36 @@ def verify_profile(state: StateStore) -> None:
         raise SafetyError("Existing auth access conditions changed; preserve state")
 
 
-def preflight(root: Path, state: StateStore, artifact: str) -> None:
+def preflight(
+    root: Path,
+    state: StateStore,
+    artifact: str,
+    *,
+    workspace: Path | None = None,
+    owner: dict[str, Any] | None = None,
+    schema: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
     """Nonsecret authorization only. Never load auth to find out whether it exists."""
     from loop_engine.runtime_diagnostics import runtime_identity
 
+    if state.metadata("c_min_run_proposal") is not None:
+        from loop_engine.run_authorization import call_binding
+        from loop_engine.runtime_diagnostics import require_receipt
+
+        if workspace is None or owner is None or state.metadata("c_min_live_permit") is not None:
+            raise SafetyError("Exact run call context and unambiguous permission required")
+        from loop_engine.codex_runner import transport_schema
+        from loop_engine.schemas import SCHEMAS
+
+        if owner.get("schema") not in {
+            "proposal",
+            "review",
+            "evaluation",
+        } or schema != transport_schema(SCHEMAS[owner["schema"]]):
+            raise SafetyError("Exact registered role output schema required")
+        binding = call_binding(root, state, workspace, owner, artifact)
+        require_receipt(root)
+        return binding
     permit = state.metadata("c_min_live_permit")
     if (
         not isinstance(permit, dict)
@@ -269,6 +301,7 @@ def preflight(root: Path, state: StateStore, artifact: str) -> None:
     from loop_engine.runtime_diagnostics import require_receipt
 
     require_receipt(root)
+    return None
 
 
 def _invoke(
@@ -287,9 +320,16 @@ def _invoke(
     trial_approval: str | None = None,
     resources: ExitStack,
 ) -> tuple[ProcessResult, InvocationJournal, str]:
+    profile = state.metadata("c_min_auth_profile")
+    expected_notification = (
+        profile.get("notification_policy") if isinstance(profile, dict) else None
+    )
+    if getattr(boundary, "notification_policy", None) != expected_notification:
+        raise SafetyError("Boundary notification policy differs from registered profile")
     artifact = boundary._binding(workspace)
     trial = None
     lease = None
+    normal_binding = None
 
     def acquire_lease() -> Any:
         from loop_engine.auth_file_profile import CredentialLease
@@ -309,7 +349,13 @@ def _invoke(
         return held
 
     if trial_approval is None:
-        preflight(root, state, artifact)
+        normal_binding = preflight(
+            root, state, artifact, workspace=workspace, owner=owner, schema=schema
+        )
+        if normal_binding is not None:
+            deadline = min(
+                deadline, time.monotonic() + max(0, normal_binding["call_deadline"] - time.time())
+            )
         lease = acquire_lease()
     else:
         from loop_engine.c_min_trial import PROMPT, SCHEMA, authorize
@@ -330,6 +376,22 @@ def _invoke(
     if trial is not None:
         expires = min(expires, trial["expires"])
     identifier = journal.claim(owner, artifact, expires)
+    with state.connect() as db:
+        reserved = db.execute(
+            "SELECT deadline FROM model_invocations WHERE id=?", (identifier,)
+        ).fetchone()
+    if reserved is None:
+        raise SafetyError("Durable invocation deadline missing")
+    expires = min(expires, reserved[0])
+    deadline = min(deadline, time.monotonic() + max(0, expires - time.time()))
+    if normal_binding is not None:
+        from loop_engine.run_authorization import reserve_binding
+
+        try:
+            reserve_binding(state, identifier, normal_binding)
+        except BaseException:
+            journal.hold(identifier)
+            raise
     peer = OwnedCliPeer(argv[0])
     temp_relative = ".loop/runtime/c_min/invocations/" + identifier + "/temp"
     temporary = private_directory(root, temp_relative)
@@ -338,7 +400,24 @@ def _invoke(
     packet: dict[str, Any] = {}
     anchors: dict[str, Any] = {}
 
+    def check_call() -> None:
+        if normal_binding is not None:
+            from loop_engine.run_authorization import recheck
+
+            current = preflight(
+                root,
+                state,
+                boundary._binding(workspace),
+                workspace=workspace,
+                owner=owner,
+                schema=schema,
+            )
+            if current != normal_binding:
+                raise SafetyError("Exact run call identity/source changed")
+            recheck(state, identifier, normal_binding, deadline=expires)
+
     def bind_child(pid: int, job: Any) -> None:
+        check_call()
         if lease is not None:
             lease.check()
         private_directory(root, temp_relative)
@@ -411,6 +490,7 @@ def _invoke(
 
     def reserve() -> None:
         remaining()
+        check_call()
         if artifact != boundary._binding(workspace):
             raise SafetyError("C-min launch binding changed")
         if versioned:
@@ -458,6 +538,10 @@ def _invoke(
                 "-c",
                 "openai_base_url=" + json.dumps(relay.url),
             ]
+            if getattr(boundary, "notification_policy", None) is not None:
+                from loop_engine.notification_policy import require_override
+
+                require_override(command)
             journal.advance(identifier, "prepared", "launch_reserved")
             call_timeout = remaining()
             if lease is not None:
@@ -466,6 +550,11 @@ def _invoke(
             def stop() -> bool:
                 if lease is not None:
                     lease.check()
+                if normal_binding is not None:
+                    from loop_engine.run_authorization import active
+
+                    if not active(state, normal_binding):
+                        return True
                 return cancelled() or relay.failed
 
             run_options: dict[str, Any] = {"require_settlement": True} if lease is not None else {}
@@ -493,6 +582,7 @@ def _invoke(
             ):
                 raise SafetyError("C-min transport did not complete cleanly")
             journal.advance(identifier, "upstream_reserved", "terminal_validated")
+            check_call()
             verify_profile(state)
             privacy_options(root)
             if trial is not None:
