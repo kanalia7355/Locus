@@ -1040,12 +1040,25 @@ function DocumentList({
 }) {
   const [publication, setPublication] = useState<string | null>(null);
   const [role, setRole] = useState("researcher");
+  const [access, setAccess] = useState("read");
+  const [pending, setPending] = useState(false);
+  const roleNames: Record<string, string> = {
+    researcher: "研究者",
+    viewer: "閲覧者",
+    project_lead: "プロジェクト責任者",
+  };
   async function act(action: () => Promise<unknown>) {
+    setPending(true);
+    onError("");
     try {
       await action();
       await onChanged();
+      return true;
     } catch (error) {
       onError(errorText(error));
+      return false;
+    } finally {
+      setPending(false);
     }
   }
   return (
@@ -1076,6 +1089,7 @@ function DocumentList({
           <div className="document-actions">
             {doc.owned && ["queued", "scanning"].includes(doc.status) && (
               <button
+                disabled={pending}
                 onClick={() => {
                   void act(() =>
                     api(`/documents/${doc.id}/cancel`, json("POST")),
@@ -1087,15 +1101,19 @@ function DocumentList({
             )}
             {doc.owned && canPublish && doc.kind !== "attachment" && (
               <button
-                onClick={() =>
-                  setPublication(publication === doc.id ? null : doc.id)
-                }
+                disabled={pending}
+                onClick={() => {
+                  setPublication(publication === doc.id ? null : doc.id);
+                  setRole("researcher");
+                  setAccess("read");
+                }}
               >
                 公開先
               </button>
             )}
             {doc.owned && (
               <button
+                disabled={pending}
                 onClick={() => {
                   void act(() => api(`/documents/${doc.id}`, json("DELETE")));
                 }}
@@ -1113,15 +1131,26 @@ function DocumentList({
                   api(
                     `/documents/${doc.id}/publication`,
                     json("PUT", {
-                      grants: [{ role, operations: ["read", "retrieve"] }],
+                      grants: [
+                        {
+                          role,
+                          operations:
+                            access === "retrieve"
+                              ? ["read", "retrieve"]
+                              : ["read"],
+                        },
+                      ],
                     }),
                   ),
-                ).then(() => setPublication(null));
+                ).then((saved) => {
+                  if (saved) setPublication(null);
+                });
               }}
             >
               <label>
                 ロール
                 <select
+                  disabled={pending}
                   value={role}
                   onChange={(event) => setRole(event.target.value)}
                 >
@@ -1130,13 +1159,31 @@ function DocumentList({
                   <option value="project_lead">プロジェクト責任者</option>
                 </select>
               </label>
+              <label>
+                許可する操作
+                <select
+                  value={access}
+                  disabled={pending}
+                  onChange={(event) => setAccess(event.target.value)}
+                >
+                  <option value="read">閲覧のみ</option>
+                  <option value="retrieve">閲覧・チャット参照</option>
+                </select>
+              </label>
               <p>
-                「{doc.name}」を、このプロジェクトの「{role}
-                」に閲覧・チャット参照を許可します。
+                「{doc.name}」を、このプロジェクトの「{roleNames[role]}
+                」に{access === "retrieve" ? "閲覧・チャット参照" : "閲覧のみ"}
+                を許可します。
               </p>
-              <button type="submit">公開設定を保存</button>
+              <p className="muted">
+                保存すると、この資料の既存の公開先をこの設定で置き換えます。
+              </p>
+              <button type="submit" disabled={pending}>
+                公開設定を保存
+              </button>
               <button
                 type="button"
+                disabled={pending}
                 onClick={() => {
                   void act(() =>
                     api(

@@ -325,6 +325,52 @@ test("role editor previews scoped subsets and administrator audit is redacted", 
   );
   await page.getByRole("button", { name: "ロールを作成", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("ロールを作成しました");
+  await page.getByRole("button", { name: "個人資料", exact: true }).click();
+  await page.getByRole("button", { name: "公開先", exact: true }).click();
+  await expect(page.getByLabel("許可する操作")).toHaveValue("read");
+  await expect(page.locator(".publication")).toContainText(
+    "研究者」に閲覧のみ",
+  );
+  const publication = page.waitForRequest(
+    (request) =>
+      request.method() === "PUT" && request.url().endsWith("/publication"),
+  );
+  await page
+    .getByRole("button", { name: "公開設定を保存", exact: true })
+    .click();
+  const saved = await publication;
+  expect(saved.postDataJSON()).toEqual({
+    grants: [{ role: "researcher", operations: ["read"] }],
+  });
+  await expect(page.locator(".publication")).not.toBeVisible();
+  const documentId = new URL(saved.url()).pathname.split("/")[3];
+  const readerContext = await page.context().browser()!.newContext();
+  try {
+    const reader = await readerContext.newPage();
+    await enter(reader, 6);
+    const base = `http://127.0.0.1:5174/api/documents/${documentId}`;
+    expect((await reader.request.get(base)).status()).toBe(200);
+    expect((await reader.request.get(`${base}/chunks`)).status()).toBe(200);
+    expect((await reader.request.get(`${base}/related`)).status()).toBe(404);
+    await reader
+      .getByRole("textbox", { name: "メッセージ", exact: true })
+      .fill("成膜");
+    const message = reader.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        response.url().endsWith("/messages"),
+    );
+    await reader.getByRole("button", { name: "送信", exact: true }).click();
+    const result = await (await message).json();
+    expect(
+      result.citations.some(
+        (citation: { document_id: string }) =>
+          citation.document_id === documentId,
+      ),
+    ).toBe(false);
+  } finally {
+    await readerContext.close();
+  }
   await page.getByText("運用・記録", { exact: true }).click();
   await page.getByRole("button", { name: "操作記録", exact: true }).click();
   await expect(page.locator(".list")).toContainText("role.create");

@@ -27,6 +27,12 @@ references, and open the related original through a fresh authorized chunk read.
 Pending retrieval is cancelled when its view is discarded. A persistent graph
 index, semantic GraphRAG and graph visualization remain unimplemented.
 
+Publication UI now explicitly chooses read-only (the default) or read plus
+retrieval, previews that choice with the role and project scope, and warns that
+saving replaces existing grants. Failed saves retain the input. Browser tests
+use a second user to verify that read-only grants allow source reads but not
+chat retrieval or related-document exploration; backend policy is unchanged.
+
 Isolation and citation tests verify the implemented local paths. They do not prove every path of an unimplemented vector/graph/model subsystem. The application emits quoted source excerpts, not generated research findings. Quarantined uploads are not called indexed/read. Queue limits are development safety limits, not tested user capacity.
 
 The remaining production decisions are not silently resolved. No production/LAN deployment, GitHub operation or external AI call is part of this delivery.
