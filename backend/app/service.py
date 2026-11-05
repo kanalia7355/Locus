@@ -917,6 +917,34 @@ class Service:
             self._audit(db, actor.id, "role.create", role_id)
             return {"id": role_id, "name": name, "permissions": sorted(set(permissions))}
 
+    def update_role(
+        self, actor: Principal, project: str, role_id: str, name: str, permissions: list[str]
+    ) -> Json:
+        with self.db() as db:
+            self.require(db, actor, project, "manage_roles")
+            if (
+                role_id in ROLE_PERMISSIONS
+                or not db.execute(
+                    "SELECT id FROM roles WHERE id=? AND project_id=?", (role_id, project)
+                ).fetchone()
+            ):
+                fail(404, "ロールが見つかりません")
+            if not set(permissions) <= NON_ADMIN or not set(permissions) <= self._permissions(
+                db, actor, project
+            ):
+                fail(422, "本人の許可範囲内の非管理権限だけを指定できます")
+            if "retrieve" in permissions and "read" not in permissions:
+                fail(422, "チャット参照には閲覧権限も必要です")
+            try:
+                db.execute(
+                    "UPDATE roles SET name=?,permissions=? WHERE id=? AND project_id=?",
+                    (name, json.dumps(sorted(set(permissions))), role_id, project),
+                )
+            except sqlite3.IntegrityError:
+                fail(409, "ロール名は使用済みです")
+            self._audit(db, actor.id, "role.update", role_id)
+            return {"id": role_id, "name": name, "permissions": sorted(set(permissions))}
+
     def audit(self, actor: Principal) -> list[Json]:
         if not actor.system_admin:
             fail(403, "管理権限が必要です")

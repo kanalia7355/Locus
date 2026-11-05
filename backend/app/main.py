@@ -264,6 +264,12 @@ def create_app(*, service: Service | None = None, start_worker: bool = True) -> 
             fail(422, "ロール名を入力してください")
         return svc.create_role(user, project, data.name, data.permissions)
 
+    @app.put("/api/projects/{project}/roles/{role_id}")
+    def update_role(project: str, role_id: str, data: Role, user: Actor) -> dict[str, Any]:
+        if not data.name.strip():
+            fail(422, "ロール名を入力してください")
+        return svc.update_role(user, project, role_id, data.name, data.permissions)
+
     @app.get("/api/admin/users")
     def users(user: Actor) -> list[dict[str, Any]]:
         return svc.users(user)

@@ -44,6 +44,14 @@ read-capable custom roles using the existing role catalog endpoint; catalog acce
 still requires `manage_roles`. Read-only roles cannot acquire retrieval through a
 document grant, and foreign-project IDs are rejected even within the same organization.
 
+Custom role configuration now supports project-scoped name/permission updates
+through the existing role editor. Saving immediately affects existing assignees,
+while role IDs, memberships and document grants remain stable. The complete result
+must stay within the editor's current non-administrative permission ceiling;
+built-in templates cannot be edited. Updates and metadata-only audit records are
+transactional. This completes configuration within the approved prototype scope,
+not production delegation or web-based identity/membership administration.
+
 Isolation and citation tests verify the implemented local paths. They do not prove every path of an unimplemented vector/graph/model subsystem. The application emits quoted source excerpts, not generated research findings. Quarantined uploads are not called indexed/read. Queue limits are development safety limits, not tested user capacity.
 
 The remaining production decisions are not silently resolved. No production/LAN deployment, GitHub operation or external AI call is part of this delivery.

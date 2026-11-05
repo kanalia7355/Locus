@@ -981,7 +981,11 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
           </div>
         )}
         {projectId && page === "roles" && (
-          <RoleEditor projectId={projectId} onError={setError} />
+          <RoleEditor
+            key={projectId}
+            projectId={projectId}
+            onError={setError}
+          />
         )}
         {page === "users" && user.system_admin && <AdminList kind="users" />}
         {page === "audit" && user.system_admin && <AdminList kind="audit" />}
@@ -1319,31 +1323,63 @@ function RoleEditor({
     "retrieve",
   ]);
   const [notice, setNotice] = useState("");
+  const [editing, setEditing] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const alive = useRef(true);
   useEffect(() => {
     let active = true;
+    alive.current = true;
     void api<Roles>(`/projects/${projectId}/roles`)
       .then((data) => {
         if (active) setRoles(data);
       })
-      .catch((error) => onError(errorText(error)));
+      .catch((error) => {
+        if (active) onError(errorText(error));
+      });
     return () => {
       active = false;
+      alive.current = false;
     };
   }, [projectId, onError]);
   async function save(event: FormEvent) {
     event.preventDefault();
+    if (
+      pending ||
+      !roles ||
+      permissions.some((item) => !roles.allowed_permissions.includes(item))
+    )
+      return;
+    setPending(true);
+    setNotice("");
+    onError("");
     try {
-      await api(
-        `/projects/${projectId}/roles`,
-        json("POST", { name, permissions }),
+      const updated = await api<Role>(
+        `/projects/${encodeURIComponent(projectId)}/roles${editing ? `/${encodeURIComponent(editing)}` : ""}`,
+        json(editing ? "PUT" : "POST", { name, permissions }),
       );
-      setRoles(await api<Roles>(`/projects/${projectId}/roles`));
+      if (!alive.current) return;
+      setRoles({
+        ...roles,
+        custom: editing
+          ? roles.custom.map((item) => (item.id === editing ? updated : item))
+          : [...roles.custom, updated],
+      });
       setName("");
+      setEditing(null);
+      setPermissions(
+        ["read", "retrieve"].filter((item) =>
+          roles.allowed_permissions.includes(item),
+        ),
+      );
       setNotice(
-        "ロールを作成しました。利用者への割り当てはローカル管理者が行います。",
+        editing
+          ? "ロールを更新しました。割り当て済みの利用者に反映されます。"
+          : "ロールを作成しました。利用者への割り当てはローカル管理者が行います。",
       );
     } catch (error) {
-      onError(errorText(error));
+      if (alive.current) onError(errorText(error));
+    } finally {
+      if (alive.current) setPending(false);
     }
   }
   return (
@@ -1356,6 +1392,7 @@ function RoleEditor({
         テンプレート
         <select
           aria-label="ロールテンプレート"
+          disabled={pending || !roles || !!editing}
           onChange={(event) => {
             const template = roles?.templates.find(
               (role) => role.id === event.target.value,
@@ -1378,8 +1415,9 @@ function RoleEditor({
       </label>
       <form onSubmit={save}>
         <label>
-          新しいロール名
+          {editing ? "ロール名" : "新しいロール名"}
           <input
+            disabled={pending || !roles}
             value={name}
             maxLength={64}
             required
@@ -1388,9 +1426,12 @@ function RoleEditor({
         </label>
         <p className="field-label">許可する操作</p>
         <div className="permission-chips">
-          {roles?.allowed_permissions.map((permission) => (
+          {[
+            ...new Set([...(roles?.allowed_permissions ?? []), ...permissions]),
+          ].map((permission) => (
             <button
               type="button"
+              disabled={pending || !roles}
               key={permission}
               aria-pressed={permissions.includes(permission)}
               onClick={() =>
@@ -1412,9 +1453,51 @@ function RoleEditor({
             .join("・") || "操作なし"}
           を許可します。
         </p>
-        <button type="submit" disabled={!name.trim()}>
-          ロールを作成
+        {editing && (
+          <p>
+            保存すると、このプロジェクトで割り当て済みの利用者の操作権限に即時反映されます。
+          </p>
+        )}
+        {roles &&
+          permissions.some(
+            (item) => !roles.allowed_permissions.includes(item),
+          ) && (
+            <p role="alert">
+              本人の許可範囲外の操作があります。該当する操作を外してから保存してください。
+            </p>
+          )}
+        <button
+          type="submit"
+          disabled={
+            !name.trim() ||
+            pending ||
+            !roles ||
+            permissions.some(
+              (item) => !roles.allowed_permissions.includes(item),
+            )
+          }
+        >
+          {editing ? "ロールの変更を保存" : "ロールを作成"}
         </button>
+        {editing && (
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => {
+              setEditing(null);
+              setName("");
+              setNotice("");
+              onError("");
+              setPermissions(
+                ["read", "retrieve"].filter((item) =>
+                  roles?.allowed_permissions.includes(item),
+                ),
+              );
+            }}
+          >
+            編集を取り消す
+          </button>
+        )}
       </form>
       <h2>作成済みロール</h2>
       {roles?.custom.length ? (
@@ -1426,6 +1509,20 @@ function RoleEditor({
                 .map((permission) => permissionLabels[permission] ?? permission)
                 .join("・")}
             </span>
+            <button
+              type="button"
+              disabled={pending}
+              aria-label={`${role.name}を編集`}
+              onClick={() => {
+                setEditing(role.id);
+                setName(role.name);
+                setPermissions([...role.permissions]);
+                setNotice("");
+                onError("");
+              }}
+            >
+              編集
+            </button>
           </div>
         ))
       ) : (
