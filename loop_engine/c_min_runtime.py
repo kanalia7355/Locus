@@ -135,6 +135,8 @@ def verify_profile(state: StateStore) -> None:
     file_backed = isinstance(profile, dict) and profile.get("backend") == "existing-file"
     if file_backed and "runtime_acl" in profile:
         common.add("runtime_acl")
+    if isinstance(profile, dict) and "model_catalog" in profile:
+        common.add("model_catalog")
     if isinstance(profile, dict) and "notification_policy" in profile:
         common.add("notification_policy")
     if file_backed and "lease_approval" in profile:
@@ -326,6 +328,9 @@ def _invoke(
     )
     if getattr(boundary, "notification_policy", None) != expected_notification:
         raise SafetyError("Boundary notification policy differs from registered profile")
+    expected_catalog = profile.get("model_catalog") if isinstance(profile, dict) else None
+    if getattr(boundary, "catalog_policy", None) != expected_catalog:
+        raise SafetyError("Boundary catalog differs from registered profile")
     artifact = boundary._binding(workspace)
     trial = None
     lease = None
@@ -401,6 +406,11 @@ def _invoke(
     anchors: dict[str, Any] = {}
 
     def check_call() -> None:
+        if trial is not None and "approval_scope" in trial:
+            from loop_engine.trial_authorization import authorized
+
+            if trial_approval is None or not authorized(state, trial, trial_approval):
+                raise SafetyError("Trial owner authorization revoked, changed or expired")
         if normal_binding is not None:
             from loop_engine.run_authorization import recheck
 
@@ -554,6 +564,11 @@ def _invoke(
                     from loop_engine.run_authorization import active
 
                     if not active(state, normal_binding):
+                        return True
+                if trial is not None and "approval_scope" in trial:
+                    from loop_engine.trial_authorization import authorized
+
+                    if trial_approval is None or not authorized(state, trial, trial_approval):
                         return True
                 return cancelled() or relay.failed
 

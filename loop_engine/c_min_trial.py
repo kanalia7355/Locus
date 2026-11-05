@@ -49,6 +49,9 @@ def authorize(
         "refresh",
         "offline_review",
     }
+    activated = isinstance(permit, dict) and "approval_scope" in permit
+    if activated:
+        fields.add("approval_scope")
     versioned = isinstance(permit, dict) and "input_version" in permit
     if versioned:
         from loop_engine.trial_input_binding import VERSIONS, contract
@@ -78,6 +81,7 @@ def authorize(
         },
         permit,
     )
+    approval_binding = permit["approval_scope"] if activated else fingerprint(permit)
     if (
         not isinstance(permit, dict)
         or set(permit) != fields
@@ -94,15 +98,20 @@ def authorize(
         != {"binding": permit["history"], "reconciled": True, "additional_slots": 1}
         or state.metadata("c_min_trial_offline_review")
         != {"binding": permit["offline_review"], "runtime": permit["runtime"], "passed": True}
-        or ApprovalQueue(state).status(None, "scope", fingerprint(permit)) != "approved"
+        or ApprovalQueue(state).status(None, "scope", approval_binding) != "approved"
     ):
         raise SafetyError("Separate exact one-shot trial authorization is absent")
     with state.connect() as db:
         decision = db.execute(
             "SELECT id FROM decisions WHERE id=? AND task_id IS NULL AND category='scope' "
             "AND target_hash=? AND status='approved'",
-            (approval, fingerprint(permit)),
+            (approval, approval_binding),
         ).fetchone()
+    if activated:
+        from loop_engine.trial_authorization import authorized
+
+        if not authorized(state, permit, approval):
+            raise SafetyError("Owner activation missing, changed or expired; never renew")
     if not decision or any(reparse(p) for p in (workspace, *workspace.parents)):
         raise SafetyError("Trial approval/workspace identity differs")
     if not workspace.is_dir() or any(p.name != "synthetic.txt" for p in workspace.iterdir()):
@@ -156,6 +165,16 @@ def exact_input(value: dict[str, Any], permit: dict[str, Any]) -> None:
 def record_result(
     state: StateStore, journal: Any, identifier: str, permit: dict[str, Any], output: str
 ) -> dict[str, Any]:
+    if "approval_scope" in permit:
+        from loop_engine.trial_authorization import authorized
+
+        with state.connect() as db:
+            activation = db.execute(
+                "SELECT document FROM c_min_trial_activations WHERE slot=1"
+            ).fetchone()
+        decision = json.loads(activation[0])["decision"] if activation else ""
+        if not authorized(state, permit, decision):
+            raise SafetyError("Trial proof has no current owner activation")
     events = [strict_json(line.encode()) for line in output.splitlines()]
     if not events or events[-1].get("type") != "turn.completed":
         raise SafetyError("Trial CLI completion is missing")
@@ -239,6 +258,27 @@ def status(state: StateStore) -> dict[str, Any]:
         return {"purpose": "c-min-single-validation", "phase": row["phase"], "passed": passed}
 
 
+def argv_for(root: Path, workspace: Path) -> list[str]:
+    from loop_engine.codex_runner import codex_binary
+
+    binary = codex_binary(root)
+    if binary is None:
+        raise SafetyError("Pinned trial CLI unavailable")
+    return [
+        binary,
+        "exec",
+        "--json",
+        "--ephemeral",
+        "--sandbox",
+        "read-only",
+        "--cd",
+        str(workspace),
+        "--output-schema",
+        str(root / ".loop/runtime/contracts/c-min-trial.json"),
+        "-",
+    ]
+
+
 def run(root: Path, state: StateStore, plan: Path, approval: str) -> dict[str, Any]:
     from loop_engine.c_min_runtime import invoke
     from loop_engine.codex_runner import codex_binary
@@ -262,19 +302,7 @@ def run(root: Path, state: StateStore, plan: Path, approval: str) -> dict[str, A
     binary = codex_binary(root)
     if binary is None:
         raise SafetyError("Pinned trial CLI unavailable")
-    argv = [
-        binary,
-        "exec",
-        "--json",
-        "--ephemeral",
-        "--sandbox",
-        "read-only",
-        "--cd",
-        str(workspace),
-        "--output-schema",
-        str(contract),
-        "-",
-    ]
+    argv = argv_for(root, workspace)
     outcome, journal, identifier = invoke(
         root,
         state,

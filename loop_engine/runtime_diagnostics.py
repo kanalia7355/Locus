@@ -36,6 +36,7 @@ def boundary_for(root: Path) -> ToollessBoundary:
     home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
     settings = tomllib.loads((home / "config.toml").read_text(encoding="utf-8"))
     policy = None
+    catalog_policy = None
     path = root / ".loop/runtime/state.sqlite3"
     if path.is_file():
         if any(reparse(part) for part in (path, *path.parents)):
@@ -47,11 +48,13 @@ def boundary_for(root: Path) -> ToollessBoundary:
         profile = json.loads(row[0]) if row else None
         if isinstance(profile, dict):
             policy = profile.get("notification_policy")
+            catalog_policy = profile.get("model_catalog")
     return ToollessBoundary(
         root,
         receipt["image_id"],
         list(settings.get("mcp_servers", {})),
         notification_policy=policy,
+        catalog_policy=catalog_policy,
     )
 
 

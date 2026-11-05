@@ -16,12 +16,24 @@ python -m loop_engine.cli doctor
 python -m loop_engine.cli launch
 ```
 
+When a separate single-connection approval is needed, the agent prepares the
+fixed nonsecret request with `prepare-trial --request <reviewed-request.json>`.
+The request fixes the operation, auth lifecycle, full input, model/destination,
+profile/catalog and single lifetime slot BEFORE owner approval; it has no ticking
+execution expiry. Only recording the actual owner's exact-hash approval through
+the existing ApprovalQueue atomically activates `decided + 180 seconds` and the
+exact registrations/permit. Preparation, this Skill, and `$loop` are not that
+credential/inference approval. Restart or another request cannot renew the one
+activation. Old absolute-expiry manifests are never converted or reused.
+
 For an enabled C-min bounded-run policy, the agent first uses `prepare-run 30m`
 to prepare an exact owner approval request; it does not approve that request.
 Preparation validates the profile and current QA audit. Launch and model calls
 also require current normal execution evidence; synthetic or single-trial
 evidence does not substitute for normal readiness.
-After explicit live authorization, launch uses that prepared run ID and deadline.
+The normal start window also begins on the recorded owner decision, not during
+approval waiting. First launch adopts that prepared run ID and fixes its run
+deadline; it must start inside the approved short window.
 Resume retains its original deadline and cannot extend it or replay an unsettled
 send. An expired/changed proposal requires explicit reconciliation. Internal
 Python commands are agent operations; the owner's entry point remains `$loop`.

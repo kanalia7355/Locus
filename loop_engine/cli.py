@@ -173,6 +173,8 @@ def parser() -> argparse.ArgumentParser:
     trial.add_argument("--plan", type=Path, required=True)
     trial.add_argument("--approval", required=True)
     trial.add_argument("--status", action="store_true")
+    prepare_trial = commands.add_parser("prepare-trial")
+    prepare_trial.add_argument("--request", type=Path, required=True)
     prepare_run = commands.add_parser("prepare-run")
     prepare_run.add_argument("duration", type=parse_duration)
     app_setup = commands.add_parser("app-register")
@@ -317,6 +319,26 @@ def build_controller(root: Path, state: StateStore) -> Any:
 
 def run(args: argparse.Namespace) -> int:
     root = args.project.resolve()
+    if args.command == "prepare-trial":
+        from loop_engine.model_gate import strict_json
+        from loop_engine.security import fingerprint, reparse, within
+        from loop_engine.trial_authorization import prepare
+
+        path = within(root, args.request.resolve().relative_to(root).as_posix())
+        if any(reparse(p) for p in (path, *path.parents)):
+            raise SafetyError("Trial request reparse boundary")
+        request = strict_json(path.read_bytes(), 1024 * 1024)
+        decision = prepare(root, open_state(root), request)
+        print(
+            json.dumps(
+                {
+                    "status": "trial_approval_required",
+                    "decision": decision,
+                    "request_hash": fingerprint(request),
+                }
+            )
+        )
+        return 0
     if args.command == "prepare-run":
         from loop_engine.controller import Controller
 

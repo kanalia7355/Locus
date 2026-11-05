@@ -27,7 +27,7 @@ from loop_engine.security import SafetyError, fingerprint
 from loop_engine.state_store import StateStore
 
 
-def fixture(tmp_path, monkeypatch):
+def fixture(tmp_path, monkeypatch, owner_activated=False):
     state = StateStore(tmp_path / "state.db")
     work = tmp_path / ".loop/runtime/probes/c-min-single-validation"
     work.mkdir(parents=True)
@@ -50,6 +50,10 @@ def fixture(tmp_path, monkeypatch):
         "refresh": "official-existing-secure-backend-only",
         "offline_review": "b" * 64,
     }
+    if owner_activated:
+        state.set_metadata("control", "stopped")
+        monkeypatch.setattr("loop_engine.runtime_diagnostics.runtime_identity", lambda _: "runtime")
+        return state, work, body, permit, ""
     state.set_metadata("c_min_trial_permit", permit)
     state.set_metadata(
         "c_min_trial_history",
@@ -120,9 +124,9 @@ def test_missing_changed_authorization_stops_before_reservation(tmp_path, monkey
     + [(mode, "leased-v3") for mode in ("lease_drift", "unsettled")],
 )
 def test_shared_adapter_one_shot_complete_input_and_no_replay(
-    tmp_path, monkeypatch, mode, versioned
+    tmp_path, monkeypatch, mode, versioned, owner_activated=False
 ):
-    state, work, body, permit, decision = fixture(tmp_path, monkeypatch)
+    state, work, body, permit, decision = fixture(tmp_path, monkeypatch, owner_activated)
     leased = versioned == "leased-v3"
     lifetime = []
     incoming = {}
@@ -175,20 +179,71 @@ def test_shared_adapter_one_shot_complete_input_and_no_replay(
         }
         permit.update(input_version=selected_version, input_hash=fingerprint(spec))
         state.set_metadata("c_min_trial_input_contract", spec)
-        state.set_metadata("c_min_trial_permit", permit)
-        queue = ApprovalQueue(state)
-        decision = queue.request(None, "scope", fingerprint(permit), "Synthetic versioned fixture")
-        queue.resolve(
-            [
-                {
-                    "id": decision,
-                    "action": "approve",
-                    "target_hash": fingerprint(permit),
-                    "reason": "Offline synthetic test only",
-                }
-            ],
-            "fixture",
-        )
+        if owner_activated:
+            from loop_engine import trial_authorization as activation
+
+            stable = {k: v for k, v in permit.items() if k != "expires"}
+            request_scope = {
+                "version": activation.VERSION,
+                "execution_seconds": 180,
+                "permit": stable,
+                "registrations": {
+                    "c_min_auth_profile": profile,
+                    "c_min_trial_input_contract": spec,
+                    "c_min_trial_history": {
+                        "binding": permit["history"],
+                        "reconciled": True,
+                        "additional_slots": 1,
+                    },
+                    "c_min_trial_offline_review": {
+                        "binding": permit["offline_review"],
+                        "runtime": "runtime",
+                        "passed": True,
+                    },
+                },
+            }
+            monkeypatch.setattr(
+                activation,
+                "validate_context",
+                lambda root, value: activation.validate_request(value),
+            )
+            # These fake CLI IDs were precomputed above. Place the synthetic
+            # owner decision before their issuance; production IDs must be new.
+            monkeypatch.setattr(
+                "loop_engine.c_min_runtime.time.time", lambda: input_context["now"] - 1
+            )
+            queue = ApprovalQueue(state)
+            decision = activation.prepare(tmp_path, state, request_scope)
+            queue.resolve(
+                [
+                    {
+                        "id": decision,
+                        "action": "approve",
+                        "target_hash": fingerprint(request_scope),
+                        "reason": "Synthetic owner activation only",
+                    }
+                ],
+                "fixture",
+            )
+            permit = state.metadata("c_min_trial_permit")
+            monkeypatch.setattr("loop_engine.c_min_runtime.time.time", lambda: input_context["now"])
+        else:
+            state.set_metadata("c_min_trial_permit", permit)
+            queue = ApprovalQueue(state)
+            decision = queue.request(
+                None, "scope", fingerprint(permit), "Synthetic versioned fixture"
+            )
+            queue.resolve(
+                [
+                    {
+                        "id": decision,
+                        "action": "approve",
+                        "target_hash": fingerprint(permit),
+                        "reason": "Offline synthetic test only",
+                    }
+                ],
+                "fixture",
+            )
 
         class Arg0:
             calls = 0
@@ -247,6 +302,9 @@ def test_shared_adapter_one_shot_complete_input_and_no_replay(
 
             assert not {name.lower() for name in _kwargs["headers"]} & NATIVE_HEADERS
             created.append("sent")
+            if mode == "revoked_after_send":
+                with state.transaction() as db:
+                    db.execute("UPDATE decisions SET status='rejected' WHERE id=?", (decision,))
             if mode == "disconnect":
                 raise OSError("synthetic lost response")
 
@@ -263,10 +321,16 @@ def test_shared_adapter_one_shot_complete_input_and_no_replay(
             self.calls += 1
             # Even a direct adapter caller below supplies a much longer timeout;
             # the reserved permit remains the absolute authority.
-            assert 0 < options["timeout"] <= 90
+            assert 0 < options["timeout"] <= (180 if owner_activated else 90)
             if leased:
                 assert options["require_settlement"] is True
                 assert lifetime[-1] == "launch"
+            if mode in {"revoked_before_resume", "revoked_poll"}:
+                with state.transaction() as db:
+                    db.execute("UPDATE decisions SET status='rejected' WHERE id=?", (decision,))
+                if mode == "revoked_poll":
+                    assert options["cancelled"]()
+                    return ProcessResult("cancelled", None)
             options["before_resume"](123, object())
             if mode == "lease_drift":
                 lifetime.append("drift")
@@ -439,6 +503,8 @@ def test_shared_adapter_one_shot_complete_input_and_no_replay(
         "peer_changed",
         "binding_changed",
         "lease_drift",
+        "revoked_before_resume",
+        "revoked_poll",
     }
     assert created == ([] if mode in blocked_before_send else ["connection", "sent"])
     first_lifetime = list(lifetime)

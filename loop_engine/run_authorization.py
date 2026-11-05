@@ -15,7 +15,8 @@ from loop_engine.planning import source_snapshot
 from loop_engine.security import SafetyError, allowed, fingerprint, reparse, sensitive, within
 from loop_engine.state_store import StateStore
 
-VERSION = "c-min-bounded-run-v1"
+VERSION = "c-min-bounded-run-v2"
+RUN_QUESTION = "Approve this exact owner-activated finite normal run"
 # Public approved offline design, never a live/run authorization by itself.
 # pragma: allowlist nextline secret
 APPROVAL = "f52797bbc096c7c00d2ffd8c5d6d07e0da4928511c6b7758c44602a3e80b0f04"
@@ -157,15 +158,15 @@ def prepare(
         if row:
             existing = json.loads(row[0])
             fail(
-                existing["identity"] == current
+                existing.get("version") == VERSION
+                and existing["identity"] == current
                 and existing["start_head"] == head
                 and existing["duration"] == duration
-                and time.time() < existing["start_until"],
+                and existing["start_window"] == start_window,
                 "Existing run proposal requires explicit reconciliation",
             )
             scope = dict(existing)
         else:
-            now = time.time()
             scope = {
                 "version": VERSION,
                 "approval": APPROVAL,
@@ -173,9 +174,7 @@ def prepare(
                 "identity": current,
                 "start_head": head,
                 "duration": duration,
-                "not_before": now,
-                "start_until": now + start_window,
-                "latest_deadline": now + start_window + duration,
+                "start_window": start_window,
                 "auth": AUTH,
             }
             db.execute(
@@ -191,11 +190,94 @@ def prepare(
         None,
         "scope",
         fingerprint(scope),
-        "Approve this exact finite normal run, official CLI credential use/standard refresh, "
+        RUN_QUESTION + ", official CLI credential use/standard refresh, "
         "and per-call Controller-derived bindings? This is not an offline design approval.",
         "high",
     )
     return scope
+
+
+def activate(state: StateStore, db: Any, row: Any, approved_at: float) -> None:
+    """Bind the start window atomically to the actual owner decision."""
+    import math
+
+    scope = state.metadata("c_min_run_proposal")
+    fail(
+        isinstance(scope, dict)
+        and scope.get("version") == VERSION
+        and row["task_id"] is None
+        and row["category"] == "scope"
+        and fingerprint(scope) == row["target_hash"],
+        "Exact pending normal run required",
+    )
+    fail(
+        math.isfinite(approved_at) and approved_at >= row["created"] > 0,
+        "Finite non-reversed owner timestamp required",
+    )
+    fail(
+        scope["identity"] == identity(state.path.parents[2], state),
+        "Run identity changed before approval",
+    )
+    fail(
+        state.metadata("control") == "stopped" and not state.metadata("orphan_uncertainty", False),
+        "Stopped normal Controller required",
+    )
+    fail(not unsettled(db), "Unsettled calls prevent normal activation")
+    fail(state.metadata("c_min_run_activation") is None, "Run activation cannot be replaced")
+    prepared = db.execute("SELECT * FROM c_min_runs WHERE id=?", (scope["id"],)).fetchone()
+    fail(
+        prepared is not None
+        and json.loads(prepared["document"]) == scope
+        and prepared["started"] is None,
+        "Prepared normal run differs",
+    )
+    fail(scope["duration"] == 1800 and 0 < scope["start_window"] <= 1800, "Run limits changed")
+    activation = {
+        "scope": fingerprint(scope),
+        "decision": row["id"],
+        "approved_at": approved_at,
+        "start_until": approved_at + scope["start_window"],
+        "latest_deadline": approved_at + scope["start_window"] + scope["duration"],
+    }
+    db.execute(
+        "INSERT INTO metadata VALUES ('c_min_run_activation',?)", (state.encode(activation),)
+    )
+    state._event(db, "run.authorized", None, activation)
+
+
+def activation_for(state: StateStore, scope: dict[str, Any]) -> dict[str, Any]:
+    import math
+
+    activation = state.metadata("c_min_run_activation")
+    fail(
+        isinstance(activation, dict)
+        and set(activation)
+        == {"scope", "decision", "approved_at", "start_until", "latest_deadline"},
+        "Explicit live run/credential authorization required",
+    )
+    with state.connect() as db:
+        owner = db.execute(
+            "SELECT * FROM decisions WHERE id=?", (activation["decision"],)
+        ).fetchone()
+    at = activation["approved_at"]
+    fail(
+        owner is not None
+        and owner["task_id"] is None
+        and owner["category"] == "scope"
+        and owner["status"] == "approved"
+        and owner["target_hash"] == fingerprint(scope)
+        and owner["actor"]
+        and owner["reason"]
+        and owner["decided"] == at
+        and type(at) in (float, int)
+        and math.isfinite(at)
+        and 0 < at <= time.time()
+        and activation["scope"] == fingerprint(scope)
+        and activation["start_until"] == at + scope["start_window"]
+        and activation["latest_deadline"] == at + scope["start_window"] + scope["duration"],
+        "Recorded normal activation changed",
+    )
+    return dict(activation)
 
 
 def scope_for(root: Path, state: StateStore, *, running: bool) -> dict[str, Any]:
@@ -211,9 +293,7 @@ def scope_for(root: Path, state: StateStore, *, running: bool) -> dict[str, Any]
             "identity",
             "start_head",
             "duration",
-            "not_before",
-            "start_until",
-            "latest_deadline",
+            "start_window",
             "auth",
         },
         "Exact prepared run required",
@@ -223,19 +303,25 @@ def scope_for(root: Path, state: StateStore, *, running: bool) -> dict[str, Any]
         and scope["approval"] == APPROVAL
         and scope["auth"] == AUTH
         and scope["duration"] == 1800
-        and scope["not_before"] <= time.time()
-        and 0 < scope["start_until"] - scope["not_before"] <= 1800
-        and scope["latest_deadline"] == scope["start_until"] + scope["duration"],
+        and type(scope["start_window"]) in (int, float)
+        and 0 < scope["start_window"] <= 1800,
         "Run scope format/window rejected",
     )
     fail(scope["identity"] == identity(root, state), "Immutable run identity changed")
-    fail(
-        ApprovalQueue(state).status(None, "scope", fingerprint(scope)) == "approved",
-        "Explicit live run/credential authorization required",
-    )
+    activation = activation_for(state, scope)
     with state.connect() as db:
         row = db.execute("SELECT * FROM c_min_runs WHERE id=?", (scope["id"],)).fetchone()
     fail(row is not None and json.loads(row["document"]) == scope, "Prepared run record changed")
+    if row["started"] is not None:
+        budget = state.metadata("run_budget", {})
+        fail(
+            activation["approved_at"] <= row["started"] < activation["start_until"]
+            and row["deadline"] == row["started"] + scope["duration"]
+            and budget.get("id") == scope["id"]
+            and budget.get("started") == row["started"]
+            and budget.get("deadline") == row["deadline"],
+            "Original run timestamps changed",
+        )
     if running:
         budget = state.metadata("run_budget", {})
         fail(
@@ -243,11 +329,11 @@ def scope_for(root: Path, state: StateStore, *, running: bool) -> dict[str, Any]
             and row["started"] is not None
             and budget.get("id") == scope["id"]
             and budget.get("deadline") == row["deadline"]
-            and time.time() < row["deadline"] <= scope["latest_deadline"],
+            and time.time() < row["deadline"] <= activation["latest_deadline"],
             "Owning run is not active or deadline changed",
         )
     elif row["started"] is None:
-        fail(time.time() < scope["start_until"], "Run start window expired")
+        fail(time.time() < activation["start_until"], "Run start window expired")
     else:
         fail(time.time() < row["deadline"], "Existing run deadline expired")
     return dict(scope)
@@ -278,7 +364,11 @@ def adopt(root: Path, state: StateStore, *, resume: bool, duration: float | None
             return dict(prior)
         fail(not resume, "Prepared new run is not a resume window")
         now = time.time()
-        fail(now < scope["start_until"], "Run start expired before adoption")
+        activation = activation_for(state, scope)
+        fail(
+            activation["approved_at"] <= now < activation["start_until"],
+            "Run start expired or clock reversed before adoption",
+        )
         budget = {
             "id": scope["id"],
             "started": now,
@@ -430,6 +520,7 @@ def call_binding(
     fail(time.time() < phase_deadline, "Owning phase deadline expired")
     return {
         "scope": fingerprint(scope),
+        "activation": fingerprint(activation_for(state, scope)),
         "run": scope["id"],
         "owner": owner,
         "schema": fingerprint(transport_schema(SCHEMAS[owner["schema"]])),
@@ -493,6 +584,7 @@ def active(state: StateStore, binding: dict[str, Any]) -> bool:
     return bool(
         state.metadata("control") == "running"
         and fingerprint(scope) == binding["scope"]
+        and fingerprint(state.metadata("c_min_run_activation")) == binding["activation"]
         and budget.get("id") == binding["run"]
         and budget.get("deadline") == binding["run_deadline"]
         and time.time() < binding["run_deadline"]

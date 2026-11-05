@@ -149,15 +149,27 @@ class ToollessBoundary:
     c_min = True
 
     def __init__(
-        self, root: Path, image_id: str, mcp_names: list[str], *, notification_policy: Any = None
+        self,
+        root: Path,
+        image_id: str,
+        mcp_names: list[str],
+        *,
+        notification_policy: Any = None,
+        catalog_policy: Any = None,
     ) -> None:
         self.root = root.resolve()
         self.native = NativeBoundary(root, mcp_names)
         self.docker = DockerBoundary(root, image_id)
         self.proof: dict[str, Any] | None = None
         self.notification_policy = notification_policy
+        self.catalog_policy = catalog_policy
         home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
         self.home = home
+        if catalog_policy is not None:
+            from loop_engine.catalog_snapshot import load_snapshot
+
+            self.catalog, _ = load_snapshot(self.root, catalog_policy)
+            return
         catalog = (home / "models_cache.json").read_text(encoding="utf-8")
         values = json.loads(catalog)
         selected = [item for item in values["models"] if item.get("slug") == "gpt-6.1-sol"]
@@ -328,6 +340,7 @@ class ToollessBoundary:
                 "mode": "text-only",
                 "configuration": configuration,
                 "notification_policy": getattr(self, "notification_policy", None),
+                "catalog_policy": getattr(self, "catalog_policy", None),
             }
         )
 

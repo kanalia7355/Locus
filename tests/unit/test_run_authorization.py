@@ -263,7 +263,9 @@ def test_expiry_and_exhausted_attempts_never_reset(tmp_path, monkeypatch):
     state, _ = fixture(tmp_path, monkeypatch)
     scope = run.prepare(tmp_path, state, 1800)
     approve(state, scope)
-    monkeypatch.setattr(run.time, "time", lambda: scope["start_until"] + 1)
+    monkeypatch.setattr(
+        run.time, "time", lambda: state.metadata("c_min_run_activation")["start_until"] + 1
+    )
     with pytest.raises(SafetyError):
         run.adopt(tmp_path, state, resume=False, duration=1800)
     assert state.task("TASK-001").attempts == 0
@@ -352,3 +354,58 @@ def test_auth_probe_requires_separate_actual_scope_approval(tmp_path, monkeypatc
     assert run.auth_probe_authorized(tmp_path)
     state.set_metadata("c_min_run_proposal", {**scope, "auth": "not-approved"})
     assert not run.auth_probe_authorized(tmp_path)
+
+
+def test_normal_run_waits_without_clock_then_activation_window_is_not_renewed(
+    tmp_path, monkeypatch
+):
+    state, _ = fixture(tmp_path, monkeypatch)
+    clock = [1000.0]
+    monkeypatch.setattr(run.time, "time", lambda: clock[0])
+    scope = run.prepare(tmp_path, state, 1800)
+    assert "start_until" not in scope and "latest_deadline" not in scope
+    clock[0] += 86400 * 7
+    assert run.prepare(tmp_path, state, 1800) == scope
+    assert state.metadata("c_min_run_activation") is None
+    approve(state, scope)
+    activation = state.metadata("c_min_run_activation")
+    assert activation["approved_at"] == clock[0]
+    assert activation["start_until"] == clock[0] + scope["start_window"]
+    clock[0] += 10
+    budget = run.adopt(tmp_path, state, resume=False, duration=1800)
+    assert budget["started"] == clock[0] and budget["deadline"] == clock[0] + 1800
+    clock[0] += 181
+    assert run.adopt(tmp_path, state, resume=True, duration=None) == budget
+    assert state.metadata("c_min_run_activation") == activation
+    clock[0] = budget["deadline"] + 1
+    with pytest.raises(SafetyError):
+        run.adopt(tmp_path, state, resume=True, duration=1800)
+    assert state.metadata("run_budget") == budget
+
+
+def test_normal_owner_activation_rolls_back_on_decision_failure(tmp_path, monkeypatch):
+    state, _ = fixture(tmp_path, monkeypatch)
+    scope = run.prepare(tmp_path, state, 1800)
+    original = state._event
+
+    def failure(db, kind, *args):
+        if kind == "approval.resolved":
+            raise RuntimeError("synthetic decision commit failure")
+        return original(db, kind, *args)
+
+    monkeypatch.setattr(state, "_event", failure)
+    with pytest.raises(RuntimeError):
+        approve(state, scope)
+    assert state.metadata("c_min_run_activation") is None
+    assert ApprovalQueue(state).status(None, "scope", fingerprint(scope)) == "pending"
+
+
+def test_matching_budget_and_row_edits_cannot_extend_original_duration(tmp_path, monkeypatch):
+    state, _ = fixture(tmp_path, monkeypatch)
+    _, budget = start(tmp_path, state)
+    with state.transaction() as db:
+        db.execute("UPDATE c_min_runs SET deadline=deadline+1 WHERE id=?", (budget["id"],))
+    state.set_metadata("run_budget", {**budget, "deadline": budget["deadline"] + 1})
+    state.set_metadata("control", "stopped")
+    with pytest.raises(SafetyError, match="timestamps"):
+        run.adopt(tmp_path, state, resume=True, duration=1800)
