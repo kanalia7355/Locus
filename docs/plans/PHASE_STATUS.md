@@ -33,6 +33,12 @@ saving replaces existing grants. Failed saves retain the input. Browser tests
 use a second user to verify that read-only grants allow source reads but not
 chat retrieval or related-document exploration; backend policy is unchanged.
 
+Publication now accepts existing custom role IDs from the document's own project,
+matching assignment and effective-permission resolution. Role editors can select
+read-capable custom roles using the existing role catalog endpoint; catalog access
+still requires `manage_roles`. Read-only roles cannot acquire retrieval through a
+document grant, and foreign-project IDs are rejected even within the same organization.
+
 Isolation and citation tests verify the implemented local paths. They do not prove every path of an unimplemented vector/graph/model subsystem. The application emits quoted source excerpts, not generated research findings. Quarantined uploads are not called indexed/read. Queue limits are development safety limits, not tested user capacity.
 
 The remaining production decisions are not silently resolved. No production/LAN deployment, GitHub operation or external AI call is part of this delivery.

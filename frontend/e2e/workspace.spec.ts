@@ -327,6 +327,9 @@ test("role editor previews scoped subsets and administrator audit is redacted", 
   await expect(page.getByRole("status")).toContainText("ロールを作成しました");
   await page.getByRole("button", { name: "個人資料", exact: true }).click();
   await page.getByRole("button", { name: "公開先", exact: true }).click();
+  await expect(
+    page.getByRole("option", { name: "合成資料の閲覧担当", exact: true }),
+  ).toBeAttached();
   await expect(page.getByLabel("許可する操作")).toHaveValue("read");
   await expect(page.locator(".publication")).toContainText(
     "研究者」に閲覧のみ",

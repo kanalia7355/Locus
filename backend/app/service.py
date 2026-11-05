@@ -731,8 +731,12 @@ class Service:
             for grant in grants:
                 role = grant.get("role")
                 operations = grant.get("operations")
+                custom = db.execute(
+                    "SELECT id FROM roles WHERE id=? AND project_id=?",
+                    (role, row["project_id"]),
+                ).fetchone()
                 if (
-                    role not in ROLE_PERMISSIONS
+                    (role not in ROLE_PERMISSIONS and not custom)
                     or not isinstance(operations, list)
                     or not operations
                     or not set(operations) <= {"read", "retrieve"}

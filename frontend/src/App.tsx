@@ -18,6 +18,7 @@ import type {
   Document,
   Message,
   Project,
+  Role,
   Roles,
   User,
 } from "./api";
@@ -888,10 +889,13 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
               KiBまで。実研究資料は登録しないでください。
             </p>
             <DocumentList
+              key={projectId}
+              projectId={projectId}
               documents={documents.filter(
                 (doc) => page === "ingestion" || doc.kind === page,
               )}
               canPublish={can("publish")}
+              canManageRoles={can("manage_roles")}
               onSource={openSource}
               onChanged={reload}
               onError={setError}
@@ -1026,14 +1030,18 @@ function documentElement(): HTMLElement | null {
 }
 
 function DocumentList({
+  projectId,
   documents,
   canPublish,
+  canManageRoles,
   onSource,
   onChanged,
   onError,
 }: {
+  projectId: string;
   documents: Document[];
   canPublish: boolean;
+  canManageRoles: boolean;
   onSource: (id: string) => Promise<void>;
   onChanged: () => Promise<void>;
   onError: (error: string) => void;
@@ -1042,11 +1050,32 @@ function DocumentList({
   const [role, setRole] = useState("researcher");
   const [access, setAccess] = useState("read");
   const [pending, setPending] = useState(false);
+  const [customRoles, setCustomRoles] = useState<Role[]>([]);
+  useEffect(() => {
+    if (!canManageRoles) return;
+    const controller = new AbortController();
+    void api<Roles>(`/projects/${encodeURIComponent(projectId)}/roles`, {
+      signal: controller.signal,
+    })
+      .then((catalog) => {
+        if (!controller.signal.aborted)
+          setCustomRoles(
+            catalog.custom.filter((item) => item.permissions.includes("read")),
+          );
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) onError(errorText(error));
+      });
+    return () => controller.abort();
+  }, [projectId, canManageRoles, onError]);
   const roleNames: Record<string, string> = {
     researcher: "研究者",
     viewer: "閲覧者",
     project_lead: "プロジェクト責任者",
   };
+  const selectedCustom = customRoles.find((item) => item.id === role);
+  const mayRetrieve =
+    !selectedCustom || selectedCustom.permissions.includes("retrieve");
   async function act(action: () => Promise<unknown>) {
     setPending(true);
     onError("");
@@ -1135,7 +1164,7 @@ function DocumentList({
                         {
                           role,
                           operations:
-                            access === "retrieve"
+                            access === "retrieve" && mayRetrieve
                               ? ["read", "retrieve"]
                               : ["read"],
                         },
@@ -1152,11 +1181,19 @@ function DocumentList({
                 <select
                   disabled={pending}
                   value={role}
-                  onChange={(event) => setRole(event.target.value)}
+                  onChange={(event) => {
+                    setRole(event.target.value);
+                    setAccess("read");
+                  }}
                 >
                   <option value="researcher">研究者</option>
                   <option value="viewer">閲覧者</option>
                   <option value="project_lead">プロジェクト責任者</option>
+                  {customRoles.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
                 </select>
               </label>
               <label>
@@ -1167,11 +1204,14 @@ function DocumentList({
                   onChange={(event) => setAccess(event.target.value)}
                 >
                   <option value="read">閲覧のみ</option>
-                  <option value="retrieve">閲覧・チャット参照</option>
+                  <option value="retrieve" disabled={!mayRetrieve}>
+                    閲覧・チャット参照
+                  </option>
                 </select>
               </label>
               <p>
-                「{doc.name}」を、このプロジェクトの「{roleNames[role]}
+                「{doc.name}」を、このプロジェクトの「
+                {roleNames[role] ?? selectedCustom?.name}
                 」に{access === "retrieve" ? "閲覧・チャット参照" : "閲覧のみ"}
                 を許可します。
               </p>
