@@ -422,7 +422,10 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
   ) {
     if (!files.length || busy) return;
     setError("");
+    setNotice("");
     setBusy(true);
+    let accepted = 0;
+    const failures: string[] = [];
     try {
       if (files.length + (kind === "attachment" ? attachments.length : 0) > 10)
         throw new Error("一度に添付できる資料は10件までです。");
@@ -453,6 +456,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
               conversation_id: conversation,
             }),
           );
+          accepted++;
           if (kind === "attachment")
             setAttachments((items) =>
               items.map((item) =>
@@ -470,12 +474,27 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
                   : item,
               ),
             );
-          else setError(errorText(error));
+          else failures.push(`${file.name}：${errorText(error)}`);
         }
       }
-      await reload();
-      if (kind === "personal")
-        setNotice("登録を受け付けました。取り込み状況を確認してください。");
+      if (kind === "personal") {
+        if (accepted > 0)
+          setNotice(
+            `${accepted}件の登録を受け付けました。取り込み状況を確認してください。`,
+          );
+        if (failures.length)
+          setError(
+            `${failures.length}件を登録できませんでした。${failures.join(" / ")}`,
+          );
+      }
+      try {
+        await reload();
+      } catch (error) {
+        const refreshError = `一覧の更新に失敗しました：${errorText(error)}`;
+        setError((previous) =>
+          previous ? `${previous} ${refreshError}` : refreshError,
+        );
+      }
     } catch (error) {
       setError(errorText(error));
     } finally {

@@ -254,6 +254,55 @@ test("attachments preserve draft, quarantine, remove, and share the drop path", 
   ).toBeVisible();
 });
 
+test("personal batch uploads report accepted and rejected files accurately", async ({
+  page,
+}) => {
+  await enter(page, 8);
+  await page.getByRole("button", { name: "個人資料", exact: true }).click();
+  let uploads = 0;
+  page.on("request", (request) => {
+    if (
+      request.method() === "POST" &&
+      new URL(request.url()).pathname === "/api/documents"
+    )
+      uploads++;
+  });
+  const picker = page.locator('input[type="file"]');
+  await picker.setInputFiles([
+    {
+      name: "batch-synthetic.md",
+      mimeType: "text/markdown",
+      buffer: Buffer.from("合成資料の登録確認です。"),
+    },
+    {
+      name: "rejected.exe",
+      mimeType: "application/octet-stream",
+      buffer: Buffer.from("synthetic"),
+    },
+  ]);
+  await expect(page.getByRole("status")).toContainText(
+    "1件の登録を受け付けました",
+  );
+  await expect(page.getByRole("alert")).toContainText(
+    "1件を登録できませんでした",
+  );
+  await expect(page.getByRole("alert")).toContainText("rejected.exe");
+  await expect(
+    page.getByRole("button", { name: "batch-synthetic.md", exact: true }),
+  ).toBeDisabled();
+  expect(uploads).toBe(1);
+  await picker.setInputFiles([
+    {
+      name: "only-rejected.exe",
+      mimeType: "application/octet-stream",
+      buffer: Buffer.from("synthetic"),
+    },
+  ]);
+  await expect(page.getByRole("alert")).toContainText("only-rejected.exe");
+  await expect(page.getByRole("status")).not.toBeVisible();
+  expect(uploads).toBe(1);
+});
+
 test("sidebar, long names, mobile widths and reduced motion", async ({
   page,
 }) => {

@@ -95,4 +95,72 @@ describe("approved chat interaction baseline", () => {
     );
     expect(field).toHaveValue("残す下書き");
   });
+
+  it("does not acknowledge personal uploads that all failed validation", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "個人資料" }));
+    await screen.findByRole("button", { name: "資料を追加" });
+    const input =
+      document.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(input).not.toBeNull();
+    fireEvent.change(input!, {
+      target: { files: [new File(["synthetic"], "bad.exe")] },
+    });
+    await screen.findByRole("alert");
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(
+      requests.filter(
+        (request) =>
+          request.path === "/api/documents" &&
+          request.options?.method === "POST",
+      ),
+    ).toHaveLength(0);
+  });
+
+  it("preserves mixed upload outcomes when refreshing the library fails", async () => {
+    const original = vi.mocked(fetch).getMockImplementation()!;
+    let uploads = 0;
+    vi.mocked(fetch).mockImplementation(async (input, options) => {
+      const path = String(input);
+      if (path === "/api/documents" && options?.method === "POST") {
+        uploads++;
+        return new Response(
+          JSON.stringify({ id: "new-document", status: "queued" }),
+          { status: 201 },
+        );
+      }
+      if (uploads && path.startsWith("/api/documents?"))
+        return new Response(
+          JSON.stringify({ detail: "更新を確認できません" }),
+          { status: 503 },
+        );
+      return original(input, options);
+    });
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "個人資料" }));
+    await screen.findByRole("button", { name: "資料を追加" });
+    const valid = new File(["synthetic"], "accepted.txt");
+    Object.defineProperty(valid, "arrayBuffer", {
+      value: async () => new TextEncoder().encode("synthetic").buffer,
+    });
+    fireEvent.change(
+      document.querySelector<HTMLInputElement>('input[type="file"]')!,
+      {
+        target: { files: [valid, new File(["synthetic"], "rejected.exe")] },
+      },
+    );
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "1件の登録を受け付けました",
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "一覧の更新に失敗しました",
+      ),
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "1件を登録できませんでした",
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent("rejected.exe");
+    expect(uploads).toBe(1);
+  });
 });
