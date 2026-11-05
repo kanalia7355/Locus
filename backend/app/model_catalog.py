@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import stat
+import sys
 import threading
 import time
 from pathlib import Path
@@ -27,7 +28,7 @@ def reparse(path: Path) -> bool:
 
 
 def local_volume(path: Path) -> bool:
-    if os.name != "nt":
+    if sys.platform != "win32":
         return True
     kernel = ctypes.WinDLL("kernel32", use_last_error=True)
     kernel.GetDriveTypeW.argtypes = [ctypes.c_wchar_p]
