@@ -5,11 +5,59 @@ import json
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGETS = ["loop_engine", "tests/unit", "tests/integration", "tests/e2e", "scripts/verify_loop.py"]
+
+
+def windows_test_groups(timeout: float = 600) -> list[dict[str, Any]]:
+    """Run the same suite in two processes sharing the original execution window.
+
+    subprocess.run settles direct children on timeout, as the serial runner did.
+    CI job cleanup remains the outer guard for descendant processes.
+    """
+    deadline = time.monotonic() + timeout
+    groups = (("unit", ["tests/unit"]), ("integration-e2e", ["tests/integration", "tests/e2e"]))
+
+    def run_group(group: tuple[str, list[str]]) -> dict[str, Any]:
+        name, paths = group
+        started = time.monotonic()
+        remaining = deadline - started
+        code, outcome = 124, "deadline_before_start"
+        if remaining > 0:
+            try:
+                command = [
+                    sys.executable,
+                    "-m",
+                    "pytest",
+                    "-q",
+                    "-o",
+                    f"cache_dir=.loop/runtime/pytest-cache/{name}",
+                    *paths,
+                ]
+                code = subprocess.run(  # noqa: S603
+                    command, cwd=ROOT, timeout=remaining, check=False
+                ).returncode
+                outcome = "exit"
+            except subprocess.TimeoutExpired:
+                outcome = "timeout"
+            except OSError:
+                code, outcome = 125, "launch_error"
+            except Exception:  # Fail closed, retain both results without logging arbitrary data.
+                code, outcome = 125, "runner_error"
+        return {
+            "name": "tests-" + name,
+            "exit_code": code,
+            "outcome": outcome,
+            "elapsed_seconds": round(time.monotonic() - started, 2),
+        }
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        return list(executor.map(run_group, groups))
 
 
 def main() -> int:
@@ -83,11 +131,18 @@ def main() -> int:
         print(f"Running engine {name}", flush=True)
         started = time.monotonic()
         try:
-            # Real Git crash-recovery scenarios add bounded Windows subprocess time.
-            # Keep every test enabled; only this aggregate test-command window grows.
-            code = subprocess.run(  # noqa: S603
-                command, cwd=ROOT, timeout=600 if name == "tests" else 180, check=False
-            ).returncode
+            if name == "tests" and sys.platform == "win32":
+                partitions = windows_test_groups()
+                results.extend(partitions)
+                for result in partitions:
+                    print(json.dumps(result), flush=True)
+                code = next(
+                    (result["exit_code"] for result in partitions if result["exit_code"]), 0
+                )
+            else:
+                code = subprocess.run(  # noqa: S603
+                    command, cwd=ROOT, timeout=600 if name == "tests" else 180, check=False
+                ).returncode
         except subprocess.TimeoutExpired:
             code = 124
         results.append(
