@@ -3,6 +3,7 @@
 import subprocess
 import sys
 from threading import Barrier
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -72,3 +73,19 @@ def test_real_children_obey_remaining_timeout(monkeypatch: pytest.MonkeyPatch) -
     results = verify_loop.windows_test_groups(timeout=0.2)
     assert all(0 < value <= 0.2 for value in timeouts)
     assert [result["exit_code"] for result in results] == [124, 124]
+
+
+def test_clock_rounding_never_expands_the_configured_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 1000.2 - 1000 is slightly greater than 0.2 in binary floating point.
+    monkeypatch.setattr(verify_loop, "time", SimpleNamespace(monotonic=lambda: 1000.0))
+    timeouts: list[float] = []
+
+    def run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        timeouts.append(kwargs["timeout"])
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(verify_loop.subprocess, "run", run)
+    assert all(result["exit_code"] == 0 for result in verify_loop.windows_test_groups(timeout=0.2))
+    assert timeouts == [0.2, 0.2]

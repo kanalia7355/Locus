@@ -26,7 +26,7 @@ def windows_test_groups(timeout: float = 600) -> list[dict[str, Any]]:
     def run_group(group: tuple[str, list[str]]) -> dict[str, Any]:
         name, paths = group
         started = time.monotonic()
-        remaining = deadline - started
+        remaining = min(timeout, deadline - started)
         code, outcome = 124, "deadline_before_start"
         if remaining > 0:
             try:
