@@ -584,8 +584,59 @@ test("role editor previews scoped subsets and administrator audit is redacted", 
     .getByRole("button", { name: "候補として選択", exact: true })
     .first()
     .click();
-  await expect(page.getByText(/推論はまだ有効ではありません/)).toBeVisible();
+  await expect(page.getByText(/推論の有効化とは別の操作です/)).toBeVisible();
   await page.screenshot({ path: test.info().outputPath("model-catalog.png") });
+  await page
+    .locator(".model-candidate")
+    .filter({
+      has: page.getByRole("heading", {
+        name: "synthetic-ollama:latest",
+        exact: true,
+      }),
+    })
+    .getByRole("button", { name: "候補として選択" })
+    .click();
+  await page
+    .getByRole("button", { name: "チャットの実行設定", exact: true })
+    .click();
+  const enable = page.getByRole("button", {
+    name: "選択モデルをチャットに使用",
+  });
+  await expect(enable).toBeDisabled();
+  await page
+    .getByRole("checkbox", { name: /Ollamaのクラウド機能を無効化/ })
+    .check();
+  await enable.click();
+  await expect(
+    page.getByText(/synthetic-ollama:latest を使用します/),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "資料を調べる", exact: true }).click();
+  await page
+    .getByRole("textbox", { name: "メッセージ", exact: true })
+    .fill("成膜条件");
+  await page.getByRole("button", { name: "送信", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "資料に基づく提案" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      "合成資料から生成したテスト用の提案です。<script>実行しない</script>",
+    ),
+  ).toBeVisible();
+  expect(await page.locator(".answer script").count()).toBe(0);
+  await page.screenshot({
+    path: test.info().outputPath("local-rag-answer.png"),
+  });
+  await page
+    .getByRole("button", { name: "モデル・同時利用", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "チャットの実行設定", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "原文検索に戻す", exact: true })
+    .click();
+  await expect(page.getByText("原文検索に戻しました。")).toBeVisible();
 });
 
 test("development server rejects hostile and absent mutation origins", async ({

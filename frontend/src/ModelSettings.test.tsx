@@ -52,7 +52,7 @@ it("requires explicit source selection and never enables inference on candidate 
     sources: ["ollama"],
   });
   fireEvent.click(screen.getByRole("button", { name: "候補として選択" }));
-  expect(screen.getByText(/推論はまだ有効ではありません/)).toBeVisible();
+  expect(screen.getByText(/推論の有効化とは別の操作です/)).toBeVisible();
   expect(requests).toHaveLength(2);
 });
 

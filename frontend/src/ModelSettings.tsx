@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, errorText, json } from "./api";
 import type { ModelInventory, ModelSource } from "./api";
+import { ModelRuntime } from "./ModelRuntime";
 
 export function ModelSettings() {
   const [sources, setSources] = useState<ModelSource[]>([]);
@@ -9,6 +10,7 @@ export function ModelSettings() {
   const [candidate, setCandidate] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [showRuntime, setShowRuntime] = useState(false);
   const request = useRef<AbortController | null>(null);
   useEffect(() => {
     const controller = new AbortController();
@@ -83,6 +85,20 @@ export function ModelSettings() {
         {busy ? "モデルを検出中" : "選択した場所でモデルを検出"}
       </button>
       {error && <p role="alert">{error}</p>}
+      <button onClick={() => setShowRuntime((shown) => !shown)}>
+        チャットの実行設定
+      </button>
+      {showRuntime && (
+        <ModelRuntime
+          key={candidate}
+          candidate={
+            result?.models.find((model) => model.id === candidate)
+              ?.source_id === "ollama"
+              ? candidate
+              : null
+          }
+        />
+      )}
       {result && (
         <>
           <p role="status">
@@ -124,7 +140,7 @@ export function ModelSettings() {
               {candidate === model.id && (
                 <p>
                   「{model.name}
-                  」を候補として選択中です。推論はまだ有効ではありません。
+                  」を候補として選択中です。推論の有効化とは別の操作です。
                 </p>
               )}
             </article>

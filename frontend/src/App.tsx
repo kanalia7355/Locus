@@ -772,6 +772,23 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
                   <article className="exchange" key={message.id}>
                     <p className="user-message">{message.text}</p>
                     <div className="answer">
+                      {message.answer && (
+                        <>
+                          <h2>資料に基づく提案</h2>
+                          <p style={{ whiteSpace: "pre-wrap" }}>
+                            {message.answer}
+                          </p>
+                          <p className="footnote">
+                            {message.model}{" "}
+                            による生成内容です。判断には元資料を確認してください。
+                          </p>
+                        </>
+                      )}
+                      {message.answer_hidden && (
+                        <p>
+                          出典の削除または権限変更により、生成回答を非表示にしました。
+                        </p>
+                      )}
                       <h2>
                         {message.citations.length
                           ? "資料に見つかった記述"
@@ -796,7 +813,9 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
                       ))}
                       <p className="footnote">
                         {message.citations.length
-                          ? "検索で抽出した原文です。AI生成の回答ではありません。判断には元資料を確認してください。"
+                          ? message.answer
+                            ? "以下の出典は検索で抽出した原文です。生成内容とは区別して確認してください。"
+                            : "検索で抽出した原文です。AI生成の回答ではありません。判断には元資料を確認してください。"
                           : "参照範囲・資料の処理状態・質問の語句を確認してください。"}
                       </p>
                     </div>

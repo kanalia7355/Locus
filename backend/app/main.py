@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from app.local_model import LocalModel
 from app.model_catalog import ModelCatalog
 from app.service import Principal, Service, fail
 
@@ -77,6 +78,11 @@ class Publication(Input):
     grants: list[Grant] = Field(max_length=10)
 
 
+class ModelRuntime(Input):
+    candidate_id: str | None = Field(default=None, max_length=64)
+    local_only_confirmed: bool = False
+
+
 class ModelDiscovery(Input):
     sources: list[str] = Field(min_length=1, max_length=5)
 
@@ -92,6 +98,7 @@ def create_app(
     service: Service | None = None,
     start_worker: bool = True,
     model_catalog: ModelCatalog | None = None,
+    local_model: LocalModel | None = None,
 ) -> FastAPI:
     if os.getenv("APP_ENV", "development") != "development":
         raise RuntimeError(
@@ -104,6 +111,7 @@ def create_app(
     owns_service = service is None
     svc = service or Service(Path(__file__).resolve().parents[2] / "storage" / "locus.sqlite3")
     catalog = model_catalog or ModelCatalog()
+    runtime = local_model or LocalModel()
 
     stop = asyncio.Event()
 
@@ -256,10 +264,23 @@ def create_app(
         return svc.conversation(user, conversation)
 
     @app.post("/api/conversations/{conversation}/messages")
-    def message(conversation: str, data: Message, user: Actor) -> dict[str, Any]:
+    def message(conversation: str, data: Message, request: Request, user: Actor) -> dict[str, Any]:
         if not data.text.strip():
             fail(422, "メッセージを入力してください")
-        return svc.send(user, conversation, data.text, data.scope, data.attachment_ids)
+        with runtime.settings_lock:
+            model, version = runtime.model, runtime.version
+        return svc.send(
+            user,
+            conversation,
+            data.text,
+            data.scope,
+            data.attachment_ids,
+            generate=(lambda text, citations: runtime.generate(model, text, citations))
+            if model
+            else None,
+            validate=(lambda: runtime.validate(model, version)) if model else None,
+            token=request.cookies.get(COOKIE),
+        )
 
     @app.delete("/api/conversations/{conversation}", status_code=204)
     def delete_conversation(conversation: str, user: Actor) -> None:
@@ -297,7 +318,29 @@ def create_app(
         svc.record_model_discovery(
             current, all(item["status"] == "complete" for item in result["sources"])
         )
+        with runtime.settings_lock:
+            runtime.registered = {
+                item["id"]: item["name"]
+                for item in result["models"]
+                if item["source_id"] == "ollama"
+            }
         return result
+
+    @app.get("/api/admin/models/runtime")
+    def model_runtime(user: Actor) -> dict[str, Any]:
+        if not user.system_admin:
+            fail(403, "管理権限が必要です")
+        return runtime.status()
+
+    @app.put("/api/admin/models/runtime")
+    def configure_model(data: ModelRuntime, request: Request, user: Actor) -> dict[str, Any]:
+        with svc.db() as db:
+            current = svc._authenticate(db, request.cookies.get(COOKIE))
+            if not current.system_admin:
+                fail(403, "管理権限が必要です")
+            result = runtime.configure(data.candidate_id, data.local_only_confirmed)
+            svc._audit(db, current.id, "model.configure", "local-model-runtime")
+            return result
 
     @app.get("/api/admin/users")
     def users(user: Actor) -> list[dict[str, Any]]:

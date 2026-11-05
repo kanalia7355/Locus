@@ -37,6 +37,9 @@ export interface Message {
   text: string;
   scope: string;
   citations: Citation[];
+  answer?: string | null;
+  model?: string | null;
+  answer_hidden?: boolean;
 }
 export interface RelatedDocument {
   document: Document;

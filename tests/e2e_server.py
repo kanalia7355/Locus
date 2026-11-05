@@ -6,6 +6,7 @@ from pathlib import Path
 
 import httpx
 import uvicorn
+from app.local_model import LocalModel
 from app.main import create_app
 from app.model_catalog import ModelCatalog
 from app.service import Service
@@ -59,7 +60,28 @@ def main() -> None:
         )
         try:
             uvicorn.run(
-                create_app(service=service, model_catalog=catalog),
+                create_app(
+                    service=service,
+                    model_catalog=catalog,
+                    local_model=LocalModel(
+                        transport=httpx.MockTransport(
+                            lambda request: httpx.Response(
+                                200,
+                                json={
+                                    "model": "synthetic-ollama:latest",
+                                    "done": True,
+                                    "message": {
+                                        "role": "assistant",
+                                        "content": (
+                                            "合成資料から生成したテスト用の提案です。"
+                                            "<script>実行しない</script>"
+                                        ),
+                                    },
+                                },
+                            )
+                        )
+                    ),
+                ),
                 host="127.0.0.1",
                 port=8000,
                 access_log=False,

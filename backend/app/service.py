@@ -8,7 +8,7 @@ import sqlite3
 import threading
 import time
 from collections import OrderedDict
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -122,6 +122,10 @@ class Service:
                 id TEXT PRIMARY KEY, conversation_id TEXT REFERENCES conversations(id)
                 ON DELETE CASCADE, text TEXT NOT NULL, citation_ids TEXT NOT NULL,
                 scope TEXT NOT NULL, created REAL NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS generated_answers (
+                message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+                answer TEXT NOT NULL, model TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS audit (
                 id TEXT PRIMARY KEY, at REAL NOT NULL, actor_id TEXT NOT NULL,
@@ -271,31 +275,34 @@ class Service:
 
     def authenticate(self, token: str | None, *, allow_rotation: bool = False) -> Principal:
         with self.db() as db:
-            session = db.execute(
-                "SELECT s.*, u.username,u.system_admin,u.must_rotate,u.enabled "
-                "FROM sessions s JOIN users u ON u.id=s.user_id "
-                "WHERE s.token_hash=?",
-                (digest(token or ""),),
-            ).fetchone()
-            now = time.time()
-            if (
-                not session
-                or not session["enabled"]
-                or session["expires"] <= now
-                or (session["last_seen"] <= now - 1800)
-            ):
-                fail(401, "ログインしてください")
-            if (session["rotation_only"] or session["must_rotate"]) and not allow_rotation:
-                fail(403, "最初に仮パスワードを変更してください")
-            db.execute(
-                "UPDATE sessions SET last_seen=? WHERE token_hash=?", (now, digest(token or ""))
-            )
-            return Principal(
-                session["user_id"],
-                session["username"],
-                bool(session["system_admin"]),
-                bool(session["must_rotate"]),
-            )
+            return self._authenticate(db, token, allow_rotation=allow_rotation)
+
+    def _authenticate(
+        self, db: sqlite3.Connection, token: str | None, *, allow_rotation: bool = False
+    ) -> Principal:
+        session = db.execute(
+            "SELECT s.*, u.username,u.system_admin,u.must_rotate,u.enabled "
+            "FROM sessions s JOIN users u ON u.id=s.user_id "
+            "WHERE s.token_hash=?",
+            (digest(token or ""),),
+        ).fetchone()
+        now = time.time()
+        if (
+            not session
+            or not session["enabled"]
+            or session["expires"] <= now
+            or (session["last_seen"] <= now - 1800)
+        ):
+            fail(401, "ログインしてください")
+        if (session["rotation_only"] or session["must_rotate"]) and not allow_rotation:
+            fail(403, "最初に仮パスワードを変更してください")
+        db.execute("UPDATE sessions SET last_seen=? WHERE token_hash=?", (now, digest(token or "")))
+        return Principal(
+            session["user_id"],
+            session["username"],
+            bool(session["system_admin"]),
+            bool(session["must_rotate"]),
+        )
 
     def rotate(self, principal: Principal, current: str, new: str) -> str:
         if len(new) < 14 or len(new) > 128 or current == new:
@@ -792,6 +799,19 @@ class Service:
                 citations.append({**dict(chunk), "name": doc["name"]})
         return citations
 
+    def _generated(
+        self, db: sqlite3.Connection, actor: Principal, row: sqlite3.Row, conversation: str
+    ) -> Json:
+        generated = db.execute(
+            "SELECT * FROM generated_answers WHERE message_id=?", (row["id"],)
+        ).fetchone()
+        ids = json.loads(row["citation_ids"])
+        if not generated:
+            return {"answer": None, "model": None}
+        if not ids or len(self._citations(db, actor, ids, conversation)) != len(ids):
+            return {"answer": None, "model": None, "answer_hidden": True}
+        return {"answer": generated["answer"], "model": generated["model"]}
+
     def conversation(self, actor: Principal, conversation: str) -> Json:
         with self.db() as db:
             conv = self._conversation(db, actor, conversation)
@@ -800,6 +820,7 @@ class Service:
                     "id": row["id"],
                     "text": row["text"],
                     "scope": row["scope"],
+                    **self._generated(db, actor, row, conversation),
                     "citations": self._citations(
                         db, actor, json.loads(row["citation_ids"]), conversation
                     ),
@@ -820,7 +841,16 @@ class Service:
             return {**dict(conv), "messages": messages, "attachments": attachments}
 
     def send(
-        self, actor: Principal, conversation: str, text: str, scope: str, attachments: list[str]
+        self,
+        actor: Principal,
+        conversation: str,
+        text: str,
+        scope: str,
+        attachments: list[str],
+        *,
+        generate: Callable[[str, list[Json]], tuple[str, str]] | None = None,
+        validate: Callable[[], None] | None = None,
+        token: str | None = None,
     ) -> Json:
         if scope not in {"all", "shared", "personal"}:
             fail(422, "参照範囲を確認してください")
@@ -861,16 +891,46 @@ class Service:
                     if score:
                         candidates.append((score, chunk["id"]))
             ids = [chunk for _, chunk in sorted(candidates, reverse=True)[:5]]
+            citations = self._citations(db, actor, ids, conversation)
+            if generate:
+                current = self._authenticate(db, token)
+                if current.id != actor.id:
+                    fail(401, "ログインしてください")
+                if validate:
+                    validate()
+        # Never hold the database transaction during model I/O.
+        generated = generate(text, citations) if generate and citations else None
+        with self.db() as db:
+            self._conversation(db, actor, conversation)
+            if generate:
+                current = self._authenticate(db, token)
+                if current.id != actor.id:
+                    fail(401, "ログインしてください")
+                if validate:
+                    validate()
+                if self._citations(db, current, ids, conversation) != citations:
+                    fail(409, "参照資料の権限または内容が変わりました")
+            if (
+                db.execute(
+                    "SELECT COUNT(*) FROM messages WHERE conversation_id=?", (conversation,)
+                ).fetchone()[0]
+                >= 200
+            ):
+                fail(429, "1会話200件までです")
             message = uid()
             db.execute(
                 "INSERT INTO messages VALUES (?,?,?,?,?,?)",
                 (message, conversation, text, json.dumps(ids), scope, time.time()),
             )
+            if generated:
+                db.execute("INSERT INTO generated_answers VALUES (?,?,?)", (message, *generated))
             self._audit(db, actor.id, "retrieval.complete", conversation)
             return {
                 "id": message,
                 "text": text,
                 "scope": scope,
+                "answer": generated[0] if generated else None,
+                "model": generated[1] if generated else None,
                 "citations": self._citations(db, actor, ids, conversation),
             }
 
