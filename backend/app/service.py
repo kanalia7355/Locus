@@ -945,6 +945,18 @@ class Service:
             self._audit(db, actor.id, "role.update", role_id)
             return {"id": role_id, "name": name, "permissions": sorted(set(permissions))}
 
+    def record_model_discovery(self, actor: Principal, complete: bool) -> None:
+        if not actor.system_admin:
+            fail(403, "管理権限が必要です")
+        with self.db() as db:
+            self._audit(
+                db,
+                actor.id,
+                "model.discover",
+                "local-model-catalog",
+                "complete" if complete else "partial",
+            )
+
     def audit(self, actor: Principal) -> list[Json]:
         if not actor.system_admin:
             fail(403, "管理権限が必要です")

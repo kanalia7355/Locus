@@ -257,7 +257,16 @@ test("attachments preserve draft, quarantine, remove, and share the drop path", 
 test("late project responses cannot overwrite the active library", async ({
   page,
 }) => {
+  const initialLibrary = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      response.status() === 200 &&
+      new URL(response.url()).pathname === "/api/documents" &&
+      new URL(response.url()).searchParams.get("project_id") ===
+        "synthetic-project",
+  );
   await enter(page, 9);
+  await initialLibrary;
   await page.getByRole("button", { name: "個人資料", exact: true }).click();
   await expect(
     page.getByRole("button", {
@@ -549,6 +558,34 @@ test("role editor previews scoped subsets and administrator audit is redacted", 
   await expect(page.locator(".list")).not.toContainText(
     "Synthetic-test-password",
   );
+  await page
+    .getByRole("button", { name: "モデル・同時利用", exact: true })
+    .click();
+  const discover = page.getByRole("button", {
+    name: "選択した場所でモデルを検出",
+    exact: true,
+  });
+  await expect(discover).toBeDisabled();
+  await page
+    .getByRole("checkbox", { name: "Ollama 登録モデル", exact: true })
+    .check();
+  await page
+    .getByRole("checkbox", { name: "モデルフォルダー 1", exact: true })
+    .check();
+  await discover.click();
+  await expect(
+    page.getByRole("heading", { name: "fixture-model.gguf", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "synthetic-ollama:latest", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("status")).toContainText("2件のモデル候補を検出");
+  await page
+    .getByRole("button", { name: "候補として選択", exact: true })
+    .first()
+    .click();
+  await expect(page.getByText(/推論はまだ有効ではありません/)).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath("model-catalog.png") });
 });
 
 test("development server rejects hostile and absent mutation origins", async ({

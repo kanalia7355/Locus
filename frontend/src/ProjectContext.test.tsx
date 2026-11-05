@@ -173,7 +173,9 @@ it("an old deletion cannot clear another conversation, but current deletion stil
   await waitFor(() =>
     expect(screen.queryByText("新しい会話の質問")).not.toBeInTheDocument(),
   );
-  expect(screen.getByRole("textbox", { name: "メッセージ" })).toHaveValue("");
+  expect(
+    await screen.findByRole("textbox", { name: "メッセージ" }),
+  ).toHaveValue("");
 });
 
 it("does not apply an old project refresh after switching projects", async () => {

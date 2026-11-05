@@ -67,6 +67,30 @@ export interface Roles {
   custom: Role[];
   allowed_permissions: string[];
 }
+export interface ModelSource {
+  id: string;
+  label: string;
+  kind: "ollama" | "folder";
+}
+export interface ModelInventory {
+  inference_enabled: false;
+  sources: {
+    id: string;
+    status: string;
+    truncated: boolean;
+    count: number;
+    rejected_entries: number;
+  }[];
+  models: {
+    id: string;
+    source_id: string;
+    name: string;
+    size_bytes: number;
+    format: string;
+    status: string;
+    inference_enabled: false;
+  }[];
+}
 
 export async function api<T>(
   path: string,

@@ -4,8 +4,10 @@ import os
 import tempfile
 from pathlib import Path
 
+import httpx
 import uvicorn
 from app.main import create_app
+from app.model_catalog import ModelCatalog
 from app.service import Service
 
 
@@ -44,9 +46,20 @@ def main() -> None:
                         ("別プロジェクトの合成資料.txt", other),
                     )
         service.seed_synthetic("test-researcher-0", "synthetic-project", "shared")
+        models = Path(temp) / "models"
+        models.mkdir()
+        (models / "fixture-model.gguf").write_bytes(b"synthetic-not-valid-weights")
+        catalog = ModelCatalog(
+            {"fixture-root": models},
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(
+                    200, json={"models": [{"name": "synthetic-ollama:latest", "size": 123}]}
+                )
+            ),
+        )
         try:
             uvicorn.run(
-                create_app(service=service),
+                create_app(service=service, model_catalog=catalog),
                 host="127.0.0.1",
                 port=8000,
                 access_log=False,

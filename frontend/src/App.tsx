@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { api, errorText, json, statusName } from "./api";
 import { RelatedDocuments } from "./RelatedDocuments";
+import { ModelSettings } from "./ModelSettings";
 import type {
   Conversation,
   Document,
@@ -1005,7 +1006,10 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
         {page === "settings" && (
           <div className="settings">
             <h2>処理先</h2>
-            <p>ローカルの原文検索のみ利用できます。モデルは未選定です。</p>
+            <p>
+              チャットはローカルの原文検索のみ利用できます。モデルの準備はシステム管理者が行います。
+            </p>
+            {user.system_admin && <ModelSettings />}
             <h2>外部AI・保存先の接続</h2>
             <p>無効。接続先・契約・送信方針の承認後に実装します。</p>
             <h2>同時利用</h2>

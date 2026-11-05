@@ -52,6 +52,13 @@ built-in templates cannot be edited. Updates and metadata-only audit records are
 transactional. This completes configuration within the approved prototype scope,
 not production delegation or web-based identity/membership administration.
 
+The administrator model page now supports explicit, read-only discovery of Ollama
+registration metadata and GGUF/Safetensors candidates in configured local model
+folders, including the Hugging Face cache suggestion. Candidate selection does
+not enable model loading, import, downloads or inference; chat remains lexical
+retrieval. See [LOCAL_MODELS.md](../LOCAL_MODELS.md) for activation scope, limits
+and the distinction between synthetic verification and actual model operation.
+
 Isolation and citation tests verify the implemented local paths. They do not prove every path of an unimplemented vector/graph/model subsystem. The application emits quoted source excerpts, not generated research findings. Quarantined uploads are not called indexed/read. Queue limits are development safety limits, not tested user capacity.
 
 The remaining production decisions are not silently resolved. No production/LAN deployment, GitHub operation or external AI call is part of this delivery.

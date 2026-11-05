@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from app.model_catalog import ModelCatalog
 from app.service import Principal, Service, fail
 
 COOKIE = "locus_session"
@@ -76,13 +77,22 @@ class Publication(Input):
     grants: list[Grant] = Field(max_length=10)
 
 
+class ModelDiscovery(Input):
+    sources: list[str] = Field(min_length=1, max_length=5)
+
+
 def cookie(response: Response, token: str) -> None:
     response.set_cookie(
         COOKIE, token, httponly=True, samesite="strict", secure=False, max_age=28800, path="/api"
     )
 
 
-def create_app(*, service: Service | None = None, start_worker: bool = True) -> FastAPI:
+def create_app(
+    *,
+    service: Service | None = None,
+    start_worker: bool = True,
+    model_catalog: ModelCatalog | None = None,
+) -> FastAPI:
     if os.getenv("APP_ENV", "development") != "development":
         raise RuntimeError(
             "Only development mode is implemented; production deployment is disabled"
@@ -93,6 +103,7 @@ def create_app(*, service: Service | None = None, start_worker: bool = True) -> 
         raise RuntimeError("Only local mode is supported")
     owns_service = service is None
     svc = service or Service(Path(__file__).resolve().parents[2] / "storage" / "locus.sqlite3")
+    catalog = model_catalog or ModelCatalog()
 
     stop = asyncio.Event()
 
@@ -269,6 +280,24 @@ def create_app(*, service: Service | None = None, start_worker: bool = True) -> 
         if not data.name.strip():
             fail(422, "ロール名を入力してください")
         return svc.update_role(user, project, role_id, data.name, data.permissions)
+
+    @app.get("/api/admin/models/sources")
+    def model_sources(user: Actor) -> list[dict[str, str]]:
+        if not user.system_admin:
+            fail(403, "管理権限が必要です")
+        return catalog.sources()
+
+    @app.post("/api/admin/models/discover")
+    def discover_models(data: ModelDiscovery, request: Request, user: Actor) -> dict[str, Any]:
+        if not user.system_admin:
+            fail(403, "管理権限が必要です")
+        result = catalog.discover(data.sources)
+        # Recheck after local I/O before returning privileged inventory metadata.
+        current = svc.authenticate(request.cookies.get(COOKIE))
+        svc.record_model_discovery(
+            current, all(item["status"] == "complete" for item in result["sources"])
+        )
+        return result
 
     @app.get("/api/admin/users")
     def users(user: Actor) -> list[dict[str, Any]]:
