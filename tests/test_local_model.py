@@ -3,6 +3,7 @@
 import asyncio
 import json
 from collections.abc import Callable
+from pathlib import Path
 
 import httpx
 import pytest
@@ -96,6 +97,74 @@ def test_generated_history_live_acl_and_no_previous_answers(service: Service):
     assert admin.get(f"/api/conversations/{conv}").status_code == 404
     alice.delete(f"/api/conversations/{conv}", headers=ORIGIN)
     assert service.conn.execute("SELECT COUNT(*) FROM generated_answers").fetchone()[0] == 0
+
+
+def test_generated_history_survives_reopen_and_masks_partial_grant_revocation(service: Service):
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(200, json=response())
+
+    admin, alice, conv, _ = setup(service, handler)
+    shared = service.seed_synthetic("admin", "project-a", "shared")
+    original = send(alice, conv)
+    assert original.status_code == 200, original.text
+    saved = original.json()
+    assert len(saved["citations"]) == 2 and len(calls) == 1
+    db_path = Path(service.conn.execute("PRAGMA database_list").fetchone()[2])
+    admin_cookie, alice_cookie = (
+        admin.cookies.get("locus_session"),
+        alice.cookies.get("locus_session"),
+    )
+    service.close()
+
+    def no_network(request):
+        pytest.fail("Reopening history must not perform a model or discovery request")
+
+    transport = httpx.MockTransport(no_network)
+    reopened = Service(db_path)
+    try:
+        app = create_app(
+            service=reopened,
+            start_worker=False,
+            local_model=LocalModel(transport=transport),
+            model_catalog=ModelCatalog({}, transport=transport),
+        )
+
+        def client(token):
+            result = TestClient(app, base_url="http://127.0.0.1", client=("127.0.0.1", 50000))
+            result.cookies.set("locus_session", token)
+            return result
+
+        restarted_admin, restarted_alice = client(admin_cookie), client(alice_cookie)
+        assert restarted_admin.get("/api/admin/models/runtime").json() == {
+            "enabled": False,
+            "model": None,
+            "timeout_seconds": 30,
+        }
+        restored = restarted_alice.get(f"/api/conversations/{conv}")
+        assert restored.status_code == 200
+        restored_message = restored.json()["messages"][0]
+        assert restored_message["id"] == saved["id"]
+        assert restored_message["answer"] == saved["answer"]
+        assert restored_message["model"] == saved["model"]
+        assert restored_message["citations"] == saved["citations"]
+        assert restarted_admin.get(f"/api/conversations/{conv}").status_code == 404
+        revoked = restarted_admin.put(
+            f"/api/documents/{shared}/publication",
+            headers=ORIGIN,
+            json={"grants": [{"role": "viewer", "operations": ["read", "retrieve"]}]},
+        )
+        assert revoked.status_code == 204
+        hidden = restarted_alice.get(f"/api/conversations/{conv}").json()["messages"][0]
+        assert len(hidden["citations"]) == 1
+        assert (
+            hidden["answer"] is None and hidden["model"] is None and hidden["answer_hidden"] is True
+        )
+        assert len(calls) == 1
+    finally:
+        reopened.close()
 
 
 @pytest.mark.parametrize(

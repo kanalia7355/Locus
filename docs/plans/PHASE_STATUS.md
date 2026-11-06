@@ -97,3 +97,17 @@ transaction as the change. The `unassign` CLI exposes existing membership remova
 its regression tests confirm immediate document/conversation denial for existing
 sessions and rollback when an audit record cannot be written. No actual account
 or membership was changed by this development task. Web delegation stays disabled.
+
+A subsequent owner-authorized synthetic backend-API trial at code `452bb47`
+returned a validated real gemma3:4b answer in 10.543 seconds, including the expected
+180/200 temperature values. SQLite reopen preserved the answer and citations;
+source-grant revocation hid the whole answer and model, administrator access to
+another user's history was denied, and the new runtime reset to disabled/30s.
+The preparation initially misclassified the correct conversation-creation 201,
+before any model dispatch. Continuation reused the confirmed inventory checkpoint
+without another inventory request; total real traffic remained one inventory GET
+and one model POST. Both original and continuation records were retained.
+This proves the bounded synthetic backend path, not production data handling,
+real-browser/model integration, crash recovery, capacity or all-Phase completion.
+A separate mock regression now reopens the same SQLite and verifies that losing
+just one shared input source hides the whole answer while other citations remain.
