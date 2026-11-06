@@ -127,3 +127,16 @@ construction does not connect, and the unavailable default remains unchanged.
 Mock transport covers framing, strict EOF response, deadlines, limits and cleanup.
 Real daemon identity, signature freshness, deployment isolation and detection remain
 unverified and require separate owner-authorized operational validation.
+
+## Ingestion progress refinement — 2026-11-06
+
+The ingestion screen now summarizes only currently visible project documents,
+separating queued/scanning/ready/quarantined/failed/cancelled and unknown states.
+Pending work triggers sequential status GETs after a two-second delay; each GET
+has a ten-second deadline. Navigation/project changes abort the poll, terminal
+states stop it, and failures/expiry stop automatic requests with a stale-state
+notice. Manual refresh remains available. This is not global request exclusion,
+a completion ETA, folder inventory, durable notification history or a fair model queue.
+Frontend unit43, lint/build, and browser10 passed; the strengthened narrow-width
+case also passed after waiting for sidebar animation completion. Independent
+review findings about deadline/stopped-state wording were fixed in one cycle.

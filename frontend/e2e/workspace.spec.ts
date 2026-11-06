@@ -692,3 +692,54 @@ test("development server rejects hostile and absent mutation origins", async ({
     (await request.get("/", { headers: { Host: "hostile.example" } })).status(),
   ).toBe(403);
 });
+
+test("ingestion overview separates usable and quarantined uploads at narrow width", async ({
+  page,
+}) => {
+  await enter(page, 11);
+  const beforeResponse = await page.request.get(
+    "http://127.0.0.1:8000/api/documents?project_id=synthetic-project",
+  );
+  expect(beforeResponse.ok()).toBe(true);
+  const before: { status: string }[] = await beforeResponse.json();
+  await page.getByRole("button", { name: "個人資料", exact: true }).click();
+  await page.locator("input[type=file]").setInputFiles({
+    name: "synthetic-progress.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("synthetic only"),
+  });
+  await page.getByRole("button", { name: "取り込み状況", exact: true }).click();
+  const summary = page.getByRole("region", { name: "表示中の資料の処理状況" });
+  await expect(summary.getByRole("heading")).toHaveText(
+    `表示中の資料：${before.length + 1}件`,
+  );
+  await expect(
+    summary
+      .locator("div")
+      .filter({ has: page.locator("dt", { hasText: "隔離中" }) })
+      .locator("dd"),
+  ).toHaveText(
+    `${before.filter((doc) => doc.status === "quarantined").length + 1}件`,
+  );
+  await expect(
+    summary
+      .locator("div")
+      .filter({ has: page.locator("dt", { hasText: "参照可能" }) })
+      .locator("dd"),
+  ).toHaveText(`${before.filter((doc) => doc.status === "ready").length}件`);
+  await page.setViewportSize({ width: 320, height: 900 });
+  await page
+    .getByRole("button", { name: "サイドバーを閉じる", exact: true })
+    .click();
+  await expect(page.locator(".sidebar")).toBeHidden();
+  await expect
+    .poll(async () => (await page.locator(".main").boundingBox())?.width)
+    .toBeGreaterThanOrEqual(280);
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual(320);
+  await page.screenshot({
+    path: "test-results/ingestion-progress.png",
+    fullPage: true,
+  });
+});

@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { api, errorText, json, statusName } from "./api";
 import { RelatedDocuments } from "./RelatedDocuments";
+import { IngestionProgress } from "./IngestionProgress";
 import { ModelSettings } from "./ModelSettings";
 import type {
   Conversation,
@@ -265,6 +266,9 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [ingestionRefresh, setIngestionRefresh] = useState<
+    "waiting" | "updating" | "stopped"
+  >("waiting");
   const [busy, setBusy] = useState(false);
   const [source, setSource] = useState<{
     document: Document;
@@ -324,6 +328,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
         activeProject.current === projectId
       ) {
         setDocuments(docs);
+        setIngestionRefresh("waiting");
         setHistory(conversations);
       }
     } catch (error) {
@@ -351,6 +356,67 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
       active = false;
     };
   }, [reload]);
+
+  useEffect(() => {
+    if (
+      page !== "ingestion" ||
+      !projectId ||
+      !documents.some((doc) => ["queued", "scanning"].includes(doc.status))
+    )
+      return;
+    const controller = new AbortController();
+    let expiry: ReturnType<typeof setTimeout> | undefined;
+    const timer = setTimeout(() => {
+      const request = ++libraryRequest.current;
+      setIngestionRefresh("updating");
+      expiry = setTimeout(() => {
+        controller.abort();
+        if (
+          request === libraryRequest.current &&
+          activeProject.current === projectId
+        ) {
+          setIngestionRefresh("stopped");
+          setError(
+            "状態確認が10秒で期限切れになりました。「更新」で確認してください。",
+          );
+        }
+      }, 10000);
+      void api<Document[]>(
+        `/documents?project_id=${encodeURIComponent(projectId)}`,
+        {
+          signal: controller.signal,
+        },
+      )
+        .then((docs) => {
+          if (
+            !controller.signal.aborted &&
+            request === libraryRequest.current &&
+            activeProject.current === projectId
+          ) {
+            setDocuments(docs);
+            setIngestionRefresh("waiting");
+          }
+        })
+        .catch((error) => {
+          if (
+            !controller.signal.aborted &&
+            request === libraryRequest.current &&
+            activeProject.current === projectId
+          ) {
+            setIngestionRefresh("stopped");
+            setError(
+              `状態の自動更新を停止しました。「更新」で確認してください。${errorText(error)}`,
+            );
+          }
+        })
+        .finally(() => clearTimeout(expiry));
+    }, 2000);
+    return () => {
+      clearTimeout(timer);
+      clearTimeout(expiry);
+      controller.abort();
+    };
+  }, [page, projectId, documents]);
 
   useEffect(() => {
     if (
@@ -928,7 +994,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
             <div className="section-toolbar">
               <p className="muted">
                 {page === "ingestion"
-                  ? "検査機能が未接続の資料は隔離され、検索には使われません。"
+                  ? "安全検査を通過していない資料は隔離され、検索には使われません。"
                   : page === "personal"
                     ? "本人のみが参照できる資料です。会話添付はここに自動登録されません。"
                     : "このプロジェクトで閲覧を許可された資料です。"}
@@ -965,6 +1031,12 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
               対応形式：UTF-8のtxt・md・csv、1件256
               KiBまで。実研究資料は登録しないでください。
             </p>
+            {page === "ingestion" && (
+              <IngestionProgress
+                documents={documents}
+                refresh={ingestionRefresh}
+              />
+            )}
             <DocumentList
               key={projectId}
               projectId={projectId}
