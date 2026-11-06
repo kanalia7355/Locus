@@ -191,6 +191,7 @@ class Service:
     def create_project(self, org_id: str, project_id: str, name: str) -> None:
         with self.db() as db:
             db.execute("INSERT INTO projects VALUES (?,?,?)", (project_id, org_id, name))
+            self._audit(db, "local-cli", "project.create", project_id)
 
     def assign(self, username: str, project_id: str, role: str | None) -> None:
         with self.db() as db:
@@ -204,6 +205,7 @@ class Service:
                     "DELETE FROM memberships WHERE user_id=? AND project_id=?",
                     (user["id"], project_id),
                 )
+                self._audit(db, "local-cli", "membership.remove", project_id + ":" + user["id"])
                 return
             custom = db.execute(
                 "SELECT id FROM roles WHERE id=? AND project_id=?", (role, project_id)
@@ -213,6 +215,7 @@ class Service:
             db.execute(
                 "INSERT OR REPLACE INTO memberships VALUES (?,?,?)", (user["id"], project_id, role)
             )
+            self._audit(db, "local-cli", "membership.assign", project_id + ":" + user["id"])
 
     def _limit(self, key: str, maximum: int) -> None:
         now = time.time()

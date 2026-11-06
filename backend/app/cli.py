@@ -9,7 +9,9 @@ from app.service import Service
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Locus synthetic-data development administration")
-    parser.add_argument("command", choices=["provision", "project", "assign", "seed-synthetic"])
+    parser.add_argument(
+        "command", choices=["provision", "project", "assign", "unassign", "seed-synthetic"]
+    )
     parser.add_argument("--username")
     parser.add_argument("--system-admin", action="store_true")
     parser.add_argument("--project", default="development")
@@ -32,6 +34,8 @@ def main() -> None:
                 svc.provision(args.username, first, system_admin=args.system_admin)
             elif args.command == "assign":
                 svc.assign(args.username, args.project, args.role)
+            elif args.command == "unassign":
+                svc.assign(args.username, args.project, None)
             else:
                 svc.seed_synthetic(
                     args.username, args.project, "shared" if args.shared else "personal"
