@@ -36,7 +36,17 @@ def main() -> int:
         ("python-types", [sys.executable, "-m", "mypy", "backend/app"], ROOT, 120),
         (
             "python-tests",
-            [sys.executable, "-m", "pytest", "-q", "--cov", "--cov-report=term-missing"],
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-q",
+                "-o",
+                "verbosity_test_cases=1",
+                "--durations=20",
+                "--cov",
+                "--cov-report=term-missing",
+            ],
             ROOT,
             120,
         ),
