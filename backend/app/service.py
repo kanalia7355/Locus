@@ -666,7 +666,7 @@ class Service:
             if not approved:
                 db.execute(
                     "UPDATE documents SET status='quarantined',reason=? WHERE id=?",
-                    ("検査機能が未接続のため隔離中です。本文は検索に使いません", row["id"]),
+                    ("安全検査を通過していないため隔離中です。本文は検索に使いません", row["id"]),
                 )
                 return True
             self._index(db, live)

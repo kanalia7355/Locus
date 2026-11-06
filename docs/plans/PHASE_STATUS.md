@@ -120,3 +120,10 @@ that call for membership/upload revocation, disabled accounts, forced rotation,
 and lost attachment retrieval permission; all now cancel without a scanner call.
 Revocation during scanning still prevents publication. No real scanner is enabled;
 the unavailable default continues to quarantine uploads rather than mark them clean.
+
+The optional ClamAV adapter is now implemented under owner-approved offline scope.
+Only explicit server-side LOCUS_SCANNER=clamav selects fixed loopback INSTREAM;
+construction does not connect, and the unavailable default remains unchanged.
+Mock transport covers framing, strict EOF response, deadlines, limits and cleanup.
+Real daemon identity, signature freshness, deployment isolation and detection remain
+unverified and require separate owner-authorized operational validation.

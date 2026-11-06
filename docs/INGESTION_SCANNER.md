@@ -1,4 +1,4 @@
-# 取り込みスキャナーの最小接続案（未承認）
+# 取り込みスキャナーの最小接続案（オフライン実装承認済み）
 
 現在は `UnavailableScanner` が検査を通過させず、アップロードを隔離します。
 合成サンプル投入と実モデルRAGの成功は、実ファイルの検査成功を意味しません。
@@ -52,3 +52,17 @@ NUL前後の追加byte、複数応答、途中EOF、EOF未到達の時間切れ�
 一次資料：
 [ClamD Protocol](https://docs.clamav.net/manual/Usage/ClamdProtocol.html)、
 [ClamAV Scanning](https://docs.clamav.net/manual/Usage/Scanning.html)。
+
+## オフライン実装の検証記録
+
+承認された任意アダプターを `backend/app/scanner.py` に実装しました。
+`LOCUS_SCANNER` 未指定または `disabled` は従来の隔離動作を維持し、
+`clamav` はデフォルトServiceを構築する場合だけ選択します。注入済みServiceは変更しません。
+構築・設定検証だけでは通信しません。
+
+模擬ソケット22テストでUTF-8上限、フレーミング、分割応答、EOF、余分な応答、
+応答上限、接続・受信例外、総期限、排他、中断時の解放を確認しました。
+独立レビューで見つかったEOF直後の期限再検証不足を修正し、遅延EOFを拒否します。
+既存API・権限・RAG等を含むローカル検証は107 PASS、Windowsの合成symlink権限不足2 SKIP
+（最終追加テスト前）。Ruff・mypy・オフラインsecret scanも成功しました。
+実ClamAVの導入・接続・設定変更・検体投入は未実施です。既定は無効のままです。

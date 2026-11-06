@@ -14,6 +14,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.local_model import LocalModel
 from app.model_catalog import ModelCatalog
+from app.scanner import scanner_from_environment
 from app.service import Principal, Service, fail
 
 COOKIE = "locus_session"
@@ -117,7 +118,10 @@ def create_app(
     if os.getenv("LOCAL_ONLY_MODE", "true").lower() != "true":
         raise RuntimeError("Only local mode is supported")
     owns_service = service is None
-    svc = service or Service(Path(__file__).resolve().parents[2] / "storage" / "locus.sqlite3")
+    svc = service or Service(
+        Path(__file__).resolve().parents[2] / "storage" / "locus.sqlite3",
+        scanner=scanner_from_environment(),
+    )
     catalog = model_catalog or ModelCatalog()
     runtime = local_model or LocalModel()
 
