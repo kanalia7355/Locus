@@ -84,3 +84,14 @@ ui-and-multiuser-design.md の「対話の待機列：公平な順番・取消�
   （提出時に1回だけ課金）。workerはmodel枠の占有中は対話キュー処理を
   飛ばす（非取得の参考チェック、競合時は再行列経路で処理）。
   _fail_chatは実際に失敗化できたときだけ監査記録を書く。
+- 第3回再レビューは「mergeable」。残存指摘は非ブロック2件のうち1件
+  （会話削除でjob行が消えた後の_finish_chat監査）を追加commit 12c992aで
+  同じrowcountガードにより解消し、もう1件は「待機中でも出典0件なら
+  解放後に完了する」既存契约の延長として受容。backend全suite
+  （e2e除く）1099 PASS/9 skip、frontend 46 PASSを確認。
+- 2026-11-06 12c992a Push後のGitHub Actionsは全ジョブが起動前に失敗:
+  「recent account payments have failed or your spending limit needs to be
+  increased」（アカウントの請求/支出上限）。コード起因ではない。
+  正確なHEADの全CI成功は達成できておらず、main統合のCI要件は未充足。
+  これは検証の不成立として記録し、合格扱いにしない。オーナーの
+  Billing対応と、その後の同一HEADでの再実行が必要。
