@@ -15,6 +15,8 @@ import { RelatedDocuments } from "./RelatedDocuments";
 import { IngestionProgress } from "./IngestionProgress";
 import { ModelSettings } from "./ModelSettings";
 import type {
+  ChatJob,
+  ChatJobAccepted,
   Conversation,
   Document,
   Message,
@@ -270,6 +272,12 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
     "waiting" | "updating" | "stopped"
   >("waiting");
   const [busy, setBusy] = useState(false);
+  const [pendingJob, setPendingJob] = useState<{
+    id: string;
+    conversation: string;
+    text: string;
+    status: "queued" | "running";
+  } | null>(null);
   const [source, setSource] = useState<{
     document: Document;
     chunks: SourceChunk[];
@@ -447,6 +455,60 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
   }, [attachments]);
 
   useEffect(() => {
+    if (!pendingJob) return;
+    const job = pendingJob;
+    const controller = new AbortController();
+    const timer = setInterval(() => {
+      void api<ChatJob>(`/chat-jobs/${job.id}`, { signal: controller.signal })
+        .then((status) => {
+          if (controller.signal.aborted) return;
+          if (status.status === "running") {
+            setPendingJob((current) =>
+              current && current.id === job.id
+                ? { ...current, status: "running" }
+                : current,
+            );
+          } else if (status.status === "done") {
+            setPendingJob(null);
+            if (status.conversation_id === conversationRef.current) {
+              void api<Conversation>(
+                `/conversations/${status.conversation_id}`,
+              )
+                .then((conv) => {
+                  if (
+                    !controller.signal.aborted &&
+                    conversationRef.current === status.conversation_id
+                  )
+                    setMessages(conv.messages);
+                })
+                .catch((error) => setError(errorText(error)));
+            } else
+              setNotice(
+                "待機していた質問の回答が完成しました。調査履歴から開いてください。",
+              );
+          } else if (status.status === "failed") {
+            setPendingJob(null);
+            setError(`回答を生成できませんでした。${status.detail}`);
+          } else if (status.status === "cancelled") {
+            setPendingJob(null);
+          }
+        })
+        .catch((error) => {
+          if (controller.signal.aborted) return;
+          clearInterval(timer);
+          setPendingJob(null);
+          setError(
+            `質問の状態確認を停止しました。回答は調査履歴から確認できます。${errorText(error)}`,
+          );
+        });
+    }, 2000);
+    return () => {
+      clearInterval(timer);
+      controller.abort();
+    };
+  }, [pendingJob]);
+
+  useEffect(() => {
     if (source?.selectedChunk && sourceTarget.current) {
       sourceTarget.current.focus();
       sourceTarget.current.scrollIntoView({ block: "nearest" });
@@ -591,7 +653,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
   }
   async function send(event: FormEvent) {
     event.preventDefault();
-    if (!draft.trim() || busy || !can("retrieve")) return;
+    if (!draft.trim() || busy || pendingJob || !can("retrieve")) return;
     setError("");
     if (attachments.some((item) => item.status !== "ready")) {
       setError(
@@ -602,7 +664,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
     setBusy(true);
     try {
       const id = await ensureConversation();
-      const message = await api<Message>(
+      const response = await api<Message | ChatJobAccepted>(
         `/conversations/${id}/messages`,
         json("POST", {
           text: draft,
@@ -610,13 +672,34 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
           attachment_ids: attachments.map((item) => item.id),
         }),
       );
-      setMessages((items) => [...items, message]);
+      if ("job_id" in response) {
+        // The model slot was busy: the question waits in line and its answer
+        // is stored in the conversation, so a reload after completion shows it.
+        setPendingJob({
+          id: response.job_id,
+          conversation: id,
+          text: response.text,
+          status: "queued",
+        });
+      } else {
+        setMessages((items) => [...items, response]);
+      }
       setDraft("");
       await reload();
     } catch (error) {
       setError(errorText(error));
     } finally {
       setBusy(false);
+    }
+  }
+  async function cancelPendingJob() {
+    if (!pendingJob) return;
+    try {
+      await api(`/chat-jobs/${pendingJob.id}`, json("DELETE", {}));
+      setPendingJob(null);
+      setNotice("質問を取り消しました。");
+    } catch (error) {
+      setError(errorText(error));
     }
   }
   async function openConversation(id: string) {
@@ -888,6 +971,28 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
                   </article>
                 ))
               )}
+              {pendingJob && pendingJob.conversation === conversationId && (
+                <article className="exchange">
+                  <p className="user-message">{pendingJob.text}</p>
+                  <div className="answer">
+                    <p role="status">
+                      {pendingJob.status === "running"
+                        ? "回答を作成中です。完成するとこの会話に表示されます。"
+                        : "回答の生成は順番待ちです。モデルが空くと自動的に処理されます。"}
+                    </p>
+                    {pendingJob.status === "queued" && (
+                      <button
+                        className="text-link"
+                        onClick={() => {
+                          void cancelPendingJob();
+                        }}
+                      >
+                        この質問を取り消す
+                      </button>
+                    )}
+                  </div>
+                </article>
+              )}
             </div>
             <form
               className="composer"
@@ -973,12 +1078,14 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
                   }}
                 />
                 <span className="send-state" role="status">
-                  {busy ? "処理中…" : ""}
+                  {busy ? "処理中…" : pendingJob ? "順番待ちあり" : ""}
                 </span>
                 <IconButton
                   label="送信"
                   type="submit"
-                  disabled={busy || !draft.trim() || !can("retrieve")}
+                  disabled={
+                    busy || !!pendingJob || !draft.trim() || !can("retrieve")
+                  }
                 >
                   <ArrowUp size={20} />
                 </IconButton>

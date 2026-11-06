@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import Depends, FastAPI, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -15,7 +15,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from app.local_model import LocalModel
 from app.model_catalog import ModelCatalog
 from app.scanner import scanner_from_environment
-from app.service import Principal, Service, fail
+from app.service import ModelBusy, Principal, Service, fail
 
 COOKIE = "locus_session"
 ALLOWED_ORIGINS = frozenset(
@@ -130,6 +130,7 @@ def create_app(
     async def worker() -> None:
         while not stop.is_set():
             await asyncio.to_thread(svc.process_next)
+            await asyncio.to_thread(svc.process_next_chat)
             try:
                 await asyncio.wait_for(stop.wait(), timeout=0.25)
             except TimeoutError:
@@ -276,27 +277,59 @@ def create_app(
         return svc.conversation(user, conversation)
 
     @app.post("/api/conversations/{conversation}/messages")
-    def message(conversation: str, data: Message, request: Request, user: Actor) -> dict[str, Any]:
+    def message(conversation: str, data: Message, request: Request, user: Actor) -> Any:
         if not data.text.strip():
             fail(422, "メッセージを入力してください")
         with runtime.settings_lock:
             model, version, seconds = runtime.model, runtime.version, runtime.timeout_seconds
-        return svc.send(
-            user,
-            conversation,
-            data.text,
-            data.scope,
-            data.attachment_ids,
-            generate=(
-                lambda text, citations: runtime.generate(
-                    model, text, citations, timeout_seconds=seconds
-                )
+
+        def generate(text: str, citations: list[dict[str, Any]]) -> tuple[str, str]:
+            try:
+                return runtime.generate(model, text, citations, timeout_seconds=seconds)
+            except HTTPException as exc:
+                # Only the busy-slot signal becomes a queued dialogue; other
+                # failures keep their existing synchronous behavior.
+                if exc.status_code == 429 and exc.detail == "モデルは処理中です":
+                    raise ModelBusy() from exc
+                raise
+
+        token = request.cookies.get(COOKIE)
+        try:
+            return svc.send(
+                user,
+                conversation,
+                data.text,
+                data.scope,
+                data.attachment_ids,
+                generate=generate if model else None,
+                validate=(lambda: runtime.validate(model, version, seconds)) if model else None,
+                token=token,
             )
-            if model
-            else None,
-            validate=(lambda: runtime.validate(model, version, seconds)) if model else None,
-            token=request.cookies.get(COOKIE),
-        )
+        except ModelBusy:
+            if token is None:
+                raise
+            job_id = svc.enqueue_chat(
+                user,
+                conversation,
+                data.text,
+                data.scope,
+                data.attachment_ids,
+                token=token,
+                generate=generate,
+                validate=(lambda: runtime.validate(model, version, seconds)) if model else None,
+            )
+            return JSONResponse(
+                {"job_id": job_id, "status": "queued", "text": data.text},
+                status_code=202,
+            )
+
+    @app.get("/api/chat-jobs/{job}")
+    def chat_job(job: str, user: Actor) -> dict[str, Any]:
+        return svc.chat_job(user, job)
+
+    @app.delete("/api/chat-jobs/{job}", status_code=204)
+    def cancel_chat_job(job: str, user: Actor) -> None:
+        svc.cancel_chat_job(user, job)
 
     @app.delete("/api/conversations/{conversation}", status_code=204)
     def delete_conversation(conversation: str, user: Actor) -> None:

@@ -54,6 +54,26 @@ def fail(status: int, detail: str) -> NoReturn:
     raise HTTPException(status, detail)
 
 
+class ModelBusy(Exception):
+    """Raised when the single model slot is occupied; the caller may enqueue instead."""
+
+
+# Bounded development-safety limits for the dialogue waiting line, mirroring the
+# ingestion queue limits. They are not verified user capacity.
+CHAT_WAIT_SECONDS = 300.0
+CHAT_QUEUE_LIMIT = 16
+CHAT_USER_QUEUE_LIMIT = 2
+
+
+@dataclass(frozen=True)
+class ChatDispatch:
+    """Process-local closures for one queued dialogue; never persisted to storage."""
+
+    token: str
+    generate: Callable[[str, list[Json]], tuple[str, str]]
+    validate: Callable[[], None] | None
+
+
 @dataclass(frozen=True)
 class Principal:
     id: str
@@ -80,6 +100,8 @@ class Service:
         self.lock = threading.RLock()
         self.scanner = scanner or UnavailableScanner()
         self.limits: OrderedDict[str, list[float]] = OrderedDict()
+        self.chat_dispatch: dict[str, ChatDispatch] = {}
+        self.chat_dispatch_lock = threading.Lock()
         self.dummy_hash = PASSWORDS.hash(secrets.token_urlsafe(32))
         self.conn.executescript("""
             CREATE TABLE IF NOT EXISTS users (
@@ -127,6 +149,14 @@ class Service:
                 message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
                 answer TEXT NOT NULL, model TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS chat_jobs (
+                id TEXT PRIMARY KEY,
+                conversation_id TEXT REFERENCES conversations(id) ON DELETE CASCADE,
+                user_id TEXT NOT NULL, text TEXT NOT NULL, scope TEXT NOT NULL,
+                attachments TEXT NOT NULL DEFAULT '[]', status TEXT NOT NULL,
+                detail TEXT NOT NULL DEFAULT '', message_id TEXT,
+                created REAL NOT NULL, updated REAL NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS audit (
                 id TEXT PRIMARY KEY, at REAL NOT NULL, actor_id TEXT NOT NULL,
                 operation TEXT NOT NULL, target_id TEXT NOT NULL, outcome TEXT NOT NULL
@@ -151,6 +181,14 @@ class Service:
         """Called only at application-worker startup, never by provisioning CLI connections."""
         with self.db() as db:
             db.execute("UPDATE documents SET status='queued' WHERE status='scanning'")
+            # Queued dialogues were held only in this process; their dispatch closures
+            # no longer exist after a restart, so they fail visibly instead of hanging.
+            db.execute(
+                "UPDATE chat_jobs SET status='failed',updated=?,detail=? "
+                "WHERE status IN ('queued','running')",
+                (time.time(), "アプリケーションの再起動により中止しました。再度送信してください"),
+            )
+            self.chat_dispatch.clear()
 
     def close(self) -> None:
         with self.lock:
@@ -952,6 +990,210 @@ class Service:
             self._conversation(db, actor, conversation)
             db.execute("DELETE FROM conversations WHERE id=?", (conversation,))
             self._audit(db, actor.id, "conversation.delete", conversation)
+            # Cascaded queued jobs leave process-local closures behind; drop them
+            # in the same serialized unit, without nesting a second transaction.
+            rows = db.execute(
+                "SELECT id FROM chat_jobs WHERE conversation_id=?", (conversation,)
+            ).fetchall()
+            with self.chat_dispatch_lock:
+                for row in rows:
+                    self.chat_dispatch.pop(row["id"], None)
+
+    # --- Dialogue waiting line -------------------------------------------------
+    # One bounded, arrival-ordered line in front of the single model slot. The
+    # synchronous contract of send() is unchanged: submission stays inline while
+    # the slot is free, and only an occupied slot produces a queued job (202).
+
+    def enqueue_chat(
+        self,
+        actor: Principal,
+        conversation: str,
+        text: str,
+        scope: str,
+        attachments: list[str],
+        *,
+        token: str,
+        generate: Callable[[str, list[Json]], tuple[str, str]],
+        validate: Callable[[], None] | None,
+    ) -> str:
+        """Validate the question now and place it in the fair waiting line."""
+        if scope not in {"all", "shared", "personal"}:
+            fail(422, "参照範囲を確認してください")
+        with self.db() as db:
+            conv = self._conversation(db, actor, conversation)
+            self._limit("chat:" + actor.id, 20)
+            if (
+                db.execute(
+                    "SELECT COUNT(*) FROM messages WHERE conversation_id=?", (conversation,)
+                ).fetchone()[0]
+                >= 200
+            ):
+                fail(429, "1会話200件までです。新しい会話を開始してください")
+            for document in attachments:
+                row = self._document(db, actor, document, conversation)
+                if row["kind"] != "attachment" or row["status"] != "ready":
+                    fail(
+                        409,
+                        "未解析・隔離中の添付は参照できません。取り外して再送信してください",
+                    )
+            if db.execute(
+                "SELECT id FROM chat_jobs WHERE conversation_id=? "
+                "AND status IN ('queued','running')",
+                (conversation,),
+            ).fetchone():
+                fail(409, "前の質問が処理中です。完了してから次の質問を送信してください")
+            queued_total = db.execute(
+                "SELECT COUNT(*) FROM chat_jobs WHERE status='queued'"
+            ).fetchone()[0]
+            queued_owned = db.execute(
+                "SELECT COUNT(*) FROM chat_jobs WHERE status='queued' AND user_id=?",
+                (actor.id,),
+            ).fetchone()[0]
+            if queued_total >= CHAT_QUEUE_LIMIT:
+                fail(429, "対話の待機列が上限です。しばらく待ってから再試行してください")
+            if queued_owned >= CHAT_USER_QUEUE_LIMIT:
+                fail(429, "待機中の質問が上限です。完了後に送信してください")
+            job_id = uid()
+            now = time.time()
+            db.execute(
+                "INSERT INTO chat_jobs "
+                "(id,conversation_id,user_id,text,scope,attachments,status,created,updated) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
+                (
+                    job_id,
+                    conv["id"],
+                    actor.id,
+                    text,
+                    scope,
+                    json.dumps(attachments),
+                    "queued",
+                    now,
+                    now,
+                ),
+            )
+            self._audit(db, actor.id, "chat.enqueued", job_id)
+            # Register inside the serialized database unit so the worker cannot
+            # observe the queued row before its dispatch closures exist.
+            with self.chat_dispatch_lock:
+                self.chat_dispatch[job_id] = ChatDispatch(token, generate, validate)
+        return job_id
+
+    def chat_job(self, actor: Principal, job: str) -> Json:
+        """Owner-only status view; expired waiting entries fail visibly here too."""
+        with self.db() as db:
+            self._limit("chatjob:" + actor.id, 120)
+            row = db.execute(
+                "SELECT * FROM chat_jobs WHERE id=? AND user_id=?", (job, actor.id)
+            ).fetchone()
+            if not row:
+                fail(404, "質問が見つかりません")
+            if row["status"] == "queued" and time.time() - row["created"] > CHAT_WAIT_SECONDS:
+                db.execute(
+                    "UPDATE chat_jobs SET status='failed',updated=?,detail=? WHERE id=?",
+                    (time.time(), "対話の待機上限を超えました。再度送信してください", job),
+                )
+                self._audit(db, actor.id, "chat.expired", job)
+                with self.chat_dispatch_lock:
+                    self.chat_dispatch.pop(job, None)
+                row = db.execute("SELECT * FROM chat_jobs WHERE id=?", (job,)).fetchone()
+            return {
+                "id": row["id"],
+                "conversation_id": row["conversation_id"],
+                "status": row["status"],
+                "detail": row["detail"],
+                "message_id": row["message_id"],
+                "created": row["created"],
+            }
+
+    def cancel_chat_job(self, actor: Principal, job: str) -> None:
+        """Cancel a queued question. A running request is reported, not interrupted."""
+        with self.db() as db:
+            row = db.execute(
+                "SELECT * FROM chat_jobs WHERE id=? AND user_id=?", (job, actor.id)
+            ).fetchone()
+            if not row:
+                fail(404, "質問が見つかりません")
+            if row["status"] == "running":
+                fail(409, "回答の生成中です。完了までお待ちください")
+            if row["status"] != "queued":
+                fail(409, "処理済みの質問です")
+            db.execute(
+                "UPDATE chat_jobs SET status='cancelled',updated=? WHERE id=?", (time.time(), job)
+            )
+            self._audit(db, actor.id, "chat.cancel", job)
+        with self.chat_dispatch_lock:
+            self.chat_dispatch.pop(job, None)
+
+    def process_next_chat(self) -> bool:
+        """Run at most one queued dialogue; called by the background worker loop."""
+        with self.db() as db:
+            row = db.execute(
+                "SELECT * FROM chat_jobs WHERE status='queued' ORDER BY created,id LIMIT 1"
+            ).fetchone()
+            if row is None:
+                return False
+            if time.time() - row["created"] > CHAT_WAIT_SECONDS:
+                self._fail_chat(db, row["id"], "対話の待機上限を超えました。再度送信してください")
+                return True
+            dispatch = self.chat_dispatch.get(row["id"])
+            if dispatch is None:
+                self._fail_chat(
+                    db,
+                    row["id"],
+                    "アプリケーションの再起動により中止しました。再度送信してください",
+                )
+                return True
+            taken = db.execute(
+                "UPDATE chat_jobs SET status='running',updated=? WHERE id=? AND status='queued'",
+                (time.time(), row["id"]),
+            ).rowcount
+            if not taken:
+                return False
+        job_id = row["id"]
+        try:
+            principal = self.authenticate(dispatch.token)
+            result = self.send(
+                principal,
+                row["conversation_id"],
+                row["text"],
+                row["scope"],
+                json.loads(row["attachments"]),
+                generate=dispatch.generate,
+                validate=dispatch.validate,
+                token=dispatch.token,
+            )
+        except HTTPException as exc:
+            detail = (
+                "ログイン状態が変わりました。再度ログインして送信してください"
+                if exc.status_code in {401, 403}
+                else str(exc.detail)
+            )
+            self._finish_chat(job_id, "failed", detail)
+            return True
+        except Exception:
+            self._finish_chat(job_id, "failed", "対話の処理中に問題が発生しました")
+            return True
+        self._finish_chat(job_id, "done", "", result["id"])
+        return True
+
+    def _fail_chat(self, db: sqlite3.Connection, job: str, detail: str) -> None:
+        db.execute(
+            "UPDATE chat_jobs SET status='failed',updated=?,detail=? WHERE id=?",
+            (time.time(), detail, job),
+        )
+        self._audit(db, "worker", "chat.failed", job)
+        with self.chat_dispatch_lock:
+            self.chat_dispatch.pop(job, None)
+
+    def _finish_chat(self, job: str, status: str, detail: str, message: str | None = None) -> None:
+        with self.db() as db:
+            db.execute(
+                "UPDATE chat_jobs SET status=?,updated=?,detail=?,message_id=? WHERE id=?",
+                (status, time.time(), detail, message, job),
+            )
+            self._audit(db, "worker", f"chat.{status}", job)
+        with self.chat_dispatch_lock:
+            self.chat_dispatch.pop(job, None)
 
     def roles(self, actor: Principal, project: str) -> Json:
         with self.db() as db:

@@ -60,6 +60,19 @@ export interface Conversation {
   messages: Message[];
   attachments: Document[];
 }
+export interface ChatJobAccepted {
+  job_id: string;
+  status: "queued";
+  text: string;
+}
+export interface ChatJob {
+  id: string;
+  conversation_id: string;
+  status: "queued" | "running" | "done" | "failed" | "cancelled";
+  detail: string;
+  message_id: string | null;
+  created: number;
+}
 export interface Role {
   id: string;
   name: string;
