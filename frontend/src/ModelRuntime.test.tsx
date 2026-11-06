@@ -7,10 +7,16 @@ afterEach(() => vi.unstubAllGlobals());
 it("requires local-only confirmation and sends the selected opaque id; can disable", async () => {
   const fetch = vi.fn(async (_: string, options?: RequestInit) => {
     if (!options?.method)
-      return new Response(JSON.stringify({ enabled: false, model: null }));
+      return new Response(
+        JSON.stringify({ enabled: false, model: null, timeout_seconds: 30 }),
+      );
     const body = JSON.parse(options.body as string);
     return new Response(
-      JSON.stringify({ enabled: body.candidate_id !== null, model: "fixture" }),
+      JSON.stringify({
+        enabled: body.candidate_id !== null,
+        model: "fixture",
+        timeout_seconds: body.timeout_seconds,
+      }),
     );
   });
   vi.stubGlobal("fetch", fetch);
@@ -30,19 +36,23 @@ it("requires local-only confirmation and sends the selected opaque id; can disab
   expect(JSON.parse(fetch.mock.calls[1][1]?.body as string)).toEqual({
     candidate_id: "candidate",
     local_only_confirmed: true,
+    timeout_seconds: 30,
   });
   fireEvent.click(screen.getByRole("button", { name: "原文検索に戻す" }));
   expect(await screen.findByText("原文検索に戻しました。")).toBeVisible();
   expect(JSON.parse(fetch.mock.calls[2][1]?.body as string)).toEqual({
     candidate_id: null,
     local_only_confirmed: false,
+    timeout_seconds: 30,
   });
 });
 
 it("cannot enable a folder candidate and reports server errors without retry", async () => {
   const fetch = vi.fn(async (_: string, options?: RequestInit) =>
     !options?.method
-      ? new Response(JSON.stringify({ enabled: false, model: null }))
+      ? new Response(
+          JSON.stringify({ enabled: false, model: null, timeout_seconds: 30 }),
+        )
       : new Response(JSON.stringify({ detail: "設定が失効しました" }), {
           status: 409,
         }),
@@ -64,7 +74,13 @@ it("cannot enable a folder candidate and reports server errors without retry", a
 it("reads an already enabled model on reopening without changing configuration", async () => {
   const fetch = vi.fn(
     async () =>
-      new Response(JSON.stringify({ enabled: true, model: "existing-model" })),
+      new Response(
+        JSON.stringify({
+          enabled: true,
+          model: "existing-model",
+          timeout_seconds: 30,
+        }),
+      ),
   );
   vi.stubGlobal("fetch", fetch);
   const first = render(<ModelRuntime candidate={null} />);
@@ -103,7 +119,11 @@ it("blocks activation until status is known and aborts an obsolete status reques
   view.unmount();
   expect(signal?.aborted).toBe(true);
   await act(async () =>
-    release(new Response(JSON.stringify({ enabled: true, model: "late" }))),
+    release(
+      new Response(
+        JSON.stringify({ enabled: true, model: "late", timeout_seconds: 30 }),
+      ),
+    ),
   );
   expect(screen.queryByText(/late/)).toBeNull();
 });
@@ -113,7 +133,13 @@ it("keeps activation blocked on status failure but allows an explicit disable", 
     "fetch",
     vi.fn(async (_: string, options?: RequestInit) =>
       options?.method
-        ? new Response(JSON.stringify({ enabled: false, model: null }))
+        ? new Response(
+            JSON.stringify({
+              enabled: false,
+              model: null,
+              timeout_seconds: 30,
+            }),
+          )
         : new Response(JSON.stringify({ detail: "状態取得に失敗しました" }), {
             status: 503,
           }),
@@ -127,4 +153,44 @@ it("keeps activation blocked on status failure but allows an explicit disable", 
   ).toBeDisabled();
   fireEvent.click(screen.getByRole("button", { name: "原文検索に戻す" }));
   await screen.findByText("現在：原文検索");
+});
+
+it("requires explicit save for 120 seconds and shows the saved deadline", async () => {
+  const fetch = vi.fn(async (_: string, options?: RequestInit) => {
+    if (!options?.method)
+      return new Response(
+        JSON.stringify({
+          enabled: true,
+          model: "fixture",
+          timeout_seconds: 30,
+        }),
+      );
+    const body = JSON.parse(options.body as string);
+    return new Response(
+      JSON.stringify({
+        enabled: body.candidate_id !== null,
+        model: body.candidate_id ? "fixture" : null,
+        timeout_seconds: body.candidate_id ? body.timeout_seconds : 30,
+      }),
+    );
+  });
+  vi.stubGlobal("fetch", fetch);
+  render(<ModelRuntime candidate="candidate" />);
+  await screen.findByText("待機上限：30秒");
+  fireEvent.change(screen.getByLabelText("モデル応答の待機時間"), {
+    target: { value: "120" },
+  });
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(screen.getByText("待機上限：30秒")).toBeVisible();
+  fireEvent.click(screen.getByRole("checkbox"));
+  fireEvent.click(
+    screen.getByRole("button", { name: "選択モデルをチャットに使用" }),
+  );
+  await screen.findByText("待機上限：120秒");
+  expect(
+    JSON.parse(fetch.mock.calls[1][1]?.body as string).timeout_seconds,
+  ).toBe(120);
+  fireEvent.click(screen.getByRole("button", { name: "原文検索に戻す" }));
+  await screen.findByText("待機上限：30秒");
+  expect(screen.getByLabelText("モデル応答の待機時間")).toHaveValue("30");
 });

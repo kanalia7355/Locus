@@ -9,7 +9,7 @@ from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, Request, Response
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.local_model import LocalModel
@@ -81,6 +81,14 @@ class Publication(Input):
 class ModelRuntime(Input):
     candidate_id: str | None = Field(default=None, max_length=64)
     local_only_confirmed: bool = False
+    timeout_seconds: int = Field(default=30, strict=True)
+
+    @field_validator("timeout_seconds")
+    @classmethod
+    def bounded_timeout(cls, value: int) -> int:
+        if value not in {30, 120}:
+            raise ValueError("待機時間は30秒または120秒です")
+        return value
 
 
 class ModelDiscovery(Input):
@@ -268,17 +276,21 @@ def create_app(
         if not data.text.strip():
             fail(422, "メッセージを入力してください")
         with runtime.settings_lock:
-            model, version = runtime.model, runtime.version
+            model, version, seconds = runtime.model, runtime.version, runtime.timeout_seconds
         return svc.send(
             user,
             conversation,
             data.text,
             data.scope,
             data.attachment_ids,
-            generate=(lambda text, citations: runtime.generate(model, text, citations))
+            generate=(
+                lambda text, citations: runtime.generate(
+                    model, text, citations, timeout_seconds=seconds
+                )
+            )
             if model
             else None,
-            validate=(lambda: runtime.validate(model, version)) if model else None,
+            validate=(lambda: runtime.validate(model, version, seconds)) if model else None,
             token=request.cookies.get(COOKIE),
         )
 
@@ -338,7 +350,9 @@ def create_app(
             current = svc._authenticate(db, request.cookies.get(COOKIE))
             if not current.system_admin:
                 fail(403, "管理権限が必要です")
-            result = runtime.configure(data.candidate_id, data.local_only_confirmed)
+            result = runtime.configure(
+                data.candidate_id, data.local_only_confirmed, data.timeout_seconds
+            )
             svc._audit(db, current.id, "model.configure", "local-model-runtime")
             return result
 

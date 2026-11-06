@@ -730,6 +730,19 @@ pre {
 .model-catalog input[type="checkbox"] {
   width: auto;
 }
+.model-runtime {
+  margin-block: 16px;
+}
+.model-runtime-confirmation {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 8px;
+}
+.model-runtime-confirmation input {
+  flex: 0 0 auto;
+  margin-top: 4px;
+}
 .model-candidate {
   border-top: 1px solid var(--color-line);
   padding-block: 16px;

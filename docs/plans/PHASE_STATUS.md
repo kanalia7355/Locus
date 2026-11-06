@@ -80,5 +80,20 @@ The owner-authorized single `gemma3:4b` request with synthetic content stopped a
 its one attempt was consumed, not retried. A later separately authorized read-only
 `/api/ps` check returned no loaded models about 74 minutes after that trial.
 This delayed observation does not establish why the original request timed out.
-Real local-model generation remains unverified. No production rollout, completed
+A separately approved new synthetic question completed through the existing
+`gemma3:4b` adapter in 39.089 seconds with a validated 17-character answer that
+mentioned the expected 20-minute duration. The preceding `/api/ps` was empty and
+the following response reported the model loaded. This proves one real adapter
+connection, not normal application RAG end-to-end quality or capacity. The trial
+used a process-local 120-second deadline and did not change normal application
+configuration. The separately approved offline runtime setting adds an explicit
+administrator choice of 30 or 120 seconds, default/reset 30, bound to the same
+configuration version as the model. No production rollout, completed
 Phase audit, main merge, release version/tag or 30-minute Loop run is claimed.
+
+Local ownership administration now records project creation and membership
+assignment/removal through the existing metadata-only audit table in the same
+transaction as the change. The `unassign` CLI exposes existing membership removal;
+its regression tests confirm immediate document/conversation denial for existing
+sessions and rollback when an audit record cannot be written. No actual account
+or membership was changed by this development task. Web delegation stays disabled.

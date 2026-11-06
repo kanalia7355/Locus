@@ -98,11 +98,15 @@ def test_generated_history_live_acl_and_no_previous_answers(service: Service):
     assert service.conn.execute("SELECT COUNT(*) FROM generated_answers").fetchone()[0] == 0
 
 
-@pytest.mark.parametrize("change", ["session", "source", "settings", "conversation", "rotation"])
+@pytest.mark.parametrize(
+    "change", ["session", "source", "settings", "timeout", "conversation", "rotation"]
+)
 def test_inflight_revocation_never_persists_answer(service: Service, change: str):
     def handler(_):
         if change == "settings":
             runtime.configure(None, False)
+        elif change == "timeout":
+            runtime.configure(next(iter(runtime.registered)), True, 120)
         else:
             with service.db() as db:
                 if change == "session":
@@ -202,7 +206,7 @@ def test_runtime_authorization_confirmation_and_default_no_model(service: Servic
     )
     assert admin.put("/api/admin/models/runtime", json={}, headers=ORIGIN).status_code == 200
     assert send(alice, conv).json()["answer"] is None and calls == []
-    assert LocalModel().status() == {"enabled": False, "model": None}
+    assert LocalModel().status() == {"enabled": False, "model": None, "timeout_seconds": 30}
 
 
 def test_busy_and_cancel_release_without_retry():
@@ -264,3 +268,85 @@ def test_prompt_isolation_and_partial_source_revocation(service: Service):
     message = alice.get(f"/api/conversations/{conv}").json()["messages"][0]
     assert len(message["citations"]) == 1
     assert message["answer"] is None and message["answer_hidden"] is True
+
+
+def test_timeout_selection_is_strict_and_resets_on_disable(service: Service):
+    admin, _, _, runtime = setup(service, lambda _: httpx.Response(200, json=response()))
+    candidate = next(iter(runtime.registered))
+    assert runtime.status()["timeout_seconds"] == 30
+    configured = admin.put(
+        "/api/admin/models/runtime",
+        headers=ORIGIN,
+        json={"candidate_id": candidate, "local_only_confirmed": True, "timeout_seconds": 120},
+    )
+    assert configured.status_code == 200 and configured.json()["timeout_seconds"] == 120
+    assert admin.get("/api/admin/models/runtime").json() == configured.json()
+    version = runtime.version
+    for value in [0, 60, 121, True, False, "120", 120.0, None, []]:
+        assert (
+            admin.put(
+                "/api/admin/models/runtime",
+                headers=ORIGIN,
+                json={
+                    "candidate_id": candidate,
+                    "local_only_confirmed": True,
+                    "timeout_seconds": value,
+                },
+            ).status_code
+            == 422
+        )
+    assert runtime.version == version and runtime.timeout_seconds == 120
+    assert admin.put(
+        "/api/admin/models/runtime", headers=ORIGIN, json={"timeout_seconds": 120}
+    ).json() == {"enabled": False, "model": None, "timeout_seconds": 30}
+    assert LocalModel().timeout_seconds == 30
+
+
+def test_selected_total_deadline_and_http_timeouts_use_same_snapshot(monkeypatch):
+    # Scale 1 logical second to 5ms: exercise a 60-second response without
+    # lengthening test runs or performing any actual network/model operation.
+    original_timeout = asyncio.timeout
+    selected = []
+
+    def scaled_timeout(seconds):
+        selected.append(seconds)
+        return original_timeout(seconds * 0.005)
+
+    monkeypatch.setattr("app.local_model.asyncio.timeout", scaled_timeout)
+    calls = []
+
+    async def delayed(request):
+        calls.append(request)
+        await asyncio.sleep(0.3)
+        return httpx.Response(200, json=response())
+
+    runtime = LocalModel(transport=httpx.MockTransport(delayed))
+    with pytest.raises(HTTPException):
+        runtime.generate("fixture:latest", "question", [], timeout_seconds=30)
+    assert (
+        runtime.generate("fixture:latest", "question", [], timeout_seconds=120)[1]
+        == "fixture:latest"
+    )
+    assert selected == [30, 120] and len(calls) == 2
+    assert set(calls[0].extensions["timeout"].values()) == {30}
+    assert set(calls[1].extensions["timeout"].values()) == {120}
+
+
+def test_120_total_deadline_exceeded_releases_lock_without_retry(monkeypatch):
+    original_timeout = asyncio.timeout
+    monkeypatch.setattr(
+        "app.local_model.asyncio.timeout", lambda seconds: original_timeout(seconds * 0.001)
+    )
+    calls = []
+
+    async def delayed(request):
+        calls.append(request)
+        await asyncio.sleep(1)
+        return httpx.Response(200, json=response())
+
+    runtime = LocalModel(transport=httpx.MockTransport(delayed))
+    with pytest.raises(HTTPException) as error:
+        runtime.generate("fixture:latest", "question", [], timeout_seconds=120)
+    assert error.value.status_code == 502 and len(calls) == 1
+    assert runtime.lock.acquire(blocking=False)
+    runtime.lock.release()

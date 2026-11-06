@@ -629,6 +629,8 @@ test("role editor previews scoped subsets and administrator audit is redacted", 
     name: "選択モデルをチャットに使用",
   });
   await expect(enable).toBeDisabled();
+  await expect(page.getByText("待機上限：30秒")).toBeVisible();
+  await page.getByLabel("モデル応答の待機時間").selectOption("120");
   await page
     .getByRole("checkbox", { name: /Ollamaのクラウド機能を無効化/ })
     .check();
@@ -636,6 +638,10 @@ test("role editor previews scoped subsets and administrator audit is redacted", 
   await expect(
     page.getByText(/synthetic-ollama:latest を使用します/),
   ).toBeVisible();
+  await expect(page.getByText("待機上限：120秒")).toBeVisible();
+  await page.screenshot({
+    path: test.info().outputPath("model-runtime-settings.png"),
+  });
   await expect(
     page.getByText("現在：synthetic-ollama:latest による生成"),
   ).toBeVisible();
@@ -669,6 +675,7 @@ test("role editor previews scoped subsets and administrator audit is redacted", 
     .getByRole("button", { name: "原文検索に戻す", exact: true })
     .click();
   await expect(page.getByText("原文検索に戻しました。")).toBeVisible();
+  await expect(page.getByText("待機上限：30秒")).toBeVisible();
   await expect(page.getByText("現在：原文検索")).toBeVisible();
 });
 

@@ -20,10 +20,15 @@ class LocalModel:
         self.settings_lock = threading.RLock()
         self.model: str | None = None
         self.version = 0
+        self.timeout_seconds = 30
         self.registered: dict[str, str] = {}
 
-    def configure(self, candidate: str | None, local_only: bool) -> dict[str, Any]:
+    def configure(
+        self, candidate: str | None, local_only: bool, timeout_seconds: int = 30
+    ) -> dict[str, Any]:
         with self.settings_lock:
+            if type(timeout_seconds) is not int or timeout_seconds not in {30, 120}:
+                fail(422, "待機時間は30秒または120秒を指定してください")
             model = self.registered.get(candidate or "")
             if candidate is not None and (
                 not local_only
@@ -33,29 +38,52 @@ class LocalModel:
             ):
                 fail(422, "確認済みのローカルOllamaモデルを選択してください")
             self.model = model if candidate is not None else None
+            self.timeout_seconds = timeout_seconds if self.model else 30
             self.version += 1
             return self.status()
 
     def status(self) -> dict[str, Any]:
         with self.settings_lock:
-            return {"enabled": self.model is not None, "model": self.model}
+            return {
+                "enabled": self.model is not None,
+                "model": self.model,
+                "timeout_seconds": self.timeout_seconds,
+            }
 
-    def validate(self, model: str, version: int) -> None:
+    def validate(self, model: str, version: int, timeout_seconds: int) -> None:
         with self.settings_lock:
-            if self.model != model or self.version != version:
+            if (
+                self.model != model
+                or self.version != version
+                or self.timeout_seconds != timeout_seconds
+            ):
                 fail(409, "モデル設定が変わりました。自動再送は行いません")
 
-    def generate(self, model: str, text: str, citations: list[dict[str, Any]]) -> tuple[str, str]:
+    def generate(
+        self,
+        model: str,
+        text: str,
+        citations: list[dict[str, Any]],
+        *,
+        timeout_seconds: int | None = None,
+    ) -> tuple[str, str]:
+        if timeout_seconds is not None and (
+            type(timeout_seconds) is not int or timeout_seconds not in {30, 120}
+        ):
+            fail(422, "待機時間は30秒または120秒を指定してください")
         if not self.lock.acquire(blocking=False):
             fail(429, "モデルは処理中です")
         try:
-            return asyncio.run(self._generate(model, text, citations)), model
+            seconds = REQUEST_SECONDS if timeout_seconds is None else timeout_seconds
+            return asyncio.run(self._generate(model, text, citations, seconds)), model
         except (httpx.HTTPError, TimeoutError, ValueError, KeyError, TypeError):
             fail(502, "モデル応答を確認できませんでした。自動再送は行いません")
         finally:
             self.lock.release()
 
-    async def _generate(self, model: str, text: str, citations: list[dict[str, Any]]) -> str:
+    async def _generate(
+        self, model: str, text: str, citations: list[dict[str, Any]], seconds: float
+    ) -> str:
         payload = {
             "model": model,
             "stream": False,
@@ -79,12 +107,12 @@ class LocalModel:
                 },
             ],
         }
-        async with asyncio.timeout(REQUEST_SECONDS):
+        async with asyncio.timeout(seconds):
             async with httpx.AsyncClient(
                 transport=self.transport,
                 trust_env=False,
                 follow_redirects=False,
-                timeout=REQUEST_SECONDS,
+                timeout=seconds,
             ) as client:
                 async with client.stream(
                     "POST",
