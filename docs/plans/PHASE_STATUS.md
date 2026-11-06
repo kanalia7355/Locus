@@ -111,3 +111,12 @@ This proves the bounded synthetic backend path, not production data handling,
 real-browser/model integration, crash recovery, capacity or all-Phase completion.
 A separate mock regression now reopens the same SQLite and verifies that losing
 just one shared input source hides the whole answer while other citations remain.
+
+The ingestion worker now applies the same live owner/project/attachment checks
+both before calling a scanner adapter and before publishing indexed chunks.
+Previously only the publication check was present: already revoked queued work
+could still pass its content to the scanner. Regression tests first reproduced
+that call for membership/upload revocation, disabled accounts, forced rotation,
+and lost attachment retrieval permission; all now cancel without a scanner call.
+Revocation during scanning still prevents publication. No real scanner is enabled;
+the unavailable default continues to quarantine uploads rather than mark them clean.

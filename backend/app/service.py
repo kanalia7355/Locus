@@ -620,6 +620,19 @@ class Service:
                 db.execute("SELECT * FROM documents WHERE id=?", (document,)).fetchone(), actor.id
             )
 
+    def _ingestion_allowed(self, db: sqlite3.Connection, document: sqlite3.Row) -> bool:
+        user = db.execute("SELECT * FROM users WHERE id=?", (document["owner_id"],)).fetchone()
+        if not user or not user["enabled"] or user["must_rotate"]:
+            return False
+        actor = Principal(user["id"], user["username"], bool(user["system_admin"]), False)
+        try:
+            self.require(db, actor, document["project_id"], "upload")
+            if document["kind"] == "attachment":
+                self._conversation(db, actor, document["conversation_id"])
+        except HTTPException:
+            return False
+        return True
+
     def process_next(self) -> bool:
         with self.db() as db:
             row = db.execute(
@@ -627,6 +640,13 @@ class Service:
             ).fetchone()
             if not row:
                 return False
+            # Recheck queued work BEFORE exposing content to a scanner adapter.
+            if not self._ingestion_allowed(db, row):
+                db.execute(
+                    "UPDATE documents SET status='cancelled',reason=? WHERE id=?",
+                    ("登録者の利用権限が失効しました", row["id"]),
+                )
+                return True
             db.execute("UPDATE documents SET status='scanning' WHERE id=?", (row["id"],))
         try:
             approved = self.scanner.scan(row["content"])
@@ -637,17 +657,7 @@ class Service:
             live = db.execute("SELECT * FROM documents WHERE id=?", (row["id"],)).fetchone()
             if not live or live["status"] != "scanning":
                 return True
-            user = db.execute("SELECT * FROM users WHERE id=?", (live["owner_id"],)).fetchone()
-            actor = Principal(
-                user["id"], user["username"], bool(user["system_admin"]), bool(user["must_rotate"])
-            )
-            try:
-                if not user["enabled"] or actor.must_rotate:
-                    fail(403, "失効")
-                self.require(db, actor, live["project_id"], "upload")
-                if live["kind"] == "attachment":
-                    self._conversation(db, actor, live["conversation_id"])
-            except HTTPException:
+            if not self._ingestion_allowed(db, live):
                 db.execute(
                     "UPDATE documents SET status='cancelled',reason=? WHERE id=?",
                     ("登録者の利用権限が失効しました", row["id"]),
