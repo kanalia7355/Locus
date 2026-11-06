@@ -14,20 +14,31 @@ ROOT = Path(__file__).resolve().parents[1]
 TARGETS = ["loop_engine", "tests/unit", "tests/integration", "tests/e2e", "scripts/verify_loop.py"]
 
 
-def windows_test_groups(timeout: float = 600) -> list[dict[str, Any]]:
+def bounded_test_groups(
+    groups: tuple[tuple[str, list[str]], ...],
+    *,
+    timeout: float,
+    deadline: float | None = None,
+    cwd: Path | None = None,
+    extra_args: tuple[str, ...] = (),
+    environments: dict[str, dict[str, str]] | None = None,
+) -> list[dict[str, Any]]:
     """Run the same suite in two processes sharing the original execution window.
 
     subprocess.run settles direct children on timeout, as the serial runner did.
     CI job cleanup remains the outer guard for descendant processes.
     """
-    deadline = time.monotonic() + timeout
-    groups = (("unit", ["tests/unit"]), ("integration-e2e", ["tests/integration", "tests/e2e"]))
+    if len(groups) != 2 or len({name for name, _ in groups}) != 2:
+        raise ValueError("Exactly two distinct verification groups are required")
+    own_deadline = time.monotonic() + timeout
+    deadline = own_deadline if deadline is None else min(deadline, own_deadline)
 
     def run_group(group: tuple[str, list[str]]) -> dict[str, Any]:
         name, paths = group
         started = time.monotonic()
         remaining = min(timeout, deadline - started)
         code, outcome = 124, "deadline_before_start"
+        command: list[str] = []
         if remaining > 0:
             try:
                 command = [
@@ -40,10 +51,15 @@ def windows_test_groups(timeout: float = 600) -> list[dict[str, Any]]:
                     "--durations=20",
                     "-o",
                     f"cache_dir=.loop/runtime/pytest-cache/{name}",
+                    *extra_args,
                     *paths,
                 ]
                 code = subprocess.run(  # noqa: S603
-                    command, cwd=ROOT, timeout=remaining, check=False
+                    command,
+                    cwd=ROOT if cwd is None else cwd,
+                    timeout=remaining,
+                    env=None if environments is None else environments[name],
+                    check=False,
                 ).returncode
                 outcome = "exit"
             except subprocess.TimeoutExpired:
@@ -57,10 +73,20 @@ def windows_test_groups(timeout: float = 600) -> list[dict[str, Any]]:
             "exit_code": code,
             "outcome": outcome,
             "elapsed_seconds": round(time.monotonic() - started, 2),
+            "command": command[1:],
         }
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         return list(executor.map(run_group, groups))
+
+
+def windows_test_groups(timeout: float = 600) -> list[dict[str, Any]]:
+    groups = (("unit", ["tests/unit"]), ("integration-e2e", ["tests/integration", "tests/e2e"]))
+    results = bounded_test_groups(groups, timeout=timeout)
+    # Preserve the existing engine report shape as well as its groups and budget.
+    for result in results:
+        result.pop("command")
+    return results
 
 
 def main() -> int:
