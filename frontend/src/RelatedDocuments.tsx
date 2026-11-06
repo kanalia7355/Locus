@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, errorText } from "./api";
 import type { RelatedDocument } from "./api";
+import { ProvenanceDiagram } from "./ProvenanceDiagram";
 
 export function RelatedDocuments({
   documentId,
@@ -58,31 +59,34 @@ export function RelatedDocuments({
         <p role="status">現在参照できる関連資料はありません。</p>
       )}
       {items && items.length > 0 && (
-        <ul>
-          {items.map((item) => (
-            <li key={item.document.id}>
-              <button
-                onClick={() =>
-                  void onOpen(
-                    item.document.id,
-                    item.evidence[0]?.target_chunk_id,
-                  )
-                }
-              >
-                {item.document.name}
-              </button>
-              <p>共通語句 {item.shared_term_count}件</p>
-              <ul>
-                {item.evidence.map((evidence) => (
-                  <li key={evidence.term}>
-                    「{evidence.term}」 · この資料 p.{evidence.source_page} →
-                    関連資料 p.{evidence.target_page}
-                  </li>
-                ))}
-              </ul>
-            </li>
-          ))}
-        </ul>
+        <>
+          <ProvenanceDiagram items={items} />
+          <ul>
+            {items.map((item) => (
+              <li key={item.document.id}>
+                <button
+                  onClick={() =>
+                    void onOpen(
+                      item.document.id,
+                      item.evidence[0]?.target_chunk_id,
+                    )
+                  }
+                >
+                  {item.document.name}
+                </button>
+                <p>共通語句 {item.shared_term_count}件</p>
+                <ul>
+                  {item.evidence.map((evidence) => (
+                    <li key={evidence.term}>
+                      「{evidence.term}」 · この資料 p.{evidence.source_page} →
+                      関連資料 p.{evidence.target_page}
+                    </li>
+                  ))}
+                </ul>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
     </section>
   );

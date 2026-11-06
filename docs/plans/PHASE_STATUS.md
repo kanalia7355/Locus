@@ -24,8 +24,11 @@ Requests are rate-limited; authorized chunks are still scanned under the prototy
 transaction lock, so this is not a production capacity claim. The existing source
 dialog can load these relationships on demand, show common terms and page
 references, and open the related original through a fresh authorized chunk read.
-Pending retrieval is cancelled when its view is discarded. A persistent graph
-index, semantic GraphRAG and graph visualization remain unimplemented.
+Pending retrieval is cancelled when its view is discarded. An optional native SVG
+diagram displays only the fetched source-to-target lexical relationships (at most
+ten) alongside the unchanged accessible list and page/chunk evidence. Toggling
+the diagram makes no additional request. Refresh starts by removing both prior
+list and diagram. A persistent graph index and semantic GraphRAG remain unimplemented.
 
 Citation links and related-document links open the exact indexed chunk, show the
 document name, and focus/scroll to the referenced page and chunk. A removed or

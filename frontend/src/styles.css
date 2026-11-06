@@ -685,6 +685,36 @@ pre {
   max-width: 100%;
   text-align: left;
 }
+.provenance-diagram {
+  margin-block: 12px;
+}
+.provenance-diagram svg {
+  display: block;
+  width: 100%;
+  min-width: 640px;
+  height: auto;
+}
+.provenance-viewport {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.provenance-diagram path {
+  fill: none;
+  stroke: var(--color-muted);
+  stroke-width: 1;
+}
+.provenance-diagram rect {
+  fill: var(--color-paper);
+  stroke: var(--color-line);
+}
+.provenance-diagram text {
+  fill: var(--color-ink);
+  font-size: 14px;
+}
+.provenance-diagram .provenance-count {
+  fill: var(--color-muted);
+  font-size: 12px;
+}
 .model-catalog fieldset {
   border: 1px solid var(--color-line);
   margin-block: 16px;

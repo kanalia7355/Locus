@@ -44,8 +44,60 @@ it("loads only on demand, shows provenance, and opens the authorized target", as
     "/api/documents/source/related?conversation_id=conversation",
   );
   expect(screen.getByText(/この資料 p.1 → 関連資料 p.3/)).toBeVisible();
+  expect(screen.queryByRole("img")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "資料の関係図を表示" }));
+  expect(
+    screen.getByRole("img", { name: /共通語句による資料の関係図/ }),
+  ).toBeVisible();
+  expect(fetcher).toHaveBeenCalledTimes(1);
   fireEvent.click(target);
   expect(onOpen).toHaveBeenCalledWith("target", "b");
+});
+
+it("discards a visible relationship diagram on refresh and a denied result", async () => {
+  let release!: (value: Response) => void;
+  const fetcher = vi
+    .fn()
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify([
+          {
+            document: { id: "target", name: "削除される表示" },
+            method: "lexical-common-terms",
+            shared_term_count: 1,
+            evidence: [],
+          },
+        ]),
+      ),
+    )
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+  vi.stubGlobal("fetch", fetcher);
+  render(
+    <RelatedDocuments
+      documentId="source"
+      conversationId={null}
+      onOpen={vi.fn()}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "関連資料を確認" }));
+  await screen.findByRole("button", { name: "削除される表示" });
+  fireEvent.click(screen.getByRole("button", { name: "資料の関係図を表示" }));
+  expect(screen.getByRole("img")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "関連資料を確認" }));
+  expect(screen.queryByRole("img")).toBeNull();
+  expect(screen.queryByText("削除される表示")).toBeNull();
+  release(
+    new Response(JSON.stringify({ detail: "資料が見つかりません" }), {
+      status: 404,
+    }),
+  );
+  await screen.findByRole("alert");
+  expect(screen.queryByRole("img")).toBeNull();
 });
 
 it("distinguishes an empty authorized result from a denied request", async () => {

@@ -195,6 +195,16 @@ test("related sources retain keyboard focus while pending and wrap long names", 
   const target = dialog.getByRole("button", { name: longName });
   await expect(target).toBeVisible();
   expect(requests).toBe(1);
+  const diagramToggle = dialog.getByRole("button", {
+    name: "資料の関係図を表示",
+  });
+  await diagramToggle.focus();
+  await page.keyboard.press("Enter");
+  const diagram = dialog.getByRole("img", {
+    name: /共通語句による資料の関係図/,
+  });
+  await expect(diagram).toBeVisible();
+  expect(requests).toBe(1);
   await page.setViewportSize({ width: 320, height: 900 });
   await expect
     .poll(() =>
@@ -206,6 +216,22 @@ test("related sources retain keyboard focus while pending and wrap long names", 
       target.evaluate((element) => element.scrollWidth <= element.clientWidth),
     )
     .toBe(true);
+  const viewport = dialog.getByRole("region", {
+    name: "資料の関係図のスクロール領域",
+  });
+  await expect
+    .poll(() =>
+      viewport.evaluate((element) => element.clientWidth < element.scrollWidth),
+    )
+    .toBe(true);
+  await viewport.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect
+    .poll(() => viewport.evaluate((element) => element.scrollLeft))
+    .toBeGreaterThan(0);
+  await page.screenshot({
+    path: test.info().outputPath("provenance-diagram-mobile.png"),
+  });
   await page.keyboard.press("Escape");
   await expect(dialog).not.toBeVisible();
   await expect(source).toBeFocused();
