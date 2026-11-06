@@ -610,6 +610,9 @@ test("role editor previews scoped subsets and administrator audit is redacted", 
   await expect(
     page.getByText(/synthetic-ollama:latest を使用します/),
   ).toBeVisible();
+  await expect(
+    page.getByText("現在：synthetic-ollama:latest による生成"),
+  ).toBeVisible();
   await page.getByRole("button", { name: "資料を調べる", exact: true }).click();
   await page
     .getByRole("textbox", { name: "メッセージ", exact: true })
@@ -633,10 +636,14 @@ test("role editor previews scoped subsets and administrator audit is redacted", 
   await page
     .getByRole("button", { name: "チャットの実行設定", exact: true })
     .click();
+  await expect(
+    page.getByText("現在：synthetic-ollama:latest による生成"),
+  ).toBeVisible();
   await page
     .getByRole("button", { name: "原文検索に戻す", exact: true })
     .click();
   await expect(page.getByText("原文検索に戻しました。")).toBeVisible();
+  await expect(page.getByText("現在：原文検索")).toBeVisible();
 });
 
 test("development server rejects hostile and absent mutation origins", async ({
