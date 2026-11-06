@@ -1026,7 +1026,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
           <div className="settings">
             <h2>処理先</h2>
             <p>
-              チャットはローカルの原文検索のみ利用できます。モデルの準備はシステム管理者が行います。
+              既定はローカルの原文検索です。管理者がOllamaモデルを明示的に有効化した場合は、参照資料に基づく回答を生成します。
             </p>
             {user.system_admin && <ModelSettings />}
             <h2>外部AI・保存先の接続</h2>
