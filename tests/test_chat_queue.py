@@ -141,6 +141,33 @@ def test_worker_tick_while_slot_is_busy_requeues_the_job(service: Service):
         release.set()
 
 
+def test_repeated_busy_ticks_keep_the_job_queued_without_draining_the_user(service: Service):
+    """Waiting must not burn the per-user chat budget or die by rate limit."""
+    alice, conversation, runtime, entered, release = setup(service)
+    principal, _token = principal_for(alice, service)
+    occupy(runtime, entered, release)
+    try:
+        job = send(alice, conversation).json()["job_id"]
+        for _ in range(30):
+            assert service.process_next_chat() is False
+        status = alice.get(f"/api/chat-jobs/{job}").json()
+        assert status["status"] == "queued"
+        # The submission charged the budget once; retries must not add charges.
+        assert len(service.limits.get("chat:" + principal.id, [])) <= 1
+        # New interactive questions stay possible while the job waits.
+        assert (
+            alice.post(
+                "/api/conversations", json={"project_id": "project-a"}, headers=ORIGIN
+            ).status_code
+            == 201
+        )
+        release.set()
+        assert service.process_next_chat() is True
+        assert alice.get(f"/api/chat-jobs/{job}").json()["status"] == "done"
+    finally:
+        release.set()
+
+
 def test_queued_question_runs_and_persists_after_disconnect(service: Service):
     alice, conversation, runtime, entered, release = setup(service)
     occupy(runtime, entered, release)

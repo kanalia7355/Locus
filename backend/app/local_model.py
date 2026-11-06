@@ -42,6 +42,10 @@ class LocalModel:
             self.version += 1
             return self.status()
 
+    def available(self) -> bool:
+        """Advisory, non-acquiring slot check for the background worker loop."""
+        return not self.lock.locked()
+
     def status(self) -> dict[str, Any]:
         with self.settings_lock:
             return {

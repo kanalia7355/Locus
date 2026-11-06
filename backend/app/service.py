@@ -902,12 +902,17 @@ class Service:
         generate: Callable[[str, list[Json]], tuple[str, str]] | None = None,
         validate: Callable[[], None] | None = None,
         token: str | None = None,
+        charge_limit: bool = True,
     ) -> Json:
         if scope not in {"all", "shared", "personal"}:
             fail(422, "参照範囲を確認してください")
         with self.db() as db:
             conv = self._conversation(db, actor, conversation)
-            self._limit("chat:" + actor.id, 20)
+            if charge_limit:
+                # Charged once per question, at submission. Waiting-line retries
+                # from the worker pass charge_limit=False so a busy slot cannot
+                # exhaust the user's interactive budget or kill the queued job.
+                self._limit("chat:" + actor.id, 20)
             count = db.execute(
                 "SELECT COUNT(*) FROM messages WHERE conversation_id=?", (conversation,)
             ).fetchone()[0]
@@ -1162,6 +1167,9 @@ class Service:
                 generate=dispatch.generate,
                 validate=dispatch.validate,
                 token=dispatch.token,
+                # Submission already charged the per-user limit; worker retries
+                # must not consume it again while they wait for the slot.
+                charge_limit=False,
             )
         except ModelBusy:
             # The slot was taken between pickup and dispatch: return to the line
@@ -1189,12 +1197,14 @@ class Service:
         return True
 
     def _fail_chat(self, db: sqlite3.Connection, job: str, detail: str) -> None:
-        db.execute(
+        changed = db.execute(
             "UPDATE chat_jobs SET status='failed',updated=?,detail=? "
             "WHERE id=? AND status='queued'",
             (time.time(), detail, job),
-        )
-        self._audit(db, "worker", "chat.failed", job)
+        ).rowcount
+        if changed:
+            # A no-op (already cancelled or finished elsewhere) is not a failure.
+            self._audit(db, "worker", "chat.failed", job)
         with self.chat_dispatch_lock:
             self.chat_dispatch.pop(job, None)
 

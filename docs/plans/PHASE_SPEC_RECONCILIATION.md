@@ -67,13 +67,20 @@ ui-and-multiuser-design.md の「対話の待機列：公平な順番・取消�
 - 既存の入力契約は不変: 検索のみ・model空き時の200応答、およびmodel利用中の
   429（LocalModel単体契約）は据え置き。queueは同期送信の失敗を待機列に置き換える
   唯一の経路として付加的に動作する。
-- 検証: backend test_chat_queue 9件追加PASS（初回8件+独立レビューで判明した
-  「枠が空く前に拾った場合は行列に戻る」回帰1件）、既存test群を含む全backend
-  suite（e2e除く）PASS、frontend unit46 PASS（新規3件含む）、
-  lint/typecheck/build PASS、Chromium E2E10 PASS、secret scan 0件。
+- 検証: backend test_chat_queue 10件PASS（初回8件+レビューで判明した
+  「枠が空く前に拾った場合は行列に戻る」回帰1件と「30回の連続再試行でも
+  queued維持・課金1件・新規送信可能・解放後に完了」回帰1件）、既存test群を
+  含む全backend suite（e2e除く）PASS、frontend unit46 PASS（新規3件含む）、
+  lint/format/typecheck/build PASS、Chromium E2E10 PASS、secret scan 0件。
   実model・実複数人負荷の検証ではない。公平性は到着順のみ。
-- 独立レビュー（読み取り専用、別fresh context）初回で重大指摘1件
+- 独立レビュー（読み取り専用、別fresh context）第1回: 重大指摘1件
   （model枠が空く前にworkerがjobを拾うと失敗化していた）と低重要度2件
-  （enqueue時のレート制限二重課金、_fail_chatのstatusガード欠落）を指摘。
-  いずれも修正し、回帰テストを追加。frontendの状態確認は会話切替では
-  止めず、unmount・画面移動で中止する（別会話の完了通知のため）。
+  （enqueue時のレート制限二重課金、_fail_chatのstatusガード欠落）を修正し、
+  回帰テストを追加。frontendの状態確認は会話切替では止めず、
+  unmount・画面移動で中止する（別会話の完了通知のため）。
+- 独立レビュー第2回の探針検証で新たな重大指摘1件を修正: 待機中の再試行が
+  毎回ユーザー単位のチャット制限を消費し、約5秒で投入枠を使い切って
+  ジョブを恒久失敗させていた。待ち行列からの実行では制限を課金しない
+  （提出時に1回だけ課金）。workerはmodel枠の占有中は対話キュー処理を
+  飛ばす（非取得の参考チェック、競合時は再行列経路で処理）。
+  _fail_chatは実際に失敗化できたときだけ監査記録を書く。
