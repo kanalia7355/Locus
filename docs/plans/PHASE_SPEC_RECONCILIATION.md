@@ -61,12 +61,19 @@ ui-and-multiuser-design.md の「対話の待機列：公平な順番・取消�
   認証失効時はjob失敗理由に「ログイン状態が変わりました」を表示し送信しない。
 - frontend: 送信が202の場合、質問の下に待機/実行中の状態行と（待機中のみ）
   取り消し操作を表示。既存のデザイン基準（装飾なし・role=status）を踏襲。
-  2秒間隔の状態確認は画面移動やunmountで中止し、失敗時は停止と案内を表示。
-  完了時は同一会話なら回答を再取得、別会話なら履歴案内を通知。
+  2秒間隔の状態確認はunmount・ページ移動で中止し（会話の切替は継続）、
+  失敗時は停止と案内を表示。完了時は同一会話なら回答を再取得、
+  別会話なら履歴案内を通知。
 - 既存の入力契約は不変: 検索のみ・model空き時の200応答、およびmodel利用中の
   429（LocalModel単体契約）は据え置き。queueは同期送信の失敗を待機列に置き換える
   唯一の経路として付加的に動作する。
-- 検証: backend test_chat_queue 8件追加PASS、既存全test群1081 PASS/9 skip
-  （整形前コード、整形は空白のみ）、frontend unit46 PASS（新規3件含む）、
+- 検証: backend test_chat_queue 9件追加PASS（初回8件+独立レビューで判明した
+  「枠が空く前に拾った場合は行列に戻る」回帰1件）、既存test群を含む全backend
+  suite（e2e除く）PASS、frontend unit46 PASS（新規3件含む）、
   lint/typecheck/build PASS、Chromium E2E10 PASS、secret scan 0件。
   実model・実複数人負荷の検証ではない。公平性は到着順のみ。
+- 独立レビュー（読み取り専用、別fresh context）初回で重大指摘1件
+  （model枠が空く前にworkerがjobを拾うと失敗化していた）と低重要度2件
+  （enqueue時のレート制限二重課金、_fail_chatのstatusガード欠落）を指摘。
+  いずれも修正し、回帰テストを追加。frontendの状態確認は会話切替では
+  止めず、unmount・画面移動で中止する（別会話の完了通知のため）。

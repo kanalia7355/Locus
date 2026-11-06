@@ -1021,7 +1021,8 @@ class Service:
             fail(422, "参照範囲を確認してください")
         with self.db() as db:
             conv = self._conversation(db, actor, conversation)
-            self._limit("chat:" + actor.id, 20)
+            # No extra rate-limit charge here: the submitting send() call already
+            # consumed the per-user budget for this question.
             if (
                 db.execute(
                     "SELECT COUNT(*) FROM messages WHERE conversation_id=?", (conversation,)
@@ -1162,6 +1163,17 @@ class Service:
                 validate=dispatch.validate,
                 token=dispatch.token,
             )
+        except ModelBusy:
+            # The slot was taken between pickup and dispatch: return to the line
+            # in arrival order without consuming the job; the wait deadline set
+            # at submission still applies on later ticks.
+            with self.db() as db:
+                db.execute(
+                    "UPDATE chat_jobs SET status='queued',updated=? "
+                    "WHERE id=? AND status='running'",
+                    (time.time(), job_id),
+                )
+            return False
         except HTTPException as exc:
             detail = (
                 "ログイン状態が変わりました。再度ログインして送信してください"
@@ -1178,7 +1190,8 @@ class Service:
 
     def _fail_chat(self, db: sqlite3.Connection, job: str, detail: str) -> None:
         db.execute(
-            "UPDATE chat_jobs SET status='failed',updated=?,detail=? WHERE id=?",
+            "UPDATE chat_jobs SET status='failed',updated=?,detail=? "
+            "WHERE id=? AND status='queued'",
             (time.time(), detail, job),
         )
         self._audit(db, "worker", "chat.failed", job)

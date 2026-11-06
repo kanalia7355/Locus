@@ -307,7 +307,7 @@ def create_app(
             )
         except ModelBusy:
             if token is None:
-                raise
+                fail(429, "モデルは処理中です")
             job_id = svc.enqueue_chat(
                 user,
                 conversation,

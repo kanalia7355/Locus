@@ -123,6 +123,24 @@ def test_occupied_slot_queues_the_question_and_allows_cancel(service: Service):
         release.set()
 
 
+def test_worker_tick_while_slot_is_busy_requeues_the_job(service: Service):
+    """A pickup before the slot frees must return to the line, not fail the job."""
+    alice, conversation, runtime, entered, release = setup(service)
+    occupy(runtime, entered, release)
+    try:
+        job = send(alice, conversation).json()["job_id"]
+        assert service.process_next_chat() is False
+        status = alice.get(f"/api/chat-jobs/{job}").json()
+        assert status["status"] == "queued"
+        release.set()
+        assert service.process_next_chat() is True
+        status = alice.get(f"/api/chat-jobs/{job}").json()
+        assert status["status"] == "done" and status["message_id"]
+        assert alice.get(f"/api/conversations/{conversation}").json()["messages"]
+    finally:
+        release.set()
+
+
 def test_queued_question_runs_and_persists_after_disconnect(service: Service):
     alice, conversation, runtime, entered, release = setup(service)
     occupy(runtime, entered, release)
