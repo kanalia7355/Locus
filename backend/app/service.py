@@ -1210,11 +1210,13 @@ class Service:
 
     def _finish_chat(self, job: str, status: str, detail: str, message: str | None = None) -> None:
         with self.db() as db:
-            db.execute(
+            changed = db.execute(
                 "UPDATE chat_jobs SET status=?,updated=?,detail=?,message_id=? WHERE id=?",
                 (status, time.time(), detail, message, job),
-            )
-            self._audit(db, "worker", f"chat.{status}", job)
+            ).rowcount
+            if changed:
+                # A vanished row (conversation cascade) is not a state change.
+                self._audit(db, "worker", f"chat.{status}", job)
         with self.chat_dispatch_lock:
             self.chat_dispatch.pop(job, None)
 
