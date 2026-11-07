@@ -238,9 +238,12 @@ open item in `docs/plans/PHASE_SPEC_RECONCILIATION.md` and is not reopened here)
   the authoritative issuer, under the trust contract selected by the ADR.
 - `runner_artifacts` (logical contract; persistence schema only after artifact/security
   design): immutable artifact ID/digest/integrity proof, originating job, runner
-  instance, workspace, policy version, source ACL references and classification.
-  Binding and enforcement are specified in §3.2/E9; artifact persistence/retention
-  details remain 【要決定】.
+  instance, workspace, exact policy version, source-data identities/versions, source ACL
+  references and classification. Lifecycle is bound to the source data and exact
+  workspace policy version. Deletion/revocation of any source or workspace, or a
+  policy-version change, invalidates the artifact before reuse, export or read.
+  Binding and enforcement are specified in §3.2/E9; physical deletion and retention
+  timing/numbers remain 【要決定】 (§6.6).
 
 ### 2.2 Lifecycle states
 
@@ -395,7 +398,7 @@ content, never policy instructions (standing rule in `docs/security/THREAT_MODEL
 | E6 | Classification gate before prompt/context assembly and attachment loading; unclassified or above-ceiling input denies. Recheck answer, every citation, generated output and all output paths; preserve inherited classification and source ACLs; no path may omit the check | C | T-I1, T-I4, T-T3 |
 | E7 | Admin surface ceilings: workspace/policy administration uses the existing role-ceiling rules (`NON_ADMIN`, `create_role`/`update_role` subset ceilings in `backend/app/service.py`) — a delegated admin cannot invent privileges | C | T-E2 |
 | E8 | Session and adapter identity: existing opaque digested/expiring/revocable sessions carry over; the hybrid UI never embeds provider tokens in a Locus session; adapters are verified against pinned binary identity + catalog snapshot (B2 receipt pattern, §2.1) | C | T-S2, T-S3 |
-| E9 | Runner-output artifact gate: verify artifact integrity/signature and identity/digest bound to originating job, runner instance, workspace and policy version; inherit source ACLs and maximum classification; revalidate live policy/ACL/revocation before persistence, reuse, retrieval or export; deny cross-workspace access, stale binding and downgrade | C+R | T-I2, T-T1, T-T3, 要件7 |
+| E9 | Runner-output artifact gate: verify artifact integrity/signature and identity/digest bound to originating job, runner instance, workspace, exact policy version and source-data identities/versions; inherit source ACLs and maximum classification. Before persistence, reuse, export or read, revalidate live source existence/tombstone, ACL/revocation and workspace active/revoked/deleted state plus the exact policy version. Deletion/revocation of any source or workspace, or a policy-version mismatch, invalidates the derived artifact and denies the operation; also deny cross-workspace access and downgrade. Physical deletion and retention timing/numbers remain 【要決定】 (§6.6) | C+R | T-I2, T-T1, T-T3, 要件7 |
 
 Two wording clarifications this proposal adopts (from threat-model findings 2 and 4),
 flagged for owner ratification in §7:
@@ -508,17 +511,23 @@ version (repo convention: locked requirements); no UI change.
 ### Slice 2c — Classification plumbing into existing paths (minimal, Phase-3-aligned)
 - Content: classification on inputs, attachments and index entries; inherit-max into
   citations, answers and runner-output artifacts; ACL/classification enforcement at
-  persistence, reuse, retrieval and export. Hooks only — the full Phase-3 classification
-  work remains there. No classification ceiling means deny-all; unclassifiable input
+  persistence, reuse, retrieval and export. Artifact lifecycle is bound to source-data
+  identities/versions and the exact workspace policy version. Hooks only — the full
+  Phase-3 classification work remains there. No classification ceiling means deny-all; unclassifiable input
   is denied before prompt/context assembly, with no local fallback.
 - Acceptance: private-by-default retrieval regressions unchanged and passing. Negative
   tests deny unclassified input before prompt assembly, attachment loading and every
   answer/citation/output path. Tests prove derived answers/citations/artifacts never
   downgrade classification; artifact identity is bound to originating job, runner
-  instance, workspace and policy version; source ACLs are inherited and checked again
-  before persistence/use/export. Regressions cover cross-workspace access, policy/ACL
-  revocation after production, stale policy, and attempted downgrade. Missing
-  provenance or changed/revoked authorization denies the operation (T-I1/T-I2/T-T3).
+  instance, workspace, exact policy version and source data; source ACLs are inherited
+  and checked again before persistence/use/export/read. Regressions cover cross-workspace access; source
+  deletion before persistence and after production (deny artifact read, reuse and
+  export); source-ACL revocation after production; workspace deletion/revocation after
+  production; and workspace-policy-version change after production.
+  Additional regressions cover stale-policy and attempted-downgrade denial. Missing
+  provenance or changed/revoked authorization denies the operation (T-I1/T-I2/T-T3);
+  invalidation is checked before artifact payload access. Physical-purge and retention
+  timing/numbers remain owner decisions (§6.6).
 
 ### 5.4 Regression-test plan (every slice)
 - Full backend suite (`pytest` — existing `tests/` incl. `test_api.py`,
@@ -622,9 +631,11 @@ This proposal introduces **no change to any approved boundary**. For the record:
   are specified. B6 acceptance explicitly tests Control-Plane rejection. The separate
   approval ADR is a hard prerequisite to any dispatch-capable code.
 - PH1-H finding 3 (runner artifacts) ⇒ §2.1, §3.2/E9, §3.3 and slice 2c define
-  instance/job/workspace/policy-bound artifact identity, inherited ACL/classification,
-  revalidation before persistence/use/export, cross-workspace/revocation/downgrade
-  regressions; T-T4 stays an activation blocker.
+  instance/job/workspace/exact-policy/source-bound artifact identity with inherited
+  ACL/classification; revalidation before persistence/use/export/read. Source/workspace deletion or revocation invalidates artifacts; regressions deny
+  stale artifacts before payload access. Physical deletion and
+  retention timing/numbers remain owner decisions (§6.6); T-T4 stays an activation
+  blocker.
 - PH1-H finding 4 (runner identity/credentials) ⇒ §1.2/B5, §2.1, §2.4-2.5 bind
   workspace/health/credential presence to `runner_instance_id`; name the sole eligible
   OS principal and non-exportable broker requirement, with activation blocked pending
@@ -657,7 +668,10 @@ This proposal introduces **no change to any approved boundary**. For the record:
 
 - 2026-11-07: PH1-H independent read-only review returned **needs major rework**
   (4 high + 4 medium findings). PH1-F fix cycle 1 revises the draft against all eight
-  findings; see §8 for the finding-to-resolution map. This history records the review
+  findings; see §8 for the finding-to-resolution map. Round 2 returned **accept after
+  minor fixes**; fix cycle 2 addresses both minor findings. Per the reviewer's
+  conditional verdict, the design is considered accepted after these fixes; final
+  approval of the ADR remains the owner's. This history records the review
   outcome only; it does not approve an ADR, implementation, or activation.
 
 End of proposal.
