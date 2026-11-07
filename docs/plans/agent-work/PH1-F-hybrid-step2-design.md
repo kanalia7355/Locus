@@ -61,5 +61,7 @@ Constraints honored: no code changes; no boundary weakening; nothing pushed to
   account billing failure (per orchestrator ledger outage log) — recorded as
   blocked, never passed. Final SHA: see the commit line below.
 - Final commit: `docs(plans): draft hybrid step-2 agent registry design proposal`
-  on `loop/PH1-F-hybrid-step2-design`, pushed to origin. SHA: **(recorded in push
-  output; see git log on the branch — task end)**.
+  on `loop/PH1-F-hybrid-step2-design`, pushed to origin at SHA **e99565c**
+  (`e99565c` — docs/plans/HYBRID_STEP2_AGENT_REGISTRY_DESIGN.md + progress notes).
+  Task end: 2026-11-07. Branch pushed successfully; CI verification remains blocked
+  by billing as recorded above.
