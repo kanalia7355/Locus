@@ -188,3 +188,28 @@ completion claim. MFA and production TLS/session deployment remain unresolved.
 This local regression is not CI evidence for the later PH1-G documentation
 commit. The aggregate still requires independent review and all required CI
 checks green at its exact pushed HEAD, before any Phase-1 completion decision.
+
+## Phase 1 completion declaration (prototype scope) — 2026-11-07
+
+Phase 1 is declared COMPLETE within the owner-approved prototype scope. Evidence:
+- Features integrated into `loop/local-development`: recovery flow (`1056021`),
+  account enable/disable (`b7adb42`), web user provisioning (`2610b70`),
+  provisioning race fix (`0365a6a`), consolidation docs (`a55d856`).
+- Independent review: aggregate review PH1-K verdict "accept after minor fixes";
+  its condition (re-review of the integrated race fix) closed by PH1-K2 with
+  verdict "accept" (no unresolved findings, no weakening, secret scan 0).
+- Owner decisions recorded 2026-11-07: MFA intentionally out of scope for the
+  LAN-limited prototype; production TLS/session deployment deferred to the
+  production-deployment phase; LAN deployment verification separated from code
+  completion and mandatory at the later deployment gate (never claimed as
+  verified); admin-read revocation reflects at the next authorization check with
+  revalidation in long operations.
+- QA at the completion HEAD: full pytest 1114 passed / 18 skipped; ruff check +
+  format; mypy backend/app (7 files); offline secret scan 0 findings; branch CI
+  all green at every integrated source HEAD; exact-HEAD CI green on the completion
+  push (all three workflows, four-matrix engine).
+- Version bumped 0.1.0 -> 0.2.0 (pyproject, frontend package, loop_engine).
+
+NOT claimed: production deployment, LAN host verification, MFA, TLS/session
+production configuration. These remain tracked in the backlog and the
+production-deployment phase's completion conditions (never silently resolved).
