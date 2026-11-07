@@ -237,9 +237,7 @@ def test_cancel_racing_model_completion_has_one_terminal_outcome(service: Servic
 
         def cancel():
             barrier.wait()
-            outcome["response"] = alice.delete(
-                f"/api/chat-jobs/{job}", headers=ORIGIN
-            ).status_code
+            outcome["response"] = alice.delete(f"/api/chat-jobs/{job}", headers=ORIGIN).status_code
 
         canceller = threading.Thread(target=cancel)
         canceller.start()
