@@ -69,3 +69,8 @@ never passed → append progress + final SHA here.
 
 Boundaries: never push to `main` or `loop/local-development`; no code changes;
 do not modify the review file; do not spawn subagents.
+
+## Progress
+
+- 2026-11-07: Read this task brief and the referenced PH1-H review. Fetched `origin`; the designated worktree was clean on `loop/PH1-F-hybrid-step2-design`, then reset as directed to `origin/loop/local-development` at `795a5e5502978d73fc5d54051c1ce44e48fd7112`. Confirmed `.bootstrap/complete.json` exists and reviewed the required governance/product/architecture/bootstrap docs, GitHub workflow, current proposal, hybrid requirements, accepted threat model, and phase reconciliation. No application files changed; beginning design revisions against all eight findings.
+- 2026-11-07: Revised the design and completed an adversarial self-review against PH1-H findings 1–8 and the accepted threat model. Confirmed deny-all classification and separate egress gate; receipt checks at enqueue and execution plus explicit B6 rejection; signed/bound artifact and job integrity with ACL/classification revalidation; per-instance identity/credential broker access-and-denial gates; both ADR prerequisites; inert `allowlisted` plus cancellation semantics; corrected C-min module map; and whole-package B1 import-graph coverage. Review caught and resolved an additional T-T1 signing/replay-detail gap. `git diff --check` is clean; no application code or tests changed.
