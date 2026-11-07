@@ -21,9 +21,26 @@ Regression tests:
 
 Process (mandatory):
 1. Own worktree: `git -C C:/Users/hirot/Locus worktree add .loop/runtime/worktrees/PH1-account-toggle -b loop/PH1-account-toggle loop/local-development`; work only inside it.
-2. Read `AGENTS.md`, `docs/governance/DEVELOPMENT_POLICY.md`, `docs/governance/GITHUB_WORKFLOW.md`, `docs/plans/UI_IMPLEMENTATION_BASELINE.md` first. Match existing code style; ruff + format + `npm run lint` + `npm run typecheck` must pass.
+2. Read `AGENTS.md`, `docs/governance/DEVELOPMENT_POLICY.md`, `docs/governance/GITHUB_WORKFLOW.md`, `docs/planning/UI_IMPLEMENTATION_BASELINE.md` first. Match existing code style; ruff + format + `npm run lint` + `npm run typecheck` must pass.
 3. Implement → adversarial self-review (authorization, IDOR on user ids, audit accuracy, UI state races) → local QA: `.venv/Scripts/python.exe -m pytest tests -q --ignore=tests/e2e`, frontend `npm test`, and `npx playwright test` in frontend/ (browser tests exist for the admin pages). Iterate until green.
 4. Conventional Commit. Push `loop/PH1-account-toggle`. Check Actions: billing-failure ⇒ record **blocked**, stop retrying. Real failures ⇒ fix and re-push until green.
 5. Record design notes, evidence, commit SHA, push state below.
 
 Boundaries: no `main`/`loop/local-development` pushes; no changes to other agents' scope; do not implement user *creation* (that is PH1-D); do not weaken tests.
+
+
+## Orchestrator notes (2026-11-06)
+
+- First run (task ph1-b-toggle-001) died on provider quota exhaustion
+  (`theos_exhausted`, deepai gpt-6.1-sol daily limit) mid-implementation.
+- The worktree `.loop/runtime/worktrees/PH1-account-toggle` (branch
+  `loop/PH1-account-toggle`) contains UNCOMMITTED partial work from that run:
+  modified `backend/app/main.py`, `backend/app/service.py`,
+  `frontend/src/App.tsx`, this file, plus new `frontend/src/AccountToggle.test.tsx`
+  and `tests/test_account_toggle.py`. Treat it as an UNTRUSTED DRAFT: review the
+  existing diff adversarially, keep only what is correct, complete the rest per
+  the brief, and run the full local QA before committing.
+- The relaunched agent is authorised to commission exactly ONE independent
+  read-only security review round of its final diff (via delegate_task,
+  role=review) before the final push. Incorporate findings; the two-cycle
+  fix/re-review cap still applies.
