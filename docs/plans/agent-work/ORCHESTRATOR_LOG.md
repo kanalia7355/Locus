@@ -12,7 +12,7 @@ Rules established by the owner (2026-11-06):
 | Slot | Task | Branch | Model/provider | TaskId | Status |
 |---|---|---|---|---|---|
 | A | PH1-A authentication recovery | `loop/PH1-recovery` | deepai gpt-6-luna | ph1-a-recovery-003 | running (owner confirmed Luna is quota-free on DeepAI) |
-| B | PH1-B admin account enable/disable | `loop/PH1-account-toggle` | deepai gpt-6-luna | ph1-b-toggle-003 | running — AT RISK: theos quota is account-wide; if it fails, relaunch after refresh with Luna. |
+| B | PH1-B admin account enable/disable | `loop/PH1-account-toggle` | deepai gpt-6-luna | ph1-b-toggle-003 | FAILED 2026-11-07: 426 lane_version_unsupported — "This version of DeepAI Code is no longer supported. Please update the app." PAUSED: no relaunch until the desktop app is updated (owner action). Uncommitted draft remains in worktree PH1-account-toggle. A/D still running at report time; if they die with 426 too, pause all slots. |
 | C | PH1-C hybrid threat model | loop/local-development (in-parent) | orchestrator glm-5.3-flash | ph1-c-threat-001 | DONE 2026-11-07: docs/security/HYBRID_AGENT_THREAT_MODEL.md committed at 0240f63 (matrix with cited evidence, STRIDE model, phase-mapped gaps with 要決定 markers, 5 consistency findings). The leftover worktree PH1-threat-model only holds the agent's progress notes; retire it at the next cleanup. |
 | D | PH1-D admin web user provisioning | `loop/PH1-web-provisioning` | deepai gpt-6-luna | ph1-d-provision-002 | running (worktree reset hard to loop/local-development before starting) |
 | E | PH1-E independent review of the hybrid threat model | (read-only, no branch) | deepai gpt-6-luna | ph1-e-review-001 | DONE 2026-11-07: verdict "accept after minor fixes" (1 high + 4 medium); all fixes applied by the document owner in 307a5bb; review history recorded in the doc. Slot free. |
@@ -26,6 +26,11 @@ Rules established by the owner (2026-11-06):
 
 ## Outage log
 
+- 2026-11-07: slot B relaunch died with 426 lane_version_unsupported — the
+  DeepAI Code desktop app version is no longer supported by the provider lane.
+  OWNER ACTION REQUIRED: update the DeepAI Code desktop app. Until then, do not
+  relaunch any slot that fails with this error (relaunches fail identically).
+  App update is an environment blocker for the whole subagent pipeline.
 - 2026-11-07: non-Luna DeepAI subagent models died with `theos_exhausted`
   (account-wide daily quota). Owner confirmed deepai/gpt-6-luna is quota-free;
   all slots run on Luna now. If a Luna slot ever dies with quota errors, stop
