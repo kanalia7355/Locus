@@ -214,36 +214,55 @@ class Service:
         system_admin: bool = False,
         audit_actor: str = "local-cli",
     ) -> str:
+        with self.db() as db:
+            return self._provision(
+                db, username, password, system_admin=system_admin, audit_actor=audit_actor
+            )
+
+    def _provision(
+        self,
+        db: sqlite3.Connection,
+        username: str,
+        password: str,
+        *,
+        system_admin: bool = False,
+        audit_actor: str,
+    ) -> str:
         if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{2,63}", username):
             fail(422, "利用者IDは3〜64文字の英数字・_.-で指定してください")
         if not 14 <= len(password) <= 128:
             fail(422, "仮パスワードは14〜128文字で指定してください")
         user_id = uid()
-        with self.db() as db:
-            try:
-                db.execute(
-                    "INSERT INTO users VALUES (?,?,?,?,?,0,1,?)",
-                    (
-                        user_id,
-                        username,
-                        PASSWORDS.hash(password),
-                        1,
-                        time.time() + 86400,
-                        int(system_admin),
-                    ),
-                )
-            except sqlite3.IntegrityError:
-                fail(409, "利用者IDは使用済みです")
-            self._audit(db, audit_actor, "account.provision", user_id)
+        try:
+            db.execute(
+                "INSERT INTO users VALUES (?,?,?,?,?,0,1,?)",
+                (
+                    user_id,
+                    username,
+                    PASSWORDS.hash(password),
+                    1,
+                    time.time() + 86400,
+                    int(system_admin),
+                ),
+            )
+        except sqlite3.IntegrityError:
+            fail(409, "利用者IDは使用済みです")
+        self._audit(db, audit_actor, "account.provision", user_id)
         return user_id
 
-    def provision_web_user(self, actor: Principal, username: str) -> Json:
-        if not actor.system_admin:
-            fail(403, "管理権限が必要です")
-        with self.lock:
-            self._limit("admin-provision:" + actor.id, 10)
+    def provision_web_user(
+        self, actor: Principal, username: str, *, session_token: str | None
+    ) -> Json:
+        with self.db() as db:
+            # Bind authorization to the live session inside the serialized creation transaction.
+            current = self._authenticate(db, session_token)
+            if current.id != actor.id:
+                fail(401, "ログインしてください")
+            if not current.system_admin:
+                fail(403, "管理権限が必要です")
+            self._limit("admin-provision:" + current.id, 10)
             temporary_password = secrets.token_urlsafe(24)
-            user_id = self.provision(username, temporary_password, audit_actor=actor.id)
+            user_id = self._provision(db, username, temporary_password, audit_actor=current.id)
         return {
             "id": user_id,
             "username": username,
