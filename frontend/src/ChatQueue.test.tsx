@@ -90,6 +90,7 @@ function jobStatus(status: string, messageId: string | null): Response {
     status,
     detail: status === "failed" ? "ログイン状態が変わりました" : "",
     message_id: messageId,
+    cancel_requested: false,
     created: 0,
   });
 }
@@ -118,6 +119,30 @@ it("queues the question while the model slot is busy and shows the answer", asyn
 });
 
 it("cancels a waiting question and reports the cancellation", async () => {
+  let cancelled = false;
+  route = (path, method) => {
+    if (path.endsWith("/api/conversations") && method === "POST")
+      return jsonResponse({ id: "conversation", project_id: "project" });
+    if (path.endsWith("/conversation/messages") && method === "POST")
+      return accepted("job-1");
+    if (path.endsWith("/api/chat-jobs/job-1")) {
+      if (method === "DELETE") {
+        cancelled = true;
+        return new Response(undefined, { status: 204 });
+      }
+      return jobStatus(cancelled ? "cancelled" : "queued", null);
+    }
+    return undefined;
+  };
+  await askQuestion();
+  await screen.findByText(/回答の生成は順番待ち/);
+  fireEvent.click(screen.getByRole("button", { name: "この質問を取り消す" }));
+  await screen.findByText("質問を取り消しました。", undefined, { timeout: 6000 });
+  expect(screen.queryByText(/回答の生成は順番待ち/)).toBeNull();
+  expect(screen.getByRole("textbox", { name: "メッセージ" })).toBeEnabled();
+});
+
+it("offers cancellation while running and shows accepted cooperative cancellation", async () => {
   route = (path, method) => {
     if (path.endsWith("/api/conversations") && method === "POST")
       return jsonResponse({ id: "conversation", project_id: "project" });
@@ -125,16 +150,57 @@ it("cancels a waiting question and reports the cancellation", async () => {
       return accepted("job-1");
     if (path.endsWith("/api/chat-jobs/job-1")) {
       if (method === "DELETE") return new Response(undefined, { status: 204 });
-      return jobStatus("queued", null);
+      return jsonResponse({
+        ...jobStatus("running", null),
+        cancel_requested: true,
+      });
+    }
+    return undefined;
+  };
+  await askQuestion();
+  fireEvent.click(await screen.findByRole("button", { name: "この質問を取り消す" }));
+  await waitFor(() =>
+    expect(screen.getAllByText(/取り消しを受け付けました/).length).toBeGreaterThan(0),
+  );
+  expect(screen.queryByRole("button", { name: "この質問を取り消す" })).toBeNull();
+});
+
+it("shows a terminal cancelled job without displaying an answer", async () => {
+  route = (path, method) => {
+    if (path.endsWith("/api/conversations") && method === "POST")
+      return jsonResponse({ id: "conversation", project_id: "project" });
+    if (path.endsWith("/conversation/messages") && method === "POST")
+      return accepted("job-1");
+    if (path.endsWith("/api/chat-jobs/job-1"))
+      return jobStatus("cancelled", null);
+    return undefined;
+  };
+  await askQuestion();
+  await screen.findByText("質問を取り消しました。回答は表示されません。", undefined, {
+    timeout: 6000,
+  });
+  expect(screen.queryByText("完成した回答です。")).toBeNull();
+});
+
+it("keeps the running state and reports a failed cancellation", async () => {
+  route = (path, method) => {
+    if (path.endsWith("/api/conversations") && method === "POST")
+      return jsonResponse({ id: "conversation", project_id: "project" });
+    if (path.endsWith("/conversation/messages") && method === "POST")
+      return accepted("job-1");
+    if (path.endsWith("/api/chat-jobs/job-1")) {
+      if (method === "DELETE")
+        return jsonResponse({ detail: "取り消せません" }, 409);
+      return jobStatus("running", null);
     }
     return undefined;
   };
   await askQuestion();
   await screen.findByText(/回答の生成は順番待ち/);
   fireEvent.click(screen.getByRole("button", { name: "この質問を取り消す" }));
-  await screen.findByText("質問を取り消しました。");
-  expect(screen.queryByText(/回答の生成は順番待ち/)).toBeNull();
-  expect(screen.getByRole("textbox", { name: "メッセージ" })).toBeEnabled();
+  await screen.findByText("取り消せません");
+  expect(screen.getByText(/回答の生成は順番待ち/)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "この質問を取り消す" })).toBeInTheDocument();
 });
 
 it("reports a failed queued question with the recorded reason", async () => {

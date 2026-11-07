@@ -71,6 +71,7 @@ export interface ChatJob {
   status: "queued" | "running" | "done" | "failed" | "cancelled";
   detail: string;
   message_id: string | null;
+  cancel_requested: boolean;
   created: number;
 }
 export interface Role {

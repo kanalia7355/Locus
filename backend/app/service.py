@@ -159,13 +159,21 @@ class Service:
                 user_id TEXT NOT NULL, text TEXT NOT NULL, scope TEXT NOT NULL,
                 attachments TEXT NOT NULL DEFAULT '[]', status TEXT NOT NULL,
                 detail TEXT NOT NULL DEFAULT '', message_id TEXT,
-                created REAL NOT NULL, updated REAL NOT NULL
+                created REAL NOT NULL, updated REAL NOT NULL,
+                cancel_requested INTEGER NOT NULL DEFAULT 0
             );
             CREATE TABLE IF NOT EXISTS audit (
                 id TEXT PRIMARY KEY, at REAL NOT NULL, actor_id TEXT NOT NULL,
                 operation TEXT NOT NULL, target_id TEXT NOT NULL, outcome TEXT NOT NULL
             );
         """)
+        chat_job_columns = {
+            row["name"] for row in self.conn.execute("PRAGMA table_info(chat_jobs)")
+        }
+        if "cancel_requested" not in chat_job_columns:
+            self.conn.execute(
+                "ALTER TABLE chat_jobs ADD COLUMN cancel_requested INTEGER NOT NULL DEFAULT 0"
+            )
 
     @contextmanager
     def db(self) -> Iterator[sqlite3.Connection]:
@@ -1001,6 +1009,22 @@ class Service:
             ]
             return {**dict(conv), "messages": messages, "attachments": attachments}
 
+    def _cancel_chat_if_requested(self, db: sqlite3.Connection, job: str) -> bool:
+        row = db.execute(
+            "SELECT user_id FROM chat_jobs WHERE id=? AND status='running' AND cancel_requested=1",
+            (job,),
+        ).fetchone()
+        if not row:
+            return False
+        changed = db.execute(
+            "UPDATE chat_jobs SET status='cancelled',updated=?,detail=?,message_id=NULL "
+            "WHERE id=? AND status='running' AND cancel_requested=1",
+            (time.time(), "質問を取り消しました", job),
+        ).rowcount
+        if changed:
+            self._audit(db, row["user_id"], "chat.cancelled", job)
+        return bool(changed)
+
     def send(
         self,
         actor: Principal,
@@ -1013,7 +1037,8 @@ class Service:
         validate: Callable[[], None] | None = None,
         token: str | None = None,
         charge_limit: bool = True,
-    ) -> Json:
+        chat_job_id: str | None = None,
+    ) -> Json | None:
         if scope not in {"all", "shared", "personal"}:
             fail(422, "参照範囲を確認してください")
         with self.db() as db:
@@ -1064,6 +1089,12 @@ class Service:
                     fail(401, "ログインしてください")
                 if validate:
                     validate()
+        # Honor cancellation before model dispatch, but never interrupt an HTTP
+        # request once started. The final transaction arbitrates racing completion.
+        if generate and citations and chat_job_id:
+            with self.db() as db:
+                if self._cancel_chat_if_requested(db, chat_job_id):
+                    return None
         # Never hold the database transaction during model I/O.
         generated = generate(text, citations) if generate and citations else None
         with self.db() as db:
@@ -1076,6 +1107,16 @@ class Service:
                     validate()
                 if self._citations(db, current, ids, conversation) != citations:
                     fail(409, "参照資料の権限または内容が変わりました")
+            if chat_job_id:
+                job_row = db.execute(
+                    "SELECT status,cancel_requested FROM chat_jobs WHERE id=? AND user_id=?",
+                    (chat_job_id, actor.id),
+                ).fetchone()
+                if not job_row or job_row["status"] != "running":
+                    return None
+                if job_row["cancel_requested"]:
+                    self._cancel_chat_if_requested(db, chat_job_id)
+                    return None
             if (
                 db.execute(
                     "SELECT COUNT(*) FROM messages WHERE conversation_id=?", (conversation,)
@@ -1090,6 +1131,15 @@ class Service:
             )
             if generated:
                 db.execute("INSERT INTO generated_answers VALUES (?,?,?)", (message, *generated))
+            if chat_job_id:
+                changed = db.execute(
+                    "UPDATE chat_jobs SET status='done',updated=?,detail='',message_id=? "
+                    "WHERE id=? AND status='running' AND cancel_requested=0",
+                    (time.time(), message, chat_job_id),
+                ).rowcount
+                if not changed:
+                    fail(409, "質問の状態が変わりました")
+                self._audit(db, "worker", "chat.done", chat_job_id)
             self._audit(db, actor.id, "retrieval.complete", conversation)
             return {
                 "id": message,
@@ -1204,13 +1254,20 @@ class Service:
             if not row:
                 fail(404, "質問が見つかりません")
             if row["status"] == "queued" and time.time() - row["created"] > CHAT_WAIT_SECONDS:
-                db.execute(
-                    "UPDATE chat_jobs SET status='failed',updated=?,detail=? WHERE id=?",
-                    (time.time(), "対話の待機上限を超えました。再度送信してください", job),
-                )
-                self._audit(db, actor.id, "chat.expired", job)
-                with self.chat_dispatch_lock:
-                    self.chat_dispatch.pop(job, None)
+                changed = db.execute(
+                    "UPDATE chat_jobs SET status='failed',updated=?,detail=? "
+                    "WHERE id=? AND user_id=? AND status='queued'",
+                    (
+                        time.time(),
+                        "対話の待機上限を超えました。再度送信してください",
+                        job,
+                        actor.id,
+                    ),
+                ).rowcount
+                if changed:
+                    self._audit(db, actor.id, "chat.expired", job)
+                    with self.chat_dispatch_lock:
+                        self.chat_dispatch.pop(job, None)
                 row = db.execute("SELECT * FROM chat_jobs WHERE id=?", (job,)).fetchone()
             return {
                 "id": row["id"],
@@ -1218,27 +1275,44 @@ class Service:
                 "status": row["status"],
                 "detail": row["detail"],
                 "message_id": row["message_id"],
+                "cancel_requested": bool(row["cancel_requested"]),
                 "created": row["created"],
             }
 
     def cancel_chat_job(self, actor: Principal, job: str) -> None:
-        """Cancel a queued question. A running request is reported, not interrupted."""
+        """Request cooperative cancellation without interrupting an in-flight model call."""
+        remove_dispatch = False
         with self.db() as db:
+            self._limit("chatjob:" + actor.id, 120)
             row = db.execute(
-                "SELECT * FROM chat_jobs WHERE id=? AND user_id=?", (job, actor.id)
+                "SELECT status,cancel_requested FROM chat_jobs WHERE id=? AND user_id=?",
+                (job, actor.id),
             ).fetchone()
             if not row:
                 fail(404, "質問が見つかりません")
-            if row["status"] == "running":
-                fail(409, "回答の生成中です。完了までお待ちください")
-            if row["status"] != "queued":
+            if row["status"] == "queued":
+                changed = db.execute(
+                    "UPDATE chat_jobs SET status='cancelled',updated=?,detail=?,message_id=NULL "
+                    "WHERE id=? AND user_id=? AND status='queued'",
+                    (time.time(), "質問を取り消しました", job, actor.id),
+                ).rowcount
+                if changed:
+                    self._audit(db, actor.id, "chat.cancel", job)
+                    remove_dispatch = True
+            elif row["status"] == "running":
+                if not row["cancel_requested"]:
+                    changed = db.execute(
+                        "UPDATE chat_jobs SET cancel_requested=1,updated=? "
+                        "WHERE id=? AND user_id=? AND status='running' AND cancel_requested=0",
+                        (time.time(), job, actor.id),
+                    ).rowcount
+                    if changed:
+                        self._audit(db, actor.id, "chat.cancel.requested", job)
+            elif row["status"] != "cancelled":
                 fail(409, "処理済みの質問です")
-            db.execute(
-                "UPDATE chat_jobs SET status='cancelled',updated=? WHERE id=?", (time.time(), job)
-            )
-            self._audit(db, actor.id, "chat.cancel", job)
-        with self.chat_dispatch_lock:
-            self.chat_dispatch.pop(job, None)
+        if remove_dispatch:
+            with self.chat_dispatch_lock:
+                self.chat_dispatch.pop(job, None)
 
     def process_next_chat(self) -> bool:
         """Run at most one queued dialogue; called by the background worker loop."""
@@ -1268,7 +1342,7 @@ class Service:
         job_id = row["id"]
         try:
             principal = self.authenticate(dispatch.token)
-            result = self.send(
+            self.send(
                 principal,
                 row["conversation_id"],
                 row["text"],
@@ -1280,17 +1354,24 @@ class Service:
                 # Submission already charged the per-user limit; worker retries
                 # must not consume it again while they wait for the slot.
                 charge_limit=False,
+                chat_job_id=job_id,
             )
         except ModelBusy:
-            # The slot was taken between pickup and dispatch: return to the line
-            # in arrival order without consuming the job; the wait deadline set
-            # at submission still applies on later ticks.
+            # No HTTP request started. Requeue only if cancellation did not win.
             with self.db() as db:
-                db.execute(
+                changed = db.execute(
                     "UPDATE chat_jobs SET status='queued',updated=? "
-                    "WHERE id=? AND status='running'",
+                    "WHERE id=? AND status='running' AND cancel_requested=0",
                     (time.time(), job_id),
-                )
+                ).rowcount
+                cancelled = False if changed else self._cancel_chat_if_requested(db, job_id)
+            if cancelled:
+                with self.chat_dispatch_lock:
+                    self.chat_dispatch.pop(job_id, None)
+                return True
+            if not changed:
+                self._finish_chat(job_id, "failed", "対話の実行状態を確認できませんでした")
+                return True
             return False
         except HTTPException as exc:
             detail = (
@@ -1303,7 +1384,10 @@ class Service:
         except Exception:
             self._finish_chat(job_id, "failed", "対話の処理中に問題が発生しました")
             return True
-        self._finish_chat(job_id, "done", "", result["id"])
+        # send() commits completion with its answer atomically; a cancellation
+        # winner commits no message. Drop the process-local dispatch either way.
+        with self.chat_dispatch_lock:
+            self.chat_dispatch.pop(job_id, None)
         return True
 
     def _fail_chat(self, db: sqlite3.Connection, job: str, detail: str) -> None:
@@ -1320,13 +1404,22 @@ class Service:
 
     def _finish_chat(self, job: str, status: str, detail: str, message: str | None = None) -> None:
         with self.db() as db:
-            changed = db.execute(
-                "UPDATE chat_jobs SET status=?,updated=?,detail=?,message_id=? WHERE id=?",
-                (status, time.time(), detail, message, job),
-            ).rowcount
-            if changed:
-                # A vanished row (conversation cascade) is not a state change.
-                self._audit(db, "worker", f"chat.{status}", job)
+            row = db.execute(
+                "SELECT cancel_requested FROM chat_jobs WHERE id=? AND status='running'",
+                (job,),
+            ).fetchone()
+            if not row:
+                changed = 0
+            elif row["cancel_requested"]:
+                changed = self._cancel_chat_if_requested(db, job)
+            else:
+                changed = db.execute(
+                    "UPDATE chat_jobs SET status=?,updated=?,detail=?,message_id=? "
+                    "WHERE id=? AND status='running' AND cancel_requested=0",
+                    (status, time.time(), detail, message, job),
+                ).rowcount
+                if changed:
+                    self._audit(db, "worker", f"chat.{status}", job)
         with self.chat_dispatch_lock:
             self.chat_dispatch.pop(job, None)
 
