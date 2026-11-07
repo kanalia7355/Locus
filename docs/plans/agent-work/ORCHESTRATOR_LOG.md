@@ -15,7 +15,7 @@ Rules established by the owner (2026-11-06):
 | B | PH1-B admin account enable/disable | `loop/PH1-account-toggle` | deepai gpt-6-luna | ph1-b-toggle-003 | running — AT RISK: theos quota is account-wide; if it fails, relaunch after refresh with Luna. |
 | C | PH1-C hybrid threat model | loop/local-development (in-parent) | orchestrator glm-5.3-flash | ph1-c-threat-001 | DONE 2026-11-07: docs/security/HYBRID_AGENT_THREAT_MODEL.md committed at 0240f63 (matrix with cited evidence, STRIDE model, phase-mapped gaps with 要決定 markers, 5 consistency findings). The leftover worktree PH1-threat-model only holds the agent's progress notes; retire it at the next cleanup. |
 | D | PH1-D admin web user provisioning | `loop/PH1-web-provisioning` | deepai gpt-6-luna | ph1-d-provision-002 | running (worktree reset hard to loop/local-development before starting) |
-| E | PH1-E independent review of the hybrid threat model | (no branch, read-only in main checkout) | deepai gpt-6-luna | ph1-e-review-001 | running |
+| E | PH1-E independent review of the hybrid threat model | (read-only, no branch) | deepai gpt-6-luna | ph1-e-review-001 | DONE 2026-11-07: verdict "accept after minor fixes" (1 high + 4 medium); all fixes applied by the document owner in 307a5bb; review history recorded in the doc. Slot free. |
 | F | (free) | | | | |
 
 ## Queued backlog
@@ -34,6 +34,9 @@ Rules established by the owner (2026-11-06):
   recorded as blocked, never passed.
 
 ## Integration log
+
+Out-of-cycle 2026-11-07: slot E review completed (accept after minor fixes);
+fixes applied and pushed (307a5bb). Slot E freed.
 
 Cycle 2026-11-07 ~01:04Z: A progressing (notes only, no code yet), B implementing
 (uncommitted backend+frontend diff), D aligned worktree to 50319a0 and reading
