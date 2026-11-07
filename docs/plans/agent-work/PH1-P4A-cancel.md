@@ -51,3 +51,14 @@ Process: own worktree `git -C C:/Users/hirot/Locus worktree add .loop/runtime/wo
 Boundaries: never push to `main` or `loop/local-development`; no admin-page work
 (another job owns the admin screens); no LocalModel behavior changes beyond the
 cooperative-cancellation flag; do not spawn subagents.
+
+## Progress
+
+- Relaunch verification: inspected the existing chat job implementation, LocalModel's single bounded HTTP request and non-reacquirable lock, queue tests, frontend polling/cancel affordance, API response schema, the Phase-4 reconciliation row, and approved UI baseline. Confirmed queued 202 / synchronous 200 contracts and 300s / 16 / 2 caps are unchanged. Fast-forward merged `origin/loop/local-development` (including subsequent docs-only commits) with no conflict and no force-push.
+- Adversarial draft review: confirmed serialized SQLite transitions arbitrate cancellation vs completion; cancelled running output is checked before publication and answer/message/job completion commit together; timeout/failure path also honors the cancel flag; repeat cancellation is idempotent; owner filtering and per-user rate limit remain. Found a UI race: cancellation can succeed after the server starts a job but before the next poll updates the UI, so treating the stale local `queued` state as terminal hid the still-running job. Fixed frontend to retain the pending state and poll for the authoritative terminal cancellation, and removed duplicate state updates. Added regressions for running-call timeout, cancellation authorization/rate limits, and frontend pending-state behavior. Full QA and delivery remain pending.
+
+## Orchestrator delivery postscript (2026-11-08)
+
+- The delivery relaunch run died with the provider-wide 429 rate limit; the orchestrator completed the authorized delivery with an isolated QA venv (`.loop/runtime/qa-venv`, Python 3.13) because the shared `.venv` had been switched to Python 3.10.6 without the project dependencies (environment change recorded in the ledger).
+- Delivery-time fixes: two ruff issues in service.py (long line split; unused variable removed — behavior preserved); three ChatQueue test harness fixes (queued-cancel mock now transitions to `cancelled` after DELETE; duplicate-text assertion uses `getAllByText` because the toast notice and the inline running-status line legitimately share the accepted-cancellation wording; `findByText` timeouts raised to 6s to cover the 2-second status poll). No component logic changed.
+- Final local QA: full pytest 1117 passed / 18 skipped; ruff check + format clean; mypy backend/app clean; secret scan 0 findings; frontend lint clean; Vitest 55 passed (13 files); build success; Playwright Chromium 10 passed (worktree `.venv` junction points at the isolated QA venv for the e2e server).

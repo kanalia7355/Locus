@@ -280,6 +280,11 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
     conversation: string;
     text: string;
     status: "queued" | "running";
+    cancelRequested: boolean;
+  } | null>(null);
+  const [cancelledJob, setCancelledJob] = useState<{
+    conversation: string;
+    text: string;
   } | null>(null);
   const [source, setSource] = useState<{
     document: Document;
@@ -457,22 +462,33 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
     return () => clearInterval(timer);
   }, [attachments]);
 
+  const pendingJobId = pendingJob?.id;
+  const pendingConversation = pendingJob?.conversation;
+  const pendingText = pendingJob?.text;
+  const pendingJobIdRef = useRef<string | null>(null);
+  pendingJobIdRef.current = pendingJobId ?? null;
   useEffect(() => {
-    if (!pendingJob) return;
-    const job = pendingJob;
+    if (!pendingJobId || !pendingConversation || !pendingText) return;
+    const job = { id: pendingJobId, conversation: pendingConversation, text: pendingText };
     const controller = new AbortController();
     const timer = setInterval(() => {
       void api<ChatJob>(`/chat-jobs/${job.id}`, { signal: controller.signal })
         .then((status) => {
-          if (controller.signal.aborted) return;
+          if (controller.signal.aborted || pendingJobIdRef.current !== job.id) return;
           if (status.status === "running") {
             setPendingJob((current) =>
               current && current.id === job.id
-                ? { ...current, status: "running" }
+                ? {
+                    ...current,
+                    status: "running",
+                    cancelRequested:
+                      current.cancelRequested || status.cancel_requested,
+                  }
                 : current,
             );
           } else if (status.status === "done") {
             setPendingJob(null);
+            setCancelledJob(null);
             if (status.conversation_id === conversationRef.current) {
               void api<Conversation>(
                 `/conversations/${status.conversation_id}`,
@@ -491,13 +507,16 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
               );
           } else if (status.status === "failed") {
             setPendingJob(null);
+            setCancelledJob(null);
             setError(`回答を生成できませんでした。${status.detail}`);
           } else if (status.status === "cancelled") {
             setPendingJob(null);
+            setCancelledJob({ conversation: job.conversation, text: job.text });
+            setNotice("質問を取り消しました。");
           }
         })
         .catch((error) => {
-          if (controller.signal.aborted) return;
+          if (controller.signal.aborted || pendingJobIdRef.current !== job.id) return;
           clearInterval(timer);
           setPendingJob(null);
           setError(
@@ -509,7 +528,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
       clearInterval(timer);
       controller.abort();
     };
-  }, [pendingJob]);
+  }, [pendingJobId, pendingConversation, pendingText]);
 
   useEffect(() => {
     if (source?.selectedChunk && sourceTarget.current) {
@@ -533,6 +552,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
     if (window.innerWidth < 768) setSidebar(false);
   }
   function newChat() {
+    setCancelledJob(null);
     conversationRef.current = null;
     conversationPromise.current = null;
     setConversationId(null);
@@ -657,6 +677,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
   async function send(event: FormEvent) {
     event.preventDefault();
     if (!draft.trim() || busy || pendingJob || !can("retrieve")) return;
+    setCancelledJob(null);
     setError("");
     if (attachments.some((item) => item.status !== "ready")) {
       setError(
@@ -683,6 +704,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
           conversation: id,
           text: response.text,
           status: "queued",
+          cancelRequested: false,
         });
       } else {
         setMessages((items) => [...items, response]);
@@ -697,10 +719,17 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
   }
   async function cancelPendingJob() {
     if (!pendingJob) return;
+    setError("");
     try {
       await api(`/chat-jobs/${pendingJob.id}`, json("DELETE", {}));
-      setPendingJob(null);
-      setNotice("質問を取り消しました。");
+      // The UI may still say queued after the worker atomically started the job.
+      // Keep polling until the server reports its terminal cancelled state.
+      setPendingJob((current) =>
+        current && current.id === pendingJob.id
+          ? { ...current, cancelRequested: true }
+          : current,
+      );
+      setNotice("質問の取り消しを受け付けました。処理終了後に結果を破棄します。");
     } catch (error) {
       setError(errorText(error));
     }
@@ -710,6 +739,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
     try {
       const conv = await api<Conversation>(`/conversations/${id}`);
       conversationRef.current = id;
+      setCancelledJob(null);
       setConversationId(id);
       setMessages(conv.messages);
       setAttachments(
@@ -974,16 +1004,26 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
                   </article>
                 ))
               )}
+              {cancelledJob && cancelledJob.conversation === conversationId && (
+                <article className="exchange">
+                  <p className="user-message">{cancelledJob.text}</p>
+                  <div className="answer">
+                    <p role="status">質問を取り消しました。回答は表示されません。</p>
+                  </div>
+                </article>
+              )}
               {pendingJob && pendingJob.conversation === conversationId && (
                 <article className="exchange">
                   <p className="user-message">{pendingJob.text}</p>
                   <div className="answer">
                     <p role="status">
-                      {pendingJob.status === "running"
-                        ? "回答を作成中です。完成するとこの会話に表示されます。"
-                        : "回答の生成は順番待ちです。モデルが空くと自動的に処理されます。"}
+                      {pendingJob.cancelRequested
+                        ? "質問の取り消しを受け付けました。処理終了後に結果を破棄します。"
+                        : pendingJob.status === "running"
+                          ? "回答を作成中です。完成するとこの会話に表示されます。"
+                          : "回答の生成は順番待ちです。モデルが空くと自動的に処理されます。"}
                     </p>
-                    {pendingJob.status === "queued" && (
+                    {!pendingJob.cancelRequested && (
                       <button
                         className="text-link"
                         onClick={() => {
