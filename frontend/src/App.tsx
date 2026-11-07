@@ -8,6 +8,8 @@ import {
   PanelLeft,
   Plus,
   SquarePen,
+  UserCheck,
+  UserX,
   X,
 } from "lucide-react";
 import { api, errorText, json, statusName } from "./api";
@@ -1199,8 +1201,10 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
             onError={setError}
           />
         )}
-        {page === "users" && user.system_admin && <AdminList kind="users" />}
-        {page === "audit" && user.system_admin && <AdminList kind="audit" />}
+        {page === "users" && user.system_admin && (
+          <AdminList key="users" kind="users" currentUserId={user.id} />
+        )}
+        {page === "audit" && user.system_admin && <AdminList key="audit" kind="audit" />}
         {page === "settings" && (
           <div className="settings">
             <h2>処理先</h2>
@@ -1747,13 +1751,23 @@ function RoleEditor({
   );
 }
 
-function AdminList({ kind }: { kind: "users" | "audit" }) {
+function AdminList({
+  kind,
+  currentUserId,
+}: {
+  kind: "users" | "audit";
+  currentUserId?: string;
+}) {
   const [rows, setRows] = useState<Record<string, string | number | boolean>[]>(
     [],
   );
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const pending = useRef(false);
+  const mounted = useRef(false);
   useEffect(() => {
     let active = true;
+    mounted.current = true;
     void api<Record<string, string | number | boolean>[]>(`/admin/${kind}`)
       .then((data) => {
         if (active) setRows(data);
@@ -1765,6 +1779,26 @@ function AdminList({ kind }: { kind: "users" | "audit" }) {
       active = false;
     };
   }, [kind]);
+  useEffect(() => () => { mounted.current = false; }, []);
+  async function toggle(row: Record<string, string | number | boolean>) {
+    if (pending.current) return;
+    pending.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      const updated = await api<Record<string, string | number | boolean>>(
+        `/admin/users/${encodeURIComponent(String(row.id))}/enabled`,
+        json("PUT", { enabled: !row.enabled }),
+      );
+      if (mounted.current)
+        setRows((current) => current.map((item) => item.id === updated.id ? updated : item));
+    } catch (error) {
+      if (mounted.current) setError(errorText(error));
+    } finally {
+      pending.current = false;
+      if (mounted.current) setBusy(false);
+    }
+  }
   return (
     <>
       <p className="muted">
@@ -1781,8 +1815,16 @@ function AdminList({ kind }: { kind: "users" | "audit" }) {
                 <strong>{row.username}</strong>
                 <span>
                   {row.system_admin ? "システム管理者" : "利用者"} ·{" "}
-                  {row.must_rotate ? "初回変更待ち" : "有効"}
+                  {row.enabled ? "有効" : "無効"}
+                  {row.must_rotate ? " · 初回変更待ち" : ""}
                 </span>
+                <IconButton
+                  label={`${row.username}を${row.enabled ? "無効" : "有効"}にする`}
+                  disabled={busy || row.id === currentUserId}
+                  onClick={() => void toggle(row)}
+                >
+                  {row.enabled ? <UserX size={18} /> : <UserCheck size={18} />}
+                </IconButton>
               </>
             ) : (
               <>

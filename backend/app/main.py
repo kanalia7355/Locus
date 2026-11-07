@@ -48,6 +48,10 @@ class Password(Input):
     new_password: str = Field(min_length=14, max_length=128)
 
 
+class AccountEnabled(Input):
+    enabled: bool = Field(strict=True)
+
+
 class ProjectInput(Input):
     project_id: str = Field(min_length=1, max_length=64)
 
@@ -216,8 +220,12 @@ def create_app(
 
     @app.post("/api/auth/password")
     def password(data: Password, request: Request, response: Response) -> dict[str, bool]:
-        user = svc.authenticate(request.cookies.get(COOKIE), allow_rotation=True)
-        cookie(response, svc.rotate(user, data.current_password, data.new_password))
+        token = request.cookies.get(COOKIE)
+        user = svc.authenticate(token, allow_rotation=True)
+        cookie(
+            response,
+            svc.rotate(user, data.current_password, data.new_password, session_token=token),
+        )
         return {"ok": True}
 
     @app.post("/api/auth/logout", status_code=204)
@@ -395,6 +403,10 @@ def create_app(
             )
             svc._audit(db, current.id, "model.configure", "local-model-runtime")
             return result
+
+    @app.put("/api/admin/users/{user_id}/enabled")
+    def set_user_enabled(user_id: str, data: AccountEnabled, request: Request) -> dict[str, Any]:
+        return svc.set_user_enabled(request.cookies.get(COOKIE), user_id, data.enabled)
 
     @app.get("/api/admin/users")
     def users(user: Actor) -> list[dict[str, Any]]:
