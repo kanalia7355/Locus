@@ -11,8 +11,8 @@ Rules established by the owner (2026-11-06):
 
 | Slot | Task | Branch | Model/provider | TaskId | Status |
 |---|---|---|---|---|---|
-| A | PH1-A authentication recovery | `loop/PH1-recovery` | codex gpt-5.6-terra | (assigned) | running |
-| B | PH1-B admin account enable/disable | `loop/PH1-account-toggle` | deepai gpt-6.1-sol | (assigned) | running |
+| A | PH1-A authentication recovery | `loop/PH1-recovery` | deepai gpt-6.1-sol | ph1-a-recovery-002 | running (first codex run failed on a Codex CLI config error, not the task) |
+| B | PH1-B admin account enable/disable | `loop/PH1-account-toggle` | deepai gpt-6-luna | ph1-b-toggle-003 | running (relaunch; first run died on provider daily quota `theos_exhausted`, gpt-6.1-sol; uncommitted draft preserved in worktree) |
 | C | PH1-C hybrid threat model | `loop/PH1-threat-model` | deepai kimi-k3 | (assigned) | running |
 | D | PH1-D admin web user provisioning | `loop/PH1-web-provisioning` | deepai glm-5.3 | (assigned) | running |
 | E | (free) | | | | |
