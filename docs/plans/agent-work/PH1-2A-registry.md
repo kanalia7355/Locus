@@ -46,3 +46,7 @@ Process: own worktree `git -C C:/Users/hirot/Locus worktree add .loop/runtime/wo
 
 Boundaries: never push to `main` or `loop/local-development`; no frontend; no
 activation of anything; do not spawn subagents.
+
+## Progress
+
+- 2026-11-09: Active after suspension; fast-forwarded from `16a9b6f` to `04ac645`, then to latest `origin/loop/local-development` `41dcb62`, using `git merge` only (no conflicts or judgment calls; upstream changes were ledger notes only). Adversarial review found draft issues: non-functional expected binding-history table/test assertion, no constraint on binding policy versions, no test proving audit failures roll back mutations, and credential schema introspection ignored hidden columns. Fixed the schema/test mismatch, keyed bindings by exact policy version, added a guarded immutable-row insert trigger and audit-rollback + allowlisted-schema regressions, and expanded credential introspection to include hidden/generated columns. Binding creation now requires the adapter to be on the policy allowlist and the Runner instance to be registered. Dispatch is an explicit audited 409 Control-Plane gate, with a registered Runner present in the regression. No dispatch, enqueue, execution, activation or egress was added. QA on the isolated Python 3.13 environment: final full run `pytest tests -q --ignore=tests/e2e` — 1127 passed, 18 skipped (only documented opt-in/native/symlink skips); Ruff check passed, Ruff format check passed (125 files), `mypy backend/app` passed, secret scan 0 findings. CI pending push.
