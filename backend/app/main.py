@@ -82,6 +82,11 @@ class Message(Input):
 class Role(Input):
     name: str = Field(min_length=1, max_length=64)
     permissions: list[str] = Field(max_length=10)
+    denied_permissions: list[str] | None = Field(default=None, max_length=20)
+
+
+class MembershipDenials(Input):
+    denied_permissions: list[str] = Field(max_length=20)
 
 
 class Grant(Input):
@@ -369,17 +374,38 @@ def create_app(
     def roles(project: str, user: Actor) -> dict[str, Any]:
         return svc.roles(user, project)
 
+    @app.get("/api/projects/{project}/members/{username}/roles")
+    def membership_roles(project: str, username: str, user: Actor) -> dict[str, Any]:
+        return svc.membership_roles(user, project, username)
+
+    @app.post("/api/projects/{project}/members/{username}/roles/{role_id}", status_code=204)
+    def add_membership_role(project: str, username: str, role_id: str, user: Actor) -> None:
+        svc.add_role_holding(user, project, username, role_id)
+
+    @app.delete("/api/projects/{project}/members/{username}/roles/{role_id}", status_code=204)
+    def remove_membership_role(project: str, username: str, role_id: str, user: Actor) -> None:
+        svc.remove_role_holding(user, project, username, role_id)
+
+    @app.put("/api/projects/{project}/members/{username}/denials")
+    def membership_denials(
+        project: str, username: str, data: MembershipDenials, user: Actor
+    ) -> dict[str, Any]:
+        denied = svc.set_membership_denials(user, project, username, data.denied_permissions)
+        return {"username": username, "project_id": project, "denied_permissions": denied}
+
     @app.post("/api/projects/{project}/roles", status_code=201)
     def role(project: str, data: Role, user: Actor) -> dict[str, Any]:
         if not data.name.strip():
             fail(422, "ロール名を入力してください")
-        return svc.create_role(user, project, data.name, data.permissions)
+        return svc.create_role(user, project, data.name, data.permissions, data.denied_permissions)
 
     @app.put("/api/projects/{project}/roles/{role_id}")
     def update_role(project: str, role_id: str, data: Role, user: Actor) -> dict[str, Any]:
         if not data.name.strip():
             fail(422, "ロール名を入力してください")
-        return svc.update_role(user, project, role_id, data.name, data.permissions)
+        return svc.update_role(
+            user, project, role_id, data.name, data.permissions, data.denied_permissions
+        )
 
     @app.get("/api/admin/models/sources")
     def model_sources(user: Actor) -> list[dict[str, str]]:
