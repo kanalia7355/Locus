@@ -5,7 +5,7 @@ Date: 2026-10-31. This tracks implementation progress, not production approval. 
 | Phase | Implemented development slice | Remaining product work |
 |---|---|---|
 | 0 Bootstrap | Python/FastAPI and React/TS/Vite/Tailwind, locked dependencies, lint/types/unit/integration/browser checks, offline secret scan, package audits, CI files, local scripts, ADR/risk/usage records | Remote CI/branch protection/trusted review integration; host-enforced reviewer restrictions unavailable |
-| 1 Authentication | Interactive local provisioning, unique IDs, Argon2id, expiring single-use temporary credentials, enforced first-login rotation, opaque digested sessions, idle/absolute expiry, revocation on change/logout, rate limits | Production recovery/MFA/TLS/session deployment policy approval |
+| 1 Authentication | Interactive local provisioning, unique IDs, Argon2id, expiring single-use temporary credentials, enforced first-login rotation, opaque digested sessions, idle/absolute expiry, revocation on change/logout, rate limits; admin-issued digest-only single-use recovery (24-hour expiry, all sessions revoked on redemption); web user provisioning (generated temporary password shown once, forced first-login rotation); web enable/disable (disabling purges sessions) | MFA; production TLS/session deployment policy approval and actual deployment validation |
 | 2 Scoped authorization | Project and organization identity, backend permission templates, per-project membership, private documents/history/attachments, live document-role grants, deny-by-default API tests | Production data model and delegation semantics; live delegation remains disabled |
 | 3 Ingestion and retrieval | Bounded text ingestion, source/page/chunk metadata, queue/cancel, scanner default quarantine, synthetic-only successful seed path, lexical search, live permission checks, derived-data deletion | Approved scanner/parser sandbox, PDF/OCR, storage connectors, approved DB/vector/model adapters, resumable distributed jobs |
 | 4 Researcher/admin UI | Approved sidebar/chat/composer/icon baseline, accessible navigation, IME handling, file/drop shared path, status/removal, project/reference scope, actual source viewer, owner history, mobile checks | Actual local LLM streaming, representative-user usability and accessibility audit beyond current checks |
@@ -140,3 +140,51 @@ a completion ETA, folder inventory, durable notification history or a fair model
 Frontend unit43, lint/build, and browser10 passed; the strengthened narrow-width
 case also passed after waiting for sidebar animation completion. Independent
 review findings about deadline/stopped-state wording were fixed in one cycle.
+
+## Phase-1 auth-slice consolidation evidence — 2026-11-07
+
+This records implemented development-slice evidence only; it is not a Phase-1
+completion claim. MFA and production TLS/session deployment remain unresolved.
+
+- Recovery: admin-issued, digest-only, single-use code with 24-hour expiry;
+  redemption changes the credential and revokes all sessions. `loop/PH1-recovery`
+  implementation/CI-repair `bd9f2cf` (CI-green
+  branch head `93d1633`), integrated into `loop/local-development` as `1056021`.
+  Branch QA: pytest **1101 passed, 18 skipped**, Ruff check/format, mypy, and
+  secret scan passed (0 findings).
+- Web account enable/disable: administrator UI toggle; disabling deletes live
+  sessions and enabling does not recreate them. `loop/PH1-account-toggle`
+  `a31d570`, integrated
+  as `b7adb42`; CI repair `ed11f73`. QA: pytest **1098 passed, 18 skipped**,
+  toggle tests 8, frontend tests 49, Playwright 10, lint/typecheck/build and
+  Ruff/mypy/secret scan passed. The integrated push `c28a280` completed all
+  workflows successfully, including the Windows engine matrix.
+- Web user provisioning: administrator-created users receive a generated
+  temporary password once and must rotate it on first login. `loop/PH1-web-provisioning`
+  final code `a355efb`
+  (CI-green branch head `76ba39a`), integrated as `2610b70`. QA: pytest
+  **1094 passed, 18 skipped**, frontend tests 49, Playwright 10, lint/build,
+  Ruff/mypy and secret scan (0 findings) passed. The integrated push after
+  provisioning (`590f40a`) completed all workflows successfully.
+- Cross-job regression at the consolidation worktree's code base `fa6e7c5`:
+  pytest **1113 passed, 18 skipped**; Ruff check passed and format check found
+  117 files already formatted; mypy passed for 7 source files; offline secret
+  scan found 0 issues; frontend lint and production build passed; Vitest
+  **52 tests / 13 files passed**; Playwright **10 passed**. No test-level
+  collisions surfaced; tests were not changed.
+- Unresolved cross-slice security finding (medium; reproduced locally): an
+  already-authenticated system-admin `Principal` can still provision a user
+  after another admin disables that actor and revokes its sessions. The
+  `POST /api/admin/users` route resolves `Actor` before calling
+  `Service.provision_web_user`, which trusts the cached `system_admin` flag and
+  does not revalidate the session in the mutation transaction. A temporary-DB
+  reproduction confirmed the stale session itself now returns 401, yet
+  `provision_web_user(stale_principal, ...)` still creates the user. No feature
+  code or tests were changed in PH1-G; recommend session revalidation inside
+  the provisioning transaction plus a regression test. Independent review and
+  authorized implementation should resolve/assess this before treating
+  immediate disable as applying to in-flight admin mutations.
+
+This local regression is not CI evidence for the later PH1-G documentation
+commit. The aggregate still requires independent review and all required CI
+checks green at its exact pushed HEAD, before any Phase-1 completion decision.
