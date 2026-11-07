@@ -11,10 +11,10 @@ Rules established by the owner (2026-11-06):
 
 | Slot | Task | Branch | Model/provider | TaskId | Status |
 |---|---|---|---|---|---|
-| A | PH1-A authentication recovery | `loop/PH1-recovery` | deepai gpt-6.1-sol | ph1-a-recovery-002 | running (first codex run failed on a Codex CLI config error, not the task) |
-| B | PH1-B admin account enable/disable | `loop/PH1-account-toggle` | deepai gpt-6-luna | ph1-b-toggle-003 | running (relaunch; first run died on provider daily quota `theos_exhausted`, gpt-6.1-sol; uncommitted draft preserved in worktree) |
-| C | PH1-C hybrid threat model | `loop/PH1-threat-model` | deepai kimi-k3 | (assigned) | running |
-| D | PH1-D admin web user provisioning | `loop/PH1-web-provisioning` | deepai glm-5.3 | (assigned) | running |
+| A | PH1-A authentication recovery | `loop/PH1-recovery` | (relaunch after quota refresh; owner prefers DeepAI, Luna) | ph1-a-recovery-002 | FAILED theos_exhausted (account-wide daily quota, refresh 2026-11-07T22:01Z). Worktree clean. Relaunch queued. |
+| B | PH1-B admin account enable/disable | `loop/PH1-account-toggle` | deepai gpt-6-luna | ph1-b-toggle-003 | running — AT RISK: theos quota is account-wide; if it fails, relaunch after refresh with Luna. |
+| C | PH1-C hybrid threat model | `loop/PH1-threat-model` | orchestrator in-parent | ph1-c-threat-001 | FAILED theos_exhausted after governance reading; no draft. Orchestrator implements the doc in-parent (docs-only, no code conflict). |
+| D | PH1-D admin web user provisioning | `loop/PH1-web-provisioning` | (relaunch after quota refresh) | ph1-d-provision-001 | FAILED theos_exhausted. Worktree clean. Relaunch queued. |
 | E | (free) | | | | |
 
 ## Queued backlog
@@ -22,6 +22,16 @@ Rules established by the owner (2026-11-06):
 1. PH1-E: consolidation — reconciliation doc update from the four task files, cross-job regression run, independent review of the auth-slice aggregate.
 2. Phase 4 remainder (admin screens, comparison table, running-question cancellation) — pending owner prioritisation.
 3. Hybrid-requirements step 2 (Agent Registry / common adapter / workspace policy) — only after the threat model (PH1-C) is reviewed.
+
+## Outage log
+
+- 2026-11-07: all DeepAI subagent runs die with `theos_exhausted` (account-wide
+  daily quota). Refresh at 2026-11-07T22:01:03Z. Policy: no relaunch attempts
+  before refresh; after refresh, relaunch failed slots (A, D, and B/C as needed)
+  using DeepAI models (owner preference: Luna for relaunches). Orchestrator
+  continues docs-only work in-parent meanwhile.
+- GitHub Actions remains separately blocked by account billing; CI evidence is
+  recorded as blocked, never passed.
 
 ## Integration log
 
