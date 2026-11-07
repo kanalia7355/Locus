@@ -114,6 +114,10 @@ class Service:
                 token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id),
                 expires REAL NOT NULL, last_seen REAL NOT NULL, rotation_only INTEGER NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS recovery_codes (
+                user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                code_hash TEXT NOT NULL, expires REAL NOT NULL, used INTEGER NOT NULL DEFAULT 0
+            );
             CREATE TABLE IF NOT EXISTS projects (
                 id TEXT PRIMARY KEY, org_id TEXT NOT NULL, name TEXT NOT NULL
             );
@@ -365,6 +369,64 @@ class Service:
             token = self._session(db, principal.id, False)
             self._audit(db, principal.id, "credential.rotate", principal.id)
             return token
+
+    def issue_recovery(self, username: str) -> str:
+        code = secrets.token_urlsafe(32)
+        with self.db() as db:
+            user = db.execute(
+                "SELECT id,enabled FROM users WHERE username=?", (username,)
+            ).fetchone()
+            if not user:
+                fail(404, "利用者が見つかりません")
+            if not user["enabled"]:
+                fail(409, "無効な利用者には回復コードを発行できません")
+            db.execute(
+                "INSERT OR REPLACE INTO recovery_codes (user_id,code_hash,expires,used) "
+                "VALUES (?,?,?,0)",
+                (user["id"], digest(code), time.time() + 86400),
+            )
+            self._audit(db, "local-cli", "credential.recovery.issue", user["id"])
+        return code
+
+    def recover(self, username: str, code: str, new_password: str) -> None:
+        with self.db() as db:
+            self._limit("recovery:" + digest(username), 5)
+            user = db.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
+            recovery = db.execute(
+                "SELECT * FROM recovery_codes WHERE user_id=?", (user["id"] if user else "",)
+            ).fetchone()
+            matches = secrets.compare_digest(
+                recovery["code_hash"] if recovery else "0" * 64, digest(code)
+            )
+            now = time.time()
+            if (
+                not user
+                or not recovery
+                or not matches
+                or recovery["used"]
+                or recovery["expires"] <= now
+                or not user["enabled"]
+            ):
+                fail(401, "利用者IDまたは回復コードを確認してください")
+            if not 14 <= len(new_password) <= 128:
+                fail(422, "異なる14〜128文字のパスワードを設定してください")
+            try:
+                PASSWORDS.verify(user["password_hash"], new_password)
+            except VerificationError:
+                pass
+            else:
+                fail(422, "異なる14〜128文字のパスワードを設定してください")
+            db.execute(
+                "UPDATE users SET password_hash=?,must_rotate=0,temp_used=0,temp_expires=NULL "
+                "WHERE id=?",
+                (PASSWORDS.hash(new_password), user["id"]),
+            )
+            db.execute(
+                "UPDATE recovery_codes SET used=1,expires=? WHERE user_id=?",
+                (now, user["id"]),
+            )
+            db.execute("DELETE FROM sessions WHERE user_id=?", (user["id"],))
+            self._audit(db, "recovery", "credential.recover", user["id"])
 
     def logout(self, token: str | None) -> None:
         with self.db() as db:

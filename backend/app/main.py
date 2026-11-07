@@ -48,6 +48,12 @@ class Password(Input):
     new_password: str = Field(min_length=14, max_length=128)
 
 
+class Recovery(Input):
+    username: str = Field(min_length=1, max_length=64)
+    recovery_code: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=1, max_length=128)
+
+
 class ProjectInput(Input):
     project_id: str = Field(min_length=1, max_length=64)
 
@@ -195,6 +201,11 @@ def create_app(
     @app.get("/api/health")
     def health() -> dict[str, str]:
         return {"status": "ok", "mode": "development-local-only"}
+
+    @app.post("/api/auth/recovery")
+    def recover(data: Recovery) -> dict[str, bool]:
+        svc.recover(data.username, data.recovery_code, data.new_password)
+        return {"ok": True}
 
     @app.post("/api/auth/login")
     def login(data: Login, request: Request, response: Response) -> dict[str, Any]:
