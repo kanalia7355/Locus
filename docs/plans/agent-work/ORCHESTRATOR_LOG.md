@@ -131,3 +131,9 @@ Cycle 2026-11-07 ~14:05 JST: all three implementation slots active with uncommit
 Cycle 2026-11-07 ~14:15 JST: all three slots active — 2A running mypy/ruff QA; P4A editing App.tsx/ChatQueue tests; P4B relaunch adding AdminSettings tests and updating its ledger copy. Nothing pushed; nothing to integrate. No free slots.
 
 Cycle 2026-11-07 ~14:25 JST: all three slots still active (2A: QA layer incl. acl-compat probes; P4A: frontend edits continuing; P4B: mypy QA running). No pushes; nothing to integrate. No free slots.
+
+OWNER CONFIRMATION + PHASE 2 LAUNCH (2026-11-07 ~14:40 JST):
+- Owner confirmed the main merge (75d4e0a). Phase 1 is COMPLETE within the owner-approved scope: all four features integrated + independently reviewed (aggregate accept-after-minor-fixes; race-fix re-review accept) + exact-HEAD CI green + version 0.2.0. Deferred items (MFA, production TLS/session deployment, LAN deployment verification) are tracked in the backlog and the production-deployment phase completion conditions, not silently resolved.
+- PH1-P4A run ended "completed without an assistant result" (no push); its substantial uncommitted implementation (cooperative cancel_requested backend + frontend + 12 tests) is treated as an untrusted draft; delivery relaunch dispatched as ph1-p4a-cancel-002 (slot B).
+- PHASE 2 prepared per owner instruction: docs/plans/PHASE2_JOB_BREAKDOWN.md (premise specs with evidence, deltas D1-D7, job definitions PH2-A..E with dependencies). Dispatched now: PH2-A delegation specification (design, slot D, ph2-a-delegation-spec-001) and PH2-B concurrent role holdings + explicit deny (implementation, slot E, ph2-b-roles-001). Queued: PH2-D delegation implementation (blocked on PH2-A + owner answers), PH2-C 元保存先ACL research, PH2-E web-management completion assessment (post-P4B).
+- Running now (5/5 cap): 2A (slice 2a), P4A relaunch, P4B relaunch, PH2-A, PH2-B.
