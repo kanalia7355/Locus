@@ -6,3 +6,4 @@ Phase 3: safe file ingestion and local retrieval with source citations.
 Phase 4: chat and admin UI with tests.
 Phase 5: GraphRAG provenance, plots and approved model routing.
 For each phase: scope, acceptance criteria, threat review, tests, implementation, independent review when triggered, evidence.
+Additional specification (2026-11-06): `../planning/locus-hybrid-agent-requirements.md` — hybrid agent platform requirements feed phases in order; its step 1 (code/ADR cross-check and threat model) precedes agent-runtime phases. Implementation may proceed with up to five concurrent job-scoped subagents coordinated through `docs/plans/agent-work/` markdown ledgers.
