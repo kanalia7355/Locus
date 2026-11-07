@@ -6,7 +6,7 @@ from app import cli
 from app.service import PASSWORDS, Service, digest
 from test_api import ORIGIN, client_for, login
 
-NEW_PASSWORD = "Recovered-password-long-01!"
+NEW_PASSWORD = "Synthetic-test-password-01!"
 
 
 def redeem(client, username: str, code: str, password: str = NEW_PASSWORD):

@@ -215,7 +215,7 @@ def test_session_loss_while_waiting_fails_the_job_without_sending(service: Servi
             "/api/auth/password",
             json={
                 "current_password": "Changed-password-long-01!",
-                "new_password": "Rotated-password-long-01!",
+                "new_password": "Synthetic-test-password-01!",
             },
             headers=ORIGIN,
         )
