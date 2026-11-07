@@ -441,10 +441,15 @@ is the same "design approved ≠ activated" discipline as ADR-0006/0009/0011.
 - **Git operations.** No changes to `loop_engine/git_manager.py` / GitHub flows. This
   design slice commits only to `loop/PH1-F-hybrid-step2-design`; never to `main` or
   `loop/local-development`.
-- **CI.** GitHub Actions is currently blocked by an account billing failure
-  (`docs/plans/agent-work/ORCHESTRATOR_LOG.md` outage log). CI evidence for this task
-  is recorded as **blocked, never passed**; local QA evidence is mandatory and
-  sufficient for branch review only, not for any protected-branch claim.
+- **CI.** The earlier integrated HEAD had an account billing failure recorded in
+  `docs/plans/agent-work/ORCHESTRATOR_LOG.md`. On fix-cycle commit
+  `e8425bebf383dcf91ea376bcfbbcbe4d7c2d4627`, Actions did run and were not billing-
+  blocked: the PR-title convention check succeeded, but Prototype quality failed on
+  mypy at `backend/app/main.py:291` (`str | None` passed to a `str` parameter), and
+  Loop engine checks failed the secret scan at `tests/test_chat_queue.py:218` (one
+  finding; remaining matrix jobs were canceled). Thus full CI for that SHA is **failed,
+  never passed**; these findings are outside this docs-only task and were not changed.
+  Individual check success is not full verification or a protected-branch claim.
 - **Resource note.** Threat-model finding 4: agent concurrency must not share the
   model slot's queue semantics; the policy table's `concurrency_limit` is the future
   admission hook, inactive this step.
