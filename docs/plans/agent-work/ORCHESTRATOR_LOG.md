@@ -115,3 +115,13 @@ Assignment log (2026-11-07 ~10:45 JST, post owner-decision package): 4 slots run
 Remaining Phase-4 items (comparison table, delete operations) queue after P4A/P4B land to avoid App.tsx three-way conflicts. PH1-J delivery takeover recorded above. Note: docs/plans/MINIMAL_LOOP_POLICY_PROPOSAL.md (pre-existing untracked owner file) was incidentally included in the docs commit 7453daf via git add -A; it is owner-authored content in docs/plans and was retained — flagged to the owner rather than silently removed.
 
 Phase-1 completion (out-of-cycle 2026-11-07 ~11:15 JST): PH1-K2 returned accept, closing the aggregate-review condition; exact-HEAD CI green (pull_request run 42339737922 engine 4/4 + quality + title; push runs success). Version bumped 0.1.0 -> 0.2.0. PHASE_STATUS records the completion declaration with the owner-approved scoping. Next: PR loop/local-development -> main (Conventional Commit title, squash per workflow), CI on the PR, then authorized auto-merge; after merge, reconcile main back into loop/local-development. Running jobs (2A/P4A/P4B) continue on their branches; their integrations follow at their own completion.
+
+PHASE 1 COMPLETE + MERGED TO MAIN (2026-11-07 ~11:35 JST):
+- PH1-K2 re-review verdict: ACCEPT (race fix condition closed; secret scan 0; focused 20 passed; no weakening).
+- Exact-HEAD CI green: PR #7 checks all SUCCESS, mergeStateStatus CLEAN (engine 4-matrix, verify/quality, conventional-title).
+- PR #7 squash-merged into main: 75d4e0a "feat(auth): complete phase 1 authentication slice and hybrid step-2 groundwork (#7)" (subject verified = PR title, Conventional Commit).
+- main reconciled back into loop/local-development at 1297f7d (clean merge); pushed.
+- Version bumped 0.1.0 -> 0.2.0 (pyproject.toml, frontend/package.json, loop_engine/__init__.py).
+- Phase-1 completion declaration recorded in PHASE_STATUS (MFA/TLS/LAN-verification scoping per owner decision; production claims NOT made).
+
+Slot events: PH1-P4B hit its provider time limit mid-implementation (uncommitted partial draft in worktree, backend endpoints + AdminSettings.tsx + tests, not App.tsx-wired); relaunched as ph1-p4b-admin-screens-002 on Luna with untrusted-draft instructions and a no-force-push base sync (merge origin/loop/local-development). Still running: PH1-2A (slot A), PH1-P4A (slot B), PH1-P4B relaunch (slot C). Slots D/E/F free for the remaining Phase-4 items (comparison table, delete operations) once P4A/P4B land.
