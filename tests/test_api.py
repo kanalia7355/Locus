@@ -1,3 +1,5 @@
+import time
+
 import pytest
 from app.main import create_app
 from app.service import Service
@@ -238,3 +240,100 @@ def test_production_startup_is_disabled(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setenv("APP_ENV", "production")
     with pytest.raises(RuntimeError, match="development"):
         create_app()
+
+
+def test_admin_web_provisioning_is_one_time_and_forces_rotation(
+    service: Service, caplog: pytest.LogCaptureFixture
+) -> None:
+    admin = client_for(service)
+    login(admin, "admin", "01")
+    admin_id = admin.get("/api/auth/me").json()["id"]
+    response = admin.post("/api/admin/users", json={"username": "new.researcher-1"}, headers=ORIGIN)
+    assert response.status_code == 201, response.text
+    created = response.json()
+    assert created["username"] == "new.researcher-1"
+    assert created["must_rotate"] is True
+    temporary_password = created["temporary_password"]
+    assert 14 <= len(temporary_password) <= 128
+    assert set(created) == {"id", "username", "temporary_password", "must_rotate"}
+
+    with service.db() as db:
+        stored = db.execute(
+            "SELECT password_hash,must_rotate,temp_expires FROM users WHERE id=?",
+            (created["id"],),
+        ).fetchone()
+        audit = db.execute(
+            "SELECT actor_id,operation,target_id FROM audit "
+            "WHERE operation='account.provision' AND target_id=?",
+            (created["id"],),
+        ).fetchone()
+    assert stored["password_hash"] != temporary_password
+    assert stored["must_rotate"] == 1
+    assert stored["temp_expires"] > time.time()
+    assert audit["actor_id"] == admin_id
+    assert audit["operation"] == "account.provision"
+    assert audit["target_id"] == created["id"]
+    assert temporary_password not in repr(dict(audit))
+    assert temporary_password not in admin.get("/api/admin/audit").text
+    assert temporary_password not in caplog.text
+    assert "temporary_password" not in str(admin.get("/api/admin/users").json())
+
+    created_user = client_for(service)
+    first_login = created_user.post(
+        "/api/auth/login",
+        json={"username": created["username"], "password": temporary_password},
+        headers=ORIGIN,
+    )
+    assert first_login.status_code == 200, first_login.text
+    assert first_login.json()["must_rotate"] is True
+    assert created_user.get("/api/projects").status_code == 403
+    rotated = created_user.post(
+        "/api/auth/password",
+        json={
+            "current_password": temporary_password,
+            "new_password": "New-researcher-password-01!",
+        },
+        headers=ORIGIN,
+    )
+    assert rotated.status_code == 200, rotated.text
+    assert created_user.get("/api/auth/me").json()["must_rotate"] is False
+
+
+def test_admin_web_provisioning_validation_and_duplicates(service: Service) -> None:
+    admin = client_for(service)
+    login(admin, "admin", "01")
+    invalid = admin.post("/api/admin/users", json={"username": "alice' OR '1'='1"}, headers=ORIGIN)
+    assert invalid.status_code == 422
+    assert invalid.json()["detail"] == "利用者IDは3〜64文字の英数字・_.-で指定してください"
+    duplicate = admin.post("/api/admin/users", json={"username": "alice"}, headers=ORIGIN)
+    assert duplicate.status_code == 409
+    assert duplicate.json()["detail"] == "利用者IDは使用済みです"
+    assert [row["username"] for row in admin.get("/api/admin/users").json()] == [
+        "admin",
+        "alice",
+        "bob",
+        "eve",
+    ]
+
+
+def test_admin_web_provisioning_requires_system_admin(service: Service) -> None:
+    user = client_for(service)
+    login(user)
+    response = user.post("/api/admin/users", json={"username": "unauthorized-user"}, headers=ORIGIN)
+    assert response.status_code == 403
+    assert response.json()["detail"] == "管理権限が必要です"
+
+
+def test_admin_web_provisioning_is_rate_limited(service: Service) -> None:
+    admin = client_for(service)
+    login(admin, "admin", "01")
+    for index in range(10):
+        response = admin.post(
+            "/api/admin/users",
+            json={"username": f"rate-user-{index:02d}"},
+            headers=ORIGIN,
+        )
+        assert response.status_code == 201, response.text
+    limited = admin.post("/api/admin/users", json={"username": "rate-user-last"}, headers=ORIGIN)
+    assert limited.status_code == 429
+    assert limited.json()["detail"] == "試行回数が多いため、1分後に再試行してください"

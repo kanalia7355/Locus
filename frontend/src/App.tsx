@@ -14,6 +14,7 @@ import { api, errorText, json, statusName } from "./api";
 import { RelatedDocuments } from "./RelatedDocuments";
 import { IngestionProgress } from "./IngestionProgress";
 import { ModelSettings } from "./ModelSettings";
+import { ProvisionUser } from "./ProvisionUser";
 import type {
   ChatJob,
   ChatJobAccepted,
@@ -1199,7 +1200,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
             onError={setError}
           />
         )}
-        {page === "users" && user.system_admin && <AdminList kind="users" />}
+        {page === "users" && user.system_admin && <AdminUsers />}
         {page === "audit" && user.system_admin && <AdminList kind="audit" />}
         {page === "settings" && (
           <div className="settings">
@@ -1747,6 +1748,16 @@ function RoleEditor({
   );
 }
 
+function AdminUsers() {
+  const [refreshKey, setRefreshKey] = useState(0);
+  return (
+    <>
+      <ProvisionUser onCreated={() => setRefreshKey((key) => key + 1)} />
+      <AdminList key={refreshKey} kind="users" />
+    </>
+  );
+}
+
 function AdminList({ kind }: { kind: "users" | "audit" }) {
   const [rows, setRows] = useState<Record<string, string | number | boolean>[]>(
     [],
@@ -1769,7 +1780,7 @@ function AdminList({ kind }: { kind: "users" | "audit" }) {
     <>
       <p className="muted">
         {kind === "users"
-          ? "発行・所属設定はローカルCLIから行います。管理者に個人会話の閲覧権限は付与されません。"
+          ? "利用者はWeb画面から追加できます。所属設定はローカルCLIから行います。管理者に個人会話の閲覧権限は付与されません。"
           : "操作のメタデータのみを記録します。会話・資料の本文や資格情報は表示しません。"}
       </p>
       {error && <p role="alert">{error}</p>}
