@@ -37,3 +37,8 @@ blocked). Append progress + final SHA + CI evidence to this file's ## Progress.
 
 Boundaries: never push to `main` or `loop/local-development`; no code changes;
 do not modify the review files; no force-push; do not spawn subagents.
+
+## Progress
+
+- Setup complete: fetched `origin` and fast-forwarded this worktree from `890f235` to `590f40a` (`origin/loop/local-development`); branch is `loop/PH1-F-hybrid-step2-design`, worktree was clean before edits. Read the task brief, round-2 review, required governance/product/architecture/bootstrap documents, and GitHub workflow. No review files or application code will be changed.
+- Design edits and adversarial self-review complete: artifacts are bound to source identities and exact workspace policy version; source/workspace deletion or revocation and policy-version changes invalidate artifacts before persistence, reuse, export or read. Slice-2c regressions cover deletion/revocation before persistence and after production, deny read/reuse/export before payload access, and leave physical-deletion/retention timing as owner decisions. Review history records the conditional round-2 verdict and owner ADR approval. `git diff --check` passes; no application tests were run for this docs-only change.
