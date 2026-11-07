@@ -206,7 +206,14 @@ class Service:
             (uid(), time.time(), actor, operation, target, outcome),
         )
 
-    def provision(self, username: str, password: str, *, system_admin: bool = False) -> str:
+    def provision(
+        self,
+        username: str,
+        password: str,
+        *,
+        system_admin: bool = False,
+        audit_actor: str = "local-cli",
+    ) -> str:
         if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{2,63}", username):
             fail(422, "利用者IDは3〜64文字の英数字・_.-で指定してください")
         if not 14 <= len(password) <= 128:
@@ -227,8 +234,22 @@ class Service:
                 )
             except sqlite3.IntegrityError:
                 fail(409, "利用者IDは使用済みです")
-            self._audit(db, "local-cli", "account.provision", user_id)
+            self._audit(db, audit_actor, "account.provision", user_id)
         return user_id
+
+    def provision_web_user(self, actor: Principal, username: str) -> Json:
+        if not actor.system_admin:
+            fail(403, "管理権限が必要です")
+        with self.lock:
+            self._limit("admin-provision:" + actor.id, 10)
+            temporary_password = secrets.token_urlsafe(24)
+            user_id = self.provision(username, temporary_password, audit_actor=actor.id)
+        return {
+            "id": user_id,
+            "username": username,
+            "temporary_password": temporary_password,
+            "must_rotate": True,
+        }
 
     def create_project(self, org_id: str, project_id: str, name: str) -> None:
         with self.db() as db:

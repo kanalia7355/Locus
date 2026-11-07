@@ -58,6 +58,10 @@ class Recovery(Input):
     new_password: str = Field(min_length=1, max_length=128)
 
 
+class ProvisionUser(Input):
+    username: str
+
+
 class ProjectInput(Input):
     project_id: str = Field(min_length=1, max_length=64)
 
@@ -426,6 +430,10 @@ def create_app(
     @app.get("/api/admin/users")
     def users(user: Actor) -> list[dict[str, Any]]:
         return svc.users(user)
+
+    @app.post("/api/admin/users", status_code=201)
+    def provision_user(data: ProvisionUser, user: Actor) -> dict[str, Any]:
+        return svc.provision_web_user(user, data.username)
 
     @app.get("/api/admin/audit")
     def audit(user: Actor) -> list[dict[str, Any]]:

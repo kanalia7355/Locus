@@ -16,6 +16,7 @@ import { api, errorText, json, statusName } from "./api";
 import { RelatedDocuments } from "./RelatedDocuments";
 import { IngestionProgress } from "./IngestionProgress";
 import { ModelSettings } from "./ModelSettings";
+import { ProvisionUser } from "./ProvisionUser";
 import type {
   ChatJob,
   ChatJobAccepted,
@@ -1202,7 +1203,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
           />
         )}
         {page === "users" && user.system_admin && (
-          <AdminList key="users" kind="users" currentUserId={user.id} />
+          <AdminUsers currentUserId={user.id} />
         )}
         {page === "audit" && user.system_admin && <AdminList key="audit" kind="audit" />}
         {page === "settings" && (
@@ -1751,6 +1752,16 @@ function RoleEditor({
   );
 }
 
+function AdminUsers({ currentUserId }: { currentUserId?: string }) {
+  const [refreshKey, setRefreshKey] = useState(0);
+  return (
+    <>
+      <ProvisionUser onCreated={() => setRefreshKey((key) => key + 1)} />
+      <AdminList key={refreshKey} kind="users" currentUserId={currentUserId} />
+    </>
+  );
+}
+
 function AdminList({
   kind,
   currentUserId,
@@ -1803,7 +1814,7 @@ function AdminList({
     <>
       <p className="muted">
         {kind === "users"
-          ? "発行・所属設定はローカルCLIから行います。管理者に個人会話の閲覧権限は付与されません。"
+          ? "利用者はWeb画面から追加できます。所属設定はローカルCLIから行います。管理者に個人会話の閲覧権限は付与されません。"
           : "操作のメタデータのみを記録します。会話・資料の本文や資格情報は表示しません。"}
       </p>
       {error && <p role="alert">{error}</p>}
