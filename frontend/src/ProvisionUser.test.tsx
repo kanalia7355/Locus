@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 
 const requests: { path: string; options?: RequestInit }[] = [];
-const temporaryPassword = "ephemeral-generated-password-for-test";
+const temporaryPassword = "Synthetic-test-password-01!";
 let failProvisioning = false;
 
 beforeEach(() => {

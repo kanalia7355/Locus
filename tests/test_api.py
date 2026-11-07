@@ -291,7 +291,7 @@ def test_admin_web_provisioning_is_one_time_and_forces_rotation(
         "/api/auth/password",
         json={
             "current_password": temporary_password,
-            "new_password": "New-researcher-password-01!",
+            "new_password": "Changed-synthetic-password-01!",
         },
         headers=ORIGIN,
     )
