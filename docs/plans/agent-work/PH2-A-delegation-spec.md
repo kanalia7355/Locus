@@ -53,3 +53,23 @@ Push `loop/PH2-A-delegation-spec`; wait branch CI; fix/re-push until ALL green
 
 Boundaries: never push to `main` or `loop/local-development`; no code changes;
 do not mark anything approved; no subagents.
+
+## Progress
+
+- Read task brief, Phase-2 breakdown, reconciliation Phase-2 row, product spec,
+  architecture, governance, bootstrap, and required implementation/tests in the
+  PH2-A worktree. Confirmed the delegation endpoint remains disabled with 409;
+  current source has no active delegation storage/authorization logic.
+- Drafted `docs/plans/PHASE2_DELEGATION_SPEC.md` with the eight required areas,
+  fail-closed semantics, code-grounded distinctions, and undecided owner items.
+- Adversarial self-review: confirmed the draft preserves the existing 409
+  disabled delegation endpoint and existing membership/publication/ownership/
+  role ceilings; it does not authorize enablement, mark approval, change code,
+  or relax tests. Documented the distinction that the source has a 409
+  placeholder but no active delegation implementation and that existing role
+  and publication data are mutable (the versioned grant model is proposed).
+  `git diff --check` passed; a UTF-8/checklist assertion confirmed all eight
+  required sections and the explicit 409/exact-expiry semantics. A first
+  checklist assertion used a mismatched heading label and failed; the corrected
+  section check passed. Fast-forwarded the task worktree to current
+  `origin/loop/local-development` before delivery; no conflict.
