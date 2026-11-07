@@ -182,6 +182,72 @@ def test_stale_disabled_principals_cannot_rotate_or_toggle(service):
     assert error.value.status_code == 401
 
 
+def test_stale_disabled_admin_cannot_provision_but_live_admin_can(service):
+    admin_a, admin_b = client_for(service), client_for(service)
+    service.provision("second-admin", "Synthetic-test-password-01!", system_admin=True)
+    login(admin_a, "admin", "01")
+    assert (
+        admin_b.post(
+            "/api/auth/login",
+            json={"username": "second-admin", "password": "Synthetic-test-password-01!"},
+            headers=ORIGIN,
+        ).status_code
+        == 200
+    )
+    # First-login rotation; it purges the session, so log in again afterward.
+    assert (
+        admin_b.post(
+            "/api/auth/password",
+            json={
+                "current_password": "Synthetic-test-password-01!",
+                "new_password": "Changed-synthetic-password-01!",
+            },
+            headers=ORIGIN,
+        ).status_code
+        == 200
+    )
+    assert (
+        admin_b.post(
+            "/api/auth/login",
+            json={"username": "second-admin", "password": "Changed-synthetic-password-01!"},
+            headers=ORIGIN,
+        ).status_code
+        == 200
+    )
+    token_a = admin_a.cookies.get("locus_session")
+    token_b = admin_b.cookies.get("locus_session")
+    stale_admin_a = service.authenticate(token_a)
+
+    service.set_user_enabled(token_b, stale_admin_a.id, False)
+    assert admin_a.get("/api/auth/me").status_code == 401
+    # Re-enabling restores future login only; it never revives the purged session.
+    service.set_user_enabled(token_b, stale_admin_a.id, True)
+    assert admin_a.get("/api/auth/me").status_code == 401
+    provisions_before = service.conn.execute(
+        "SELECT COUNT(*) FROM audit WHERE operation='account.provision'"
+    ).fetchone()[0]
+    with pytest.raises(HTTPException) as error:
+        service.provision_web_user(stale_admin_a, "race-blocked-user", session_token=token_a)
+    assert error.value.status_code == 401
+    assert (
+        service.conn.execute(
+            "SELECT COUNT(*) FROM users WHERE username='race-blocked-user'"
+        ).fetchone()[0]
+        == 0
+    )
+    assert (
+        service.conn.execute(
+            "SELECT COUNT(*) FROM audit WHERE operation='account.provision'"
+        ).fetchone()[0]
+        == provisions_before
+    )
+
+    created = admin_b.post("/api/admin/users", json={"username": "live-admin-user"}, headers=ORIGIN)
+    assert created.status_code == 201, created.text
+    assert created.json()["username"] == "live-admin-user"
+    assert created.json()["must_rotate"] is True
+
+
 def test_toggle_rate_limit_is_per_actor_not_target(service):
     admin = client_for(service)
     login(admin, "admin", "01")

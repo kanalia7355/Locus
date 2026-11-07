@@ -432,8 +432,10 @@ def create_app(
         return svc.users(user)
 
     @app.post("/api/admin/users", status_code=201)
-    def provision_user(data: ProvisionUser, user: Actor) -> dict[str, Any]:
-        return svc.provision_web_user(user, data.username)
+    def provision_user(data: ProvisionUser, request: Request, user: Actor) -> dict[str, Any]:
+        return svc.provision_web_user(
+            user, data.username, session_token=request.cookies.get(COOKIE)
+        )
 
     @app.get("/api/admin/audit")
     def audit(user: Actor) -> list[dict[str, Any]]:
