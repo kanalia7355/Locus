@@ -295,6 +295,10 @@ def create_app(
             model, version, seconds = runtime.model, runtime.version, runtime.timeout_seconds
 
         def generate(text: str, citations: list[dict[str, Any]]) -> tuple[str, str]:
+            if not model:
+                # Fail-closed: the callback is only ever passed when a model is
+                # configured; the guard keeps that invariant enforced at the type level.
+                fail(422, "ローカルモデルが有効になっていません")
             try:
                 return runtime.generate(model, text, citations, timeout_seconds=seconds)
             except HTTPException as exc:

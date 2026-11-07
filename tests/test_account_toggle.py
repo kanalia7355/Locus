@@ -45,7 +45,7 @@ def test_disable_revokes_all_sessions_and_enable_only_allows_future_login(servic
                 "/api/auth/password",
                 json={
                     "current_password": credentials["password"],
-                    "new_password": "Another-password-02!",
+                    "new_password": "Changed-synthetic-password-01!",
                 },
                 headers=ORIGIN,
             ).status_code
@@ -104,7 +104,7 @@ def test_unknown_self_and_invalid_payload_do_not_change_state_or_audit(service):
 
 
 def test_another_system_admin_can_be_disabled_and_is_audited(service):
-    service.provision("second-admin", "Temporary-password-05!", system_admin=True)
+    service.provision("second-admin", "Synthetic-test-password-01!", system_admin=True)
     admin = client_for(service)
     login(admin, "admin", "01")
     target = user_id(service, "second-admin")
@@ -114,7 +114,7 @@ def test_another_system_admin_can_be_disabled_and_is_audited(service):
     assert event["actor_id"] == user_id(service, "admin")
     denied = client_for(service).post(
         "/api/auth/login",
-        json={"username": "second-admin", "password": "Temporary-password-05!"},
+        json={"username": "second-admin", "password": "Synthetic-test-password-01!"},
         headers=ORIGIN,
     )
     assert denied.status_code == 401
