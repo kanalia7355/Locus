@@ -291,6 +291,8 @@ def create_app(
             model, version, seconds = runtime.model, runtime.version, runtime.timeout_seconds
 
         def generate(text: str, citations: list[dict[str, Any]]) -> tuple[str, str]:
+            if model is None:
+                fail(503, "モデルが設定されていません")
             try:
                 return runtime.generate(model, text, citations, timeout_seconds=seconds)
             except HTTPException as exc:
