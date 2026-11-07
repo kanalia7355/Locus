@@ -32,10 +32,14 @@ Runtimes, and not bypassing existing execution approvals or safety gates. The
 reworked [step-2 design](../../plans/HYBRID_STEP2_AGENT_REGISTRY_DESIGN.md)
 §§0–3 requires two module trees, boundaries B1–B7, a separate approval/authorization
 ADR before dispatch-capable code, and fail-closed behavior until isolation and
-other activation gates are verified. Its round-2 review returned **accept after
-minor fixes**; the additional artifact source-deletion propagation requirement
-is included below. This draft does not approve that design or decide any of its
-owner-marked 【要決定】 items.
+other activation gates are verified. Owner approval and adoption of ADR-0012
+are required before **any** step-2 implementation begins, including metadata-only
+slice 2a; this is a hard sequencing prerequisite, not merely a recommendation.
+Approval of ADR-0012 does not itself authorize step-2 implementation or activation.
+The step-2 design's round-2 review returned **accept after minor fixes**; the
+additional artifact source-deletion propagation requirement is included below.
+This draft does not approve that design or decide any of its owner-marked
+【要決定】 items.
 
 The product remains synthetic-data-only. Design approval is not implementation,
 operational readiness, live inference, or permission to process real research
@@ -200,23 +204,34 @@ This draft does not authorize changing Plane M, merging the module trees,
 constructing tool-bearing model requests, dispatching jobs, executing a CLI,
 using host fallback, or treating registry metadata as execution permission. It
 does not approve external egress, credential extraction/transfer, live model
-calls, real research data, or product Runner activation. The separate
+calls, real research data, or product Runner activation. Owner approval and
+adoption of ADR-0012 must precede every step-2 implementation,
+including metadata-only slice 2a. This sequencing approval is necessary but does
+not itself authorize implementation or activation. The separate
 approval/authorization ADR and all verification/activation gates remain
 mandatory. Existing zero-tool tests must not be edited or weakened.
 
 ### Owner decisions deliberately left open
 
-No 【要決定】 item in step-2 design §6 is resolved here. In particular, the
-owner must still decide or approve: (1) this ADR's content and adoption; (2) the
-per-platform OS credential mechanism, runner principal, broker, health-check
-method and access/denial evidence; (3) provider subscription-term verification;
-(4) isolation technology per platform; (5) runner trust root, enrollment,
+No 【要決定】 item in step-2 design §6 is resolved here. The design's mandatory
+cancellation-safety semantics are requirements, not owner decisions: queued
+cancellation atomically prevents dispatch; cancellation of executing work is not
+terminal and does not release capacity until the Runner confirms termination;
+dispatch/cancel races are serialized; repeated cancellation is idempotent; and a
+timeout or missing acknowledgement fences the Runner/job and holds its
+reservation until safe termination. The owner decides mechanisms and limits,
+not whether these safety guarantees apply. In particular, the owner must still
+decide or approve: (1) this ADR's content and adoption; (2) the per-platform OS
+credential mechanism, runner principal, broker, health-check method and
+access/denial evidence; (3) provider subscription-term verification; (4)
+isolation technology per platform; (5) runner trust root, enrollment,
 rotation/revocation and job freshness/signing contract; (6) product audit-log
 protection and artifact retention/deletion policy; (7) whether any external
 egress mode may ever be enabled and related wording; (8) admission limits,
-fairness, cancellation actors/signaling, timeout and recovery; (9) real-data
-activation; (10) remote Desktop Runner deployment scope; and (11) the separate
-job approval/authorization authority and receipt contract. Refer to
+fairness, cancellation actors and signaling mechanisms, timeout/recovery
+mechanisms and limits; (9) real-data activation; (10) remote Desktop Runner
+deployment scope; and (11) the separate job approval/authorization authority
+and receipt contract. Refer to
 [step-2 design §6](../../plans/HYBRID_STEP2_AGENT_REGISTRY_DESIGN.md) for the
 full decision descriptions. No concrete issuer, trust root, provider, platform,
 classification ceiling beyond the deny-all default, egress allowance, limit,
@@ -246,6 +261,12 @@ future work, not claims that they have run or passed here.
   regressions cover integrity and job/instance/workspace/policy binding,
   cross-workspace access, policy/ACL revocation, source deletion, and attempted
   persistence, read, reuse or export after invalidation.
+- Cancellation tests prove queued cancellation atomically prevents dispatch;
+  executing cancellation remains non-terminal and retains capacity until
+  Runner-confirmed termination; dispatch/cancel races are serialized; repeats
+  are idempotent; and timeout or missing acknowledgement fences the Runner/job
+  while retaining its reservation until safe termination. These semantics remain
+  mandatory regardless of the owner-selected mechanisms, actors or limits.
 - Runner-identity and isolation tests prove intended credential-operation access
   and denied read/export for each disallowed identity, verified filesystem/network
   enforcement, no host fallback, and dispatch rejection until the activation gates
@@ -263,5 +284,10 @@ future work, not claims that they have run or passed here.
   artifact source-deletion propagation/tests and a low follow-up to record the
   round-2 history. This draft includes the source-deletion obligation and records
   no retention-policy decision.
+- PH1-E2 review returned **accept after minor fixes** with two MEDIUM findings.
+  This ADR-0012 fix cycle makes owner approval a prerequisite to all step-2
+  implementation, including slice 2a, and distinguishes mandatory cancellation
+  safety semantics from owner-selected mechanisms and limits; no owner items are
+  decided.
 - This ADR itself is a **DRAFT requiring independent review before owner
   approval**. It is not Accepted and approves no implementation or activation.
