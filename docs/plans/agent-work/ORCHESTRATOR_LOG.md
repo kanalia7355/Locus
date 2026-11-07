@@ -11,16 +11,16 @@ Rules established by the owner (2026-11-06):
 
 | Slot | Task | Branch | Model/provider | TaskId | Status |
 |---|---|---|---|---|---|
-| A | PH1-A authentication recovery | `loop/PH1-recovery` | deepai gpt-6-luna | ph1-a-recovery-003 | running (owner confirmed Luna is quota-free on DeepAI) |
-| B | PH1-B admin account enable/disable | `loop/PH1-account-toggle` | deepai gpt-6-luna | ph1-b-toggle-003 | FAILED 2026-11-07: 426 lane_version_unsupported — "This version of DeepAI Code is no longer supported. Please update the app." PAUSED: no relaunch until the desktop app is updated (owner action). Uncommitted draft remains in worktree PH1-account-toggle. A/D still running at report time; if they die with 426 too, pause all slots. |
+| A | PH1-A authentication recovery | `loop/PH1-recovery` | deepai gpt-6-luna (thinking high) | ph1-a-recovery-004-cont | running 2026-11-07 ~01:45Z: relaunched from NEW orchestrator thread (previous thread's taskIds unreachable); continues the uncommitted worktree draft per its brief |
+| B | PH1-B admin account enable/disable | `loop/PH1-account-toggle` | deepai gpt-6-luna (thinking high) | ph1-b-toggle-004-cont | running 2026-11-07 ~01:45Z: relaunch succeeded after the desktop app update (426 resolved); continues the untrusted draft with adversarial review |
 | C | PH1-C hybrid threat model | loop/local-development (in-parent) | orchestrator glm-5.3-flash | ph1-c-threat-001 | DONE 2026-11-07: docs/security/HYBRID_AGENT_THREAT_MODEL.md committed at 0240f63 (matrix with cited evidence, STRIDE model, phase-mapped gaps with 要決定 markers, 5 consistency findings). The leftover worktree PH1-threat-model only holds the agent's progress notes; retire it at the next cleanup. |
-| D | PH1-D admin web user provisioning | `loop/PH1-web-provisioning` | deepai gpt-6-luna | ph1-d-provision-002 | running (worktree reset hard to loop/local-development before starting) |
+| D | PH1-D admin web user provisioning | `loop/PH1-web-provisioning` | deepai gpt-6-luna (thinking high) | ph1-d-provision-004-cont | running 2026-11-07 ~01:45Z: relaunched on the new thread; continues the uncommitted worktree draft (backend done, frontend QA pending) |
 | E | PH1-E independent review of the hybrid threat model | (read-only, no branch) | deepai gpt-6-luna | ph1-e-review-001 | DONE 2026-11-07: verdict "accept after minor fixes" (1 high + 4 medium); all fixes applied by the document owner in 307a5bb; review history recorded in the doc. Slot free. |
-| F | (free) | | | | |
+| F | PH1-F hybrid step-2 design proposal (Agent Registry / common adapter / workspace policy) | `loop/PH1-F-hybrid-step2-design` (new worktree) | deepai glm-5.3-flash (thinking high) | ph1-f-step2-design-001 | running 2026-11-07 ~01:45Z: design-only; deliverable docs/plans/HYBRID_STEP2_AGENT_REGISTRY_DESIGN.md; step 2 unlocked because PH1-C review accepted |
 
 ## Queued backlog
 
-1. PH1-E: consolidation — reconciliation doc update from the four task files, cross-job regression run, independent review of the auth-slice aggregate.
+1. PH1-G: consolidation — reconciliation doc update from the four task files, cross-job regression run, independent review of the auth-slice aggregate. Blocked until slots A/B/D finish.
 2. Phase 4 remainder (admin screens, comparison table, running-question cancellation) — pending owner prioritisation.
 3. Hybrid-requirements step 2 (Agent Registry / common adapter / workspace policy) — only after the threat model (PH1-C) is reviewed.
 
@@ -47,5 +47,7 @@ Cycle 2026-11-07 ~01:04Z: A progressing (notes only, no code yet), B implementin
 (uncommitted backend+frontend diff), D aligned worktree to 50319a0 and reading
 specs. Nothing to integrate. Assigned PH1-E (independent threat-model review)
 to slot E on Luna. Ledger updated.
+
+Cycle 2026-11-07 ~01:45Z (NEW orchestrator thread): prior thread's delegated tasks became unreachable, so slots A, B, D were relaunched as continuations on their existing worktrees/branches (426 lane error resolved by the desktop app update; relaunches succeeded). Threat-model review (PH1-E) accepted, so hybrid-requirements step 2 was unlocked and assigned to slot F as a design-only proposal on glm-5.3-flash effort high. 4 slots running; 1 free. Committed the previously untracked `docs/planning/locus-hybrid-agent-requirements.md` (referenced by ROADMAP/PHASE_SPEC_RECONCILIATION since 2db93a0 but never committed) together with this ledger update.
 
 (orchestrator appends: date, branch, commit, local verification, integration result)
