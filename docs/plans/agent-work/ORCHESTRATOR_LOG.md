@@ -106,3 +106,10 @@ OWNER DECISION PACKAGE RECEIVED AND RECORDED (2026-11-07 ~10:20 JST):
 5. Autonomous rules: phases end with final audit + all-CI green, auto-merge to main, version bump per changes, auto-advance when no unapproved safety changes; never auto-enable execution boundaries/external comms/real data/production; bounded retries; never weaken specs/ADRs.
 
 Delivery log: PH1-J delivery was taken over by the orchestrator (agent stalled ~40 min after two steers, task cancelled), test hardening applied (allowlisted password literals, first-login rotation + re-login in the regression, POST for /api/auth/password, ruff format), full local QA 1114 passed/18 skipped, pushed a196e5e, branch CI all green, integrated at 0365a6a, branch + worktree deleted per the consolidation policy.
+
+Assignment log (2026-11-07 ~10:45 JST, post owner-decision package): 4 slots running.
+- Slot A: PH1-2A slice 2a (ph1-2a-registry-001, Luna) — backend-only registry/policy metadata per the design doc's Slice 2a + owner answers; branch loop/PH1-2A-registry.
+- Slot B: PH1-P4A (ph1-p4a-cancel-001, Luna) — running-question cooperative cancellation + state consistency (owner priority 1); branch loop/PH1-P4A-cancel.
+- Slot C: PH1-P4B (ph1-p4b-admin-screens-001, Luna) — admin project/storage settings + load display (owner priorities 2+3 combined to limit App.tsx conflicts); branch loop/PH1-P4B-admin-screens.
+- Slot D: PH1-K2 (ph1-k2-race-fix-review-001, Luna) — read-only re-review of the integrated race fix 0365a6a; closes the PH1-K condition if accepted.
+Remaining Phase-4 items (comparison table, delete operations) queue after P4A/P4B land to avoid App.tsx three-way conflicts. PH1-J delivery takeover recorded above. Note: docs/plans/MINIMAL_LOOP_POLICY_PROPOSAL.md (pre-existing untracked owner file) was incidentally included in the docs commit 7453daf via git add -A; it is owner-authored content in docs/plans and was retained — flagged to the owner rather than silently removed.
