@@ -5,11 +5,88 @@ import json
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGETS = ["loop_engine", "tests/unit", "tests/integration", "tests/e2e", "scripts/verify_loop.py"]
+
+
+def bounded_test_groups(
+    groups: tuple[tuple[str, list[str]], ...],
+    *,
+    timeout: float,
+    deadline: float | None = None,
+    cwd: Path | None = None,
+    extra_args: tuple[str, ...] = (),
+    environments: dict[str, dict[str, str]] | None = None,
+) -> list[dict[str, Any]]:
+    """Run the same suite in two processes sharing the original execution window.
+
+    subprocess.run settles direct children on timeout, as the serial runner did.
+    CI job cleanup remains the outer guard for descendant processes.
+    """
+    if len(groups) != 2 or len({name for name, _ in groups}) != 2:
+        raise ValueError("Exactly two distinct verification groups are required")
+    own_deadline = time.monotonic() + timeout
+    deadline = own_deadline if deadline is None else min(deadline, own_deadline)
+
+    def run_group(group: tuple[str, list[str]]) -> dict[str, Any]:
+        name, paths = group
+        started = time.monotonic()
+        remaining = min(timeout, deadline - started)
+        code, outcome = 124, "deadline_before_start"
+        command: list[str] = []
+        if remaining > 0:
+            try:
+                command = [
+                    sys.executable,
+                    "-m",
+                    "pytest",
+                    "-q",
+                    "-o",
+                    "verbosity_test_cases=1",
+                    "--durations=20",
+                    "-o",
+                    f"cache_dir=.loop/runtime/pytest-cache/{name}",
+                    *extra_args,
+                    *paths,
+                ]
+                code = subprocess.run(  # noqa: S603
+                    command,
+                    cwd=ROOT if cwd is None else cwd,
+                    timeout=remaining,
+                    env=None if environments is None else environments[name],
+                    check=False,
+                ).returncode
+                outcome = "exit"
+            except subprocess.TimeoutExpired:
+                outcome = "timeout"
+            except OSError:
+                code, outcome = 125, "launch_error"
+            except Exception:  # Fail closed, retain both results without logging arbitrary data.
+                code, outcome = 125, "runner_error"
+        return {
+            "name": "tests-" + name,
+            "exit_code": code,
+            "outcome": outcome,
+            "elapsed_seconds": round(time.monotonic() - started, 2),
+            "command": command[1:],
+        }
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        return list(executor.map(run_group, groups))
+
+
+def windows_test_groups(timeout: float = 600) -> list[dict[str, Any]]:
+    groups = (("unit", ["tests/unit"]), ("integration-e2e", ["tests/integration", "tests/e2e"]))
+    results = bounded_test_groups(groups, timeout=timeout)
+    # Preserve the existing engine report shape as well as its groups and budget.
+    for result in results:
+        result.pop("command")
+    return results
 
 
 def main() -> int:
@@ -35,7 +112,18 @@ def main() -> int:
         ),
         (
             "tests",
-            [sys.executable, "-m", "pytest", "-q", "tests/unit", "tests/integration", "tests/e2e"],
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-q",
+                "-o",
+                "verbosity_test_cases=1",
+                "--durations=20",
+                "tests/unit",
+                "tests/integration",
+                "tests/e2e",
+            ],
         ),
         ("secrets", [sys.executable, "scripts/secret_scan.py"]),
         ("dependency-consistency", [sys.executable, "-m", "pip", "check"]),
@@ -44,10 +132,57 @@ def main() -> int:
         commands.append(("dependency-advisories", [sys.executable, "-m", "pip_audit"]))
     results = []
     for name, command in commands:
+        if name == "tests" and sys.platform == "win32":
+            # Windows PowerShell5.1 is a different runtime from the hosted pwsh
+            # workflow shell. Separate its one-time cold startup from the actual
+            # script assertions; all existing 20s test deadlines stay unchanged.
+            from loop_engine.process import ProcessRunner
+
+            startup_ok = True
+            for phase, limit in (("cold", 45), ("warm", 20)):
+                outcome = ProcessRunner().run(
+                    [
+                        "powershell.exe",
+                        "-NoProfile",
+                        "-NonInteractive",
+                        "-Command",
+                        "[Console]::Out.WriteLine('locus-powershell-ready')",
+                    ],
+                    ROOT,
+                    timeout=limit,
+                )
+                startup_ok = (
+                    outcome.outcome == "exit"
+                    and outcome.returncode == 0
+                    and outcome.stdout.strip() == "locus-powershell-ready"
+                )
+                evidence = {
+                    "name": "windows-powershell-" + phase,
+                    "exit_code": 0 if startup_ok else 1,
+                    "elapsed_seconds": outcome.elapsed,
+                    "outcome": outcome.outcome,
+                }
+                print(json.dumps(evidence), flush=True)
+                results.append(evidence)
+                if not startup_ok:
+                    break
+            if not startup_ok:
+                break
         print(f"Running engine {name}", flush=True)
         started = time.monotonic()
         try:
-            code = subprocess.run(command, cwd=ROOT, timeout=180, check=False).returncode  # noqa: S603
+            if name == "tests" and sys.platform == "win32":
+                partitions = windows_test_groups()
+                results.extend(partitions)
+                for result in partitions:
+                    print(json.dumps(result), flush=True)
+                code = next(
+                    (result["exit_code"] for result in partitions if result["exit_code"]), 0
+                )
+            else:
+                code = subprocess.run(  # noqa: S603
+                    command, cwd=ROOT, timeout=600 if name == "tests" else 180, check=False
+                ).returncode
         except subprocess.TimeoutExpired:
             code = 124
         results.append(

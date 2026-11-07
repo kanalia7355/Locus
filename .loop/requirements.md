@@ -30,4 +30,4 @@ See `../planning/research-app-concept.md`, `../planning/UI_IMPLEMENTATION_BASELI
 
 ## Execution scope
 
-See docs/governance/UNATTENDED_AUTHORIZATION.md. Routine source-only implementation, local QA, independent review and PR publication are authorized. All merges are held. Preserve every pending production/security/provider decision; independent approved defect fixes may proceed.
+See docs/governance/UNATTENDED_AUTHORIZATION.md. Routine source-only implementation, local QA, independent review, Conventional Commits, fast-forward integration into loop/local-development and ordinary Push to its corresponding GitHub branch are authorized. No new PR, automatic merge or direct main Push is authorized by this mode. Preserve every pending production/security/provider decision; independent approved defect fixes may proceed.

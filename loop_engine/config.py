@@ -88,6 +88,10 @@ def load(path: Path) -> dict[str, Any]:
         if key in github and github.pop(key) is not expected:
             raise SafetyError("Unsafe or unsupported GitHub policy")
     validate("config", data)
+    if github.get("delivery") == "local_commit_push":
+        from loop_engine.local_delivery import validate_policy
+
+        validate_policy(github)
     reject_secrets(data)
     return data
 

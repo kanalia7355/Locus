@@ -1,5 +1,6 @@
 """Offline secret scan: fail on findings, print locations without secret values."""
 
+import hashlib
 import json
 import shutil
 import subprocess
@@ -16,6 +17,22 @@ SYNTHETIC = (
     r"^(Temporary-password-0[1-4]!|Changed-password-long-01!|"
     r"Synthetic-test-password-01!|Changed-synthetic-password-01!)$"
 )
+
+
+def reviewed_public_reference(name: str, entry: dict[str, object]) -> bool:
+    """Only five public integrity references in the exact owner-approved bytes."""
+    if (
+        name.replace("\\", "/").removeprefix("./")
+        != "docs/plans/MODEL_BOUNDARY_APPROVAL_MANIFEST.json"
+        or entry.get("type") != "Hex High Entropy String"
+        or entry.get("line_number") not in {4, 7, 8, 9, 10}
+    ):
+        return False
+    path = ROOT / "docs/plans/MODEL_BOUNDARY_APPROVAL_MANIFEST.json"
+    # Public approval identity, not a credential. No mutable wildcard/file waiver.
+    # pragma: allowlist nextline secret
+    expected = "4c936fec3615b09d2352e1308dee8835bf20ec709ae14585efecd9b4d27ddcb4"
+    return path.is_file() and hashlib.sha256(path.read_bytes()).hexdigest() == expected
 
 
 def main() -> int:
@@ -69,6 +86,11 @@ def main() -> int:
         return result.returncode
     report = json.loads(result.stdout)
     findings = report["results"]
+    findings = {
+        name: remaining
+        for name, entries in findings.items()
+        if (remaining := [entry for entry in entries if not reviewed_public_reference(name, entry)])
+    }
     for name, entries in findings.items():
         print(f"Potential secret: {name}, lines {[entry['line_number'] for entry in entries]}")
     print(f"Offline secret scan: {sum(len(entries) for entries in findings.values())} findings")

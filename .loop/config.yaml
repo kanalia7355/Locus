@@ -1,28 +1,25 @@
-version: 1
-loop:
-  max_attempts_per_task: 3
-  max_review_cycles: 2
-  max_concurrent_tasks: 1
-  max_runtime_minutes: 360
-  max_tasks_per_run: 20
-  task_timeout_minutes: 30
 approval:
   mode: deferred
   require_preapproval_for_high_risk: true
   routine_publication: true
-security:
-  allow_production_changes: false
-  allow_destructive_operations: false
-  allow_unrestricted_execution: false
-  allow_model_execution: true
-  sandbox_executor: proposal-docker
-github:
+development:
+  allowed_paths:
+  - backend
+  - frontend
+  - tests
   enabled: true
-  repository: kanalia7355/Locus
-  base: feat/unattended-runtime
-  remote: origin
+  evaluation_timeout_minutes: 10
+  max_cycles_per_run: 20
+  stagnation_limit: 3
+github:
   auto_merge: 'off'
+  auto_merge_allowed_paths: []
+  base: loop/local-development
+  delivery: local_commit_push
+  enabled: true
   protect_default_branch: true
+  remote: origin
+  repository: kanalia7355/Locus
   required_checks:
   - verify
   - engine (ubuntu-latest, 3.11)
@@ -30,24 +27,38 @@ github:
   - engine (windows-latest, 3.11)
   - engine (windows-latest, 3.13)
   - conventional-title
-  auto_merge_allowed_paths: []
-  delivery: pull_request
+loop:
+  max_attempts_per_task: 3
+  max_concurrent_tasks: 1
+  max_review_cycles: 2
+  max_runtime_minutes: 360
+  max_tasks_per_run: 20
+  task_timeout_minutes: 30
+qa:
+  independent_review: true
+  local_verification: true
+  repair_failed_checks: true
+  require_configured_checks: true
+security:
+  allow_destructive_operations: false
+  allow_model_execution: true
+  allow_production_changes: false
+  allow_unrestricted_execution: false
+  sandbox_executor: proposal-docker
 verification:
   repository:
-  - name: image-dependency-advisories
-    level: security
-    argv:
+  - argv:
     - '{image-audit}'
-    required: true
-  - name: engine-format-lint-types-tests-secrets-dependencies
     level: security
-    argv:
+    name: image-dependency-advisories
+    required: true
+  - argv:
     - '{python}'
     - scripts/verify_loop.py
+    level: security
+    name: engine-format-lint-types-tests-secrets-dependencies
     required: true
-  - name: engine-wheel-build
-    level: static
-    argv:
+  - argv:
     - '{python}'
     - -m
     - pip
@@ -57,22 +68,14 @@ verification:
     - --wheel-dir
     - .loop/runtime/wheels
     - .
+    level: static
+    name: engine-wheel-build
     required: true
-  - name: application-format-lint-types-unit-integration-build-e2e-security
-    level: functional
-    argv:
+  - argv:
     - '{python}'
     - scripts/verify.py
     - --e2e
+    level: functional
+    name: application-format-lint-types-unit-integration-build-e2e-security
     required: true
-qa:
-  local_verification: true
-  independent_review: true
-  repair_failed_checks: true
-  require_configured_checks: true
-development:
-  enabled: false
-  max_cycles_per_run: 20
-  stagnation_limit: 3
-  evaluation_timeout_minutes: 10
-  allowed_paths: []
+version: 1

@@ -7,12 +7,15 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import Depends, FastAPI, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from app.service import Principal, Service, fail
+from app.local_model import LocalModel
+from app.model_catalog import ModelCatalog
+from app.scanner import scanner_from_environment
+from app.service import ModelBusy, Principal, Service, fail
 
 COOKIE = "locus_session"
 ALLOWED_ORIGINS = frozenset(
@@ -43,6 +46,20 @@ class Login(Input):
 class Password(Input):
     current_password: str = Field(min_length=1, max_length=128)
     new_password: str = Field(min_length=14, max_length=128)
+
+
+class AccountEnabled(Input):
+    enabled: bool = Field(strict=True)
+
+
+class Recovery(Input):
+    username: str = Field(min_length=1, max_length=64)
+    recovery_code: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=1, max_length=128)
+
+
+class ProvisionUser(Input):
+    username: str
 
 
 class ProjectInput(Input):
@@ -76,13 +93,36 @@ class Publication(Input):
     grants: list[Grant] = Field(max_length=10)
 
 
+class ModelRuntime(Input):
+    candidate_id: str | None = Field(default=None, max_length=64)
+    local_only_confirmed: bool = False
+    timeout_seconds: int = Field(default=30, strict=True)
+
+    @field_validator("timeout_seconds")
+    @classmethod
+    def bounded_timeout(cls, value: int) -> int:
+        if value not in {30, 120}:
+            raise ValueError("待機時間は30秒または120秒です")
+        return value
+
+
+class ModelDiscovery(Input):
+    sources: list[str] = Field(min_length=1, max_length=5)
+
+
 def cookie(response: Response, token: str) -> None:
     response.set_cookie(
         COOKIE, token, httponly=True, samesite="strict", secure=False, max_age=28800, path="/api"
     )
 
 
-def create_app(*, service: Service | None = None, start_worker: bool = True) -> FastAPI:
+def create_app(
+    *,
+    service: Service | None = None,
+    start_worker: bool = True,
+    model_catalog: ModelCatalog | None = None,
+    local_model: LocalModel | None = None,
+) -> FastAPI:
     if os.getenv("APP_ENV", "development") != "development":
         raise RuntimeError(
             "Only development mode is implemented; production deployment is disabled"
@@ -92,13 +132,22 @@ def create_app(*, service: Service | None = None, start_worker: bool = True) -> 
     if os.getenv("LOCAL_ONLY_MODE", "true").lower() != "true":
         raise RuntimeError("Only local mode is supported")
     owns_service = service is None
-    svc = service or Service(Path(__file__).resolve().parents[2] / "storage" / "locus.sqlite3")
+    svc = service or Service(
+        Path(__file__).resolve().parents[2] / "storage" / "locus.sqlite3",
+        scanner=scanner_from_environment(),
+    )
+    catalog = model_catalog or ModelCatalog()
+    runtime = local_model or LocalModel()
 
     stop = asyncio.Event()
 
     async def worker() -> None:
         while not stop.is_set():
             await asyncio.to_thread(svc.process_next)
+            # Advisory check only: a slot taken between this probe and the next
+            # pickup is handled by the queue's requeue path, not by failure.
+            if runtime.available():
+                await asyncio.to_thread(svc.process_next_chat)
             try:
                 await asyncio.wait_for(stop.wait(), timeout=0.25)
             except TimeoutError:
@@ -161,6 +210,11 @@ def create_app(*, service: Service | None = None, start_worker: bool = True) -> 
     def health() -> dict[str, str]:
         return {"status": "ok", "mode": "development-local-only"}
 
+    @app.post("/api/auth/recovery")
+    def recover(data: Recovery) -> dict[str, bool]:
+        svc.recover(data.username, data.recovery_code, data.new_password)
+        return {"ok": True}
+
     @app.post("/api/auth/login")
     def login(data: Login, request: Request, response: Response) -> dict[str, Any]:
         token, user = svc.login(
@@ -181,8 +235,12 @@ def create_app(*, service: Service | None = None, start_worker: bool = True) -> 
 
     @app.post("/api/auth/password")
     def password(data: Password, request: Request, response: Response) -> dict[str, bool]:
-        user = svc.authenticate(request.cookies.get(COOKIE), allow_rotation=True)
-        cookie(response, svc.rotate(user, data.current_password, data.new_password))
+        token = request.cookies.get(COOKIE)
+        user = svc.authenticate(token, allow_rotation=True)
+        cookie(
+            response,
+            svc.rotate(user, data.current_password, data.new_password, session_token=token),
+        )
         return {"ok": True}
 
     @app.post("/api/auth/logout", status_code=204)
@@ -214,6 +272,12 @@ def create_app(*, service: Service | None = None, start_worker: bool = True) -> 
     ) -> list[dict[str, Any]]:
         return svc.chunks(user, document, conversation_id)
 
+    @app.get("/api/documents/{document}/related")
+    def related(
+        document: str, user: Actor, conversation_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        return svc.related(user, document, conversation_id)
+
     @app.delete("/api/documents/{document}", status_code=204)
     def delete_document(document: str, user: Actor) -> None:
         svc.delete_document(user, document)
@@ -239,10 +303,63 @@ def create_app(*, service: Service | None = None, start_worker: bool = True) -> 
         return svc.conversation(user, conversation)
 
     @app.post("/api/conversations/{conversation}/messages")
-    def message(conversation: str, data: Message, user: Actor) -> dict[str, Any]:
+    def message(conversation: str, data: Message, request: Request, user: Actor) -> Any:
         if not data.text.strip():
             fail(422, "メッセージを入力してください")
-        return svc.send(user, conversation, data.text, data.scope, data.attachment_ids)
+        with runtime.settings_lock:
+            model, version, seconds = runtime.model, runtime.version, runtime.timeout_seconds
+
+        def generate(text: str, citations: list[dict[str, Any]]) -> tuple[str, str]:
+            if not model:
+                # Fail-closed: the callback is only ever passed when a model is
+                # configured; the guard keeps that invariant enforced at the type level.
+                fail(422, "ローカルモデルが有効になっていません")
+            try:
+                return runtime.generate(model, text, citations, timeout_seconds=seconds)
+            except HTTPException as exc:
+                # Only the busy-slot signal becomes a queued dialogue; other
+                # failures keep their existing synchronous behavior.
+                if exc.status_code == 429 and exc.detail == "モデルは処理中です":
+                    raise ModelBusy() from exc
+                raise
+
+        token = request.cookies.get(COOKIE)
+        try:
+            return svc.send(
+                user,
+                conversation,
+                data.text,
+                data.scope,
+                data.attachment_ids,
+                generate=generate if model else None,
+                validate=(lambda: runtime.validate(model, version, seconds)) if model else None,
+                token=token,
+            )
+        except ModelBusy:
+            if token is None:
+                fail(429, "モデルは処理中です")
+            job_id = svc.enqueue_chat(
+                user,
+                conversation,
+                data.text,
+                data.scope,
+                data.attachment_ids,
+                token=token,
+                generate=generate,
+                validate=(lambda: runtime.validate(model, version, seconds)) if model else None,
+            )
+            return JSONResponse(
+                {"job_id": job_id, "status": "queued", "text": data.text},
+                status_code=202,
+            )
+
+    @app.get("/api/chat-jobs/{job}")
+    def chat_job(job: str, user: Actor) -> dict[str, Any]:
+        return svc.chat_job(user, job)
+
+    @app.delete("/api/chat-jobs/{job}", status_code=204)
+    def cancel_chat_job(job: str, user: Actor) -> None:
+        svc.cancel_chat_job(user, job)
 
     @app.delete("/api/conversations/{conversation}", status_code=204)
     def delete_conversation(conversation: str, user: Actor) -> None:
@@ -258,9 +375,67 @@ def create_app(*, service: Service | None = None, start_worker: bool = True) -> 
             fail(422, "ロール名を入力してください")
         return svc.create_role(user, project, data.name, data.permissions)
 
+    @app.put("/api/projects/{project}/roles/{role_id}")
+    def update_role(project: str, role_id: str, data: Role, user: Actor) -> dict[str, Any]:
+        if not data.name.strip():
+            fail(422, "ロール名を入力してください")
+        return svc.update_role(user, project, role_id, data.name, data.permissions)
+
+    @app.get("/api/admin/models/sources")
+    def model_sources(user: Actor) -> list[dict[str, str]]:
+        if not user.system_admin:
+            fail(403, "管理権限が必要です")
+        return catalog.sources()
+
+    @app.post("/api/admin/models/discover")
+    def discover_models(data: ModelDiscovery, request: Request, user: Actor) -> dict[str, Any]:
+        if not user.system_admin:
+            fail(403, "管理権限が必要です")
+        result = catalog.discover(data.sources)
+        # Recheck after local I/O before returning privileged inventory metadata.
+        current = svc.authenticate(request.cookies.get(COOKIE))
+        svc.record_model_discovery(
+            current, all(item["status"] == "complete" for item in result["sources"])
+        )
+        with runtime.settings_lock:
+            runtime.registered = {
+                item["id"]: item["name"]
+                for item in result["models"]
+                if item["source_id"] == "ollama"
+            }
+        return result
+
+    @app.get("/api/admin/models/runtime")
+    def model_runtime(user: Actor) -> dict[str, Any]:
+        if not user.system_admin:
+            fail(403, "管理権限が必要です")
+        return runtime.status()
+
+    @app.put("/api/admin/models/runtime")
+    def configure_model(data: ModelRuntime, request: Request, user: Actor) -> dict[str, Any]:
+        with svc.db() as db:
+            current = svc._authenticate(db, request.cookies.get(COOKIE))
+            if not current.system_admin:
+                fail(403, "管理権限が必要です")
+            result = runtime.configure(
+                data.candidate_id, data.local_only_confirmed, data.timeout_seconds
+            )
+            svc._audit(db, current.id, "model.configure", "local-model-runtime")
+            return result
+
+    @app.put("/api/admin/users/{user_id}/enabled")
+    def set_user_enabled(user_id: str, data: AccountEnabled, request: Request) -> dict[str, Any]:
+        return svc.set_user_enabled(request.cookies.get(COOKIE), user_id, data.enabled)
+
     @app.get("/api/admin/users")
     def users(user: Actor) -> list[dict[str, Any]]:
         return svc.users(user)
+
+    @app.post("/api/admin/users", status_code=201)
+    def provision_user(data: ProvisionUser, request: Request, user: Actor) -> dict[str, Any]:
+        return svc.provision_web_user(
+            user, data.username, session_token=request.cookies.get(COOKIE)
+        )
 
     @app.get("/api/admin/audit")
     def audit(user: Actor) -> list[dict[str, Any]]:

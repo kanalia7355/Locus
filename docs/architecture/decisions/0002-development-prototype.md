@@ -32,3 +32,14 @@ Optional Phase 6 / roadmap Phase 5: ACL-filtered provenance relationships may be
 Initial independent design audit found no critical/high issue within this scope. Medium clarifications adopted before implementation: exact Host/Origin allowlists and missing/null-Origin mutation rejection; rotation-only sessions with 30-minute idle/8-hour absolute expiry, 24-hour temporary-password expiry and single-use temporary login; transactional source/permission/cancellation checks before ingestion publication; fixture scanner cannot be selected through HTTP or environment; only system administrators provision identities and assign built-in project roles, while project role editors can create non-administrative permission subsets in their current project. Administrative delegation is always disabled.
 
 Only the main agent implements. One fresh-context read-only reviewer is permitted for architecture/security audit. Reviewer must not edit files, spawn agents, access secrets or network. At most two fix/re-review cycles. The current collaboration interface does not expose a per-reviewer filesystem sandbox or enforceable token/time cap: these restrictions are procedural, not technically guaranteed. A local guard module and tests can constrain project-owned automation, not the hosting agent tool system. No protected-branch merge is permitted without trusted review checks.
+
+## Authorized offline local-model extension — 2026-11-06
+
+The owner approved the independently reviewed LOCAL_MODELS.md local RAG proposal
+for offline implementation and mock QA. An optional fixed-loopback Ollama adapter
+may persist generated answer text and model name with all input citation IDs.
+This explicitly changes the original user-text-and-IDs-only history guarantee.
+Any missing/revoked input citation hides the entire generated answer on read;
+hiding is not physical deletion or an approved retention policy. Default lexical
+mode remains available. Real inference, daemon configuration changes, downloads,
+and loading models require separate authorization. No cloud adapter is approved.

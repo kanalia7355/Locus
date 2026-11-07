@@ -80,6 +80,7 @@ def doctor(root: Path, *, check_sandbox: bool = False) -> dict[str, Any]:
                 probe.stdout.splitlines()[0][:100] if probe.returncode == 0 else "unavailable"
             )
     config = load(root / ".loop/config.yaml")
+    result["delivery"] = config["github"]["delivery"]
     result["model_execution_enabled"] = config["security"]["allow_model_execution"]
     result["sandbox"] = "unverified: live execution blocked until complete capability probes pass"
     result["github_writes_enabled"] = config["github"]["enabled"]
@@ -91,6 +92,24 @@ def doctor(root: Path, *, check_sandbox: bool = False) -> dict[str, Any]:
         ("codex", ["login", "status"]),
         ("gh", ["auth", "status", "--hostname", "github.com"]),
     ):
+        if tool == "codex":
+            from loop_engine.runtime_diagnostics import require_receipt
+
+            # A diagnostic/launch request cannot bootstrap authentication through
+            # an unverified execution boundary. A missing proof remains unknown,
+            # never a failed login or permission to refresh/recover credentials.
+            try:
+                require_receipt(root)
+            except (ValueError, OSError):
+                result[tool]["authenticated"] = None
+                result[tool]["authentication_probe"] = "not_run_execution_boundary_unverified"
+                continue
+            from loop_engine.run_authorization import auth_probe_authorized
+
+            if not auth_probe_authorized(root):
+                result[tool]["authenticated"] = None
+                result[tool]["authentication_probe"] = "not_run_live_authorization_absent"
+                continue
         executable = codex_binary(root) if tool == "codex" else shutil.which(tool)
         result[tool]["authenticated"] = bool(
             executable
@@ -128,11 +147,15 @@ def doctor(root: Path, *, check_sandbox: bool = False) -> dict[str, Any]:
         except (ValueError, OSError):
             result["sandbox"] = "unverified or stale: execution blocked"
         if config["github"]["delivery"] == "pull_request":
-            result["automatic_merge"] = "held by operator; PR-only delivery"
+            result["automatic_merge"] = "held: PR-only delivery; safe merge is not activated"
     elif check_sandbox:
         from loop_engine.diagnostics import sandbox_probe
 
         result["sandbox_probe"] = sandbox_probe(root)
+    if config["github"]["delivery"] == "local_commit_push":
+        result["automatic_merge"] = (
+            "not used: verified commits push to a dedicated development branch"
+        )
     return result
 
 
@@ -146,6 +169,43 @@ def parser() -> argparse.ArgumentParser:
     init = commands.add_parser("init")
     init.add_argument("--goal-file", type=Path)
     commands.add_parser("doctor").add_argument("--check-sandbox", action="store_true")
+    trial = commands.add_parser("c-min-trial")
+    trial.add_argument("--plan", type=Path, required=True)
+    trial.add_argument("--approval", required=True)
+    trial.add_argument("--status", action="store_true")
+    prepare_trial = commands.add_parser("prepare-trial")
+    prepare_trial.add_argument("--request", type=Path, required=True)
+    prepare_run = commands.add_parser("prepare-run")
+    prepare_run.add_argument("duration", type=parse_duration)
+    app_setup = commands.add_parser("app-register")
+    app_setup.add_argument("role", choices=("review", "merge"))
+    app_setup.add_argument("--owner", choices=("kanalia7355",), default="kanalia7355")
+    provision = commands.add_parser("app-provision")
+    provision.add_argument("role", choices=("review", "merge"))
+    provision.add_argument("--app-id", type=int, required=True)
+    provision.add_argument("--installation-id", type=int, required=True)
+    inspect_policy = commands.add_parser("app-policy")
+    inspect_policy.add_argument("--merge-app-id", type=int, required=True)
+    inspect_policy.add_argument("--installation-id", type=int, required=True)
+    inspect_policy.add_argument("--review-app-id", type=int, required=True)
+    readiness = commands.add_parser("activation-readiness")
+    readiness.add_argument("--live", action="store_true")
+    readiness.add_argument("--pull", type=int, default=6)
+    migration_plan = commands.add_parser("migration-plan")
+    migration_plan.add_argument("--file", type=Path, required=True)
+    migration_apply = commands.add_parser("migration-apply")
+    migration_apply.add_argument("migration_id")
+    service_bundle = commands.add_parser("service-bundle")
+    service_bundle.add_argument("--recover-partial-from")
+    service_bundle.add_argument("--review-sid")
+    completion_bundle = commands.add_parser("service-completion-bundle")
+    completion_bundle.add_argument("--active-manifest", required=True)
+    completion_bundle.add_argument("--review-sid", required=True)
+    completion_bundle.add_argument("--merge-sid", required=True)
+    commands.add_parser("service-health")
+    commands.add_parser("service-policy")
+    service_import = commands.add_parser("service-provision")
+    service_import.add_argument("role", choices=("review", "merge"))
     for name in ("status", "report", "pause", "stop", "decisions"):
         commands.add_parser(name)
     launch = commands.add_parser("launch")
@@ -202,17 +262,21 @@ def build_controller(root: Path, state: StateStore) -> Any:
         boundary = UnprovenBoundary()
         boundary.require(root, root)
         qa_boundary = boundary
-    runner = CodexRunner(root, boundary=boundary)
+    runner = CodexRunner(root, boundary=boundary, state=state)
     git = GitManager(
         root,
         state,
-        "refs/remotes/origin/main"
-        if config["development"]["enabled"]
-        else config["github"]["base"],
+        "refs/heads/" + config["github"]["base"]
+        if config["github"]["delivery"] == "local_commit_push"
+        else (
+            "refs/remotes/origin/main"
+            if config["development"]["enabled"]
+            else config["github"]["base"]
+        ),
     )
     development = None
     if config["development"]["enabled"]:
-        from loop_engine.development import DevelopmentLoop, MainSnapshot
+        from loop_engine.development import DevelopmentLoop, LocalSnapshot, MainSnapshot
         from loop_engine.goal_evaluator import GoalEvaluator
         from loop_engine.improvement_planner import ImprovementPlanner
 
@@ -222,7 +286,9 @@ def build_controller(root: Path, state: StateStore) -> Any:
         development = DevelopmentLoop(
             root,
             state,
-            MainSnapshot(root, git, config["github"]["repository"]),
+            LocalSnapshot(root, git, config["github"]["repository"], config["github"]["base"])
+            if config["github"]["delivery"] == "local_commit_push"
+            else MainSnapshot(root, git, config["github"]["repository"]),
             GoalEvaluator(runner),
             Verifier(profiles, boundary=qa_boundary),
             ImprovementPlanner(
@@ -232,6 +298,13 @@ def build_controller(root: Path, state: StateStore) -> Any:
                 "repository",
             ),
         )
+    from loop_engine.local_delivery import LocalDelivery
+
+    publisher = (
+        LocalDelivery(root, state, git, config["github"])
+        if config["github"]["delivery"] == "local_commit_push"
+        else GitHubManager(root, state, git, config["github"])
+    )
     return Controller(
         root,
         state,
@@ -239,13 +312,156 @@ def build_controller(root: Path, state: StateStore) -> Any:
         Verifier(config["verification"], boundary=qa_boundary),
         Reviewer(runner),
         git,
-        GitHubManager(root, state, git, config["github"]),
+        publisher,
         development,
     )
 
 
 def run(args: argparse.Namespace) -> int:
     root = args.project.resolve()
+    if args.command == "prepare-trial":
+        from loop_engine.model_gate import strict_json
+        from loop_engine.security import fingerprint, reparse, within
+        from loop_engine.trial_authorization import prepare
+
+        path = within(root, args.request.resolve().relative_to(root).as_posix())
+        if any(reparse(p) for p in (path, *path.parents)):
+            raise SafetyError("Trial request reparse boundary")
+        request = strict_json(path.read_bytes(), 1024 * 1024)
+        decision = prepare(root, open_state(root), request)
+        print(
+            json.dumps(
+                {
+                    "status": "trial_approval_required",
+                    "decision": decision,
+                    "request_hash": fingerprint(request),
+                }
+            )
+        )
+        return 0
+    if args.command == "prepare-run":
+        from loop_engine.controller import Controller
+
+        scope = Controller.prepare_run(root, open_state(root), args.duration)
+        print(json.dumps({"status": "run_approval_required", "scope": scope}, indent=2))
+        return 0
+    if args.command == "c-min-trial":
+        from loop_engine.c_min_trial import run as single_trial
+        from loop_engine.c_min_trial import status as trial_status
+
+        state = open_state(root)
+        result = (
+            trial_status(state)
+            if args.status
+            else single_trial(root, state, args.plan, args.approval)
+        )
+        print(json.dumps(result))
+        return 0
+    if args.command in {"service-bundle", "service-completion-bundle"}:
+        from loop_engine.planning import bounded_json
+        from loop_engine.process import ProcessRunner
+        from loop_engine.service_bundle import admin_command, completion_request, recovery_request
+
+        build_arguments = [sys.executable, "-m", "loop_engine.service_bundle"]
+        if args.command == "service-completion-bundle":
+            completion = completion_request(args.active_manifest, args.review_sid, args.merge_sid)
+            build_arguments.extend(["--complete-services", str(root)])
+            for key, flag in (
+                ("active_manifest_sha256", "--active-manifest"),
+                ("review_sid", "--review-sid"),
+                ("merge_sid", "--merge-sid"),
+            ):
+                build_arguments.extend([flag, completion[key]])
+        else:
+            recovery = recovery_request(args.recover_partial_from, args.review_sid)
+            build_arguments.extend(["--build", str(root)])
+            if recovery is not None:
+                build_arguments.extend(
+                    [
+                        "--recover-partial-from",
+                        recovery["previous_manifest_sha256"],
+                        "--review-sid",
+                        recovery["review_sid"],
+                    ]
+                )
+        built = ProcessRunner().run(
+            build_arguments,
+            root,
+            timeout=600,
+            output_limit=65536,
+        )
+        if built.outcome != "exit" or built.returncode:
+            raise SafetyError("Service bundle build failed; no installation performed")
+        package = bounded_json(built.stdout, maximum=65536)
+        command = admin_command(package)
+        target = Path(package["bundle"]) / "admin-command.txt"
+        with target.open("x", encoding="utf-8") as stream:
+            stream.write(command)
+        print(json.dumps({**package, "admin_command": str(target)}, indent=2))
+        return 0
+    if args.command in {"service-health", "service-policy", "service-provision"}:
+        from loop_engine.service_client import ServiceClient, ServicePolicyObserver
+
+        service_client = ServiceClient()
+        if args.command == "service-policy":
+            service_result: Any = ServicePolicyObserver(
+                service_client, timeout=120, cancelled=lambda: False
+            ).observe()
+        elif args.command == "service-provision":
+            service_result = service_client.provision(args.role)
+        else:
+            service_result = {
+                role: service_client.call(role, {"operation": "health"})
+                for role in ("review", "merge")
+            }
+        print(json.dumps(service_result, indent=2))
+        if isinstance(service_result, dict) and service_result.get("status") in {
+            "blocked",
+            "uncertain",
+        }:
+            return 2
+        if args.command == "service-health" and not all(
+            service_result[role].get("isolated_account") is True for role in ("review", "merge")
+        ):
+            return 2
+        return 0
+    if args.command == "app-provision":
+        from loop_engine.app_credentials import WindowsAppVault
+        from loop_engine.app_provisioning import provision
+        from loop_engine.github_app import AppConnectionError, GitHubMissing
+
+        try:
+            result = provision(
+                root, args.role, args.app_id, args.installation_id, WindowsAppVault()
+            )
+        except AppConnectionError as error:
+            print(json.dumps(error.public(), indent=2), file=sys.stderr)
+            return 2
+        except GitHubMissing:
+            print(
+                json.dumps(AppConnectionError("repository", "http_rejected", 404).public()),
+                file=sys.stderr,
+            )
+            return 2
+        print(json.dumps(result, indent=2))
+        return 0
+    if args.command == "app-policy":
+        from loop_engine.app_credentials import WindowsAppVault
+        from loop_engine.app_provisioning import REPOSITORY_ID
+        from loop_engine.broker_policy_reader import observe_policy
+        from loop_engine.github_app import GitHubApp
+
+        client = GitHubApp(
+            "merge", args.merge_app_id, args.installation_id, REPOSITORY_ID, WindowsAppVault()
+        )
+        print(json.dumps(observe_policy(client, args.merge_app_id, args.review_app_id), indent=2))
+        return 0
+    if args.command == "app-register":
+        from loop_engine.app_credentials import WindowsAppVault
+        from loop_engine.app_onboarding import register
+
+        print(json.dumps(register(args.role, args.owner, WindowsAppVault()), indent=2))
+        return 0
     if args.command == "init":
         goal = ""
         if args.goal_file:
@@ -268,7 +484,30 @@ def run(args: argparse.Namespace) -> int:
         result = launch(root, duration_seconds=args.duration, resume=args.resume)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0 if result["status"] in {"already_running", "launch_requested"} else 2
+    if args.command == "activation-readiness":
+        from loop_engine.activation_readiness import assess, frozen_hash
+
+        remote: dict[str, Any] = {}
+        if args.live:
+            from loop_engine.service_observation import observe
+
+            remote = observe(root, args.pull)
+        report = assess(root, frozen_hash(root), remote=remote)
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        return 0 if report["ready_for_activation_approval"] else 2
     state = open_state(root)
+    if args.command in {"migration-plan", "migration-apply"}:
+        from loop_engine.planning import read_json
+        from loop_engine.policy_migration import PolicyMigration
+
+        migration = PolicyMigration(root, state)
+        migration_result = (
+            migration.prepare(read_json(args.file))
+            if args.command == "migration-plan"
+            else {"specification_hash": migration.apply(args.migration_id)}
+        )
+        print(json.dumps(migration_result, indent=2))
+        return 0
     if args.command == "status":
         print(progress(state))
     elif args.command == "report":

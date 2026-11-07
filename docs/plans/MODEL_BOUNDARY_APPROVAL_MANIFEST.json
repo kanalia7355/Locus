@@ -1,0 +1,36 @@
+{
+  "protocol": "locus-model-boundary-design-approval-v1",
+  "status": "proposed_not_approved",
+  "baseline_commit": "32ebd9a9b18f9b590cbe50f881f5dde48af99567",
+  "branch": "loop/local-development",
+  "files": {
+    "docs/plans/MODEL_BOUNDARY_FINAL_DESIGN.md": "ae610e2fd410bdca463cbe49687d015ae7f6e3bf3251405928c59fc383ccb001",
+    "docs/plans/MODEL_BOUNDARY_APPROVAL_PROPOSAL.md": "5d6320cd86b3c8216db2317b06ae248f73087c6497014fb23d0ad35f9722e8b0",
+    "docs/reviews/MODEL_BOUNDARY_DESIGN_REVIEW.md": "6feb41ef3ca3b3f65b912a81a93b46ef33ca9e1b510baa9c16b11bdcc9954268",
+    "docs/architecture/ADR-0011-model-facing-zero-tool-gate-proposal.md": "fdb08eed20671b7a625d88f92d5d386e03bb2ea1808ca89d817304d70040c65b"
+  },
+  "independent_review": {
+    "agent": "/root/c_minimum_design_review",
+    "disposition": "pass_design_and_offline_scope_only",
+    "record": "docs/reviews/MODEL_BOUNDARY_DESIGN_REVIEW.md"
+  },
+  "requested_scope": [
+    "adopt_ADR0011_C_min_for_normal_local_commit_push_roles_only",
+    "extend_existing_AuditRelay_without_new_orchestrator",
+    "offline_implementation_and_mock_regression_validation",
+    "independent_implementation_security_review"
+  ],
+  "not_authorized": [
+    "real_authentication_load_or_operations",
+    "real_model_inference",
+    "audit_service_operations",
+    "unattended_loop_or_30_minute_trial",
+    "API_key_billing",
+    "credential_export_or_new_auth_storage",
+    "QA_or_CI_weakening",
+    "main_push_or_PR_App_merge_activation",
+    "implicit_frozen_policy_migration"
+  ],
+  "owner_decision_required": true,
+  "runtime_readiness_established": false
+}

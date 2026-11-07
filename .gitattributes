@@ -1,0 +1,17 @@
+# Preserve the exact bytes approved by the owner and reviewed by SHA-256.
+docs/plans/MODEL_BOUNDARY_APPROVAL_MANIFEST.json text eol=lf
+docs/plans/MODEL_BOUNDARY_APPROVAL_PROPOSAL.md text eol=lf
+docs/plans/MODEL_BOUNDARY_FINAL_DESIGN.md text eol=lf
+docs/reviews/MODEL_BOUNDARY_DESIGN_REVIEW.md text eol=lf
+docs/plans/MAIN_FF_INTEGRATION_DESIGN.md text eol=lf
+docs/plans/C_MIN_SINGLE_CONNECTION_APPROVAL.md text eol=lf
+docs/plans/NORMAL_AUTH_STORAGE_DECISION.md text eol=lf
+docs/plans/C_MIN_RUNTIME_INPUT_BINDING_DESIGN.md text eol=lf
+docs/plans/C_MIN_RUNTIME_INPUT_BINDING_APPROVAL.json text eol=lf
+docs/reviews/C_MIN_RUNTIME_INPUT_BINDING_DESIGN_REVIEW.md text eol=lf
+docs/plans/C_MIN_NATIVE_METADATA_ADDENDUM.md text eol=lf
+docs/plans/C_MIN_DERIVED_INSTRUCTION_ID_ADDENDUM.md text eol=lf
+docs/plans/C_MIN_ACL_REPAIR_OWNER_APPROVAL.md text eol=lf
+docs/plans/C_MIN_METADATA_LEASE_MASK_ADDENDUM.md text eol=lf
+docs/plans/LOOP_30M_ACTIVATION_REMAINDER.md text eol=lf
+docs/plans/C_MIN_NOTIFY_SUPPRESSION_APPROVAL.md text eol=lf

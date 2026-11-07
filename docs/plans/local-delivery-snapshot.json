@@ -1,0 +1,111 @@
+{
+  "goal.md": "# Locus documentation-grounded development\n\nContinue the operator-requested Locus project using README.md and docs as authority. Implement and verify the approved local synthetic-data prototype, preserve the approved UI and all PRODUCT_SPEC acceptance, and improve concrete defects through independently reviewed Conventional Commits, fast-forward integration into loop/local-development and confirmed Push to the corresponding GitHub branch. New PR creation, automatic merging and direct main Push are outside the normal path. Production, research data, LAN publication, recovery/delegation semantics and research-model connections retain their existing approval gates.\n\nThis restores the original README/project objective after the temporary controller-bootstrap scope; its exact documents are preserved in docs/plans/bootstrap-goal-history. No imported plan or acceptance is replaced or relaxed. The earlier engineering acceptance is not declared complete. Source: operator instructions dated2026-10-31 and docs/governance/UNATTENDED_AUTHORIZATION.md.\n",
+  "requirements.md": "# Product specification (proposed)\n## Purpose\nOn-premise or private-network research data management and AI-assisted analysis for laboratories, organizations and individuals. Confidentiality is a first-class requirement. Existing lab book and GraphRAG systems motivate this work, but no existing code is assumed.\n## Core capabilities\n- Browser UI available to authorized clients on a LAN; optional VPN/reverse proxy with explicit administrator configuration. LAN membership alone never grants authorization.\n- Organization/project/user separation, private chat histories, document-level ACLs and permission-filtered retrieval including vector and graph traversals.\n- RAG answers with traceable document/page/chunk citations; GraphRAG provenance visualization, not unsupported confidence claims.\n- New uploads parsed, scanned, indexed and linked to existing material asynchronously; this is retrieval index updating, not LLM training.\n- Chat with attachments, data exploration, plots, research discussion and hypothesis support. Mark AI-generated analysis as suggestions, not verified findings.\n- Local LLM mode for strictly private workloads. Cloud APIs only for explicitly allowed data and administrator-authorized egress; no UI automation of consumer chat services.\n- Administrator-issued unique user IDs and one-time temporary passwords; force password reset on first login. No plaintext password storage; hash with Argon2id. Secure recovery and session revocation.\n- Built-in role templates: system admin, organization admin, assistant admin, project lead, researcher, research assistant, general user, viewer, guest, auditor. Administrators can clone/name/configure roles within their own delegable permissions; cannot invent new backend privileges.\n- Delegated administration constrained by permission subset, scope and expiration, with audit logs and no privilege escalation or self-escalation.\n- UI settings: role presets, permission chips, scope selectors, advanced overrides and effective-access preview. No credits/billing.\n## Out of scope for first prototype\nFull autonomous research, fine-tuning, unrestricted cloud connectivity, automatic privileged delegation, multi-organization federation, billing, and production-grade high availability.\n## MVP vertical slices\n1. Auth + forced password rotation + sessions.\n2. Organization/project/role ACL with denied-by-default tests.\n3. File ingestion + provenance-aware local RAG.\n4. Chat UI + source citations + per-user history.\n5. Admin role editor + delegation and audit trail.\n6. Optional GraphRAG visualization, plots and approved cloud adapter.\n## Acceptance criteria\nEvery retrieval path enforces ACL; users cannot see other users' histories; local-only mode has no external egress; unauthorized API access is denied server-side; source citations link to actual indexed content; first-login password change is enforced.\n\n## Product and UI refinement — 2026-10-29\nSee `../planning/research-app-concept.md`, `../planning/UI_IMPLEMENTATION_BASELINE.md`, and `../planning/ui-and-multiuser-design.md` for the latest folder ingestion, personal documents, drag-and-drop chat attachments, role-and-scope publication, and multi-user design. The UI baseline records the user-selected final demo. Provider, capacity and retention decisions remain open.\n\n\n## Execution scope\n\nSee docs/governance/UNATTENDED_AUTHORIZATION.md. Routine source-only implementation, local QA, independent review, Conventional Commits, fast-forward integration into loop/local-development and ordinary Push to its corresponding GitHub branch are authorized. No new PR, automatic merge or direct main Push is authorized by this mode. Preserve every pending production/security/provider decision; independent approved defect fixes may proceed.\n",
+  "architecture.md": "# Architecture baseline (subject to ADRs)\nBrowser SPA (React/TypeScript/Vite) -> FastAPI backend -> auth/authorization -> document and chat services -> ingestion queue -> relational metadata + vector/graph indexes -> LLM adapter (local default, optional cloud with policy gate).\nUse shared policy enforcement in every data path, including retrieval, graph neighbors, exports, cached results, background jobs and model prompts. Deny by default, isolate tenants and scope tokens. Document uploads need type/size limits, malware scanning, safe parsing, storage isolation, indexing status and deletion propagation. Use audit logs without sensitive payloads.\nDeployment: bind to private interface, firewall/allowlist, TLS where applicable, VPN for remote access; authentication is required even on trusted LAN. No claim that LAN-only access alone protects secrets. Restrict outbound traffic in local-only mode at deployment layer as well as application layer.\nInitial stack proposal: React+Vite+TypeScript+Tailwind/shadcn UI, Python+FastAPI, PostgreSQL+pgvector, optional local graph engine, Ollama-compatible adapter, Playwright/pytest/Ruff. Evaluate actual needs, licensing and performance before freezing.\n\n## Design refinement — 2026-10-29\nSee `../planning/ui-and-multiuser-design.md` for proposed model adapters, bounded dialogue and ingestion queues, shared resource limits, attachment handling, and role-plus-scope publication. See `../planning/UI_IMPLEMENTATION_BASELINE.md` for UI implementation acceptance checks. These proposals do not establish tested capacity or an approved provider.\n\n\n## Existing implementation conventions\n\nThe synthetic prototype uses the approved SQLite/lexical adapters in ADR0002. Production PostgreSQL/vector/model choices remain open. Development execution uses ADR0006 zero-tool proposals and source-only Docker QA; existing execution-boundary proof is still required and cannot be inferred from delivery tests. The existing Development Loop evaluates integrated local loop/local-development HEAD after confirmed ordinary Push. PR/App/Broker/automatic-merge guarantees are optional legacy concerns, outside this normal delivery path. No new orchestrator or executor is introduced.\n",
+  "acceptance.md": "# Product acceptance is unchanged\n\n# Product specification (proposed)\n## Purpose\nOn-premise or private-network research data management and AI-assisted analysis for laboratories, organizations and individuals. Confidentiality is a first-class requirement. Existing lab book and GraphRAG systems motivate this work, but no existing code is assumed.\n## Core capabilities\n- Browser UI available to authorized clients on a LAN; optional VPN/reverse proxy with explicit administrator configuration. LAN membership alone never grants authorization.\n- Organization/project/user separation, private chat histories, document-level ACLs and permission-filtered retrieval including vector and graph traversals.\n- RAG answers with traceable document/page/chunk citations; GraphRAG provenance visualization, not unsupported confidence claims.\n- New uploads parsed, scanned, indexed and linked to existing material asynchronously; this is retrieval index updating, not LLM training.\n- Chat with attachments, data exploration, plots, research discussion and hypothesis support. Mark AI-generated analysis as suggestions, not verified findings.\n- Local LLM mode for strictly private workloads. Cloud APIs only for explicitly allowed data and administrator-authorized egress; no UI automation of consumer chat services.\n- Administrator-issued unique user IDs and one-time temporary passwords; force password reset on first login. No plaintext password storage; hash with Argon2id. Secure recovery and session revocation.\n- Built-in role templates: system admin, organization admin, assistant admin, project lead, researcher, research assistant, general user, viewer, guest, auditor. Administrators can clone/name/configure roles within their own delegable permissions; cannot invent new backend privileges.\n- Delegated administration constrained by permission subset, scope and expiration, with audit logs and no privilege escalation or self-escalation.\n- UI settings: role presets, permission chips, scope selectors, advanced overrides and effective-access preview. No credits/billing.\n## Out of scope for first prototype\nFull autonomous research, fine-tuning, unrestricted cloud connectivity, automatic privileged delegation, multi-organization federation, billing, and production-grade high availability.\n## MVP vertical slices\n1. Auth + forced password rotation + sessions.\n2. Organization/project/role ACL with denied-by-default tests.\n3. File ingestion + provenance-aware local RAG.\n4. Chat UI + source citations + per-user history.\n5. Admin role editor + delegation and audit trail.\n6. Optional GraphRAG visualization, plots and approved cloud adapter.\n## Acceptance criteria\nEvery retrieval path enforces ACL; users cannot see other users' histories; local-only mode has no external egress; unauthorized API access is denied server-side; source citations link to actual indexed content; first-login password change is enforced.\n\n## Product and UI refinement — 2026-10-29\nSee `../planning/research-app-concept.md`, `../planning/UI_IMPLEMENTATION_BASELINE.md`, and `../planning/ui-and-multiuser-design.md` for the latest folder ingestion, personal documents, drag-and-drop chat attachments, role-and-scope publication, and multi-user design. The UI baseline records the user-selected final demo. Provider, capacity and retention decisions remain open.\n\n\n## Completion evidence\n\nAll Goal acceptance must have current-head required checks, independent project review and no major unresolved issue. One task PR is not Goal completion. Unapproved or unimplemented subsystems remain incomplete; never weaken criteria or auto-confirm architecture/provider/security decisions.\n",
+  "policy": {
+    "version": 1,
+    "loop": {
+      "max_attempts_per_task": 3,
+      "max_review_cycles": 2,
+      "max_concurrent_tasks": 1,
+      "max_runtime_minutes": 360,
+      "max_tasks_per_run": 20,
+      "task_timeout_minutes": 30
+    },
+    "approval": {
+      "mode": "deferred",
+      "require_preapproval_for_high_risk": true,
+      "routine_publication": true
+    },
+    "security": {
+      "allow_production_changes": false,
+      "allow_destructive_operations": false,
+      "allow_unrestricted_execution": false,
+      "allow_model_execution": true,
+      "sandbox_executor": "proposal-docker"
+    },
+    "github": {
+      "enabled": true,
+      "repository": "kanalia7355/Locus",
+      "base": "loop/local-development",
+      "remote": "origin",
+      "auto_merge": "off",
+      "protect_default_branch": true,
+      "required_checks": [
+        "verify",
+        "engine (ubuntu-latest, 3.11)",
+        "engine (ubuntu-latest, 3.13)",
+        "engine (windows-latest, 3.11)",
+        "engine (windows-latest, 3.13)",
+        "conventional-title"
+      ],
+      "auto_merge_allowed_paths": [],
+      "delivery": "local_commit_push"
+    },
+    "verification": {
+      "repository": [
+        {
+          "name": "image-dependency-advisories",
+          "level": "security",
+          "argv": [
+            "{image-audit}"
+          ],
+          "required": true
+        },
+        {
+          "name": "engine-format-lint-types-tests-secrets-dependencies",
+          "level": "security",
+          "argv": [
+            "{python}",
+            "scripts/verify_loop.py"
+          ],
+          "required": true
+        },
+        {
+          "name": "engine-wheel-build",
+          "level": "static",
+          "argv": [
+            "{python}",
+            "-m",
+            "pip",
+            "wheel",
+            "--no-deps",
+            "--no-build-isolation",
+            "--wheel-dir",
+            ".loop/runtime/wheels",
+            "."
+          ],
+          "required": true
+        },
+        {
+          "name": "application-format-lint-types-unit-integration-build-e2e-security",
+          "level": "functional",
+          "argv": [
+            "{python}",
+            "scripts/verify.py",
+            "--e2e"
+          ],
+          "required": true
+        }
+      ]
+    },
+    "qa": {
+      "local_verification": true,
+      "independent_review": true,
+      "repair_failed_checks": true,
+      "require_configured_checks": true
+    },
+    "development": {
+      "enabled": true,
+      "max_cycles_per_run": 20,
+      "stagnation_limit": 3,
+      "evaluation_timeout_minutes": 10,
+      "allowed_paths": [
+        "backend",
+        "frontend",
+        "tests"
+      ]
+    }
+  }
+}

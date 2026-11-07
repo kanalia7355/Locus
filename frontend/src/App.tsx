@@ -8,16 +8,25 @@ import {
   PanelLeft,
   Plus,
   SquarePen,
+  UserCheck,
+  UserX,
   X,
 } from "lucide-react";
 import { api, errorText, json, statusName } from "./api";
+import { RelatedDocuments } from "./RelatedDocuments";
+import { IngestionProgress } from "./IngestionProgress";
+import { ModelSettings } from "./ModelSettings";
+import { ProvisionUser } from "./ProvisionUser";
 import type {
-  Citation,
+  ChatJob,
+  ChatJobAccepted,
   Conversation,
   Document,
   Message,
   Project,
+  Role,
   Roles,
+  SourceChunk,
   User,
 } from "./api";
 
@@ -262,14 +271,32 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [ingestionRefresh, setIngestionRefresh] = useState<
+    "waiting" | "updating" | "stopped"
+  >("waiting");
   const [busy, setBusy] = useState(false);
-  const [source, setSource] = useState<Citation[] | null>(null);
+  const [pendingJob, setPendingJob] = useState<{
+    id: string;
+    conversation: string;
+    text: string;
+    status: "queued" | "running";
+  } | null>(null);
+  const [source, setSource] = useState<{
+    document: Document;
+    chunks: SourceChunk[];
+    selectedChunk: string | null;
+  } | null>(null);
+  const [sourceError, setSourceError] = useState("");
   const conversationPromise = useRef<Promise<string> | null>(null);
   const conversationRef = useRef<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const personalInput = useRef<HTMLInputElement>(null);
   const sourceClose = useRef<HTMLButtonElement>(null);
+  const sourceTarget = useRef<HTMLDivElement>(null);
   const sourceTrigger = useRef<HTMLElement | null>(null);
+  const sourceRequest = useRef(0);
+  const activeProject = useRef("");
+  const libraryRequest = useRef(0);
   const project = projects.find((project) => project.id === projectId);
   const can = (permission: string) =>
     project?.permissions.includes(permission) ?? false;
@@ -280,6 +307,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
       .then((items) => {
         if (active) {
           setProjects(items);
+          activeProject.current = items[0]?.id ?? "";
           setProjectId(items[0]?.id ?? "");
         }
       })
@@ -288,27 +316,15 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
       });
     return () => {
       active = false;
+      activeProject.current = "";
     };
   }, []);
 
   const reload = useCallback(async () => {
-    if (!projectId) return;
-    const [docs, conversations] = await Promise.all([
-      api<Document[]>(`/documents?project_id=${encodeURIComponent(projectId)}`),
-      project?.permissions.includes("retrieve")
-        ? api<Conversation[]>(
-            `/conversations?project_id=${encodeURIComponent(projectId)}`,
-          )
-        : Promise.resolve([]),
-    ]);
-    setDocuments(docs);
-    setHistory(conversations);
-  }, [projectId, project]);
-
-  useEffect(() => {
-    let active = true;
-    if (projectId) {
-      void Promise.all([
+    if (!projectId || activeProject.current !== projectId) return;
+    const request = ++libraryRequest.current;
+    try {
+      const [docs, conversations] = await Promise.all([
         api<Document[]>(
           `/documents?project_id=${encodeURIComponent(projectId)}`,
         ),
@@ -317,21 +333,101 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
               `/conversations?project_id=${encodeURIComponent(projectId)}`,
             )
           : Promise.resolve([]),
-      ])
-        .then(([docs, conversations]) => {
-          if (active) {
-            setDocuments(docs);
-            setHistory(conversations);
-          }
-        })
-        .catch((error) => {
-          if (active) setError(errorText(error));
-        });
+      ]);
+      if (
+        request === libraryRequest.current &&
+        activeProject.current === projectId
+      ) {
+        setDocuments(docs);
+        setIngestionRefresh("waiting");
+        setHistory(conversations);
+      }
+    } catch (error) {
+      if (
+        request === libraryRequest.current &&
+        activeProject.current === projectId
+      )
+        throw error;
     }
+  }, [projectId, project]);
+
+  const scopedError = useCallback(
+    (message: string) => {
+      if (activeProject.current === projectId) setError(message);
+    },
+    [projectId],
+  );
+
+  useEffect(() => {
+    let active = true;
+    void reload().catch((error) => {
+      if (active) setError(errorText(error));
+    });
     return () => {
       active = false;
     };
-  }, [projectId, project]);
+  }, [reload]);
+
+  useEffect(() => {
+    if (
+      page !== "ingestion" ||
+      !projectId ||
+      !documents.some((doc) => ["queued", "scanning"].includes(doc.status))
+    )
+      return;
+    const controller = new AbortController();
+    let expiry: ReturnType<typeof setTimeout> | undefined;
+    const timer = setTimeout(() => {
+      const request = ++libraryRequest.current;
+      setIngestionRefresh("updating");
+      expiry = setTimeout(() => {
+        controller.abort();
+        if (
+          request === libraryRequest.current &&
+          activeProject.current === projectId
+        ) {
+          setIngestionRefresh("stopped");
+          setError(
+            "状態確認が10秒で期限切れになりました。「更新」で確認してください。",
+          );
+        }
+      }, 10000);
+      void api<Document[]>(
+        `/documents?project_id=${encodeURIComponent(projectId)}`,
+        {
+          signal: controller.signal,
+        },
+      )
+        .then((docs) => {
+          if (
+            !controller.signal.aborted &&
+            request === libraryRequest.current &&
+            activeProject.current === projectId
+          ) {
+            setDocuments(docs);
+            setIngestionRefresh("waiting");
+          }
+        })
+        .catch((error) => {
+          if (
+            !controller.signal.aborted &&
+            request === libraryRequest.current &&
+            activeProject.current === projectId
+          ) {
+            setIngestionRefresh("stopped");
+            setError(
+              `状態の自動更新を停止しました。「更新」で確認してください。${errorText(error)}`,
+            );
+          }
+        })
+        .finally(() => clearTimeout(expiry));
+    }, 2000);
+    return () => {
+      clearTimeout(timer);
+      clearTimeout(expiry);
+      controller.abort();
+    };
+  }, [page, projectId, documents]);
 
   useEffect(() => {
     if (
@@ -362,7 +458,64 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
   }, [attachments]);
 
   useEffect(() => {
-    if (source) sourceClose.current?.focus();
+    if (!pendingJob) return;
+    const job = pendingJob;
+    const controller = new AbortController();
+    const timer = setInterval(() => {
+      void api<ChatJob>(`/chat-jobs/${job.id}`, { signal: controller.signal })
+        .then((status) => {
+          if (controller.signal.aborted) return;
+          if (status.status === "running") {
+            setPendingJob((current) =>
+              current && current.id === job.id
+                ? { ...current, status: "running" }
+                : current,
+            );
+          } else if (status.status === "done") {
+            setPendingJob(null);
+            if (status.conversation_id === conversationRef.current) {
+              void api<Conversation>(
+                `/conversations/${status.conversation_id}`,
+              )
+                .then((conv) => {
+                  if (
+                    !controller.signal.aborted &&
+                    conversationRef.current === status.conversation_id
+                  )
+                    setMessages(conv.messages);
+                })
+                .catch((error) => setError(errorText(error)));
+            } else
+              setNotice(
+                "待機していた質問の回答が完成しました。調査履歴から開いてください。",
+              );
+          } else if (status.status === "failed") {
+            setPendingJob(null);
+            setError(`回答を生成できませんでした。${status.detail}`);
+          } else if (status.status === "cancelled") {
+            setPendingJob(null);
+          }
+        })
+        .catch((error) => {
+          if (controller.signal.aborted) return;
+          clearInterval(timer);
+          setPendingJob(null);
+          setError(
+            `質問の状態確認を停止しました。回答は調査履歴から確認できます。${errorText(error)}`,
+          );
+        });
+    }, 2000);
+    return () => {
+      clearInterval(timer);
+      controller.abort();
+    };
+  }, [pendingJob]);
+
+  useEffect(() => {
+    if (source?.selectedChunk && sourceTarget.current) {
+      sourceTarget.current.focus();
+      sourceTarget.current.scrollIntoView({ block: "nearest" });
+    } else if (source) sourceClose.current?.focus();
   }, [source]);
 
   function toggleSidebar() {
@@ -372,6 +525,8 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
     });
   }
   function navigate(next: Page) {
+    sourceRequest.current++;
+    setSource(null);
     setPage(next);
     setError("");
     setNotice("");
@@ -410,7 +565,10 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
   ) {
     if (!files.length || busy) return;
     setError("");
+    setNotice("");
     setBusy(true);
+    let accepted = 0;
+    const failures: string[] = [];
     try {
       if (files.length + (kind === "attachment" ? attachments.length : 0) > 10)
         throw new Error("一度に添付できる資料は10件までです。");
@@ -441,6 +599,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
               conversation_id: conversation,
             }),
           );
+          accepted++;
           if (kind === "attachment")
             setAttachments((items) =>
               items.map((item) =>
@@ -458,12 +617,27 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
                   : item,
               ),
             );
-          else setError(errorText(error));
+          else failures.push(`${file.name}：${errorText(error)}`);
         }
       }
-      await reload();
-      if (kind === "personal")
-        setNotice("登録を受け付けました。取り込み状況を確認してください。");
+      if (kind === "personal") {
+        if (accepted > 0)
+          setNotice(
+            `${accepted}件の登録を受け付けました。取り込み状況を確認してください。`,
+          );
+        if (failures.length)
+          setError(
+            `${failures.length}件を登録できませんでした。${failures.join(" / ")}`,
+          );
+      }
+      try {
+        await reload();
+      } catch (error) {
+        const refreshError = `一覧の更新に失敗しました：${errorText(error)}`;
+        setError((previous) =>
+          previous ? `${previous} ${refreshError}` : refreshError,
+        );
+      }
     } catch (error) {
       setError(errorText(error));
     } finally {
@@ -482,7 +656,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
   }
   async function send(event: FormEvent) {
     event.preventDefault();
-    if (!draft.trim() || busy || !can("retrieve")) return;
+    if (!draft.trim() || busy || pendingJob || !can("retrieve")) return;
     setError("");
     if (attachments.some((item) => item.status !== "ready")) {
       setError(
@@ -493,7 +667,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
     setBusy(true);
     try {
       const id = await ensureConversation();
-      const message = await api<Message>(
+      const response = await api<Message | ChatJobAccepted>(
         `/conversations/${id}/messages`,
         json("POST", {
           text: draft,
@@ -501,13 +675,34 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
           attachment_ids: attachments.map((item) => item.id),
         }),
       );
-      setMessages((items) => [...items, message]);
+      if ("job_id" in response) {
+        // The model slot was busy: the question waits in line and its answer
+        // is stored in the conversation, so a reload after completion shows it.
+        setPendingJob({
+          id: response.job_id,
+          conversation: id,
+          text: response.text,
+          status: "queued",
+        });
+      } else {
+        setMessages((items) => [...items, response]);
+      }
       setDraft("");
       await reload();
     } catch (error) {
       setError(errorText(error));
     } finally {
       setBusy(false);
+    }
+  }
+  async function cancelPendingJob() {
+    if (!pendingJob) return;
+    try {
+      await api(`/chat-jobs/${pendingJob.id}`, json("DELETE", {}));
+      setPendingJob(null);
+      setNotice("質問を取り消しました。");
+    } catch (error) {
+      setError(errorText(error));
     }
   }
   async function openConversation(id: string) {
@@ -534,19 +729,38 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
       setBusy(false);
     }
   }
-  async function openSource(document: string) {
-    sourceTrigger.current = documentElement();
+  async function openSource(document: string, chunkId?: string) {
+    if (!source) sourceTrigger.current = documentElement();
+    const request = ++sourceRequest.current;
+    setSourceError("");
     try {
-      setSource(
-        await api<Citation[]>(
-          `/documents/${document}/chunks${conversationId ? `?conversation_id=${conversationId}` : ""}`,
-        ),
-      );
+      const query = conversationId
+        ? `?conversation_id=${encodeURIComponent(conversationId)}`
+        : "";
+      const path = `/documents/${encodeURIComponent(document)}`;
+      const [metadata, chunks] = await Promise.all([
+        api<Document>(`${path}${query}`),
+        api<SourceChunk[]>(`${path}/chunks${query}`),
+      ]);
+      if (chunkId && !chunks.some((chunk) => chunk.id === chunkId))
+        throw new Error(
+          "引用箇所が更新または削除されています。最新の資料を確認してください。",
+        );
+      if (request === sourceRequest.current)
+        setSource({
+          document: metadata,
+          chunks,
+          selectedChunk: chunkId ?? null,
+        });
     } catch (error) {
-      setError(errorText(error));
+      if (request === sourceRequest.current) {
+        if (source) setSourceError(errorText(error));
+        else setError(errorText(error));
+      }
     }
   }
   function closeSource() {
+    sourceRequest.current++;
     setSource(null);
     sourceTrigger.current?.focus();
   }
@@ -582,6 +796,8 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
           value={projectId}
           disabled={busy}
           onChange={(e) => {
+            activeProject.current = e.target.value;
+            libraryRequest.current++;
             newChat();
             setProjectId(e.target.value);
             setDocuments([]);
@@ -708,6 +924,23 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
                   <article className="exchange" key={message.id}>
                     <p className="user-message">{message.text}</p>
                     <div className="answer">
+                      {message.answer && (
+                        <>
+                          <h2>資料に基づく提案</h2>
+                          <p style={{ whiteSpace: "pre-wrap" }}>
+                            {message.answer}
+                          </p>
+                          <p className="footnote">
+                            {message.model}{" "}
+                            による生成内容です。判断には元資料を確認してください。
+                          </p>
+                        </>
+                      )}
+                      {message.answer_hidden && (
+                        <p>
+                          出典の削除または権限変更により、生成回答を非表示にしました。
+                        </p>
+                      )}
                       <h2>
                         {message.citations.length
                           ? "資料に見つかった記述"
@@ -719,7 +952,10 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
                           <button
                             className="text-link"
                             onClick={() => {
-                              void openSource(citation.document_id);
+                              void openSource(
+                                citation.document_id,
+                                citation.id,
+                              );
                             }}
                           >
                             {citation.name} · p.{citation.page} · chunk{" "}
@@ -729,12 +965,36 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
                       ))}
                       <p className="footnote">
                         {message.citations.length
-                          ? "検索で抽出した原文です。AI生成の回答ではありません。判断には元資料を確認してください。"
+                          ? message.answer
+                            ? "以下の出典は検索で抽出した原文です。生成内容とは区別して確認してください。"
+                            : "検索で抽出した原文です。AI生成の回答ではありません。判断には元資料を確認してください。"
                           : "参照範囲・資料の処理状態・質問の語句を確認してください。"}
                       </p>
                     </div>
                   </article>
                 ))
+              )}
+              {pendingJob && pendingJob.conversation === conversationId && (
+                <article className="exchange">
+                  <p className="user-message">{pendingJob.text}</p>
+                  <div className="answer">
+                    <p role="status">
+                      {pendingJob.status === "running"
+                        ? "回答を作成中です。完成するとこの会話に表示されます。"
+                        : "回答の生成は順番待ちです。モデルが空くと自動的に処理されます。"}
+                    </p>
+                    {pendingJob.status === "queued" && (
+                      <button
+                        className="text-link"
+                        onClick={() => {
+                          void cancelPendingJob();
+                        }}
+                      >
+                        この質問を取り消す
+                      </button>
+                    )}
+                  </div>
+                </article>
               )}
             </div>
             <form
@@ -821,12 +1081,14 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
                   }}
                 />
                 <span className="send-state" role="status">
-                  {busy ? "処理中…" : ""}
+                  {busy ? "処理中…" : pendingJob ? "順番待ちあり" : ""}
                 </span>
                 <IconButton
                   label="送信"
                   type="submit"
-                  disabled={busy || !draft.trim() || !can("retrieve")}
+                  disabled={
+                    busy || !!pendingJob || !draft.trim() || !can("retrieve")
+                  }
                 >
                   <ArrowUp size={20} />
                 </IconButton>
@@ -842,7 +1104,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
             <div className="section-toolbar">
               <p className="muted">
                 {page === "ingestion"
-                  ? "検査機能が未接続の資料は隔離され、検索には使われません。"
+                  ? "安全検査を通過していない資料は隔離され、検索には使われません。"
                   : page === "personal"
                     ? "本人のみが参照できる資料です。会話添付はここに自動登録されません。"
                     : "このプロジェクトで閲覧を許可された資料です。"}
@@ -879,14 +1141,23 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
               対応形式：UTF-8のtxt・md・csv、1件256
               KiBまで。実研究資料は登録しないでください。
             </p>
+            {page === "ingestion" && (
+              <IngestionProgress
+                documents={documents}
+                refresh={ingestionRefresh}
+              />
+            )}
             <DocumentList
+              key={projectId}
+              projectId={projectId}
               documents={documents.filter(
                 (doc) => page === "ingestion" || doc.kind === page,
               )}
               canPublish={can("publish")}
+              canManageRoles={can("manage_roles")}
               onSource={openSource}
               onChanged={reload}
-              onError={setError}
+              onError={scopedError}
             />
           </>
         )}
@@ -909,10 +1180,10 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
                     onClick={() => {
                       void api(`/conversations/${conv.id}`, json("DELETE"))
                         .then(() => {
-                          if (conversationId === conv.id) newChat();
+                          if (conversationRef.current === conv.id) newChat();
                           return reload();
                         })
-                        .catch((error) => setError(errorText(error)));
+                        .catch((error) => scopedError(errorText(error)));
                     }}
                   >
                     削除
@@ -925,14 +1196,23 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
           </div>
         )}
         {projectId && page === "roles" && (
-          <RoleEditor projectId={projectId} onError={setError} />
+          <RoleEditor
+            key={projectId}
+            projectId={projectId}
+            onError={setError}
+          />
         )}
-        {page === "users" && user.system_admin && <AdminList kind="users" />}
-        {page === "audit" && user.system_admin && <AdminList kind="audit" />}
+        {page === "users" && user.system_admin && (
+          <AdminUsers currentUserId={user.id} />
+        )}
+        {page === "audit" && user.system_admin && <AdminList key="audit" kind="audit" />}
         {page === "settings" && (
           <div className="settings">
             <h2>処理先</h2>
-            <p>ローカルの原文検索のみ利用できます。モデルは未選定です。</p>
+            <p>
+              既定はローカルの原文検索です。管理者がOllamaモデルを明示的に有効化した場合は、参照資料に基づく回答を生成します。
+            </p>
+            {user.system_admin && <ModelSettings />}
             <h2>外部AI・保存先の接続</h2>
             <p>無効。接続先・契約・送信方針の承認後に実装します。</p>
             <h2>同時利用</h2>
@@ -959,25 +1239,69 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
             onKeyDown={(event) => {
               if (event.key === "Escape") closeSource();
               if (event.key === "Tab") {
-                event.preventDefault();
-                sourceClose.current?.focus();
+                const controls =
+                  event.currentTarget.querySelectorAll<HTMLButtonElement>(
+                    "button:not(:disabled)",
+                  );
+                const first = controls[0];
+                const last = controls[controls.length - 1];
+                const inside = Array.from(controls).some(
+                  (control) => control === document.activeElement,
+                );
+                if (!inside) {
+                  event.preventDefault();
+                  (event.shiftKey ? last : first)?.focus();
+                } else if (event.shiftKey && document.activeElement === first) {
+                  event.preventDefault();
+                  last?.focus();
+                } else if (!event.shiftKey && document.activeElement === last) {
+                  event.preventDefault();
+                  first?.focus();
+                }
               }
             }}
           >
-            <div className="section-toolbar">
-              <h2>出典の原文</h2>
-              <button ref={sourceClose} onClick={closeSource}>
-                閉じる
-              </button>
+            <div className="source-heading">
+              <div className="section-toolbar">
+                <h2>出典の原文</h2>
+                <button ref={sourceClose} onClick={closeSource}>
+                  閉じる
+                </button>
+              </div>
+              <p className="source-document-name">{source.document.name}</p>
             </div>
-            {source.map((chunk) => (
-              <div key={chunk.id}>
+            {sourceError && <p role="alert">{sourceError}</p>}
+            {source.chunks.map((chunk) => (
+              <div
+                key={chunk.id}
+                ref={source.selectedChunk === chunk.id ? sourceTarget : null}
+                className={
+                  source.selectedChunk === chunk.id
+                    ? "selected-source"
+                    : undefined
+                }
+                role={source.selectedChunk === chunk.id ? "region" : undefined}
+                aria-label={
+                  source.selectedChunk === chunk.id
+                    ? `引用箇所 p.${chunk.page} chunk ${chunk.ordinal}`
+                    : undefined
+                }
+                tabIndex={source.selectedChunk === chunk.id ? -1 : undefined}
+              >
                 <p className="muted">
                   p.{chunk.page} · chunk {chunk.ordinal}
                 </p>
                 <pre>{chunk.text}</pre>
               </div>
             ))}
+            {can("retrieve") && (
+              <RelatedDocuments
+                key={`${source.document.id}:${conversationId ?? ""}`}
+                documentId={source.document.id}
+                conversationId={conversationId}
+                onOpen={openSource}
+              />
+            )}
           </section>
         </div>
       )}
@@ -992,26 +1316,64 @@ function documentElement(): HTMLElement | null {
 }
 
 function DocumentList({
+  projectId,
   documents,
   canPublish,
+  canManageRoles,
   onSource,
   onChanged,
   onError,
 }: {
+  projectId: string;
   documents: Document[];
   canPublish: boolean;
+  canManageRoles: boolean;
   onSource: (id: string) => Promise<void>;
   onChanged: () => Promise<void>;
   onError: (error: string) => void;
 }) {
   const [publication, setPublication] = useState<string | null>(null);
   const [role, setRole] = useState("researcher");
+  const [access, setAccess] = useState("read");
+  const [pending, setPending] = useState(false);
+  const [customRoles, setCustomRoles] = useState<Role[]>([]);
+  useEffect(() => {
+    if (!canManageRoles) return;
+    const controller = new AbortController();
+    void api<Roles>(`/projects/${encodeURIComponent(projectId)}/roles`, {
+      signal: controller.signal,
+    })
+      .then((catalog) => {
+        if (!controller.signal.aborted)
+          setCustomRoles(
+            catalog.custom.filter((item) => item.permissions.includes("read")),
+          );
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) onError(errorText(error));
+      });
+    return () => controller.abort();
+  }, [projectId, canManageRoles, onError]);
+  const roleNames: Record<string, string> = {
+    researcher: "研究者",
+    viewer: "閲覧者",
+    project_lead: "プロジェクト責任者",
+  };
+  const selectedCustom = customRoles.find((item) => item.id === role);
+  const mayRetrieve =
+    !selectedCustom || selectedCustom.permissions.includes("retrieve");
   async function act(action: () => Promise<unknown>) {
+    setPending(true);
+    onError("");
     try {
       await action();
       await onChanged();
+      return true;
     } catch (error) {
       onError(errorText(error));
+      return false;
+    } finally {
+      setPending(false);
     }
   }
   return (
@@ -1042,6 +1404,7 @@ function DocumentList({
           <div className="document-actions">
             {doc.owned && ["queued", "scanning"].includes(doc.status) && (
               <button
+                disabled={pending}
                 onClick={() => {
                   void act(() =>
                     api(`/documents/${doc.id}/cancel`, json("POST")),
@@ -1053,15 +1416,19 @@ function DocumentList({
             )}
             {doc.owned && canPublish && doc.kind !== "attachment" && (
               <button
-                onClick={() =>
-                  setPublication(publication === doc.id ? null : doc.id)
-                }
+                disabled={pending}
+                onClick={() => {
+                  setPublication(publication === doc.id ? null : doc.id);
+                  setRole("researcher");
+                  setAccess("read");
+                }}
               >
                 公開先
               </button>
             )}
             {doc.owned && (
               <button
+                disabled={pending}
                 onClick={() => {
                   void act(() => api(`/documents/${doc.id}`, json("DELETE")));
                 }}
@@ -1079,30 +1446,70 @@ function DocumentList({
                   api(
                     `/documents/${doc.id}/publication`,
                     json("PUT", {
-                      grants: [{ role, operations: ["read", "retrieve"] }],
+                      grants: [
+                        {
+                          role,
+                          operations:
+                            access === "retrieve" && mayRetrieve
+                              ? ["read", "retrieve"]
+                              : ["read"],
+                        },
+                      ],
                     }),
                   ),
-                ).then(() => setPublication(null));
+                ).then((saved) => {
+                  if (saved) setPublication(null);
+                });
               }}
             >
               <label>
                 ロール
                 <select
+                  disabled={pending}
                   value={role}
-                  onChange={(event) => setRole(event.target.value)}
+                  onChange={(event) => {
+                    setRole(event.target.value);
+                    setAccess("read");
+                  }}
                 >
                   <option value="researcher">研究者</option>
                   <option value="viewer">閲覧者</option>
                   <option value="project_lead">プロジェクト責任者</option>
+                  {customRoles.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                許可する操作
+                <select
+                  value={access}
+                  disabled={pending}
+                  onChange={(event) => setAccess(event.target.value)}
+                >
+                  <option value="read">閲覧のみ</option>
+                  <option value="retrieve" disabled={!mayRetrieve}>
+                    閲覧・チャット参照
+                  </option>
                 </select>
               </label>
               <p>
-                「{doc.name}」を、このプロジェクトの「{role}
-                」に閲覧・チャット参照を許可します。
+                「{doc.name}」を、このプロジェクトの「
+                {roleNames[role] ?? selectedCustom?.name}
+                」に{access === "retrieve" ? "閲覧・チャット参照" : "閲覧のみ"}
+                を許可します。
               </p>
-              <button type="submit">公開設定を保存</button>
+              <p className="muted">
+                保存すると、この資料の既存の公開先をこの設定で置き換えます。
+              </p>
+              <button type="submit" disabled={pending}>
+                公開設定を保存
+              </button>
               <button
                 type="button"
+                disabled={pending}
                 onClick={() => {
                   void act(() =>
                     api(
@@ -1136,31 +1543,63 @@ function RoleEditor({
     "retrieve",
   ]);
   const [notice, setNotice] = useState("");
+  const [editing, setEditing] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const alive = useRef(true);
   useEffect(() => {
     let active = true;
+    alive.current = true;
     void api<Roles>(`/projects/${projectId}/roles`)
       .then((data) => {
         if (active) setRoles(data);
       })
-      .catch((error) => onError(errorText(error)));
+      .catch((error) => {
+        if (active) onError(errorText(error));
+      });
     return () => {
       active = false;
+      alive.current = false;
     };
   }, [projectId, onError]);
   async function save(event: FormEvent) {
     event.preventDefault();
+    if (
+      pending ||
+      !roles ||
+      permissions.some((item) => !roles.allowed_permissions.includes(item))
+    )
+      return;
+    setPending(true);
+    setNotice("");
+    onError("");
     try {
-      await api(
-        `/projects/${projectId}/roles`,
-        json("POST", { name, permissions }),
+      const updated = await api<Role>(
+        `/projects/${encodeURIComponent(projectId)}/roles${editing ? `/${encodeURIComponent(editing)}` : ""}`,
+        json(editing ? "PUT" : "POST", { name, permissions }),
       );
-      setRoles(await api<Roles>(`/projects/${projectId}/roles`));
+      if (!alive.current) return;
+      setRoles({
+        ...roles,
+        custom: editing
+          ? roles.custom.map((item) => (item.id === editing ? updated : item))
+          : [...roles.custom, updated],
+      });
       setName("");
+      setEditing(null);
+      setPermissions(
+        ["read", "retrieve"].filter((item) =>
+          roles.allowed_permissions.includes(item),
+        ),
+      );
       setNotice(
-        "ロールを作成しました。利用者への割り当てはローカル管理者が行います。",
+        editing
+          ? "ロールを更新しました。割り当て済みの利用者に反映されます。"
+          : "ロールを作成しました。利用者への割り当てはローカル管理者が行います。",
       );
     } catch (error) {
-      onError(errorText(error));
+      if (alive.current) onError(errorText(error));
+    } finally {
+      if (alive.current) setPending(false);
     }
   }
   return (
@@ -1173,6 +1612,7 @@ function RoleEditor({
         テンプレート
         <select
           aria-label="ロールテンプレート"
+          disabled={pending || !roles || !!editing}
           onChange={(event) => {
             const template = roles?.templates.find(
               (role) => role.id === event.target.value,
@@ -1195,8 +1635,9 @@ function RoleEditor({
       </label>
       <form onSubmit={save}>
         <label>
-          新しいロール名
+          {editing ? "ロール名" : "新しいロール名"}
           <input
+            disabled={pending || !roles}
             value={name}
             maxLength={64}
             required
@@ -1205,9 +1646,12 @@ function RoleEditor({
         </label>
         <p className="field-label">許可する操作</p>
         <div className="permission-chips">
-          {roles?.allowed_permissions.map((permission) => (
+          {[
+            ...new Set([...(roles?.allowed_permissions ?? []), ...permissions]),
+          ].map((permission) => (
             <button
               type="button"
+              disabled={pending || !roles}
               key={permission}
               aria-pressed={permissions.includes(permission)}
               onClick={() =>
@@ -1229,9 +1673,51 @@ function RoleEditor({
             .join("・") || "操作なし"}
           を許可します。
         </p>
-        <button type="submit" disabled={!name.trim()}>
-          ロールを作成
+        {editing && (
+          <p>
+            保存すると、このプロジェクトで割り当て済みの利用者の操作権限に即時反映されます。
+          </p>
+        )}
+        {roles &&
+          permissions.some(
+            (item) => !roles.allowed_permissions.includes(item),
+          ) && (
+            <p role="alert">
+              本人の許可範囲外の操作があります。該当する操作を外してから保存してください。
+            </p>
+          )}
+        <button
+          type="submit"
+          disabled={
+            !name.trim() ||
+            pending ||
+            !roles ||
+            permissions.some(
+              (item) => !roles.allowed_permissions.includes(item),
+            )
+          }
+        >
+          {editing ? "ロールの変更を保存" : "ロールを作成"}
         </button>
+        {editing && (
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => {
+              setEditing(null);
+              setName("");
+              setNotice("");
+              onError("");
+              setPermissions(
+                ["read", "retrieve"].filter((item) =>
+                  roles?.allowed_permissions.includes(item),
+                ),
+              );
+            }}
+          >
+            編集を取り消す
+          </button>
+        )}
       </form>
       <h2>作成済みロール</h2>
       {roles?.custom.length ? (
@@ -1243,6 +1729,20 @@ function RoleEditor({
                 .map((permission) => permissionLabels[permission] ?? permission)
                 .join("・")}
             </span>
+            <button
+              type="button"
+              disabled={pending}
+              aria-label={`${role.name}を編集`}
+              onClick={() => {
+                setEditing(role.id);
+                setName(role.name);
+                setPermissions([...role.permissions]);
+                setNotice("");
+                onError("");
+              }}
+            >
+              編集
+            </button>
           </div>
         ))
       ) : (
@@ -1252,13 +1752,33 @@ function RoleEditor({
   );
 }
 
-function AdminList({ kind }: { kind: "users" | "audit" }) {
+function AdminUsers({ currentUserId }: { currentUserId?: string }) {
+  const [refreshKey, setRefreshKey] = useState(0);
+  return (
+    <>
+      <ProvisionUser onCreated={() => setRefreshKey((key) => key + 1)} />
+      <AdminList key={refreshKey} kind="users" currentUserId={currentUserId} />
+    </>
+  );
+}
+
+function AdminList({
+  kind,
+  currentUserId,
+}: {
+  kind: "users" | "audit";
+  currentUserId?: string;
+}) {
   const [rows, setRows] = useState<Record<string, string | number | boolean>[]>(
     [],
   );
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const pending = useRef(false);
+  const mounted = useRef(false);
   useEffect(() => {
     let active = true;
+    mounted.current = true;
     void api<Record<string, string | number | boolean>[]>(`/admin/${kind}`)
       .then((data) => {
         if (active) setRows(data);
@@ -1270,11 +1790,31 @@ function AdminList({ kind }: { kind: "users" | "audit" }) {
       active = false;
     };
   }, [kind]);
+  useEffect(() => () => { mounted.current = false; }, []);
+  async function toggle(row: Record<string, string | number | boolean>) {
+    if (pending.current) return;
+    pending.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      const updated = await api<Record<string, string | number | boolean>>(
+        `/admin/users/${encodeURIComponent(String(row.id))}/enabled`,
+        json("PUT", { enabled: !row.enabled }),
+      );
+      if (mounted.current)
+        setRows((current) => current.map((item) => item.id === updated.id ? updated : item));
+    } catch (error) {
+      if (mounted.current) setError(errorText(error));
+    } finally {
+      pending.current = false;
+      if (mounted.current) setBusy(false);
+    }
+  }
   return (
     <>
       <p className="muted">
         {kind === "users"
-          ? "発行・所属設定はローカルCLIから行います。管理者に個人会話の閲覧権限は付与されません。"
+          ? "利用者はWeb画面から追加できます。所属設定はローカルCLIから行います。管理者に個人会話の閲覧権限は付与されません。"
           : "操作のメタデータのみを記録します。会話・資料の本文や資格情報は表示しません。"}
       </p>
       {error && <p role="alert">{error}</p>}
@@ -1286,8 +1826,16 @@ function AdminList({ kind }: { kind: "users" | "audit" }) {
                 <strong>{row.username}</strong>
                 <span>
                   {row.system_admin ? "システム管理者" : "利用者"} ·{" "}
-                  {row.must_rotate ? "初回変更待ち" : "有効"}
+                  {row.enabled ? "有効" : "無効"}
+                  {row.must_rotate ? " · 初回変更待ち" : ""}
                 </span>
+                <IconButton
+                  label={`${row.username}を${row.enabled ? "無効" : "有効"}にする`}
+                  disabled={busy || row.id === currentUserId}
+                  onClick={() => void toggle(row)}
+                >
+                  {row.enabled ? <UserX size={18} /> : <UserCheck size={18} />}
+                </IconButton>
               </>
             ) : (
               <>

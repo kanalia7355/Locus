@@ -13,6 +13,7 @@ from loop_engine.planning import bounded_json
 from loop_engine.process import ProcessRunner
 from loop_engine.schemas import SCHEMAS, validate
 from loop_engine.security import SafetyError, create_text, fingerprint, reject_secrets
+from loop_engine.state_store import StateStore
 
 
 def transport_schema(value: Any) -> Any:
@@ -65,11 +66,78 @@ class UnprovenBoundary:
 
 class CodexRunner:
     def __init__(
-        self, root: Path, *, boundary: Boundary | None = None, process: ProcessRunner | None = None
+        self,
+        root: Path,
+        *,
+        boundary: Boundary | None = None,
+        process: ProcessRunner | None = None,
+        state: StateStore | None = None,
     ) -> None:
         self.root = root
         self.boundary = boundary or UnprovenBoundary()
         self.process = process or ProcessRunner()
+        self.state = state
+        self.pending_model: Any = None
+
+    def acknowledge(self) -> None:
+        if self.pending_model is not None:
+            journal, identifier = self.pending_model
+            journal.acknowledge(identifier)
+            self.pending_model = None
+
+    def model_owner(self, schema: str, prompt: dict[str, Any]) -> dict[str, Any]:
+        if self.state is None:
+            raise SafetyError("C-min requires the existing owning StateStore")
+        spec = self.state.metadata("spec_hash")
+        if schema in {"proposal", "review"}:
+            work = prompt["task"]
+            with self.state.connect() as db:
+                rows = db.execute(
+                    "SELECT id,attempt FROM executions WHERE task_id=? AND attempt=?",
+                    (work["id"], work["attempts"]),
+                ).fetchall()
+            if len(rows) != 1:
+                raise SafetyError("Exactly one existing execution owner required")
+            binding = (
+                fingerprint(
+                    {
+                        "task": Task.from_dict(work).specification_hash(),
+                        "source": prompt["context"]["source_binding"],
+                        "base": self.state.get_checkpoint(work["id"]).get("base"),
+                    }
+                )
+                if schema == "proposal"
+                else fingerprint(
+                    {
+                        "task": Task.from_dict(work).specification_hash(),
+                        "source_specification": spec,
+                        "snapshot": prompt["actual_diff"],
+                        "verification": prompt["test_evidence"],
+                    }
+                )
+            )
+            return {
+                "role": "worker" if schema == "proposal" else "reviewer",
+                "schema": schema,
+                "owner_id": rows[0]["id"],
+                "attempt": rows[0]["attempt"],
+                "spec": spec,
+                "binding": binding,
+            }
+        if schema == "evaluation":
+            budget = self.state.metadata("development_budget", {})
+            run = self.state.metadata("run_budget", {})
+            if budget.get("run") != run.get("id") or not budget.get("cycles"):
+                raise SafetyError("Persisted Development cycle owner required")
+            return {
+                "role": "evaluator",
+                "schema": schema,
+                "owner_id": str(budget["run"]) + ":" + str(budget["cycles"]),
+                "attempt": budget["cycles"],
+                "spec": spec,
+                "binding": str(spec) + ":" + str(prompt["snapshot"]["head"]),
+            }
+        raise SafetyError("C-min role is not bounded")
 
     def invoke(
         self,
@@ -88,7 +156,8 @@ class CodexRunner:
                 raise SafetyError("Codex invocation cancelled or deadline exceeded")
             return deadline - time.monotonic()
 
-        if getattr(self.boundary, "file_proposals", False):
+        c_min = getattr(self.boundary, "c_min", False)
+        if getattr(self.boundary, "file_proposals", False) and not c_min:
             self.boundary.probe(workspace, timeout=remaining(), cancelled=cancelled)  # type: ignore[attr-defined]
         self.boundary.require(workspace, self.root)
 
@@ -102,14 +171,18 @@ class CodexRunner:
             timeout=min(15, remaining()),
             cancelled=cancelled,
         )
-        auth = self.process.run(
-            self.boundary.command([binary, "login", "status"], workspace),
-            workspace,
-            timeout=min(15, remaining()),
-            cancelled=cancelled,
-            model=True,
+        auth = (
+            self.process.run(
+                self.boundary.command([binary, "login", "status"], workspace),
+                workspace,
+                timeout=min(15, remaining()),
+                cancelled=cancelled,
+                model=True,
+            )
+            if not c_min
+            else None
         )
-        if version.returncode != 0 or auth.returncode != 0:
+        if version.returncode != 0 or auth is not None and auth.returncode != 0:
             raise SafetyError("CLI version/authentication unavailable")
         wire_schema = transport_schema(SCHEMAS[schema])
         schema_path = (
@@ -148,33 +221,61 @@ class CodexRunner:
             "-",
         ]
         # Never --yolo, danger-full-access, ignore-rules, hook bypass, or session resume.
-        outcome = self.process.run(
-            self.boundary.command(argv, workspace),
-            workspace,
-            timeout=remaining(),
-            stdin=json.dumps(prompt, ensure_ascii=False),
-            cancelled=cancelled,
-            model=True,
-        )
+        if c_min:
+            from loop_engine.c_min_runtime import invoke
+
+            if self.state is None or self.pending_model is not None:
+                raise SafetyError("C-min owning state/result acknowledgement required")
+            outcome, journal, identifier = invoke(
+                self.root,
+                self.state,
+                self.boundary,
+                self.process,
+                argv,
+                json.dumps(prompt, ensure_ascii=False),
+                workspace,
+                wire_schema,
+                self.model_owner(schema, prompt),
+                deadline,
+                cancelled,
+            )
+            self.pending_model = (journal, identifier)
+        else:
+            outcome = self.process.run(
+                self.boundary.command(argv, workspace),
+                workspace,
+                timeout=remaining(),
+                stdin=json.dumps(prompt, ensure_ascii=False),
+                cancelled=cancelled,
+                model=True,
+            )
         if outcome.outcome != "exit" or outcome.returncode != 0:
-            from loop_engine.checks import sanitized
             from loop_engine.security import atomic_text
 
-            failures = []
             event_types = []
             final_seen = False
             for line in outcome.stdout.splitlines():
                 try:
                     event = bounded_json(line)
-                    event_types.append(str(event.get("type", "unknown")))
+                    kind = event.get("type")
+                    event_types.append(
+                        kind
+                        if kind
+                        in {
+                            "thread.started",
+                            "turn.started",
+                            "item.started",
+                            "item.completed",
+                            "turn.completed",
+                            "turn.failed",
+                            "error",
+                        }
+                        else "unknown"
+                    )
                     final_seen = final_seen or (
                         event.get("type") == "item.completed"
                         and event.get("item", {}).get("type") == "agent_message"
                     )
-                    if event.get("type") in {"turn.failed", "error"}:
-                        failures.append(
-                            sanitized(str(event.get("error", event.get("message", ""))))
-                        )
                 except ValueError:
                     continue
             atomic_text(
@@ -183,8 +284,6 @@ class CodexRunner:
                     {
                         "outcome": outcome.outcome,
                         "exit_code": outcome.returncode,
-                        "diagnostic": sanitized(outcome.stderr, 3000),
-                        "errors": failures,
                         "event_types": event_types,
                         "final_response_seen": final_seen,
                     }
@@ -204,6 +303,9 @@ class CodexRunner:
         result = bounded_json(final)
         validate(schema, result)
         self.boundary.require(workspace, self.root)
+        if c_min:
+            journal, identifier = self.pending_model
+            journal.advance(identifier, "terminal_validated", "cli_validated")
         return result  # type: ignore[no-any-return]
 
     def execute(

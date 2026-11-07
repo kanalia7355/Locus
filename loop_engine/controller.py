@@ -37,6 +37,16 @@ class Workspaces(Protocol):
 
 
 class Controller:
+    @staticmethod
+    def prepare_run(
+        root: Path, state: StateStore, duration_seconds: float = 1800
+    ) -> dict[str, Any]:
+        """Stage a scope/approval request only; never construct or start a worker."""
+        from loop_engine.run_authorization import prepare
+
+        with ProjectLock(root / ".loop/runtime/controller.lock"):
+            return prepare(root, state, duration_seconds)
+
     def __init__(
         self,
         root: Path,
@@ -70,6 +80,8 @@ class Controller:
         self.state.transition(task_id, task.status, target, error, version=task.version)
 
     def _context(self) -> dict[str, Any]:
+        if self.state.metadata("policy_migration_pending"):
+            raise SafetyError("Policy migration is unsettled; reconcile before model execution")
         snapshot = source_snapshot(self.root)
         if fingerprint(snapshot) != self.state.metadata("spec_hash"):
             raise SafetyError(
@@ -94,7 +106,11 @@ class Controller:
             maximum = self.config["loop"]["max_runtime_minutes"] * 60
             if duration_seconds is not None and not 0 < duration_seconds <= maximum:
                 raise SafetyError("Requested window exceeds the configured runtime cap")
-            if not budget:
+            if self.state.metadata("c_min_run_proposal") is not None:
+                from loop_engine.run_authorization import adopt
+
+                budget = adopt(self.root, self.state, resume=resume, duration=duration_seconds)
+            elif not budget:
                 now = time.time()
                 budget = {
                     "id": uuid4().hex,
@@ -113,7 +129,15 @@ class Controller:
             try:
                 if not self.cancelled():
                     self._resume_deliveries()
+                if self.config["github"]["delivery"] == "local_commit_push" and any(
+                    task.status != "completed"
+                    and self.state.get_checkpoint(task.id).get("local_delivery_intent")
+                    for task in self.state.tasks()
+                ):
+                    return "local_delivery_held"
                 if self.development and not self.cancelled():
+                    if not self._delivery_baseline():
+                        return "local_delivery_held"
                     self._assess_project()
                 while not self.cancelled():
                     if (
@@ -128,6 +152,8 @@ class Controller:
                     ) in {"complete", "stalled", "evaluation_limit"}:
                         return "goal_" + str(self.state.metadata("development_status")["status"])
                     self._context()
+                    if not self._delivery_baseline():
+                        return "local_delivery_held"
                     task = Scheduler(self.state).next_ready_task()
                     if not task:
                         pending_ci = any(
@@ -157,6 +183,18 @@ class Controller:
                 if self.state.metadata("control") == "running":
                     self.state.set_metadata("control", "stopped")
                 write_report(self.state, self.root)
+
+    def _delivery_baseline(self) -> bool:
+        check = getattr(self.publisher, "check_baseline", None)
+        if not check:
+            return True
+        try:
+            check(cancelled=self.cancelled)
+            return True
+        except (ValueError, OSError):
+            self.state.event("local_delivery.baseline_held")
+            self.state.set_metadata("control", "stopped")
+            return False
 
     def _assess_project(self, merge_sha: str | None = None) -> None:
         try:
@@ -224,6 +262,7 @@ class Controller:
         try:
             attempt_context = {
                 **context,
+                "source_binding": fingerprint(initial),
                 "previous_failure": self.state.get_checkpoint(task.id).get("failure_context"),
                 "effective_risk": self.state.effective_risk(task.id),
             }
@@ -237,6 +276,12 @@ class Controller:
                 execution, "failed", {"code": "worker_unavailable_or_invalid"}
             )
             self._transition(task.id, "blocked", "worker_unavailable_or_invalid")
+            return
+        try:
+            if hasattr(self.worker, "acknowledge"):
+                self.worker.acknowledge()
+        except (ValueError, OSError):
+            self._transition(task.id, "blocked", "model_result_reconciliation_required")
             return
         if task_cancelled():
             self._transition(task.id, "blocked", "interrupted_requires_assessment")
@@ -299,6 +344,8 @@ class Controller:
                 cancelled=task_cancelled,
             )
             self.state.evidence("reviews", task.id, review, binding)
+            if hasattr(self.reviewer, "acknowledge"):
+                self.reviewer.acknowledge()
         except (ValueError, OSError):
             self._transition(task.id, "blocked", "independent_review_unavailable")
             return
@@ -352,6 +399,11 @@ class Controller:
 
     def _deliver(self, task: Task) -> None:
         if self.cancelled():
+            if self.publisher and hasattr(self.publisher, "reconcile"):
+                try:
+                    self.publisher.reconcile(task, self.state.get_checkpoint(task.id))
+                except (ValueError, OSError):
+                    self.state.event("local_delivery.reconciliation_held", task.id)
             if self.state.task(task.id).status != "awaiting_approval":
                 self._transition(task.id, "awaiting_approval", "delivery_paused_or_limited")
             return
@@ -374,9 +426,18 @@ class Controller:
         if not self.publisher:
             self._transition(task.id, "awaiting_approval", "github_publication_unavailable")
             return
+        if delivery == "local_commit_push":
+            # Persist a resumable, executor-idle stage BEFORE any Git mutation.
+            self._transition(task.id, "awaiting_approval", "local_delivery_pending")
         try:
             delivered = self.publisher.deliver(task, checkpoint, cancelled=self.cancelled)
         except (ValueError, OSError):
+            if delivery == "local_commit_push":
+                # Stop the whole run: another task must not start on unpublished HEAD.
+                # Resume reconciles durable Git intents, without resetting task attempts.
+                self.state.set_metadata("control", "stopped")
+                self.state.event("local_delivery.held", task.id)
+                return
             # Never leave a settled worker in an active stage after a service outage.
             # No mutation is replayed here; reconciliation is task-scoped and human.
             self.queue.request(
@@ -419,6 +480,8 @@ class Controller:
                     {**self.state.get_checkpoint(task.id), "merge_sha": delivered["merge_sha"]},
                 )
             self._transition(task.id, "completed")
+            if self.development and delivery == "local_commit_push":
+                self._assess_project(delivered["integrated_head"])
             if (
                 self.development
                 and delivery == "merged"
@@ -455,6 +518,9 @@ class Controller:
                 continue
             checkpoint = self.state.get_checkpoint(task.id)
             if checkpoint.get("verified"):
+                if self.config["github"]["delivery"] == "local_commit_push":
+                    self._deliver(task)
+                    continue
                 workspace = Path(checkpoint["workspace"])
                 if self.workspaces.snapshot(task, workspace) != checkpoint["snapshot"]:
                     self._transition(task.id, "blocked", "verified_source_changed")

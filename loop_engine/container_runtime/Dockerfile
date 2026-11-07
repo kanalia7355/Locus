@@ -15,7 +15,10 @@ WORKDIR /opt/node
 COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts --no-audit --no-fund
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/browsers
-RUN ./node_modules/.bin/playwright install --with-deps chromium
+# The configured Chromium project uses Playwright's default headless shell.
+# Cache OS dependencies separately from the slow browser download.
+RUN ./node_modules/.bin/playwright install-deps chromium
+RUN ./node_modules/.bin/playwright install --only-shell chromium
 RUN useradd --uid 1000 --no-create-home --home-dir /home --shell /usr/sbin/nologin loop-qa
 ARG LOCUS_AUDIT_EPOCH
 RUN test -n "$LOCUS_AUDIT_EPOCH" && python -m pip_audit && npm audit --audit-level=low

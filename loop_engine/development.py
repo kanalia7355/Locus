@@ -93,6 +93,25 @@ class MainSnapshot:
         }
 
 
+class LocalSnapshot(MainSnapshot):
+    """Evaluate the integrated local branch; never fetch or select main."""
+
+    def current_head(self) -> str:
+        from loop_engine.local_delivery import validate_policy
+
+        validate_policy(
+            {
+                "enabled": True,
+                "auto_merge": "off",
+                "remote": "origin",
+                "base": self.branch,
+                "repository": self.repository,
+            }
+        )
+        self.git._safe_configuration(deadline=self.deadline, cancelled=self.cancelled)
+        return self._git(["rev-parse", "refs/heads/" + self.branch + "^{commit}"])
+
+
 class DevelopmentLoop:
     def __init__(
         self,
@@ -135,6 +154,7 @@ class DevelopmentLoop:
         workspace, snapshot = self.snapshots.refresh(expected_merge)
         remaining()
         usage["cycles"] += 1
+        usage["started"] = time.time()
         state.set_metadata("development_budget", usage)
         local_deadline = time.monotonic() + remaining()
 
@@ -183,6 +203,8 @@ class DevelopmentLoop:
             spec_hash=binding,
             receipt=receipt,
         )
+        if hasattr(self.evaluator, "acknowledge"):
+            self.evaluator.acknowledge()
         report, verification = receipt["report"], receipt["verification"]
         remaining()
         if fingerprint(source_snapshot(self.root)) != binding:
