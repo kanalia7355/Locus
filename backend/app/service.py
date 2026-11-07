@@ -345,12 +345,20 @@ class Service:
             bool(session["must_rotate"]),
         )
 
-    def rotate(self, principal: Principal, current: str, new: str) -> str:
+    def rotate(
+        self, principal: Principal, current: str, new: str, *, session_token: str | None = None
+    ) -> str:
         if len(new) < 14 or len(new) > 128 or current == new:
             fail(422, "異なる14〜128文字のパスワードを設定してください")
         with self.db() as db:
+            if session_token is not None:
+                session_actor = self._authenticate(db, session_token, allow_rotation=True)
+                if session_actor.id != principal.id:
+                    fail(401, "ログインしてください")
             self._limit("rotate:" + principal.id, 5)
             user = db.execute("SELECT * FROM users WHERE id=?", (principal.id,)).fetchone()
+            if not user or not user["enabled"]:
+                fail(401, "ログインしてください")
             try:
                 PASSWORDS.verify(user["password_hash"], current)
             except VerificationError:
@@ -1310,6 +1318,24 @@ class Service:
             fail(403, "管理権限が必要です")
         with self.db() as db:
             return [
-                self._public_user(row)
+                self._public_user(row) | {"enabled": bool(row["enabled"])}
                 for row in db.execute("SELECT * FROM users ORDER BY username")
             ]
+
+    def set_user_enabled(self, token: str | None, user_id: str, enabled: bool) -> Json:
+        with self.db() as db:
+            # Bind authorization to a live session inside the serialized mutation transaction.
+            actor = self._authenticate(db, token)
+            if not actor.system_admin:
+                fail(403, "管理権限が必要です")
+            self._limit("account-toggle:" + actor.id, 30)
+            user = db.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+            if not user:
+                fail(404, "利用者が見つかりません")
+            if user_id == actor.id and not enabled:
+                fail(422, "自分のアカウントは無効にできません")
+            db.execute("UPDATE users SET enabled=? WHERE id=?", (int(enabled), user_id))
+            if not enabled:
+                db.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))
+            self._audit(db, actor.id, "account.enable" if enabled else "account.disable", user_id)
+            return self._public_user(user) | {"enabled": enabled}
