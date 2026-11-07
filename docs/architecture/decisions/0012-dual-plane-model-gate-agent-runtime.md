@@ -1,8 +1,13 @@
 # ADR 0012 — Dual-plane boundary: model-facing gate and tool-executing Agent Runtime
 
-Status: **DRAFT — proposed for independent review; not accepted.** This record
-makes no implementation or activation approval. Owner review and approval are
-required before it can become an accepted ADR.
+Status: **ACCEPTED (owner approval, 2026-11-07).** The owner approved the dual-plane
+boundary decision: Plane M's existing safety boundary is maintained; Plane R is
+implemented as a separate Agent Runtime; rules B1–B7, fail-closed behavior and
+static import-graph checks are mandatory; ADR approval and runtime activation are
+explicitly separate. This record still approves no activation: every activation
+step requires its own audited package, verification gates and separately recorded
+evidence (ADR-0006/0009/0011 pattern). Slices 2a implementation is authorized;
+dispatch-capable code still requires the separate approval ADR.
 
 ## Context
 

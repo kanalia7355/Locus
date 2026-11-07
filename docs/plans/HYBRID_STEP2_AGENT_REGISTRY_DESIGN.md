@@ -550,53 +550,42 @@ version (repo convention: locked requirements); no UI change.
 
 ---
 
-## 6. 【要決定】 items — owner decisions (this proposal decides none of them)
+## 6. 【要決定】 items — RESOLVED by owner decision (2026-11-07)
 
-1. **Dual-plane ADR content and approval.** The owner decides the ADR's exact
-   architecture/contract, but not the accepted sequencing: it must be adopted and
-   approved before **any** step-2 implementation, including metadata-only slice 2a.
-   This is a hard gate, not an option to defer until slice 2b.
-2. **Credential storage and runner identity details** — beyond the Windows Credential
-   Manager precedent (`loop_engine/app_credentials.py`): select and test the OS
-   principal/broker for each platform, including positive intended-runner access and
-   negative Control Plane/user/other-instance/compromised-runner denial/export tests;
-   choose per-provider login verification and whether health checks may probe at all
-   (§1.2/B5, §2.4-2.5). Activation is blocked unless both access and denial pass.
-3. **Provider subscription-term verification** — the exact receipt form required
-   before an adapter can be enabled (要件5; §2.4).
-4. **Isolation technology per platform** — OS/container enforcement for 実装順 3
-   (T-E3/T-E4). `loop_engine/docker_boundary.py` is dev-loop precedent only, not a
-   product decision.
-5. **Runner trust root and enrollment ceremony** — enrollment, rotation, revocation
-   (T-S1; ADR-0009/0010 precedent is narrow per the threat model), and job
-   identity/freshness signing contract (T-T1); bind each identity to one runner instance.
-6. **Product audit-log protection and artifact retention** — tamper evidence, access
-   boundaries, retention, confidentiality (T-T4), plus retention/secure deletion for
-   runner artifacts. T-T4 protection is a hard activation blocker, separate from
-   ADR-0010's cache scope.
-7. **Cloud egress activation criteria** — whether any `allowlisted` mode may ever be
-   enabled and ratification of the intranet-vs-external-send wording (§3.1/§3.2).
-   No operative `allowlisted` schema or policy may be produced before this decision;
-   only `公開` could be considered by this proposal, and it is not pre-approved.
-8. **Plane-R admission limits and cancellation** — deadlines/concurrency numbers,
-   fairness and authorized cancel actors (T-D1). Required semantics: cancellation of a
-   queued job is atomic and prevents dispatch; an executing job records a cancel request
-   but is not reported terminal/capacity-released until the Runner confirms termination;
-   races with dispatch are serialized; repeated cancellation is idempotent; a timeout or
-   missing acknowledgement fences that runner/job and holds its admission reservation
-   until safe termination is established. Future acceptance tests must cover cancel-before-
-   dispatch, cancellation racing dispatch, idempotent repeats, runner acknowledgement,
-   termination timeout and capacity not being released early. Select the signaling/
-   termination mechanism, timeout and recovery process before activation.
-9. **Real-data activation** — the standing synthetic-data-only rule continues until
-   the owner approves production data handling (threat-model finding 5).
-10. **Remote deployment scope** — whether Desktop Runners are ever reachable from
-    outside the LAN and under what transport; nothing here enables it.
-11. **Job approval/authorization ADR** — select the authoritative issuer and exact
-    approval/revocation mechanism, receipt signature/storage and availability contract,
-    actor/approver scopes, and policy on approval expiry. The receipt bindings and both
-    recheck points in §2.6 are required; this ADR is a hard prerequisite to any
-    dispatch-capable code, not an optional future refinement.
+The owner formally answered all ten items on 2026-11-07. The recorded answers
+below are normative; unchanged implementation obligations (independent review,
+activation gates) still apply.
+
+1. **Dual-plane ADR — APPROVED.** ADR-0012 is accepted (Plane M unchanged; Plane
+   R as a separate Agent Runtime; B1–B7, fail-closed and static import checks
+   mandatory; ADR approval and runtime activation explicitly separated). Slice 2a
+   implementation is authorized; up to five parallel jobs are allowed with
+   workspace-conflict avoidance and independent review at integration.
+2. **Credential storage — OS-standard secure credential mechanisms are the
+   baseline.** The Registry stores presence state and references only; it never
+   stores secret material. Health-check authentication probes are NOT authorized
+   by this decision; their safety must be verified separately before any probe
+   ships.
+3. **Provider contract verification — recording schema approved.** Implement the
+   schema now; actual contract/terms verification happens per provider BEFORE any
+   adapter activation.
+4. **Isolation technology — decided BEFORE 実装順 3 starts** (technical proposal,
+   threat model and verification method due then; not decided today).
+5. **Runner trust root — decided BEFORE 実装順 3 starts** (not decided today).
+6. **Audit-log protection — tamper evidence, retention and access control are
+   decided BEFORE any runtime activation** (not decided today).
+7. **Cloud egress — the `allowlisted` non-operative placeholder is APPROVED.
+   Default stays deny; activation requires owner approval AND boundary
+   verification. It must not be enabled by any implementation.
+8. **Concurrency/deadlines/cancellation numbers — decided after design
+   verification** (not decided today).
+9. **Real-data use — NOT approved.** The synthetic-data-only rule continues.
+10. **LAN-external runner reachability — NOT approved.**
+
+Unresolved sub-items (4, 5, 6, 8, 11 and the health-probe safety check) must be
+re-presented at the implementation stage that needs them; nothing activates
+while unapproved. Item 11 (the job-approval/authorization ADR) remains a hard
+prerequisite to any dispatch-capable code and is scheduled before slice 2b.
 
 ---
 
