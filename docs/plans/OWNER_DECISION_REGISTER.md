@@ -60,3 +60,74 @@ The 12 decisions in this section are transcribed in scope from `docs/plans/PHASE
 - The repository's source survey records the earliest tracked product/Controller material at `c48065e` and says the ZIP reference package is dated 2026-10-29. The in-session bootstrap/user approvals are represented by decision records, not archived signed instructions. Exact original chat messages, identity/signature artifacts, and any oral approval outside the cited docs are **unknown / not present in repository**.
 - The 2026-11-07 and 2026-11-09 owner decisions are evidenced by append-only `ORCHESTRATOR_LOG.md` entries and corroborating status/ADR files; no cryptographic signature or external decision-service record was found/claimed.
 - Independent-review verdicts and test/CI records provide verification evidence, not owner approval. Proposed/recommended options in PH2-A and the hybrid design remain proposals until an explicit owner answer is recorded.
+
+## RESOLVED 2026-11-09 (owner decision notice: development pipeline restart)
+
+The owner formally resolved the entire OPEN register on 2026-11-09 (the decision
+text is owner-provided in this thread and summarized here; this register entry is
+the durable record):
+
+### A. Delegation specification — all 12 items APPROVED as recommended, with added conditions
+- TTL: default 24h, max 7 days, minimum 15 minutes; live revalidation at every
+  authorization point.
+- Grantors: the project owner, and an organization administrator holding
+  legitimate administrative authority over the target project.
+- Re-grant: family/version scheme adopted; unintended revival or coexistence of
+  old versions forbidden; scope changes or permission expansions REQUIRE a new
+  authorization.
+- The remaining nine items stand as recommended in
+  `docs/plans/PHASE2_DELEGATION_SPEC.md` §2.2 of
+  `STATUS_AND_DECISIONS_2026-11-09.md` (no re-delegation; org-wide grants
+  deferred; live invalidation on grantor authority loss fail-closed; recipient
+  cancellation allowed; dedupe within family; epoch-seconds time authority until
+  the production DB decision; administrative permissions NOT delegable;
+  membership remains an independent gate; audit retention until the
+  production-deployment phase; next-authorization-point denial semantics).
+- Effect: PH2-D (delegation implementation) is UNBLOCKED.
+
+### B. AUD-1 findings 1-10 — resolved
+1. Phase-number scheme collision: normalization APPROVED — consolidate the
+   ROADMAP/MVP/Loop-spec/Hybrid-step relationships into the master roadmap,
+   preserving existing phase numbers, commit history and approval records as
+   aliases/evidence.
+2. Main-integration mechanism: post-phase automatic merge FORMALLY ADOPTED —
+   implementation/review/QA complete on the working branch → completion
+   conditions + final audit → all-CI-green → automatic main integration →
+   version bump → automatic next-phase transition; GitHub branch protection and
+   required checks are never bypassed (create a PR and merge after conditions
+   are met if required).
+3. MFA: confirmed as a REQUIRED requirement of the final product; the
+   prototype-stage deferral stands but it is NOT removed from the final
+   acceptance conditions.
+4. ADR-0012 wording contradiction: a meaning-preserving wording correction is
+   APPROVED (accepted Plane M/Plane R separation, safety boundaries, fail-closed,
+   approval/activation separation unchanged); any semantic change goes back to
+   the owner.
+5-10. Approved policies: production DB/search — design comparison + verification
+   plans may be produced, technology selection decided only after evidence-backed
+   proposals; LAN deployment — isolated verification plans with synthetic data
+   allowed, production exposure/real data still forbidden; delegation path
+   reality — implementation/spec reconciliation and missing-path fixes allowed;
+   hybrid sequencing — normalize dependencies, never activate the runtime before
+   safety boundaries are proven; completion-declaration rules — requirement,
+   verification, independent-review, CI and final-audit evidence mandatory;
+   record time-limitation — distinguish historical records from current measured
+   state, never treat unverified items as complete.
+- These authorize organization/investigation/design within the existing approved
+  specifications; they do NOT blanket-approve unstated technology choices or any
+  safety-boundary change.
+
+### Still forbidden (unchanged)
+Real-data use; LAN-external runner reachability; cloud-egress activation; Agent
+Runtime activation with unverified isolation; unapproved credential-use schemes;
+production exposure.
+
+### Priority restart order
+1. PH2-D (delegation implementation) 2. PH2-E (web-management remainder)
+3. AUD-1 design/record consistency fixes 4. Phase-2 completion audit
+5. main integration + version bump 6. automatic next-phase transition.
+Up to five parallel slots; 429 → no retry spam; preserve uncommitted artifacts;
+keep using the isolated QA environment; the heartbeat may continue but must not
+make unnecessary model calls while blocked; do not re-request decisions already
+given. Track the 92 requirement IDs and 40 final acceptance criteria
+continuously; unresolved items carry forward explicitly.
