@@ -44,3 +44,8 @@ Push `loop/PH2-C-storage-acl`; wait branch CI; fix/re-push until ALL green
 
 Boundaries: never push to `main` or `loop/local-development`; no code changes;
 no subagents.
+
+## Progress
+
+- Researched the original requirements/planning baseline and git history, the current integrated scanner/ingestion/document authorization paths, and the Phase-2/Phase-3 reconciliation. Confirmed P4B is an in-flight brief only, not integrated behavior. Drafted `docs/plans/PHASE2_STORAGE_ACL_RESEARCH.md` with source-backed interpretations, recommended proposal, enforcement/data/audit outline, explicit 【要決定】 list, contradictions, and phase placement. Self-review limited claims to code/docs at integrated HEAD; docs-only `git diff --check` passed. No code or test files changed.
+- Initial artifact commit `1995a314aa1d5ec072578c02e113a23a99638387` was pushed to `loop/PH2-C-storage-acl`. CI run 42432485789 (Prototype quality) and 42432485786 (Loop engine checks) passed. Run 42432485827 (PR title convention) failed its push-range guard because the first branch-creation push supplied an all-zero `before`, causing the validator to use `origin/main` as range base and reject the 205-commit range as oversized; the commit itself has the requested Conventional Commit subject. This was CI range setup, not a documentation or title failure. The follow-up ordinary push provided a one-commit before/after range; no workflow or control changes were made. Final evidence for `359b0519b544b4c9413e40ce15c382cee478060a`: PR title convention run `42433224216` PASS; Prototype quality run `42433224202` PASS; Loop engine checks run `42433224234` PASS, including all four engine matrix jobs. No fixes were required.
