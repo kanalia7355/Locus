@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from app.agents.registry import AgentRegistry
 from app.local_model import LocalModel
 from app.model_catalog import ModelCatalog
 from app.scanner import scanner_from_environment
@@ -110,6 +111,39 @@ class ModelDiscovery(Input):
     sources: list[str] = Field(min_length=1, max_length=5)
 
 
+class WorkspacePolicyInput(Input):
+    classification_ceiling: str = "none"
+    runner_types: list[str] = Field(default_factory=list, max_length=4)
+    egress_mode: str = "local_only"
+    filesystem_scope: str = "workspace"
+    adapter_allowlist: list[str] = Field(default_factory=list, max_length=20)
+
+
+class WorkspaceInput(Input):
+    name: str = Field(min_length=1, max_length=128)
+    policy: WorkspacePolicyInput = Field(default_factory=WorkspacePolicyInput)
+
+
+class AdapterInput(Input):
+    name: str = Field(min_length=1, max_length=128)
+    adapter_type: str = Field(min_length=1, max_length=64)
+    binary_identity: str = Field(min_length=1, max_length=512)
+    version_pin: str = Field(min_length=1, max_length=128)
+    catalog_ref: str = Field(min_length=1, max_length=256)
+    capabilities: dict[str, Any] = Field(default_factory=dict)
+
+
+class RunnerInstanceInput(Input):
+    enrolled_os_principal_ref: str = Field(min_length=1, max_length=256)
+    binary_identity: str = Field(min_length=1, max_length=512)
+    transport_identity: str = Field(min_length=1, max_length=256)
+
+
+class AdapterBindingInput(Input):
+    runner_instance_id: str = Field(min_length=1, max_length=64)
+    adapter_id: str = Field(min_length=1, max_length=64)
+
+
 def cookie(response: Response, token: str) -> None:
     response.set_cookie(
         COOKIE, token, httponly=True, samesite="strict", secure=False, max_age=28800, path="/api"
@@ -173,6 +207,14 @@ def create_app(
         openapi_url=None,
     )
     app.state.service = svc
+    registry = AgentRegistry(
+        svc.conn,
+        svc.lock,
+        authenticate=svc._authenticate,
+        audit=svc._audit,
+        limit=svc._limit,
+    )
+    app.state.agent_registry = registry
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost"])
 
     @app.middleware("http")
@@ -440,6 +482,78 @@ def create_app(
     @app.get("/api/admin/audit")
     def audit(user: Actor) -> list[dict[str, Any]]:
         return svc.audit(user)
+
+    @app.post("/api/admin/workspaces", status_code=201)
+    def create_agent_workspace(data: WorkspaceInput, request: Request) -> dict[str, Any]:
+        return registry.create_workspace(
+            request.cookies.get(COOKIE), name=data.name, policy=data.policy.model_dump()
+        )
+
+    @app.get("/api/admin/workspaces")
+    def list_agent_workspaces(request: Request) -> list[dict[str, Any]]:
+        return registry.list_workspaces(request.cookies.get(COOKIE))
+
+    @app.put("/api/admin/workspaces/{workspace_id}/policy")
+    def update_agent_workspace_policy(
+        workspace_id: str, data: WorkspacePolicyInput, request: Request
+    ) -> dict[str, Any]:
+        return registry.update_workspace_policy(
+            request.cookies.get(COOKIE), workspace_id, data.model_dump(exclude_unset=True)
+        )
+
+    @app.get("/api/admin/workspaces/{workspace_id}/policies")
+    def list_agent_workspace_policies(workspace_id: str, request: Request) -> list[dict[str, Any]]:
+        return registry.list_policy_versions(request.cookies.get(COOKIE), workspace_id)
+
+    @app.delete("/api/admin/workspaces/{workspace_id}")
+    def disable_agent_workspace(workspace_id: str, request: Request) -> dict[str, str]:
+        return registry.disable_workspace(request.cookies.get(COOKIE), workspace_id)
+
+    @app.post("/api/admin/agent-adapters", status_code=201)
+    def register_agent_adapter(data: AdapterInput, request: Request) -> dict[str, str]:
+        return registry.register_adapter(request.cookies.get(COOKIE), data.model_dump())
+
+    @app.get("/api/admin/agent-adapters")
+    def list_agent_adapters(request: Request) -> list[dict[str, Any]]:
+        return registry.list_adapters(request.cookies.get(COOKIE))
+
+    @app.delete("/api/admin/agent-adapters/{adapter_id}")
+    def disable_agent_adapter(adapter_id: str, request: Request) -> dict[str, str]:
+        return registry.disable_adapter(request.cookies.get(COOKIE), adapter_id)
+
+    @app.post("/api/admin/runner-instances", status_code=201)
+    def create_runner_instance(data: RunnerInstanceInput, request: Request) -> dict[str, str]:
+        return registry.create_runner_instance(request.cookies.get(COOKIE), data.model_dump())
+
+    @app.get("/api/admin/runner-instances")
+    def list_runner_instances(request: Request) -> list[dict[str, Any]]:
+        return registry.list_runner_instances(request.cookies.get(COOKIE))
+
+    @app.delete("/api/admin/runner-instances/{runner_id}")
+    def disable_runner_instance(runner_id: str, request: Request) -> dict[str, str]:
+        return registry.disable_runner_instance(request.cookies.get(COOKIE), runner_id)
+
+    @app.post("/api/admin/workspaces/{workspace_id}/adapter-bindings", status_code=201)
+    def create_adapter_binding(
+        workspace_id: str, data: AdapterBindingInput, request: Request
+    ) -> dict[str, str]:
+        return registry.create_binding(request.cookies.get(COOKIE), workspace_id, data.model_dump())
+
+    @app.get("/api/admin/workspaces/{workspace_id}/adapter-bindings")
+    def list_adapter_bindings(workspace_id: str, request: Request) -> list[dict[str, Any]]:
+        return registry.list_bindings(request.cookies.get(COOKIE), workspace_id)
+
+    @app.delete("/api/admin/workspaces/{workspace_id}/adapter-bindings/{runner_id}/{adapter_id}")
+    def disable_adapter_binding(
+        workspace_id: str, runner_id: str, adapter_id: str, request: Request
+    ) -> dict[str, str]:
+        return registry.disable_binding(
+            request.cookies.get(COOKIE), workspace_id, runner_id, adapter_id
+        )
+
+    @app.post("/api/workspaces/{workspace_id}/agent-dispatch-attempts")
+    def reject_agent_dispatch(workspace_id: str, request: Request) -> None:
+        registry.dispatch_attempt(request.cookies.get(COOKIE), workspace_id)
 
     @app.post("/api/admin/delegations")
     def delegation(user: Actor) -> None:
