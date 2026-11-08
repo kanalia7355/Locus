@@ -34,6 +34,15 @@ attempt 2 (`42441474871`). The first Windows/3.11 racing-controller failure
 was a transient flake; the same-SHA rerun passed without a code change. This is
 not a repair-based pass or an inferred result from a different SHA.
 
+The PH4-FIX fix-cycle implementation `6d03c7ab1a5a70eb9fa2758741f9c32697d7bccd`
+passed local QA (pytest 1145 passed/18 skipped; Ruff check/format; mypy; secret
+scan 0; frontend lint, 63 Vitest tests, build, and 12 Playwright tests). Its exact
+branch-head CI passed Prototype quality (`42446611321`), Loop engine checks
+(`42446611336`, all four matrix jobs), and PR title convention (`42446611259`).
+The display-only regression leaves server-facing data unchanged. A fully
+recreated Python 3.13 QA venv imported `_cffi_backend` and ran Playwright
+successfully.
+
 Production deployment, production storage, real-data validation, broader
 security/operations acceptance, and remaining product requirements stay
 deferred/open. No production or full Phase-4 completion claim is made.
