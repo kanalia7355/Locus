@@ -8,8 +8,35 @@ Date: 2026-10-31. This tracks implementation progress, not production approval. 
 | 1 Authentication | Interactive local provisioning, unique IDs, Argon2id, expiring single-use temporary credentials, enforced first-login rotation, opaque digested sessions, idle/absolute expiry, revocation on change/logout, rate limits; admin-issued digest-only single-use recovery (24-hour expiry, all sessions revoked on redemption); web user provisioning (generated temporary password shown once, forced first-login rotation); web enable/disable (disabling purges sessions) | MFA; production TLS/session deployment policy approval and actual deployment validation |
 | 2 Scoped authorization | Project and organization identity, backend permission templates, per-project membership, private documents/history/attachments, live document-role grants, deny-by-default API tests | Production data model and delegation semantics; live delegation remains disabled |
 | 3 Ingestion and retrieval | Bounded text ingestion, source/page/chunk metadata, queue/cancel, scanner default quarantine, synthetic-only successful seed path, lexical search, live permission checks, derived-data deletion | Approved scanner/parser sandbox, PDF/OCR, storage connectors, approved DB/vector/model adapters, resumable distributed jobs |
-| 4 Researcher/admin UI | Approved sidebar/chat/composer/icon baseline, accessible navigation, IME handling, file/drop shared path, status/removal, project/reference scope, actual source viewer, owner history, mobile checks | Actual local LLM streaming, representative-user usability and accessibility audit beyond current checks |
+| 4 Researcher/admin UI | Approved sidebar/chat/composer/icon baseline, accessible navigation, IME handling, file/drop shared path, status/removal, project/reference scope, actual source viewer, owner history, mobile checks; all five owner-approved Phase-4 remainder priorities integrated (running-question cancellation `5a7848c`; project/storage settings + load display `b8bae86`; structured comparison tables `c381023`; destructive-operation confirmations `a30ec52`) | Phase 4 is NOT declared complete. Actual local LLM streaming, representative-user usability and accessibility audit beyond current checks, measured representative concurrency/capacity, priority/fairness, and other original requirements remain. Production items stay deferred as recorded. |
 | 5 Roles/audit and optional extensions | Project role template cloning with permission ceiling, chips and scope preview, document publication preview, metadata-only audit, user listing | Live delegation explicitly disabled; GraphRAG, plots and cloud adapter deferred until their data/model/provider requirements are approved |
+
+## Phase-4 remainder integration and review evidence — 2026-11-08
+
+All five owner-approved Phase-4 remainder priorities are implemented and
+integrated with these source commits: (1) running-question cooperative
+cancellation `5a7848c`; (2) project/storage settings and (3) load display
+`b8bae86`; (4) structured comparison tables `c381023`; (5) destructive-operation
+target confirmations `a30ec52`. The independent aggregate review PH4-RV returned
+**accept after minor fixes**. Its conditions are reconciled in this fix cycle;
+this is not a claim that all Phase-4 product requirements or production work are
+complete.
+
+Integrated HEAD `183ccc31211f18570229dbb94985b7c3c26a7f6c` passed Prototype
+quality (run `42444300133`), Loop engine checks (run `42444300019`, all four
+matrix jobs), and PR title convention (run `42444300016`). P4D integrated HEAD
+`a30ec5227b754f7d0d480d5a8ed3307e4d0d51b6` passed Prototype quality
+(`42443623239`), Loop engine checks (`42443623273`, all four matrix jobs), and
+PR title convention (`42443623262`). The P4D feature branch at
+`5d779b316bdcb9a12b6b7d38b70566c400692f62` passed Prototype quality
+(`42441474907`), title convention (`42441474829`), and Loop engine checks on
+attempt 2 (`42441474871`). The first Windows/3.11 racing-controller failure
+was a transient flake; the same-SHA rerun passed without a code change. This is
+not a repair-based pass or an inferred result from a different SHA.
+
+Production deployment, production storage, real-data validation, broader
+security/operations acceptance, and remaining product requirements stay
+deferred/open. No production or full Phase-4 completion claim is made.
 
 ## Acceptance interpretation
 

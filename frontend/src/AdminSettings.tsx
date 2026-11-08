@@ -443,6 +443,15 @@ export function AdminLoad() {
   const [error, setError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [version, setVersion] = useState(0);
+  const [displayedRunningStart, setDisplayedRunningStart] = useState<{
+    id: string;
+    timestamp: number;
+  } | null>(null);
+  const runningJob = status?.chat_queue.running_job;
+  const runningJobStartedAt =
+    runningJob && displayedRunningStart?.id === runningJob.id
+      ? displayedRunningStart.timestamp
+      : runningJob?.started_at;
   useEffect(() => {
     const controller = new AbortController();
     void Promise.resolve().then(() => {
@@ -451,6 +460,13 @@ export function AdminLoad() {
       return api<LoadStatus>("/admin/load", { signal: controller.signal })
         .then((value) => {
           if (!controller.signal.aborted) {
+            const runningJob = value.chat_queue.running_job;
+            setDisplayedRunningStart((current) => {
+              if (!runningJob) return null;
+              return current?.id === runningJob.id
+                ? current
+                : { id: runningJob.id, timestamp: runningJob.started_at };
+            });
             setStatus(value);
             setError("");
           }
@@ -494,8 +510,8 @@ export function AdminLoad() {
           <dd>{status.chat_queue.per_user_limit}件</dd>
           <dt>実行中の質問</dt>
           <dd>
-            {status.chat_queue.running_job
-              ? `${status.chat_queue.running_job.username ?? "利用者不明"} · ${status.chat_queue.running_job.id} · ${new Date(status.chat_queue.running_job.started_at * 1000).toLocaleString("ja-JP")}`
+            {runningJob
+              ? `${runningJob.username ?? "利用者不明"} · ${runningJob.id} · ${new Date((runningJobStartedAt ?? runningJob.started_at) * 1000).toLocaleString("ja-JP")}`
               : "なし"}
           </dd>
         </dl>

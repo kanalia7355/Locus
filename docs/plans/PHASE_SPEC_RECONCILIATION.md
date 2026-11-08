@@ -17,7 +17,7 @@ Phase完了の宣言は、以下の不足解消、対応する独立レビュー
 | 1 認証 | Argon2id、仮パスワード期限/一回性、初回変更、session失効/期限、rate limit。回復、Web利用者追加、停止操作を照合済み・既存実装として記録。根拠（feature branch→統合commit; task QA）: 回復 `loop/PH1-recovery@bd9f2cf`→`loop/local-development@1056021` (pytest 1101 passed/18 skipped; branch CI green at 93d1633); 停止 `loop/PH1-account-toggle@a31d570`→`loop/local-development@b7adb42` (pytest 1098/18 skipped, frontend 49, Playwright 10; CI repair ed11f73, integrated push c28a280 all workflows green); Web追加 `loop/PH1-web-provisioning@a355efb`→`loop/local-development@2610b70` (pytest 1094/18 skipped, frontend 49, Playwright 10; branch CI green at 76ba39a) | Owner決定 (2026-11-07): MFAはLAN限定プロトタイプでは意図的に対象外。本番TLS・session配備は本番配備Phaseへ繰り越し（後続Phase完了条件に明示登録、黙示解決なし）。LAN実配備検証はコード完成条件から分離するが実機動作確認済みとは扱わず、後続の配備検証ゲートで必須。管理読み取りの権限失効は次の認可チェックで確実に反映し、長時間処理では再検証する（厳格化の影響検証を含む）。stale-Principal競合は `0365a6a` で修正（provision_web_userのトランザクション内再認証＋回帰; full pytest 1114 passed/18 skipped; branch CI green a196e5e）。集約の独立レビューはaccept-after-minor-fixesで、残条件は修正の再レビューと正確なHEADの全CI成功 | 集約QA: pytest 1114 passed/18 skipped（PH1-J統合後）; Ruff/format、mypy 7 files、secret scan 0。初回変更/期限/失効/不正利用と回復コードの誤り/期限/再利用・無効accountの否定系を含む回帰。完了判断には修正の再レビューと正確なHEADの全CI成功、その後main反映（owner方針: 完了後自動マージ、バージョン更新） |
 | 2 認可・管理 | 組織/project境界、private履歴/添付、live資料grant、custom role作成/更新、subset制限、監査。test_custom_role_publication/role_updates/administration_audit | 期限付き委任は409で無効。Web所属/project管理、兼任/明示deny/元保存先ACL対応、期限・取消仕様が未確定または未実装 | 異なる利用者/組織/権限変更中の全データ経路、委任subset/scope/expiryと自己昇格拒否 |
 | 3 資料・検索 | UTF-8 txt/md/csv256KiB、queue/cancel、lexical検索、実chunk出典、削除/失効。ClamAV任意adapter模擬検証。test_scanner/api/security | SQLiteは開発用代替で本番DB/保存分離/バックアップ復旧が未確定。保存先接続、フォルダ再帰一覧・件数/容量/対象外理由、PDF/OCR、元原本への導線、差分更新、再開/失敗分再処理、見積り/通知、vector検索。実ClamAV未検証 | 保存先→一覧→取り込み→質問→原本の代表シナリオ、変更/削除/ACL伝播、故障・再開・上限・実スキャナー |
-| 4 UI・複数人利用 | 基準の配置/220ms/reduced-motion/SVG/IME/drop共通処理、状態/出典/private履歴、mobile browser検証。2026-11-06:単一model枠の前に到着順の対話待機列を実装。model使用中の質問は202で受付し、待機/実行中/完了/失敗/取消を表示、待機中のみ取消可、完了後の回答は会話履歴から取得（切断・再接続の結果取得）。待機上限300秒、全体16件・個人2件の開発用上限。既存の同步応答契約（model空き時200、検索のみ200）は不変 | 管理メニューのproject/保存先/負荷/保存削除画面不足。実行中質問の中断は不可（実行中表示のみ）。逐次表示なし。比較表の構造化表示なし。待機列の公平性は到着順のみで、優先度・利用者別分配は未対応 | 基準画像と現画面の比較、keyboard/mobile/long-name、複数人対話+取り込み負荷・切断取消、状態と通知の正確性。対話待機列の回帰: test_chat_queue 8件（取消・実行・所有者分離・session失効・上限・期限・再起動）とfrontend ChatQueue 3件 |
+| 4 UI・複数人利用 | 基準の配置/220ms/reduced-motion/SVG/IME/drop共通処理、状態/出典/private履歴、mobile browser検証。2026-11-06:単一model枠の前に到着順の対話待機列を実装。model使用中の質問は202で受付し、待機/実行中/完了/失敗/取消を表示、完了後の回答は会話履歴から取得。開発用上限は待機300秒、全体16件・個人2件。既存の同期応答契約（model空き時200、検索のみ200）は不変。所有者承認済みPhase-4残件の5優先事項はすべて実装・統合済み: (1) 実行中質問の協調取消 `5a7848c`、(2) project/保存先設定および (3) 負荷表示 `b8bae86`、(4) 比較表 `c381023`、(5) 削除対象確認 `a30ec52`。PH4-RV独立レビュー verdict: accept after minor fixes。残条件（状態文書の整合、取消後も実行開始時刻表示を不変にするUI回帰、統合CI証跡の明記）はPH4-FIXで対応・検証する。 | Phase 4全体は未完了。実装済み残件は統合済みだが、逐次表示なし、待機列公平性は到着順のみ（優先度・利用者別分配なし）、負荷・容量の代表的実測や利用者評価、より広いアクセシビリティ確認は未実施。production項目は別途延期のまま。 | 5残件の根拠は `docs/plans/agent-work/ORCHESTRATOR_LOG.md` と各P4 task brief。統合HEAD `183ccc3` とP4D統合HEAD `a30ec52` の Prototype quality、Loop engine checks 4-matrix、title convention は2026-11-08に全て成功（CI run IDs・P4D windows/3.11 same-SHA rerunはPHASE_STATUS参照）。取消後の表示時刻回帰とPH4-RV条件のクローズはPH4-FIXの正確なHEADで別途検証する。 |
 | 5 拡張 | 許可sourceの語句由来関連図、Ollama生成/保存/入力出典のいずれかが失効した場合に回答全体を非表示、model候補検出。test_related_documents/local_model/model_catalog | 意味的GraphRAG/graph index、plot/データ探索、cloud policy/router未実装。HFファイルは候補までで実行不可 | graph全探索ACL/根拠、plot入力/実行境界、provider別認可。承認済み合成Ollamaの成功はこれらを証明しない |
 
 ## 具体的な不整合の修正
@@ -38,6 +38,34 @@ UI基準画像の表・PDF名・値はサンプルであり、その文言一致
    競合・不明な保護状態・未解決重大指摘があればマージしない。
 
 現時点で製品仕様全体に対する完了Phaseを新たに認定していない。
+
+## Phase-4 remainder review and integrated CI evidence — 2026-11-08
+
+Owner-approved Phase-4 remainder priorities are implemented and integrated, with
+source evidence: running-question cooperative cancellation `5a7848c`; project /
+storage settings and load display `b8bae86`; structured comparison tables
+`c381023`; destructive-operation confirmation `a30ec52`. Independent aggregate
+review PH4-RV returned **accept after minor fixes**. PH4-FIX addresses its three
+minor conditions (phase-ledger reconciliation, an unchanged running-job start
+time after accepted cancellation with a frontend regression, and explicit CI
+records); the review does not imply that the entire Phase 4 or product is complete.
+
+The integrated review HEAD `183ccc31211f18570229dbb94985b7c3c26a7f6c` passed
+Prototype quality (run `42444300133`), Loop engine checks (run `42444300019`,
+all four matrix jobs), and PR title convention (run `42444300016`). The P4D
+integrated HEAD `a30ec5227b754f7d0d480d5a8ed3307e4d0d51b6` passed Prototype
+quality (`42443623239`), Loop engine checks (`42443623273`, four-matrix), and PR
+title convention (`42443623262`). P4D's branch-head Loop engine workflow on
+`5d779b316bdcb9a12b6b7d38b70566c400692f62` succeeded on attempt 2
+(`42441474871`); its Windows/3.11 racing-controller failure was a flake and
+passed on a same-SHA rerun, with no code repair between attempts. The branch's
+Prototype quality (`42441474907`) and title convention (`42441474829`) also
+passed. These are prototype verification records, not production, capacity, or
+full Phase-4 completion claims.
+
+Production deployment, external storage, real-data validation, production
+security/operations, and other deferred requirements remain deferred as
+recorded in the product roadmap and final acceptance criteria.
 旧PHASE_STATUS冒頭の日付と表は初期試作範囲を表し、追記との時間差がある。
 ADR0002の初期「modelなし・remote操作なし」は後続の個別承認で拡張された履歴であり、
 現在のOllama/専用branch Push機能が未承認という意味ではない。
