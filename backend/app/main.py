@@ -68,6 +68,7 @@ class AdminProjectInput(Input):
     project_id: str = Field(min_length=1, max_length=64)
     org_id: str = Field(min_length=1, max_length=64)
     name: str = Field(min_length=1, max_length=128)
+    owner_id: str | None = Field(default=None, min_length=1, max_length=64)
 
 
 class ProjectMemberInput(Input):
@@ -100,6 +101,13 @@ class Role(Input):
 
 class MembershipDenials(Input):
     denied_permissions: list[str] = Field(max_length=20)
+
+
+class DelegationGrant(Input):
+    project_id: str = Field(min_length=1, max_length=64)
+    recipient_id: str = Field(min_length=1, max_length=64)
+    permissions: list[str] = Field(min_length=1, max_length=4)
+    ttl_seconds: int | None = Field(default=None, strict=True)
 
 
 class Grant(Input):
@@ -486,7 +494,11 @@ def create_app(
         if not data.project_id.strip() or not data.org_id.strip() or not data.name.strip():
             fail(422, "プロジェクトID・組織ID・名称を入力してください")
         return svc.create_admin_project(
-            request.cookies.get(COOKIE), data.project_id, data.org_id, data.name
+            request.cookies.get(COOKIE),
+            data.project_id,
+            data.org_id,
+            data.name,
+            data.owner_id,
         )
 
     @app.put("/api/admin/projects/{project_id}/members")
@@ -659,8 +671,27 @@ def create_app(
     def reject_agent_dispatch(workspace_id: str, request: Request) -> None:
         registry.dispatch_attempt(request.cookies.get(COOKIE), workspace_id)
 
-    @app.post("/api/admin/delegations")
-    def delegation(user: Actor) -> None:
-        fail(409, "本番の管理委任は設計承認待ちのため無効です")
+    @app.get("/api/admin/delegations")
+    def delegations(request: Request, user: Actor) -> list[dict[str, Any]]:
+        return svc.delegations(user, request.cookies.get(COOKIE))
+
+    @app.post("/api/admin/delegations", status_code=201)
+    def delegation(data: DelegationGrant, request: Request, user: Actor) -> dict[str, Any]:
+        return svc.create_delegation(
+            user,
+            request.cookies.get(COOKIE),
+            data.project_id,
+            data.recipient_id,
+            data.permissions,
+            data.ttl_seconds,
+        )
+
+    @app.delete("/api/admin/delegations/{grant_id}")
+    def revoke_delegation(grant_id: str, request: Request, user: Actor) -> dict[str, Any]:
+        return svc.revoke_delegation(user, request.cookies.get(COOKIE), grant_id)
+
+    @app.delete("/api/admin/delegations/{grant_id}/cancel")
+    def cancel_delegation(grant_id: str, request: Request, user: Actor) -> dict[str, Any]:
+        return svc.cancel_delegation(user, request.cookies.get(COOKIE), grant_id)
 
     return app
