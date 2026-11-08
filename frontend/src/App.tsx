@@ -15,6 +15,7 @@ import {
 import { api, errorText, json, statusName } from "./api";
 import { RelatedDocuments } from "./RelatedDocuments";
 import { IngestionProgress } from "./IngestionProgress";
+import { AdminLoad, AdminProjects, AdminStorage } from "./AdminSettings";
 import { ModelSettings } from "./ModelSettings";
 import { ProvisionUser } from "./ProvisionUser";
 import type {
@@ -37,6 +38,9 @@ type Page =
   | "history"
   | "users"
   | "roles"
+  | "projects"
+  | "storage"
+  | "load"
   | "ingestion"
   | "audit"
   | "settings";
@@ -54,6 +58,9 @@ const labels: Record<Page, string> = {
   history: "調査履歴",
   users: "利用者",
   roles: "役割・管理権限",
+  projects: "プロジェクト",
+  storage: "保存先の接続",
+  load: "負荷・実行状況",
   ingestion: "取り込み状況",
   audit: "操作記録",
   settings: "モデル・同時利用",
@@ -873,6 +880,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
                 </summary>
                 {user.system_admin && navButton("users")}
                 {can("manage_roles") && navButton("roles")}
+                {user.system_admin && navButton("projects")}
               </details>
             </>
           )}
@@ -881,10 +889,12 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
               データ・処理 <ChevronDown size={12} />
             </summary>
             {navButton("ingestion")}
+            {user.system_admin && navButton("storage")}
+            {user.system_admin && navButton("load")}
             {navButton("settings")}
           </details>
           {user.system_admin && (
-            <details>
+            <details open={page === "audit"}>
               <summary>
                 運用・記録 <ChevronDown size={12} />
               </summary>
@@ -1246,6 +1256,9 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
           <AdminUsers currentUserId={user.id} />
         )}
         {page === "audit" && user.system_admin && <AdminList key="audit" kind="audit" />}
+        {page === "projects" && user.system_admin && <AdminProjects />}
+        {page === "storage" && user.system_admin && <AdminStorage />}
+        {page === "load" && user.system_admin && <AdminLoad />}
         {page === "settings" && (
           <div className="settings">
             <h2>処理先</h2>
@@ -1253,8 +1266,6 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
               既定はローカルの原文検索です。管理者がOllamaモデルを明示的に有効化した場合は、参照資料に基づく回答を生成します。
             </p>
             {user.system_admin && <ModelSettings />}
-            <h2>外部AI・保存先の接続</h2>
-            <p>無効。接続先・契約・送信方針の承認後に実装します。</p>
             <h2>同時利用</h2>
             <p>
               取り込みは1件ずつ処理し、全体32件・一人4件まで受付します。安全のための開発上限であり、性能保証ではありません。

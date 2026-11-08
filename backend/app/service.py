@@ -367,6 +367,177 @@ class Service:
             self._replace_role_holding(db, user["id"], project_id, role)
             self._audit(db, "local-cli", "membership.assign", project_id + ":" + user["id"])
 
+    def create_admin_project(
+        self, token: str | None, project_id: str, org_id: str, name: str
+    ) -> Json:
+        if (
+            not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}", project_id)
+            or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}", org_id)
+            or not name.strip()
+            or len(name) > 128
+            or any(ord(char) < 32 for char in name)
+        ):
+            fail(422, "プロジェクトID・組織ID・名称を確認してください")
+        with self.db() as db:
+            actor = self._authenticate(db, token)
+            if not actor.system_admin:
+                fail(403, "管理権限が必要です")
+            self._limit("admin-project:" + actor.id, 10)
+            try:
+                db.execute("INSERT INTO projects VALUES (?,?,?)", (project_id, org_id, name))
+            except sqlite3.IntegrityError:
+                fail(409, "プロジェクトIDは使用済みです")
+            self._audit(db, actor.id, "project.create", project_id)
+            return {"id": project_id, "org_id": org_id, "name": name}
+
+    def admin_projects(self, actor: Principal) -> list[Json]:
+        if not actor.system_admin:
+            fail(403, "管理権限が必要です")
+        with self.db() as db:
+            projects = [dict(row) for row in db.execute("SELECT * FROM projects ORDER BY name,id")]
+            for project in projects:
+                project["members"] = [
+                    {
+                        **dict(row),
+                        "roles": self._held_roles(db, row["user_id"], project["id"]),
+                    }
+                    for row in db.execute(
+                        "SELECT u.id AS user_id,u.username,m.role FROM memberships m "
+                        "JOIN users u ON u.id=m.user_id WHERE m.project_id=? ORDER BY u.username",
+                        (project["id"],),
+                    )
+                ]
+                project["roles"] = [
+                    {"id": name, "name": name}
+                    for name in ROLE_PERMISSIONS
+                    if name != "system_admin"
+                ] + [
+                    {"id": row["id"], "name": row["name"]}
+                    for row in db.execute(
+                        "SELECT id,name FROM roles WHERE project_id=? ORDER BY name",
+                        (project["id"],),
+                    )
+                ]
+            return projects
+
+    def storage_status(self, actor: Principal) -> Json:
+        if not actor.system_admin:
+            fail(403, "管理権限が必要です")
+        with self.db() as db:
+            counts = {
+                row["status"]: row["count"]
+                for row in db.execute(
+                    "SELECT status,COUNT(*) AS count FROM documents GROUP BY status"
+                )
+            }
+            return {
+                "backend": "sqlite",
+                "mode": "local-only",
+                "external_enabled": False,
+                "accepted_formats": ["txt", "md", "csv"],
+                "max_file_bytes": 262144,
+                "ingestion_queue_limit": 32,
+                "per_user_ingestion_queue_limit": 4,
+                "ingestion_status_counts": counts,
+                "configuration_available": False,
+            }
+
+    def _project_member_mutation(
+        self,
+        db: sqlite3.Connection,
+        actor: Principal,
+        project_id: str,
+        user_id: str,
+        role: str | None,
+    ) -> Json:
+        if not db.execute("SELECT id FROM projects WHERE id=?", (project_id,)).fetchone():
+            fail(404, "プロジェクトが見つかりません")
+        target = db.execute("SELECT id FROM users WHERE id=?", (user_id,)).fetchone()
+        if not target:
+            fail(404, "利用者が見つかりません")
+        if role is None:
+            removed = (
+                db.execute(
+                    "DELETE FROM memberships WHERE user_id=? AND project_id=?",
+                    (user_id, project_id),
+                ).rowcount
+                > 0
+            )
+            if removed:
+                self._audit(db, actor.id, "membership.remove", project_id + ":" + user_id)
+            return {"project_id": project_id, "user_id": user_id, "removed": removed}
+        if role == "system_admin":
+            fail(422, "システム管理者ロールは所属に設定できません")
+        custom = db.execute(
+            "SELECT id FROM roles WHERE id=? AND project_id=?", (role, project_id)
+        ).fetchone()
+        if role not in ROLE_PERMISSIONS and not custom:
+            fail(422, "不明なロールです")
+        if not db.execute("SELECT enabled FROM users WHERE id=?", (user_id,)).fetchone()[0]:
+            fail(409, "無効な利用者は所属に追加できません")
+        member_changed = db.execute(
+            "INSERT OR IGNORE INTO memberships (user_id,project_id,role) VALUES (?,?,?)",
+            (user_id, project_id, role),
+        ).rowcount
+        role_changed = db.execute(
+            "INSERT OR IGNORE INTO membership_roles (user_id,project_id,role) VALUES (?,?,?)",
+            (user_id, project_id, role),
+        ).rowcount
+        if member_changed or role_changed:
+            self._audit(db, actor.id, "membership.assign", project_id + ":" + user_id)
+        return {"project_id": project_id, "user_id": user_id, "role": role}
+
+    def set_project_member(
+        self, token: str | None, project_id: str, user_id: str, role: str
+    ) -> Json:
+        with self.db() as db:
+            actor = self._authenticate(db, token)
+            if not actor.system_admin:
+                fail(403, "管理権限が必要です")
+            self._limit("admin-project-member:" + actor.id, 30)
+            return self._project_member_mutation(db, actor, project_id, user_id, role)
+
+    def remove_project_member(self, token: str | None, project_id: str, user_id: str) -> None:
+        with self.db() as db:
+            actor = self._authenticate(db, token)
+            if not actor.system_admin:
+                fail(403, "管理権限が必要です")
+            self._limit("admin-project-member:" + actor.id, 30)
+            self._project_member_mutation(db, actor, project_id, user_id, None)
+
+    def load_status(self, actor: Principal, *, model_busy: bool, model_enabled: bool) -> Json:
+        if not actor.system_admin:
+            fail(403, "管理権限が必要です")
+        with self.db() as db:
+            queued = db.execute("SELECT COUNT(*) FROM chat_jobs WHERE status='queued'").fetchone()[
+                0
+            ]
+            running = db.execute(
+                "SELECT j.id,u.username,j.updated FROM chat_jobs j "
+                "LEFT JOIN users u ON u.id=j.user_id WHERE j.status='running' "
+                "ORDER BY j.created,j.id LIMIT 1"
+            ).fetchone()
+            return {
+                "model_slot": {
+                    "enabled": model_enabled,
+                    "busy": model_busy,
+                },
+                "chat_queue": {
+                    "queued": queued,
+                    "limit": CHAT_QUEUE_LIMIT,
+                    "per_user_limit": CHAT_USER_QUEUE_LIMIT,
+                    "running_job": (
+                        {
+                            "id": running["id"],
+                            "username": running["username"],
+                            "started_at": running["updated"],
+                        }
+                        if running
+                        else None
+                    ),
+                },
+            }
+
     def _limit(self, key: str, maximum: int) -> None:
         now = time.time()
         recent = [at for at in self.limits.pop(key, []) if at > now - 60]

@@ -63,6 +63,17 @@ class ProvisionUser(Input):
     username: str
 
 
+class AdminProjectInput(Input):
+    project_id: str = Field(min_length=1, max_length=64)
+    org_id: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=128)
+
+
+class ProjectMemberInput(Input):
+    user_id: str = Field(min_length=1, max_length=64)
+    role: str = Field(min_length=1, max_length=64)
+
+
 class ProjectInput(Input):
     project_id: str = Field(min_length=1, max_length=64)
 
@@ -447,6 +458,42 @@ def create_app(
             fail(422, "ロール名を入力してください")
         return svc.update_role(
             user, project, role_id, data.name, data.permissions, data.denied_permissions
+        )
+
+    @app.get("/api/admin/projects")
+    def admin_projects(user: Actor) -> list[dict[str, Any]]:
+        return svc.admin_projects(user)
+
+    @app.post("/api/admin/projects", status_code=201)
+    def create_admin_project(data: AdminProjectInput, request: Request) -> dict[str, Any]:
+        if not data.project_id.strip() or not data.org_id.strip() or not data.name.strip():
+            fail(422, "プロジェクトID・組織ID・名称を入力してください")
+        return svc.create_admin_project(
+            request.cookies.get(COOKIE), data.project_id, data.org_id, data.name
+        )
+
+    @app.put("/api/admin/projects/{project_id}/members")
+    def set_project_member(
+        project_id: str, data: ProjectMemberInput, request: Request
+    ) -> dict[str, Any]:
+        return svc.set_project_member(
+            request.cookies.get(COOKIE), project_id, data.user_id, data.role
+        )
+
+    @app.delete("/api/admin/projects/{project_id}/members/{user_id}", status_code=204)
+    def remove_project_member(project_id: str, user_id: str, request: Request) -> None:
+        svc.remove_project_member(request.cookies.get(COOKIE), project_id, user_id)
+
+    @app.get("/api/admin/storage")
+    def storage_status(user: Actor) -> dict[str, Any]:
+        return svc.storage_status(user)
+
+    @app.get("/api/admin/load")
+    def load_status(user: Actor) -> dict[str, Any]:
+        return svc.load_status(
+            user,
+            model_busy=not runtime.available(),
+            model_enabled=bool(runtime.status()["enabled"]),
         )
 
     @app.get("/api/admin/models/sources")
