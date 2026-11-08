@@ -249,6 +249,38 @@ it("shows local storage status and keeps external storage explicitly denied", as
   expect(requests[0].path).toContain("/admin/storage");
 });
 
+it("keeps a running job's displayed start time when refreshed cancellation metadata changes", async () => {
+  let startedAt = 100;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => {
+      requests.push({ path: "/admin/load" });
+      return respond({
+        model_slot: { enabled: true, busy: true },
+        chat_queue: {
+          queued: 0,
+          limit: 16,
+          per_user_limit: 2,
+          running_job: { id: "job-1", username: "alice", started_at: startedAt },
+        },
+      });
+    }),
+  );
+  render(<AdminLoad />);
+  const runningJob = await screen.findByText(/alice · job-1/);
+  const originalDisplay = runningJob.textContent;
+  startedAt = 200;
+  fireEvent.click(screen.getByRole("button", { name: "更新" }));
+  await waitFor(() => expect(requests).toHaveLength(2));
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "更新" })).toBeEnabled(),
+  );
+  expect(screen.getByText(/alice · job-1/)).toHaveTextContent(originalDisplay!);
+  expect(screen.getByText(/alice · job-1/)).not.toHaveTextContent(
+    new Date(200 * 1000).toLocaleString("ja-JP"),
+  );
+});
+
 it("displays only load metadata and reports refresh failures", async () => {
   let failRefresh = false;
   vi.stubGlobal(
