@@ -363,7 +363,28 @@ security tests or the disabled endpoint before implementation is approved.
 This matrix is the proposed evidence for the Phase-2 verification column:
 **異なる利用者/組織/権限変更中の全データ経路、委任subset/scope/expiry、自己昇格拒否**.
 
-## 8. 【要決定】 owner decision inventory (not decided here)
+## 8. 【要決定】 owner decision inventory — RESOLVED (owner decision 2026-11-09)
+
+**UPDATE 2026-11-09: the owner approved all twelve items as recommended, with
+these binding conditions:**
+- **TTL**: default 24 hours, maximum 7 days, minimum 15 minutes; live
+  revalidation at every authorization point.
+- **Grantors**: the project owner, and an organization administrator holding
+  legitimate administrative authority over the target project; grant authority
+  itself is NOT delegable.
+- **Re-grant**: the family/version scheme is adopted; unintended revival or
+  coexistence of old versions is forbidden; scope changes or permission
+  expansions require a NEW authorization (never a same-family widening).
+The remaining items stand as recommended: no re-delegation; project-scoped
+grants only (org-wide deferred); live invalidation fail-closed on grantor
+authority loss/removal/disable; recipient cancellation allowed with idempotent
+audit; epoch-seconds time authority until the production-DB decision; the
+NON_ADMIN permission ceiling means administrative permissions are not
+delegable; membership remains an independent gate; expired/revoked grant
+versions and audit entries are retained until the production-deployment phase
+decision; revocation races deny at the next authorization point.
+**PH2-D implementation is AUTHORIZED with these parameters.** The inventory
+below is retained verbatim as the historical record of what was asked.
 
 1. Default and maximum grant TTL, minimum TTL, expiry input rules, and policy
    owner/configuration path.
