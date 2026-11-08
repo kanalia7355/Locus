@@ -400,9 +400,18 @@ class Service:
                     {
                         **dict(row),
                         "roles": self._held_roles(db, row["user_id"], project["id"]),
+                        "denied_permissions": json.loads(row["denied_permissions"]),
+                        "effective_permissions": sorted(
+                            self._permissions(
+                                db,
+                                Principal(row["user_id"], row["username"], False, False),
+                                project["id"],
+                            )
+                        ),
                     }
                     for row in db.execute(
-                        "SELECT u.id AS user_id,u.username,m.role FROM memberships m "
+                        "SELECT u.id AS user_id,u.username,m.role,m.denied_permissions "
+                        "FROM memberships m "
                         "JOIN users u ON u.id=m.user_id WHERE m.project_id=? ORDER BY u.username",
                         (project["id"],),
                     )
@@ -811,11 +820,21 @@ class Service:
 
     def add_role_holding(self, actor: Principal, project: str, username: str, role: str) -> None:
         with self.db() as db:
-            self.require(db, actor, project, "manage_members")
-            self._membership(db, actor, project)
+            if not db.execute("SELECT 1 FROM projects WHERE id=?", (project,)).fetchone():
+                fail(404, "プロジェクトが見つかりません")
+            if not actor.system_admin:
+                self.require(db, actor, project, "manage_members")
+                self._membership(db, actor, project)
             target = db.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()
             if not target:
                 fail(404, "利用者が見つかりません")
+            enabled = db.execute(
+                "SELECT enabled FROM users WHERE id=?", (target["id"],)
+            ).fetchone()[0]
+            if not enabled:
+                fail(409, "無効な利用者にはロールを割り当てられません")
+            if role == "system_admin":
+                fail(422, "システム管理者ロールは所属に設定できません")
             allowed, denied = self._role_permissions(db, role, project)
             if (
                 role not in ROLE_PERMISSIONS
@@ -825,8 +844,14 @@ class Service:
             ):
                 fail(404, "ロールが見つかりません")
             if (
-                not allowed <= NON_ADMIN
-                or not allowed <= self._held_permission_ceiling(db, actor, project)
+                (
+                    not actor.system_admin
+                    and (
+                        not allowed <= NON_ADMIN
+                        or not allowed <= self._held_permission_ceiling(db, actor, project)
+                    )
+                )
+                or (actor.system_admin and not allowed <= NON_ADMIN)
                 or not denied <= ALL_PERMISSIONS
             ):
                 fail(422, "ロールの権限が本人の非管理委任上限を超えています")
@@ -842,7 +867,10 @@ class Service:
 
     def remove_role_holding(self, actor: Principal, project: str, username: str, role: str) -> None:
         with self.db() as db:
-            self.require(db, actor, project, "manage_members")
+            if not db.execute("SELECT 1 FROM projects WHERE id=?", (project,)).fetchone():
+                fail(404, "プロジェクトが見つかりません")
+            if not actor.system_admin:
+                self.require(db, actor, project, "manage_members")
             target = db.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()
             if not target:
                 fail(404, "利用者が見つかりません")
@@ -874,7 +902,10 @@ class Service:
         self, actor: Principal, project: str, username: str, denied_permissions: list[str]
     ) -> list[str]:
         with self.db() as db:
-            self.require(db, actor, project, "manage_members")
+            if not db.execute("SELECT 1 FROM projects WHERE id=?", (project,)).fetchone():
+                fail(404, "プロジェクトが見つかりません")
+            if not actor.system_admin:
+                self.require(db, actor, project, "manage_members")
             target = db.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()
             if (
                 not target
@@ -918,7 +949,10 @@ class Service:
 
     def membership_roles(self, actor: Principal, project: str, username: str) -> Json:
         with self.db() as db:
-            self.require(db, actor, project, "manage_members")
+            if not db.execute("SELECT 1 FROM projects WHERE id=?", (project,)).fetchone():
+                fail(404, "プロジェクトが見つかりません")
+            if not actor.system_admin:
+                self.require(db, actor, project, "manage_members")
             target = db.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()
             if not target:
                 fail(404, "所属が見つかりません")

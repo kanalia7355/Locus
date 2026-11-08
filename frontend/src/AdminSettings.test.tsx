@@ -6,7 +6,14 @@ const project = {
   id: "project-a",
   org_id: "org-a",
   name: "合成プロジェクト",
-  members: [{ user_id: "user-a", username: "alice", role: "researcher" }],
+  members: [{
+    user_id: "user-a",
+    username: "alice",
+    role: "researcher",
+    roles: ["researcher", "viewer"],
+    denied_permissions: ["retrieve"],
+    effective_permissions: ["read", "upload"],
+  }],
   roles: [
     { id: "researcher", name: "researcher" },
     { id: "viewer", name: "viewer" },
@@ -93,23 +100,29 @@ it("lists projects, creates them and retains invalid form input", async () => {
   expect(id).toHaveValue("");
 });
 
-it("assigns/removes project members through the admin endpoints", async () => {
+it("assigns/removes project members through role-holding endpoints", async () => {
   let members = project.members;
+  let failAssignment = true;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
       const path = String(input);
       requests.push({ path, options });
-      if (path.endsWith("/members") && options?.method === "PUT") {
+      if (path.endsWith("/members/bob/roles/viewer") && options?.method === "POST") {
+        if (failAssignment)
+          return respond({ detail: "ロールの委任上限を超えています" }, 422);
         members = [
-          { user_id: "user-a", username: "alice", role: "researcher" },
-          { user_id: "user-b", username: "bob", role: "viewer" },
+          ...project.members,
+          {
+            user_id: "user-b",
+            username: "bob",
+            role: "viewer",
+            roles: ["viewer"],
+            denied_permissions: [],
+            effective_permissions: ["read", "retrieve"],
+          },
         ];
-        return respond({
-          project_id: "project-a",
-          user_id: "user-b",
-          role: "viewer",
-        });
+        return respond(undefined, 204);
       }
       if (path.includes("/members/user-a") && options?.method === "DELETE") {
         members = [];
@@ -123,6 +136,8 @@ it("assigns/removes project members through the admin endpoints", async () => {
   );
   render(<AdminProjects />);
   await screen.findByRole("heading", { name: "合成プロジェクト" });
+  expect(screen.getByText(/実効権限（各ロールの和集合、拒否を適用後）: 閲覧・資料追加/)).toBeVisible();
+  expect(screen.getByText("明示的な拒否: チャット参照")).toBeVisible();
   await screen.findByRole("option", { name: "bob" });
   fireEvent.change(screen.getByLabelText("合成プロジェクトの利用者"), {
     target: { value: "user-b" },
@@ -130,14 +145,18 @@ it("assigns/removes project members through the admin endpoints", async () => {
   fireEvent.change(screen.getByLabelText("合成プロジェクトの役割"), {
     target: { value: "viewer" },
   });
-  fireEvent.click(screen.getByRole("button", { name: "利用者を追加・更新" }));
+  fireEvent.click(screen.getByRole("button", { name: "利用者にロールを追加" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("ロールの委任上限を超えています");
+  expect(screen.getByLabelText("合成プロジェクトの役割")).toHaveValue("viewer");
+  expect(screen.queryByText("bob · 閲覧者")).not.toBeInTheDocument();
+  failAssignment = false;
+  fireEvent.click(screen.getByRole("button", { name: "利用者にロールを追加" }));
   await screen.findByText("bob · 閲覧者");
   expect(
     requests.some(
       ({ path, options }) =>
-        path.endsWith("/admin/projects/project-a/members") &&
-        options?.method === "PUT" &&
-        JSON.parse(String(options.body)).user_id === "user-b",
+        path.endsWith("/projects/project-a/members/bob/roles/viewer") &&
+        options?.method === "POST",
     ),
   ).toBe(true);
   const remove = screen.getByRole("button", {
@@ -214,13 +233,55 @@ it("retains membership and confirmation on removal failure and prevents double s
   expect(await screen.findByRole("alert")).toHaveTextContent(
     "所属を変更できません",
   );
-  expect(screen.getByText("alice · 研究者")).toBeVisible();
+  expect(screen.getByText(/alice · 研究者・閲覧者/)).toBeVisible();
   expect(
     screen.getByRole("group", { name: "aliceの所属削除確認" }),
   ).toBeVisible();
   expect(screen.getByRole("button", {
     name: "aliceを合成プロジェクトから外す（確認）",
   })).toBeEnabled();
+});
+
+it("adds membership denials through PH2-B and retains selection after an error", async () => {
+  let denied = ["retrieve"];
+  let failSave = true;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
+      const path = String(input);
+      requests.push({ path, options });
+      if (path.endsWith("/members/alice/denials") && options?.method === "PUT") {
+        if (failSave)
+          return respond({ detail: "拒否権限を更新できません" }, 422);
+        denied = JSON.parse(String(options.body)).denied_permissions;
+        return respond({ username: "alice", project_id: "project-a", denied_permissions: denied });
+      }
+      if (path.endsWith("/admin/projects"))
+        return respond([{
+          ...project,
+          members: project.members.map((member) => ({
+            ...member,
+            denied_permissions: denied,
+            effective_permissions: ["read", "upload"].filter((item) => !denied.includes(item)),
+          })),
+        }]);
+      if (path.endsWith("/admin/users")) return respond(users);
+      return respond(undefined, 204);
+    }),
+  );
+  render(<AdminProjects />);
+  await screen.findByRole("heading", { name: "合成プロジェクト" });
+  expect(screen.getByText("明示的な拒否: チャット参照")).toBeVisible();
+  const permission = screen.getByLabelText("aliceに追加する拒否権限");
+  fireEvent.change(permission, { target: { value: "upload" } });
+  fireEvent.click(screen.getByRole("button", { name: "拒否を追加" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("拒否権限を更新できません");
+  expect(permission).toHaveValue("upload");
+  expect(requests.some(({ path, options }) => path.endsWith("/projects/project-a/members/alice/denials") && options?.method === "PUT")).toBe(true);
+  failSave = false;
+  fireEvent.click(screen.getByRole("button", { name: "拒否を追加" }));
+  expect(await screen.findByText("明示的な拒否: チャット参照・資料追加")).toBeVisible();
+  expect(permission).toHaveValue("");
 });
 
 it("shows local storage status and keeps external storage explicitly denied", async () => {

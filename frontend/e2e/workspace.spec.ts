@@ -813,8 +813,19 @@ test("administrator can manage projects and inspect storage and load status", as
     label: "test-researcher-1",
   });
   await project.getByLabel("管理画面の合成案件の役割").selectOption("viewer");
-  await project.getByRole("button", { name: "利用者を追加・更新" }).click();
+  await project.getByRole("button", { name: "利用者にロールを追加" }).click();
   await expect(project.getByText("test-researcher-1 · 閲覧者")).toBeVisible();
+  await project.getByLabel("管理画面の合成案件の役割").selectOption("researcher");
+  await project.getByRole("button", { name: "利用者にロールを追加" }).click();
+  await expect(project.getByText("test-researcher-1 · 研究者・閲覧者")).toBeVisible();
+  const memberRow = project.locator("li").filter({
+    hasText: "test-researcher-1 · 研究者・閲覧者",
+  });
+  await expect(memberRow).toContainText("実効権限（各ロールの和集合、拒否を適用後）: 閲覧・チャット参照・資料追加");
+  await memberRow.getByLabel("test-researcher-1に追加する拒否権限").selectOption("retrieve");
+  await memberRow.getByRole("button", { name: "拒否を追加" }).click();
+  await expect(memberRow).toContainText("明示的な拒否: チャット参照");
+  await expect(memberRow).toContainText("実効権限（各ロールの和集合、拒否を適用後）: 閲覧・資料追加");
   await project
     .getByRole("button", {
       name: "test-researcher-1を管理画面の合成案件から外す",
