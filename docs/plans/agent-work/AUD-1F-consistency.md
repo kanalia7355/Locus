@@ -43,3 +43,33 @@ Push `loop/AUD-1F-consistency`; wait branch CI; fix/re-push until ALL green
 
 Boundaries: never push to `main` or `loop/local-development`; docs only; no
 subagents.
+
+## Progress
+
+- Read this task brief, the RESOLVED 2026-11-09 owner decision register, all
+  assigned source/deliverable documents, repository governance and the relevant
+  product/Loop phase references. Fetched `origin/loop/local-development` and
+  created the assigned isolated worktree at
+  `.loop/runtime/worktrees/AUD-1F-consistency`; no source checkout files were
+  changed.
+- Updated `MASTER_IMPLEMENTATION_ROADMAP.md` with explicit `PH-ROADMAP-*`,
+  `MVP-*`, and `LOOP-PHASE-*` alias tables, dependencies and independent
+  completion rule. Preserved source numbering and historical completion/CI/
+  review evidence; separated roadmap `P6`/`P7` constructs from the three source
+  families. Recorded final-product MFA as required per B-3 while retaining the
+  prototype-only exclusion.
+- Corrected only ADR-0012 §Decision intro/header to reflect owner adoption
+  2026-11-07 and explicitly retain the no-runtime-activation boundary. Marked
+  AUD-1 findings 1 and 4 resolved by owner decision with register pointers,
+  retaining their original finding descriptions. Updated status §2.3 to record
+  final-product MFA as RESOLVED-required (B-3), implementation/verification
+  outstanding.
+- Self-review: the phase crosswalk leaves all source numbering intact, records
+  the distinct product-roadmap and Loop implementation states, states dependencies
+  without equating equal numbers, and explicitly denies cross-family completion
+  inference. Existing dated SHA/review/CI evidence remains. The only ADR semantic
+  wording change is the approved status correction; its existing no-activation,
+  slice-2a-only scope remains unchanged. MFA policy now reflects B-3, without
+  implying implementation or verification. `git diff --check` passed; changed
+  paths are documentation only.
+- Commit SHA / branch CI evidence: pending.

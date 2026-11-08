@@ -50,11 +50,12 @@ The product remains synthetic-data-only. Design approval is not implementation,
 operational readiness, live inference, or permission to process real research
 data.
 
-## Decision (proposed; pending owner approval)
+## Decision — adopted by owner approval on 2026-11-07; this record approves no runtime activation
 
-Adopt the following dual-plane rule for hybrid-agent architecture. It preserves
-the accepted C-min behavior and establishes a separate, fail-closed design
-boundary for any future tool-executing Agent Runtime.
+The owner-approved decision adopts the following dual-plane rule for
+hybrid-agent architecture. It preserves the accepted C-min behavior and
+establishes a separate, fail-closed design boundary for any future
+tool-executing Agent Runtime.
 
 ### 1. Plane M — existing model-facing path; frozen
 
