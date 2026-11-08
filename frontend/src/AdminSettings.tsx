@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errorText, json } from "./api";
 
 interface ProjectMember {
@@ -48,6 +48,13 @@ export function AdminProjects() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [membershipConfirmation, setMembershipConfirmation] = useState<{
+    projectId: string;
+    userId: string;
+    username: string;
+    projectName: string;
+  } | null>(null);
+  const mutationPending = useRef(false);
 
   const reload = useCallback(async () => {
     const [items, userItems] = await Promise.all([
@@ -118,6 +125,8 @@ export function AdminProjects() {
     userId: string,
     role: string | null,
   ) {
+    if (mutationPending.current) return;
+    mutationPending.current = true;
     setError("");
     setNotice("");
     setBusy(true);
@@ -127,17 +136,31 @@ export function AdminProjects() {
           `/admin/projects/${encodeURIComponent(project.id)}/members/${encodeURIComponent(userId)}`,
           json("DELETE"),
         );
+        setProjects((current) =>
+          current.map((item) =>
+            item.id === project.id
+              ? {
+                  ...item,
+                  members: item.members.filter(
+                    (member) => member.user_id !== userId,
+                  ),
+                }
+              : item,
+          ),
+        );
+        setMembershipConfirmation(null);
       } else {
         await api(
           `/admin/projects/${encodeURIComponent(project.id)}/members`,
           json("PUT", { user_id: userId, role }),
         );
+        await reload();
       }
       setNotice("プロジェクトの所属を更新しました。");
-      await reload();
     } catch (reason) {
       setError(errorText(reason));
     } finally {
+      mutationPending.current = false;
       setBusy(false);
     }
   }
@@ -218,12 +241,50 @@ export function AdminProjects() {
                       type="button"
                       disabled={busy}
                       aria-label={`${member.username}を${project.name}から外す`}
-                      onClick={() =>
-                        void changeMember(project, member.user_id, null)
-                      }
+                      onClick={() => {
+                        setError("");
+                        setNotice("");
+                        setMembershipConfirmation({
+                          projectId: project.id,
+                          userId: member.user_id,
+                          username: member.username,
+                          projectName: project.name,
+                        });
+                      }}
                     >
                       所属を外す
                     </button>
+                    {membershipConfirmation?.projectId === project.id &&
+                      membershipConfirmation.userId === member.user_id && (
+                        <div
+                          role="group"
+                          aria-label={`${member.username}の所属削除確認`}
+                        >
+                          <p>
+                            「{member.username}」（利用者ID: {member.user_id}）を、
+                            「{project.name}」（プロジェクトID: {project.id}）から外します。
+                            このプロジェクトへのアクセスが失われます。
+                          </p>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            aria-label={`${member.username}を${project.name}から外す（確認）`}
+                            onClick={() =>
+                              void changeMember(project, member.user_id, null)
+                            }
+                          >
+                            所属を外す
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            aria-label={`${member.username}の所属削除を取り消す`}
+                            onClick={() => setMembershipConfirmation(null)}
+                          >
+                            取り消す
+                          </button>
+                        </div>
+                      )}
                   </li>
                 ))
               ) : (

@@ -820,6 +820,20 @@ test("administrator can manage projects and inspect storage and load status", as
       name: "test-researcher-1を管理画面の合成案件から外す",
     })
     .click();
+  const membershipConfirmation = project.getByRole("group", {
+    name: "test-researcher-1の所属削除確認",
+  });
+  await expect(membershipConfirmation).toContainText(
+    /利用者ID: [a-f0-9]{32}/,
+  );
+  await expect(membershipConfirmation).toContainText(
+    "プロジェクトID: admin-screen-project",
+  );
+  await membershipConfirmation
+    .getByRole("button", {
+      name: "test-researcher-1を管理画面の合成案件から外す（確認）",
+    })
+    .click();
   await expect(
     project.getByText("所属している利用者はいません。"),
   ).toBeVisible();
