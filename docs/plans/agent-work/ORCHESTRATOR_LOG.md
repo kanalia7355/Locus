@@ -201,3 +201,5 @@ Integration + dispatch log (2026-11-08 ~12:00 JST):
 - ENVIRONMENT: .loop/runtime/qa-venv was cleaned again by the loop engine — briefs now instruct agents to recreate it if missing. 
 - DISPATCHED: PH1-P4C comparison tables (slot A, ph1-p4c-comparison-001) and PH1-P4D safe delete operations (slot D, ph1-p4d-delete-001) — the last two Phase-4 remainder items. Running 4/5 (C: PH2-2AF? no — slot C free... recount: A=P4C, B=P4B done→free, C=free, D=P4D, E=free, F=CI-1 done→free). Actually running: A (P4C), D (P4D) = 2. Free: B, C, E, F.
 - Remaining owner decisions: the OPEN register in OWNER_DECISION_REGISTER.md (10 AUD findings + 12 delegation items).
+
+Batched CI window (2026-11-08 ~12:35 JST): the integrated loop/local-development HEAD ace8248 is FULLY GREEN (title + Prototype quality + Loop engine 4-matrix). This covers today's integrations (PH2-2AF, AUD-2 traceability, PH1-P4B admin screens, CI-1 script repair) at the exact HEAD. Running: PH1-P4C (slot A), PH1-P4D (slot D). Free: B, C, E, F. Next integrations trigger fresh windows.
