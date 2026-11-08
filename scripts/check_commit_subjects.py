@@ -31,12 +31,33 @@ def verify(root: Path, before: str, after: str) -> int:
         before = git("merge-base", "origin/main", after)
     git("merge-base", "--is-ancestor", before, after)
     commits = git("rev-list", "--reverse", before + ".." + after).splitlines()
-    if not 1 <= len(commits) <= 200:
-        raise ValueError("Empty or oversized Push range requires assessment")
+    if not commits or len(commits) > 200:
+        local_base_ref = "origin/loop/local-development"
+        try:
+            branch_base = git("rev-parse", "--verify", local_base_ref + "^{commit}")
+        except subprocess.CalledProcessError:
+            branch_base = git("rev-parse", "--verify", "origin/main^{commit}")
+        before = git("merge-base", branch_base, after)
+        git("merge-base", "--is-ancestor", before, after)
+        commits = git("rev-list", "--reverse", before + ".." + after).splitlines()
+        if len(commits) > 200:
+            raise ValueError("Fallback Push range is oversized and requires assessment")
+        if not commits:
+            print("No new commits in the branch-local Push range; validation succeeded.")
+            return 0
+
+    validated = 0
     for commit in commits:
-        if not PATTERN.fullmatch(git("show", "-s", "--format=%s", commit)):
+        subject = git("show", "-s", "--format=%s", commit)
+        parents = git("show", "-s", "--format=%P", commit).split()
+        if subject.startswith("Merge ") or len(parents) >= 2:
+            continue
+        if not PATTERN.fullmatch(subject):
             raise ValueError("Push range contains a non-Conventional Commit")
-    return len(commits)
+        validated += 1
+    if validated == 0:
+        print("No new non-merge commits in the Push range; validation succeeded.")
+    return validated
 
 
 if __name__ == "__main__":

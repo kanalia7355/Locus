@@ -100,6 +100,27 @@ def principal_for(client: TestClient, service: Service):
     return service.authenticate(token), token
 
 
+def enqueue_blocked_job(service: Service, alice: TestClient, conversation: str, entered, release):
+    principal, token = principal_for(alice, service)
+
+    def generate(_text, _citations):
+        entered.set()
+        if not release.wait(10):
+            raise AssertionError("cancelled generation was not released")
+        return "生成済みだが取消対象", "fixture:latest"
+
+    return service.enqueue_chat(
+        principal,
+        conversation,
+        "成膜条件",
+        "all",
+        [],
+        token=token,
+        generate=generate,
+        validate=None,
+    )
+
+
 def test_occupied_slot_queues_the_question_and_allows_cancel(service: Service):
     alice, conversation, runtime, entered, release = setup(service)
     occupy(runtime, entered, release)
@@ -116,11 +137,128 @@ def test_occupied_slot_queues_the_question_and_allows_cancel(service: Service):
         # A second question for the same conversation is rejected while waiting.
         assert send(alice, conversation).status_code == 409
         assert alice.delete(f"/api/chat-jobs/{job}", headers=ORIGIN).status_code == 204
+        assert alice.delete(f"/api/chat-jobs/{job}", headers=ORIGIN).status_code == 204
         assert alice.get(f"/api/chat-jobs/{job}").json()["status"] == "cancelled"
         assert service.process_next_chat() is False
         assert alice.get(f"/api/conversations/{conversation}").json()["messages"] == []
     finally:
         release.set()
+
+
+def test_running_cancel_is_cooperative_and_discards_completed_model_output(service: Service):
+    alice, conversation, _runtime, entered, release = setup(service)
+    bob = TestClient(
+        create_app(service=service, start_worker=False),
+        base_url="http://127.0.0.1",
+        client=("127.0.0.1", 50000),
+    )
+    login(bob, "bob", "03")
+    principal, _token = principal_for(alice, service)
+    job = enqueue_blocked_job(service, alice, conversation, entered, release)
+    worker = threading.Thread(target=service.process_next_chat)
+    worker.start()
+    try:
+        assert entered.wait(5)
+        assert alice.get(f"/api/chat-jobs/{job}").json()["status"] == "running"
+        assert bob.get(f"/api/chat-jobs/{job}").status_code == 404
+        assert bob.delete(f"/api/chat-jobs/{job}", headers=ORIGIN).status_code == 404
+        service.limits["chatjob:" + principal.id] = [time.time()] * 120
+        with pytest.raises(HTTPException) as exc:
+            service.cancel_chat_job(principal, job)
+        assert exc.value.status_code == 429
+        del service.limits["chatjob:" + principal.id]
+        assert alice.delete(f"/api/chat-jobs/{job}", headers=ORIGIN).status_code == 204
+        assert alice.delete(f"/api/chat-jobs/{job}", headers=ORIGIN).status_code == 204
+        status = alice.get(f"/api/chat-jobs/{job}").json()
+        assert status["status"] == "running" and status["cancel_requested"] is True
+        release.set()
+        worker.join(5)
+        assert not worker.is_alive()
+        status = alice.get(f"/api/chat-jobs/{job}").json()
+        assert status["status"] == "cancelled" and status["message_id"] is None
+        assert alice.get(f"/api/conversations/{conversation}").json()["messages"] == []
+        assert service.process_next_chat() is False
+        with service.db() as db:
+            assert db.execute("SELECT COUNT(*) FROM generated_answers").fetchone()[0] == 0
+            audits = db.execute(
+                "SELECT operation FROM audit WHERE target_id=? ORDER BY at", (job,)
+            ).fetchall()
+        assert [row["operation"] for row in audits].count("chat.cancel.requested") == 1
+    finally:
+        release.set()
+        worker.join(5)
+
+
+def test_running_cancel_becomes_terminal_when_model_deadline_expires(service: Service):
+    alice, conversation, _runtime, entered, release = setup(service)
+    principal, token = principal_for(alice, service)
+
+    def timed_out(_text, _citations):
+        entered.set()
+        if not release.wait(10):
+            raise AssertionError("timed-out generation was not released")
+        raise TimeoutError("bounded model request expired")
+
+    job = service.enqueue_chat(
+        principal,
+        conversation,
+        "成膜条件",
+        "all",
+        [],
+        token=token,
+        generate=timed_out,
+        validate=None,
+    )
+    worker = threading.Thread(target=service.process_next_chat)
+    worker.start()
+    try:
+        assert entered.wait(5)
+        assert alice.delete(f"/api/chat-jobs/{job}", headers=ORIGIN).status_code == 204
+        release.set()
+        worker.join(5)
+        assert not worker.is_alive()
+        status = alice.get(f"/api/chat-jobs/{job}").json()
+        assert status["status"] == "cancelled" and status["message_id"] is None
+        assert alice.get(f"/api/conversations/{conversation}").json()["messages"] == []
+    finally:
+        release.set()
+        worker.join(5)
+
+
+def test_cancel_racing_model_completion_has_one_terminal_outcome(service: Service):
+    alice, conversation, _runtime, entered, release = setup(service)
+    job = enqueue_blocked_job(service, alice, conversation, entered, release)
+    worker = threading.Thread(target=service.process_next_chat)
+    worker.start()
+    try:
+        assert entered.wait(5)
+        barrier = threading.Barrier(2)
+        outcome = {}
+
+        def cancel():
+            barrier.wait()
+            outcome["response"] = alice.delete(f"/api/chat-jobs/{job}", headers=ORIGIN).status_code
+
+        canceller = threading.Thread(target=cancel)
+        canceller.start()
+        barrier.wait()
+        release.set()
+        canceller.join(5)
+        worker.join(5)
+        assert not canceller.is_alive() and not worker.is_alive()
+        status = alice.get(f"/api/chat-jobs/{job}").json()
+        history = alice.get(f"/api/conversations/{conversation}").json()
+        assert status["status"] in {"done", "cancelled"}
+        if status["status"] == "cancelled":
+            assert outcome["response"] == 204
+            assert status["message_id"] is None and history["messages"] == []
+        else:
+            assert outcome["response"] == 409
+            assert status["message_id"] and len(history["messages"]) == 1
+            assert history["messages"][0]["answer"] == "生成済みだが取消対象"
+    finally:
+        release.set()
+        worker.join(5)
 
 
 def test_worker_tick_while_slot_is_busy_requeues_the_job(service: Service):

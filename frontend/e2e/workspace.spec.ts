@@ -95,6 +95,76 @@ test("first login, source retrieval, history and logout use actual API", async (
   expect(failures).toEqual([]);
 });
 
+test("retrieved comparison tables expose accessible headers and ambiguous text stays plain", async ({
+  page,
+}) => {
+  await enter(page, 10);
+  let ambiguous = false;
+  await page.route("**/api/conversations/*/messages", async (route) => {
+    const response = await route.fetch();
+    const message = await response.json();
+    if (message.citations.length)
+      message.citations[0].text = ambiguous
+        ? ["| 項目 | 条件A |", "| --- | --- |", "| 温度 | 180°C | 200°C |"].join("\n")
+        : [
+            "| 項目 | 条件A | 条件B | 条件C | 条件D | 条件E | 条件F |",
+            "| --- | --- | --- | --- | --- | --- | --- |",
+            "| 温度 | 180°C | 200°C | 190°C | 210°C | 205°C | 220°C |",
+          ].join("\n");
+    await route.fulfill({ response, json: message });
+  });
+
+  await page
+    .getByRole("textbox", { name: "メッセージ", exact: true })
+    .fill("成膜条件を比較");
+  await page.getByRole("button", { name: "送信", exact: true }).click();
+  const table = page.getByRole("table", {
+    name: /合成サンプル_成膜条件.txt p.\d+ chunk \d+ の表/,
+  });
+  await expect(table).toBeVisible();
+  await expect(table.getByRole("columnheader")).toHaveText([
+    "項目",
+    "条件A",
+    "条件B",
+    "条件C",
+    "条件D",
+    "条件E",
+    "条件F",
+  ]);
+  await expect(table.getByRole("rowheader", { name: "温度" })).toHaveAttribute(
+    "scope",
+    "row",
+  );
+  const scrollRegion = page.getByRole("region", { name: /表は横にスクロールできます/ });
+  await expect(scrollRegion).toHaveAttribute("tabindex", "0");
+  await expect(table).toContainText("180°C");
+  await scrollRegion.focus();
+  await expect(scrollRegion).toBeFocused();
+  await page
+    .getByRole("button", { name: "サイドバーを閉じる", exact: true })
+    .click();
+  await page.setViewportSize({ width: 320, height: 900 });
+  await expect
+    .poll(() => scrollRegion.evaluate((element) => element.scrollWidth > element.clientWidth))
+    .toBe(true);
+  await scrollRegion.press("ArrowRight");
+  await expect
+    .poll(() => scrollRegion.evaluate((element) => element.scrollLeft))
+    .toBeGreaterThan(0);
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+  ).toBe(true);
+
+  ambiguous = true;
+  await page
+    .getByRole("textbox", { name: "メッセージ", exact: true })
+    .fill("成膜条件をもう一度確認");
+  await page.getByRole("button", { name: "送信", exact: true }).click();
+  const latestExchange = page.locator("article.exchange").last();
+  await expect(latestExchange.getByRole("table")).toHaveCount(0);
+  await expect(latestExchange.getByText(/\| 項目 \| 条件A \|/)).toBeVisible();
+});
+
 test("citations open the actual page and chunk and reject stale targets", async ({
   page,
 }) => {
@@ -677,6 +747,124 @@ test("role editor previews scoped subsets and administrator audit is redacted", 
   await expect(page.getByText("原文検索に戻しました。")).toBeVisible();
   await expect(page.getByText("待機上限：30秒")).toBeVisible();
   await expect(page.getByText("現在：原文検索")).toBeVisible();
+});
+
+test("administrator can manage projects and inspect storage and load status", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByLabel("利用者ID").fill("test-researcher-0");
+  await page
+    .getByLabel("パスワード", { exact: true })
+    .fill("Changed-synthetic-password-01!");
+  const initialLogin = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      response.url().endsWith("/auth/login"),
+  );
+  await page.getByRole("button", { name: "ログイン", exact: true }).click();
+  let loginResponse = await initialLogin;
+  const rotation = page.getByRole("heading", { name: "仮パスワードの変更" });
+  const alreadyRotated = page.getByRole("heading", {
+    name: "資料を調べる",
+    exact: true,
+  });
+  if (!loginResponse.ok()) {
+    await page.getByLabel("利用者ID").fill("test-researcher-0");
+    await page
+      .getByLabel("パスワード", { exact: true })
+      .fill("Synthetic-test-password-01!");
+    const firstLogin = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        response.url().endsWith("/auth/login"),
+    );
+    await page.getByRole("button", { name: "ログイン", exact: true }).click();
+    loginResponse = await firstLogin;
+    expect(loginResponse.ok()).toBe(true);
+    await expect(rotation).toBeVisible();
+    await page
+      .getByLabel("仮パスワード", { exact: true })
+      .fill("Synthetic-test-password-01!");
+    await page
+      .getByLabel("新しいパスワード", { exact: true })
+      .fill("Changed-synthetic-password-01!");
+    await page
+      .getByLabel("新しいパスワード（確認）", { exact: true })
+      .fill("Changed-synthetic-password-01!");
+    await page.getByRole("button", { name: "変更して続ける" }).click();
+  }
+  await expect(alreadyRotated).toBeVisible();
+  await page.getByRole("button", { name: "プロジェクト", exact: true }).click();
+  await page.getByLabel("新しいプロジェクトID").fill("admin-screen-project");
+  await page.getByLabel("組織ID", { exact: true }).fill("synthetic-org");
+  await page.getByLabel("新しいプロジェクト名").fill("管理画面の合成案件");
+  await page
+    .getByRole("button", { name: "プロジェクトを作成", exact: true })
+    .click();
+  await expect(page.getByRole("status")).toContainText(
+    "プロジェクトを作成しました",
+  );
+  const project = page.locator(".admin-project-row").filter({
+    has: page.getByRole("heading", { name: "管理画面の合成案件" }),
+  });
+  await expect(project).toBeVisible();
+  await project.getByLabel("管理画面の合成案件の利用者").selectOption({
+    label: "test-researcher-1",
+  });
+  await project.getByLabel("管理画面の合成案件の役割").selectOption("viewer");
+  await project.getByRole("button", { name: "利用者にロールを追加" }).click();
+  await expect(project.getByText("test-researcher-1 · 閲覧者")).toBeVisible();
+  await project.getByLabel("管理画面の合成案件の役割").selectOption("researcher");
+  await project.getByRole("button", { name: "利用者にロールを追加" }).click();
+  await expect(project.getByText("test-researcher-1 · 研究者・閲覧者")).toBeVisible();
+  const memberRow = project.locator("li").filter({
+    hasText: "test-researcher-1 · 研究者・閲覧者",
+  });
+  await expect(memberRow).toContainText("実効権限（各ロールの和集合、拒否を適用後）: 閲覧・チャット参照・資料追加");
+  await memberRow.getByLabel("test-researcher-1に追加する拒否権限").selectOption("retrieve");
+  await memberRow.getByRole("button", { name: "拒否を追加" }).click();
+  await expect(memberRow).toContainText("明示的な拒否: チャット参照");
+  await expect(memberRow).toContainText("実効権限（各ロールの和集合、拒否を適用後）: 閲覧・資料追加");
+  await project
+    .getByRole("button", {
+      name: "test-researcher-1を管理画面の合成案件から外す",
+    })
+    .click();
+  const membershipConfirmation = project.getByRole("group", {
+    name: "test-researcher-1の所属削除確認",
+  });
+  await expect(membershipConfirmation).toContainText(
+    /利用者ID: [a-f0-9]{32}/,
+  );
+  await expect(membershipConfirmation).toContainText(
+    "プロジェクトID: admin-screen-project",
+  );
+  await membershipConfirmation
+    .getByRole("button", {
+      name: "test-researcher-1を管理画面の合成案件から外す（確認）",
+    })
+    .click();
+  await expect(
+    project.getByText("所属している利用者はいません。"),
+  ).toBeVisible();
+
+  await page.getByRole("button", { name: "保存先の接続", exact: true }).click();
+  await expect(page.getByRole("region", { name: "保存先設定" })).toContainText(
+    "sqlite",
+  );
+  await expect(page.getByRole("region", { name: "保存先設定" })).toContainText(
+    "既定拒否",
+  );
+  await page
+    .getByRole("button", { name: "負荷・実行状況", exact: true })
+    .click();
+  await expect(
+    page.getByRole("region", { name: "負荷・実行状況" }),
+  ).toContainText("0 / 16件");
+  await expect(
+    page.getByRole("region", { name: "負荷・実行状況" }),
+  ).toContainText("一人あたりの待ち上限");
 });
 
 test("development server rejects hostile and absent mutation origins", async ({

@@ -15,9 +15,9 @@ Phase完了の宣言は、以下の不足解消、対応する独立レビュー
 |---|---|---|---|
 | 0 基盤 | FastAPI/React、固定依存、lint/types、Python/UI/browser、secret scan、Actionsあり。f316b4fはPush/PR両系統6実行12checks成功 | ホスト側の監査者権限制限は手続き的。保護API403で現在のmain保護を検証できない。ホスト側egress制限も未検証。開発Loop30分完走は未証明 | 必須ローカルQAと正確なHEADの全CI、実行境界・運用承認の確認。CI成功とLoop稼働は別判定 |
 | 1 認証 | Argon2id、仮パスワード期限/一回性、初回変更、session失効/期限、rate limit。回復、Web利用者追加、停止操作を照合済み・既存実装として記録。根拠（feature branch→統合commit; task QA）: 回復 `loop/PH1-recovery@bd9f2cf`→`loop/local-development@1056021` (pytest 1101 passed/18 skipped; branch CI green at 93d1633); 停止 `loop/PH1-account-toggle@a31d570`→`loop/local-development@b7adb42` (pytest 1098/18 skipped, frontend 49, Playwright 10; CI repair ed11f73, integrated push c28a280 all workflows green); Web追加 `loop/PH1-web-provisioning@a355efb`→`loop/local-development@2610b70` (pytest 1094/18 skipped, frontend 49, Playwright 10; branch CI green at 76ba39a) | Owner決定 (2026-11-07): MFAはLAN限定プロトタイプでは意図的に対象外。本番TLS・session配備は本番配備Phaseへ繰り越し（後続Phase完了条件に明示登録、黙示解決なし）。LAN実配備検証はコード完成条件から分離するが実機動作確認済みとは扱わず、後続の配備検証ゲートで必須。管理読み取りの権限失効は次の認可チェックで確実に反映し、長時間処理では再検証する（厳格化の影響検証を含む）。stale-Principal競合は `0365a6a` で修正（provision_web_userのトランザクション内再認証＋回帰; full pytest 1114 passed/18 skipped; branch CI green a196e5e）。集約の独立レビューはaccept-after-minor-fixesで、残条件は修正の再レビューと正確なHEADの全CI成功 | 集約QA: pytest 1114 passed/18 skipped（PH1-J統合後）; Ruff/format、mypy 7 files、secret scan 0。初回変更/期限/失効/不正利用と回復コードの誤り/期限/再利用・無効accountの否定系を含む回帰。完了判断には修正の再レビューと正確なHEADの全CI成功、その後main反映（owner方針: 完了後自動マージ、バージョン更新） |
-| 2 認可・管理 | 組織/project境界、private履歴/添付、live資料grant、custom role作成/更新、subset制限、監査。test_custom_role_publication/role_updates/administration_audit | 期限付き委任は409で無効。Web所属/project管理、兼任/明示deny/元保存先ACL対応、期限・取消仕様が未確定または未実装 | 異なる利用者/組織/権限変更中の全データ経路、委任subset/scope/expiryと自己昇格拒否 |
+| 2 認可・管理 | 組織/project境界、private履歴/添付、live資料grant、custom role作成/更新、subset制限、監査。test_custom_role_publication/role_updates/administration_audit。PH2-CA監査 (2026-11-09) 時点で解消済みの差分と根拠: 兼任・明示deny `loop/PH2-B-roles@10ee9c4` 統合 (tests/test_concurrent_roles.py 8回帰; branch QA 1124 passed/18 skipped; CI 42427442081/42427442051/42427442056 green)。Web所属/project管理 `loop/PH1-P4B-admin-screens@09fb971`→統合 `b8bae86`、兼任/deny管理UI `loop/PH2-E-web-mgmt@e4819d9`→統合 `9738ca2` (QA 1146 passed/18 skipped, Vitest 64, Playwright 12; CI 42452642087/42452642089/42452642110 green)。期限付き委任 `loop/PH2-D-delegation@55d1c39`→統合 `3150f6b` (owner承認仕様 PHASE2_DELEGATION_SPEC §8の拘束条件どおり; tests/test_delegations.py 10回帰; 409プレースホルダを実fail-closed実装に置換; QA 1156 passed/18 skipped; CI 42459387052/42459387027/42459387050 green)。元保存先ACL対応は研究ノート `docs/plans/PHASE2_STORAGE_ACL_RESEARCH.md` として統合 `0e06107` (CI 42433224216/42433224202/42433224234 green) | 委任UI (grant/revoke画面) は未実装 — backend API (`GET/POST/DELETE /api/admin/delegations`) は存在し、既知のPhase-2 web残項目として追跡。組織全体 (org-wide) 委任はowner決定により繰り越し (project範囲grantsのみ実装)。元保存先ACL対応は研究完了・実装計画が未決 (要決定事項は研究ノート§6に明示、黙示解決なし)。本番項目 (TLS/MFA/LAN配備・production DB) はowner決定により本番Phaseへ繰り越し (FINAL_ACCEPTANCE_CRITERIA.md追跡) | 異なる利用者/組織/権限変更中の全データ経路、委任subset/scope/expiry/取消/自己昇格拒否、兼任union/deny優先は test_delegations.py / test_concurrent_roles.py / test_admin_project_storage_load.py が回帰としてcovering。PH2-CA監査の統合HEADローカルQA: pytest 1156 passed/18 skipped、Ruff check/format、mypy backend/app 9 files、secret scan 0。統合HEAD `a473bf6`/`5dceb62` の3 CI workflow green (42461797597/42461797637/42461797601 および 42461848831/42461848837/42461848840)。完了宣言は検証済み範囲に限る; 集約独立レビューがmain統合前の次のゲート |
 | 3 資料・検索 | UTF-8 txt/md/csv256KiB、queue/cancel、lexical検索、実chunk出典、削除/失効。ClamAV任意adapter模擬検証。test_scanner/api/security | SQLiteは開発用代替で本番DB/保存分離/バックアップ復旧が未確定。保存先接続、フォルダ再帰一覧・件数/容量/対象外理由、PDF/OCR、元原本への導線、差分更新、再開/失敗分再処理、見積り/通知、vector検索。実ClamAV未検証 | 保存先→一覧→取り込み→質問→原本の代表シナリオ、変更/削除/ACL伝播、故障・再開・上限・実スキャナー |
-| 4 UI・複数人利用 | 基準の配置/220ms/reduced-motion/SVG/IME/drop共通処理、状態/出典/private履歴、mobile browser検証。2026-11-06:単一model枠の前に到着順の対話待機列を実装。model使用中の質問は202で受付し、待機/実行中/完了/失敗/取消を表示、待機中のみ取消可、完了後の回答は会話履歴から取得（切断・再接続の結果取得）。待機上限300秒、全体16件・個人2件の開発用上限。既存の同步応答契約（model空き時200、検索のみ200）は不変 | 管理メニューのproject/保存先/負荷/保存削除画面不足。実行中質問の中断は不可（実行中表示のみ）。逐次表示なし。比較表の構造化表示なし。待機列の公平性は到着順のみで、優先度・利用者別分配は未対応 | 基準画像と現画面の比較、keyboard/mobile/long-name、複数人対話+取り込み負荷・切断取消、状態と通知の正確性。対話待機列の回帰: test_chat_queue 8件（取消・実行・所有者分離・session失効・上限・期限・再起動）とfrontend ChatQueue 3件 |
+| 4 UI・複数人利用 | 基準の配置/220ms/reduced-motion/SVG/IME/drop共通処理、状態/出典/private履歴、mobile browser検証。2026-11-06:単一model枠の前に到着順の対話待機列を実装。model使用中の質問は202で受付し、待機/実行中/完了/失敗/取消を表示、完了後の回答は会話履歴から取得。開発用上限は待機300秒、全体16件・個人2件。既存の同期応答契約（model空き時200、検索のみ200）は不変。所有者承認済みPhase-4残件の5優先事項はすべて実装・統合済み: (1) 実行中質問の協調取消 `5a7848c`、(2) project/保存先設定および (3) 負荷表示 `b8bae86`、(4) 比較表 `c381023`、(5) 削除対象確認 `a30ec52`。PH4-RV独立レビュー verdict: accept after minor fixes。残条件（状態文書の整合、取消後も実行開始時刻表示を不変にするUI回帰、統合CI証跡の明記）はPH4-FIXで対応・検証する。 | Phase 4全体は未完了。実装済み残件は統合済みだが、逐次表示なし、待機列公平性は到着順のみ（優先度・利用者別分配なし）、負荷・容量の代表的実測や利用者評価、より広いアクセシビリティ確認は未実施。production項目は別途延期のまま。 | 5残件の根拠は `docs/plans/agent-work/ORCHESTRATOR_LOG.md` と各P4 task brief。統合HEAD `183ccc3` とP4D統合HEAD `a30ec52` の Prototype quality、Loop engine checks 4-matrix、title convention は2026-11-08に全て成功（CI run IDs・P4D windows/3.11 same-SHA rerunはPHASE_STATUS参照）。PH4-FIXの回帰・全ローカルQAと正確なHEADの3 CI workflowも成功（commit `6d03c7a`、run IDsはPHASE_STATUS参照）。|
 | 5 拡張 | 許可sourceの語句由来関連図、Ollama生成/保存/入力出典のいずれかが失効した場合に回答全体を非表示、model候補検出。test_related_documents/local_model/model_catalog | 意味的GraphRAG/graph index、plot/データ探索、cloud policy/router未実装。HFファイルは候補までで実行不可 | graph全探索ACL/根拠、plot入力/実行境界、provider別認可。承認済み合成Ollamaの成功はこれらを証明しない |
 
 ## 具体的な不整合の修正
@@ -38,6 +38,107 @@ UI基準画像の表・PDF名・値はサンプルであり、その文言一致
    競合・不明な保護状態・未解決重大指摘があればマージしない。
 
 現時点で製品仕様全体に対する完了Phaseを新たに認定していない。
+
+## Phase-2 completion audit — 2026-11-09 (PH2-CA)
+
+Phase 2 (認可・管理) is declared complete ONLY within the verified prototype
+scope. The audit was performed on `loop/PH2-CA` based at `origin/loop/local-development`
+`5dceb62` (integration chain: PH2-B `10ee9c4`, PH2-C `0e06107`, PH2-E `9738ca2`,
+PH2-D `55d1c39`→integrated `3150f6b`, P4B integrated `b8bae86`).
+
+Verified deltas and evidence:
+- **D1/D2 期限付き委任**: owner-approved specification (12 items resolved 2026-11-09,
+  binding conditions in `PHASE2_DELEGATION_SPEC.md` §8) implemented by PH2-D
+  (`55d1c39`, integrated `3150f6b`). The 409 placeholder is replaced by real
+  fail-closed `GET/POST/DELETE /api/admin/delegations` endpoints. TTL
+  900–604800s (default 24h) validated server-side; live revalidation at every
+  authorization point; grantors = project owner / project-scoped org admin;
+  NON_ADMIN ceiling; subset narrowing; deny wins; family/version re-grant rules;
+  idempotent revoke/cancel/expire with transactional metadata-only audit;
+  grantor-authority-loss live invalidation; membership gate independent;
+  epoch-seconds time authority. Regressions: `tests/test_delegations.py`
+  (10 tests). Branch CI all green at `55d1c39` (quality 42459387052, engine
+  42459387027, title 42459387050).
+- **D3/D4 兼任・明示deny**: PH2-B (`10ee9c4`) — concurrent role holdings with
+  union semantics, per-held-role ceiling intersection, explicit same-scope deny
+  overriding allow, deny-by-default preserved, transactional audits, legacy
+  migration. Regressions: `tests/test_concurrent_roles.py` (8 tests). Branch QA
+  1124 passed/18 skipped; CI green at `45faed5` (42427442081/…051/…056).
+- **D6 Web管理 (P4B + PH2-E)**: admin project list/create + member
+  assign/remove with storage/load status screens (`b8bae86`), plus combined
+  role-holding display (union), explicit membership-denial add/remove and
+  effective-permission rendering over the PH2-B APIs (`9738ca2`). QA 1146
+  passed/18 skipped, Vitest 64, Playwright 12; CI green at `e4819d9`
+  (42452642087/…089/…110). No organization-level management surface exists
+  because the backend models no org membership (`projects.org_id` is a string
+  field); inventing one was rejected as out of scope.
+- **D5 元保存先ACL対応**: research delivered (`0e06107`,
+  `PHASE2_STORAGE_ACL_RESEARCH.md`) — recommended interpretation, outline
+  design, and explicit 【要決定】 items; no implementation and no owner decision
+  claimed by that note.
+
+Audit verification run by PH2-CA (worktree `loop/PH2-CA`, qa-venv Python 3.13)
+at base `a473bf6` — whose tree is identical to `5dceb62` except for that
+commit's docs-only ledger addition: full pytest `tests -q --ignore=tests/e2e`
+= **1156 passed, 18 skipped** (1174 collected; skips are opt-in Docker, pinned
+native CLI, Windows symlink capability); Ruff check clean; Ruff format check
+128 files already formatted; mypy `backend/app` 9 source files clean; offline
+secret scan 0 findings. Integrated-HEAD hosted CI also green: `a473bf6`
+(42461797597/42461797637/42461797601) and `5dceb62`
+(42461848831/42461848837/42461848840).
+
+What REMAINS (explicit, not silently resolved):
+- **Delegation UI is NOT implemented**: the delegation grant/revoke/cancel
+  screens do not exist (the frontend contains no delegation references); the
+  backend APIs exist. This is the known remaining Phase-2 web item and is
+  tracked as an explicit follow-up, not resolved.
+- **Org-wide delegation**: deferred by the owner decision (project-scoped
+  grants only), recorded in `OWNER_DECISION_REGISTER.md` and the spec §8.
+- **元保存先ACL対応**: research delivered; implementation planning remains
+  open/要決定 per `PHASE2_STORAGE_ACL_RESEARCH.md` §6.
+- **Production items** (TLS/MFA/LAN deployment, production DB, delegation
+  retention): deferred per owner decisions and tracked in
+  `FINAL_ACCEPTANCE_CRITERIA.md`.
+- **Observation (not a pass/fail claim)**: prior local full-suite runs showed a
+  recurring load-flake in `tests/integration/test_trial_input_native_v2.py`
+  (with `test_notification_native.py`) as recorded in the orchestrator log;
+  those tests pass in isolation and in the hosted four-matrix CI, and PH2-D
+  touched no loop_engine code. In this audit's local run both files were
+  collected but skipped as environment-gated (pinned Windows native CLI not
+  provisioned), so this audit could not independently reproduce the flake;
+  recorded here as an observation only.
+
+Next gate: the aggregate independent review of the integrated Phase-2 state is
+the NEXT gate before any main integration (B-2 mechanism); its result is NOT
+pre-claimed here.
+
+## Phase-4 remainder review and integrated CI evidence — 2026-11-08
+
+Owner-approved Phase-4 remainder priorities are implemented and integrated, with
+source evidence: running-question cooperative cancellation `5a7848c`; project /
+storage settings and load display `b8bae86`; structured comparison tables
+`c381023`; destructive-operation confirmation `a30ec52`. Independent aggregate
+review PH4-RV returned **accept after minor fixes**. PH4-FIX addresses its three
+minor conditions (phase-ledger reconciliation, an unchanged running-job start
+time after accepted cancellation with a frontend regression, and explicit CI
+records); the review does not imply that the entire Phase 4 or product is complete.
+
+The integrated review HEAD `183ccc31211f18570229dbb94985b7c3c26a7f6c` passed
+Prototype quality (run `42444300133`), Loop engine checks (run `42444300019`,
+all four matrix jobs), and PR title convention (run `42444300016`). The P4D
+integrated HEAD `a30ec5227b754f7d0d480d5a8ed3307e4d0d51b6` passed Prototype
+quality (`42443623239`), Loop engine checks (`42443623273`, four-matrix), and PR
+title convention (`42443623262`). P4D's branch-head Loop engine workflow on
+`5d779b316bdcb9a12b6b7d38b70566c400692f62` succeeded on attempt 2
+(`42441474871`); its Windows/3.11 racing-controller failure was a flake and
+passed on a same-SHA rerun, with no code repair between attempts. The branch's
+Prototype quality (`42441474907`) and title convention (`42441474829`) also
+passed. These are prototype verification records, not production, capacity, or
+full Phase-4 completion claims.
+
+Production deployment, external storage, real-data validation, production
+security/operations, and other deferred requirements remain deferred as
+recorded in the product roadmap and final acceptance criteria.
 旧PHASE_STATUS冒頭の日付と表は初期試作範囲を表し、追記との時間差がある。
 ADR0002の初期「modelなし・remote操作なし」は後続の個別承認で拡張された履歴であり、
 現在のOllama/専用branch Push機能が未承認という意味ではない。

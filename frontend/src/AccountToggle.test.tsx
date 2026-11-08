@@ -23,11 +23,22 @@ async function openUsers() {
   return screen.findByRole("button", { name: "aliceを無効にする" });
 }
 
-it("sends strict toggle payloads and updates the returned row only after success", async () => {
+it("requires exact-target confirmation to disable and immediately revokes user sessions", async () => {
   const button = await openUsers();
   expect(screen.getByRole("button", { name: "adminを無効にする" })).toBeDisabled();
   expect(within(button.closest(".list-row") as HTMLElement).getByText(/有効 · 初回変更待ち/)).toBeVisible();
   fireEvent.click(button);
+  const confirmation = screen.getByRole("group", {
+    name: "aliceのアカウント無効化確認",
+  });
+  expect(confirmation).toHaveTextContent("利用者ID: alice");
+  expect(confirmation).toHaveTextContent("すべてのログインセッションが取り消され");
+  expect(fetch).not.toHaveBeenCalledWith("/api/admin/users/alice/enabled", expect.anything());
+  fireEvent.click(screen.getByRole("button", { name: "aliceの無効化を取り消す" }));
+  expect(screen.queryByRole("group", { name: "aliceのアカウント無効化確認" })).not.toBeInTheDocument();
+  expect(fetch).not.toHaveBeenCalledWith("/api/admin/users/alice/enabled", expect.anything());
+  fireEvent.click(button);
+  fireEvent.click(screen.getByRole("button", { name: "aliceを無効にする（確認）" }));
   const enable = await screen.findByRole("button", { name: "aliceを有効にする" });
   expect(fetch).toHaveBeenCalledWith("/api/admin/users/alice/enabled", expect.objectContaining({
     method: "PUT", body: JSON.stringify({ enabled: false }),
@@ -41,19 +52,22 @@ it("sends strict toggle payloads and updates the returned row only after success
   }));
 });
 
-it("retains the row and shows errors without allowing duplicate pending requests", async () => {
+it("retains the enabled account and confirmation on failure without duplicate requests", async () => {
   let finish!: (response: Response) => void;
   change = () => new Promise((resolve) => { finish = resolve; });
   const button = await openUsers();
   fireEvent.click(button);
-  fireEvent.click(button);
-  expect(button).toBeDisabled();
+  const confirm = screen.getByRole("button", { name: "aliceを無効にする（確認）" });
+  fireEvent.click(confirm);
+  fireEvent.click(confirm);
+  expect(confirm).toBeDisabled();
   expect(screen.queryByRole("button", { name: "aliceを有効にする" })).not.toBeInTheDocument();
   expect(vi.mocked(fetch).mock.calls.filter(([path]) => String(path).endsWith("/enabled"))).toHaveLength(1);
   finish(new Response(JSON.stringify({ detail: "変更できません" }), { status: 503 }));
   expect(await screen.findByRole("alert")).toHaveTextContent("変更できません");
-  await waitFor(() => expect(button).not.toBeDisabled());
+  await waitFor(() => expect(confirm).not.toBeDisabled());
   expect(within(button.closest(".list-row") as HTMLElement).getByText(/有効 · 初回変更待ち/)).toBeVisible();
+  expect(screen.getByRole("group", { name: "aliceのアカウント無効化確認" })).toBeVisible();
 });
 
 it("does not apply a late users response to the audit page", async () => {
@@ -61,6 +75,9 @@ it("does not apply a late users response to the audit page", async () => {
   change = () => new Promise((resolve) => { finish = resolve; });
   const button = await openUsers();
   fireEvent.click(button);
+  fireEvent.click(
+    screen.getByRole("button", { name: "aliceを無効にする（確認）" }),
+  );
   fireEvent.click(screen.getByText("運用・記録"));
   fireEvent.click(screen.getByRole("button", { name: /^操作記録$/ }));
   finish(new Response(JSON.stringify({ ...alice, enabled: false })));

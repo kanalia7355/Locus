@@ -14,7 +14,9 @@ import {
 } from "lucide-react";
 import { api, errorText, json, statusName } from "./api";
 import { RelatedDocuments } from "./RelatedDocuments";
+import { StructuredCitationText } from "./StructuredCitationText";
 import { IngestionProgress } from "./IngestionProgress";
+import { AdminLoad, AdminProjects, AdminStorage } from "./AdminSettings";
 import { ModelSettings } from "./ModelSettings";
 import { ProvisionUser } from "./ProvisionUser";
 import type {
@@ -37,6 +39,9 @@ type Page =
   | "history"
   | "users"
   | "roles"
+  | "projects"
+  | "storage"
+  | "load"
   | "ingestion"
   | "audit"
   | "settings";
@@ -54,6 +59,9 @@ const labels: Record<Page, string> = {
   history: "調査履歴",
   users: "利用者",
   roles: "役割・管理権限",
+  projects: "プロジェクト",
+  storage: "保存先の接続",
+  load: "負荷・実行状況",
   ingestion: "取り込み状況",
   audit: "操作記録",
   settings: "モデル・同時利用",
@@ -280,6 +288,11 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
     conversation: string;
     text: string;
     status: "queued" | "running";
+    cancelRequested: boolean;
+  } | null>(null);
+  const [cancelledJob, setCancelledJob] = useState<{
+    conversation: string;
+    text: string;
   } | null>(null);
   const [source, setSource] = useState<{
     document: Document;
@@ -457,22 +470,33 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
     return () => clearInterval(timer);
   }, [attachments]);
 
+  const pendingJobId = pendingJob?.id;
+  const pendingConversation = pendingJob?.conversation;
+  const pendingText = pendingJob?.text;
+  const pendingJobIdRef = useRef<string | null>(null);
+  pendingJobIdRef.current = pendingJobId ?? null;
   useEffect(() => {
-    if (!pendingJob) return;
-    const job = pendingJob;
+    if (!pendingJobId || !pendingConversation || !pendingText) return;
+    const job = { id: pendingJobId, conversation: pendingConversation, text: pendingText };
     const controller = new AbortController();
     const timer = setInterval(() => {
       void api<ChatJob>(`/chat-jobs/${job.id}`, { signal: controller.signal })
         .then((status) => {
-          if (controller.signal.aborted) return;
+          if (controller.signal.aborted || pendingJobIdRef.current !== job.id) return;
           if (status.status === "running") {
             setPendingJob((current) =>
               current && current.id === job.id
-                ? { ...current, status: "running" }
+                ? {
+                    ...current,
+                    status: "running",
+                    cancelRequested:
+                      current.cancelRequested || status.cancel_requested,
+                  }
                 : current,
             );
           } else if (status.status === "done") {
             setPendingJob(null);
+            setCancelledJob(null);
             if (status.conversation_id === conversationRef.current) {
               void api<Conversation>(
                 `/conversations/${status.conversation_id}`,
@@ -491,13 +515,16 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
               );
           } else if (status.status === "failed") {
             setPendingJob(null);
+            setCancelledJob(null);
             setError(`回答を生成できませんでした。${status.detail}`);
           } else if (status.status === "cancelled") {
             setPendingJob(null);
+            setCancelledJob({ conversation: job.conversation, text: job.text });
+            setNotice("質問を取り消しました。");
           }
         })
         .catch((error) => {
-          if (controller.signal.aborted) return;
+          if (controller.signal.aborted || pendingJobIdRef.current !== job.id) return;
           clearInterval(timer);
           setPendingJob(null);
           setError(
@@ -509,7 +536,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
       clearInterval(timer);
       controller.abort();
     };
-  }, [pendingJob]);
+  }, [pendingJobId, pendingConversation, pendingText]);
 
   useEffect(() => {
     if (source?.selectedChunk && sourceTarget.current) {
@@ -533,6 +560,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
     if (window.innerWidth < 768) setSidebar(false);
   }
   function newChat() {
+    setCancelledJob(null);
     conversationRef.current = null;
     conversationPromise.current = null;
     setConversationId(null);
@@ -657,6 +685,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
   async function send(event: FormEvent) {
     event.preventDefault();
     if (!draft.trim() || busy || pendingJob || !can("retrieve")) return;
+    setCancelledJob(null);
     setError("");
     if (attachments.some((item) => item.status !== "ready")) {
       setError(
@@ -683,6 +712,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
           conversation: id,
           text: response.text,
           status: "queued",
+          cancelRequested: false,
         });
       } else {
         setMessages((items) => [...items, response]);
@@ -697,10 +727,17 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
   }
   async function cancelPendingJob() {
     if (!pendingJob) return;
+    setError("");
     try {
       await api(`/chat-jobs/${pendingJob.id}`, json("DELETE", {}));
-      setPendingJob(null);
-      setNotice("質問を取り消しました。");
+      // The UI may still say queued after the worker atomically started the job.
+      // Keep polling until the server reports its terminal cancelled state.
+      setPendingJob((current) =>
+        current && current.id === pendingJob.id
+          ? { ...current, cancelRequested: true }
+          : current,
+      );
+      setNotice("質問の取り消しを受け付けました。処理終了後に結果を破棄します。");
     } catch (error) {
       setError(errorText(error));
     }
@@ -710,6 +747,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
     try {
       const conv = await api<Conversation>(`/conversations/${id}`);
       conversationRef.current = id;
+      setCancelledJob(null);
       setConversationId(id);
       setMessages(conv.messages);
       setAttachments(
@@ -843,6 +881,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
                 </summary>
                 {user.system_admin && navButton("users")}
                 {can("manage_roles") && navButton("roles")}
+                {user.system_admin && navButton("projects")}
               </details>
             </>
           )}
@@ -851,10 +890,12 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
               データ・処理 <ChevronDown size={12} />
             </summary>
             {navButton("ingestion")}
+            {user.system_admin && navButton("storage")}
+            {user.system_admin && navButton("load")}
             {navButton("settings")}
           </details>
           {user.system_admin && (
-            <details>
+            <details open={page === "audit"}>
               <summary>
                 運用・記録 <ChevronDown size={12} />
               </summary>
@@ -948,7 +989,10 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
                       </h2>
                       {message.citations.map((citation) => (
                         <div key={citation.id} className="citation-excerpt">
-                          <blockquote>{citation.text}</blockquote>
+                          <StructuredCitationText
+                            text={citation.text}
+                            label={`${citation.name} p.${citation.page} chunk ${citation.ordinal} の表`}
+                          />
                           <button
                             className="text-link"
                             onClick={() => {
@@ -974,16 +1018,26 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
                   </article>
                 ))
               )}
+              {cancelledJob && cancelledJob.conversation === conversationId && (
+                <article className="exchange">
+                  <p className="user-message">{cancelledJob.text}</p>
+                  <div className="answer">
+                    <p role="status">質問を取り消しました。回答は表示されません。</p>
+                  </div>
+                </article>
+              )}
               {pendingJob && pendingJob.conversation === conversationId && (
                 <article className="exchange">
                   <p className="user-message">{pendingJob.text}</p>
                   <div className="answer">
                     <p role="status">
-                      {pendingJob.status === "running"
-                        ? "回答を作成中です。完成するとこの会話に表示されます。"
-                        : "回答の生成は順番待ちです。モデルが空くと自動的に処理されます。"}
+                      {pendingJob.cancelRequested
+                        ? "質問の取り消しを受け付けました。処理終了後に結果を破棄します。"
+                        : pendingJob.status === "running"
+                          ? "回答を作成中です。完成するとこの会話に表示されます。"
+                          : "回答の生成は順番待ちです。モデルが空くと自動的に処理されます。"}
                     </p>
-                    {pendingJob.status === "queued" && (
+                    {!pendingJob.cancelRequested && (
                       <button
                         className="text-link"
                         onClick={() => {
@@ -1206,6 +1260,9 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
           <AdminUsers currentUserId={user.id} />
         )}
         {page === "audit" && user.system_admin && <AdminList key="audit" kind="audit" />}
+        {page === "projects" && user.system_admin && <AdminProjects />}
+        {page === "storage" && user.system_admin && <AdminStorage />}
+        {page === "load" && user.system_admin && <AdminLoad />}
         {page === "settings" && (
           <div className="settings">
             <h2>処理先</h2>
@@ -1213,8 +1270,6 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
               既定はローカルの原文検索です。管理者がOllamaモデルを明示的に有効化した場合は、参照資料に基づく回答を生成します。
             </p>
             {user.system_admin && <ModelSettings />}
-            <h2>外部AI・保存先の接続</h2>
-            <p>無効。接続先・契約・送信方針の承認後に実装します。</p>
             <h2>同時利用</h2>
             <p>
               取り込みは1件ずつ処理し、全体32件・一人4件まで受付します。安全のための開発上限であり、性能保証ではありません。
@@ -1774,6 +1829,9 @@ function AdminList({
   );
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [disableConfirmation, setDisableConfirmation] = useState<string | null>(
+    null,
+  );
   const pending = useRef(false);
   const mounted = useRef(false);
   useEffect(() => {
@@ -1801,8 +1859,12 @@ function AdminList({
         `/admin/users/${encodeURIComponent(String(row.id))}/enabled`,
         json("PUT", { enabled: !row.enabled }),
       );
-      if (mounted.current)
-        setRows((current) => current.map((item) => item.id === updated.id ? updated : item));
+      if (mounted.current) {
+        setRows((current) =>
+          current.map((item) => (item.id === updated.id ? updated : item)),
+        );
+        if (!updated.enabled) setDisableConfirmation(null);
+      }
     } catch (error) {
       if (mounted.current) setError(errorText(error));
     } finally {
@@ -1814,7 +1876,7 @@ function AdminList({
     <>
       <p className="muted">
         {kind === "users"
-          ? "利用者はWeb画面から追加できます。所属設定はローカルCLIから行います。管理者に個人会話の閲覧権限は付与されません。"
+          ? "利用者はWeb画面から追加できます。所属・ロール・明示的な拒否はプロジェクト画面で管理します。管理者に個人会話の閲覧権限は付与されません。"
           : "操作のメタデータのみを記録します。会話・資料の本文や資格情報は表示しません。"}
       </p>
       {error && <p role="alert">{error}</p>}
@@ -1829,13 +1891,55 @@ function AdminList({
                   {row.enabled ? "有効" : "無効"}
                   {row.must_rotate ? " · 初回変更待ち" : ""}
                 </span>
-                <IconButton
-                  label={`${row.username}を${row.enabled ? "無効" : "有効"}にする`}
-                  disabled={busy || row.id === currentUserId}
-                  onClick={() => void toggle(row)}
-                >
-                  {row.enabled ? <UserX size={18} /> : <UserCheck size={18} />}
-                </IconButton>
+                {row.enabled ? (
+                  <>
+                    <IconButton
+                      label={`${row.username}を無効にする`}
+                      disabled={busy || row.id === currentUserId}
+                      onClick={() => {
+                        setError("");
+                        setDisableConfirmation(String(row.id));
+                      }}
+                    >
+                      <UserX size={18} />
+                    </IconButton>
+                    {disableConfirmation === String(row.id) && (
+                      <div
+                        role="group"
+                        aria-label={`${row.username}のアカウント無効化確認`}
+                      >
+                        <p>
+                          「{row.username}」（利用者ID: {row.id}）のアカウントを無効にします。
+                          この利用者のすべてのログインセッションが取り消され、再有効化するまでログインできなくなります。
+                        </p>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          aria-label={`${row.username}を無効にする（確認）`}
+                          onClick={() => void toggle(row)}
+                        >
+                          アカウントを無効にする
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          aria-label={`${row.username}の無効化を取り消す`}
+                          onClick={() => setDisableConfirmation(null)}
+                        >
+                          取り消す
+                        </button>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <IconButton
+                    label={`${row.username}を有効にする`}
+                    disabled={busy || row.id === currentUserId}
+                    onClick={() => void toggle(row)}
+                  >
+                    <UserCheck size={18} />
+                  </IconButton>
+                )}
               </>
             ) : (
               <>

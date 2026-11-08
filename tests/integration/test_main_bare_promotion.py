@@ -125,11 +125,16 @@ def test_actual_bare_atomic_refs_guard_and_preserve_development(
     assert git(root, "rev-parse", "main") == before
 
 
+def _subject_repo(root):
+    git(root, "init", "-b", "loop/fixture")
+    git(root, "config", "user.name", "Fixture")
+    git(root, "config", "user.email", "fixture@example.invalid")
+    git(root, "commit", "--allow-empty", "-m", "test: initial fixture")
+    return git(root, "rev-parse", "HEAD")
+
+
 def test_push_subject_validation_checks_real_range_and_rejects_bad_subject(tmp_path):
-    git(tmp_path, "init", "-b", "loop/fixture")
-    git(tmp_path, "config", "user.name", "Fixture")
-    git(tmp_path, "config", "user.email", "fixture@example.invalid")
-    git(tmp_path, "commit", "--allow-empty", "-m", "test: initial fixture")
+    _subject_repo(tmp_path)
     before = git(tmp_path, "rev-parse", "HEAD")
     git(tmp_path, "commit", "--allow-empty", "-m", "fix(ci): check actual commit")
     after = git(tmp_path, "rev-parse", "HEAD")
@@ -139,3 +144,47 @@ def test_push_subject_validation_checks_real_range_and_rejects_bad_subject(tmp_p
         verify(tmp_path, before, git(tmp_path, "rev-parse", "HEAD"))
     with pytest.raises(ValueError, match="mismatched"):
         verify(tmp_path, before, after)
+
+
+def test_push_subject_validation_skips_merge_commit_but_checks_siblings(tmp_path):
+    before = _subject_repo(tmp_path)
+    git(tmp_path, "checkout", "-b", "loop/side")
+    git(tmp_path, "commit", "--allow-empty", "-m", "fix: side commit")
+    git(tmp_path, "checkout", "loop/fixture")
+    git(tmp_path, "commit", "--allow-empty", "-m", "feat: sibling commit")
+    git(tmp_path, "merge", "--no-ff", "loop/side", "-m", "Merge branch 'loop/side'")
+
+    assert verify(tmp_path, before, git(tmp_path, "rev-parse", "HEAD")) == 2
+
+
+def test_oversized_push_range_falls_back_to_local_development_base(tmp_path):
+    origin_main = _subject_repo(tmp_path)
+    tree = git(tmp_path, "rev-parse", "HEAD^{tree}")
+    parent = origin_main
+    branch_base = None
+    for index in range(201):
+        parent = git(
+            tmp_path,
+            "commit-tree",
+            tree,
+            "-p",
+            parent,
+            "-m",
+            f"test: generated commit {index}",
+        )
+        if index == 199:
+            branch_base = parent
+    assert branch_base is not None
+    git(tmp_path, "update-ref", "refs/remotes/origin/main", origin_main)
+    git(tmp_path, "update-ref", "refs/remotes/origin/loop/local-development", branch_base)
+    git(tmp_path, "update-ref", "HEAD", parent)
+
+    assert verify(tmp_path, origin_main, parent) == 1
+
+
+def test_empty_branch_local_push_range_succeeds_with_note(tmp_path, capsys):
+    head = _subject_repo(tmp_path)
+    git(tmp_path, "update-ref", "refs/remotes/origin/loop/local-development", head)
+
+    assert verify(tmp_path, head, head) == 0
+    assert "No new commits in the branch-local Push range" in capsys.readouterr().out

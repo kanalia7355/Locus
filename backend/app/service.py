@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import math
 import re
 import secrets
 import sqlite3
@@ -34,6 +35,7 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     "guest": frozenset({"read"}),
     "auditor": frozenset({"read"}),
 }
+ALL_PERMISSIONS = frozenset().union(*ROLE_PERMISSIONS.values()) | NON_ADMIN
 SYNTHETIC_TEXT = (
     "【合成サンプル・実研究データではありません】\n"
     "成膜条件Aは処理温度180°C、処理時間30分。\n"
@@ -121,6 +123,10 @@ class Service:
             CREATE TABLE IF NOT EXISTS projects (
                 id TEXT PRIMARY KEY, org_id TEXT NOT NULL, name TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS project_owners (
+                project_id TEXT PRIMARY KEY REFERENCES projects(id),
+                user_id TEXT NOT NULL REFERENCES users(id)
+            );
             CREATE TABLE IF NOT EXISTS memberships (
                 user_id TEXT REFERENCES users(id), project_id TEXT REFERENCES projects(id),
                 role TEXT NOT NULL, PRIMARY KEY(user_id, project_id)
@@ -129,6 +135,253 @@ class Service:
                 id TEXT PRIMARY KEY, project_id TEXT REFERENCES projects(id), name TEXT NOT NULL,
                 permissions TEXT NOT NULL, UNIQUE(project_id, name)
             );
+            CREATE TABLE IF NOT EXISTS membership_roles (
+                user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                role TEXT NOT NULL,
+                PRIMARY KEY(user_id, project_id, role)
+            );
+            CREATE TABLE IF NOT EXISTS delegation_families (
+                id TEXT PRIMARY KEY,
+                grantor_id TEXT NOT NULL REFERENCES users(id),
+                recipient_id TEXT NOT NULL REFERENCES users(id),
+                project_id TEXT NOT NULL REFERENCES projects(id),
+                permissions TEXT NOT NULL,
+                created REAL NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS delegation_grants (
+                id TEXT PRIMARY KEY,
+                family_id TEXT NOT NULL REFERENCES delegation_families(id),
+                version INTEGER NOT NULL CHECK(version > 0),
+                permissions TEXT NOT NULL,
+                created REAL NOT NULL,
+                expires REAL NOT NULL,
+                UNIQUE(family_id, version)
+            );
+            CREATE TABLE IF NOT EXISTS delegation_events (
+                id TEXT PRIMARY KEY,
+                grant_id TEXT NOT NULL REFERENCES delegation_grants(id),
+                event_type TEXT NOT NULL,
+                actor_id TEXT NOT NULL,
+                at REAL NOT NULL,
+                UNIQUE(grant_id, event_type)
+            );
+            CREATE TRIGGER IF NOT EXISTS delegation_family_no_update
+            BEFORE UPDATE ON delegation_families BEGIN
+                SELECT RAISE(ABORT, 'delegation families are immutable');
+            END;
+            CREATE TRIGGER IF NOT EXISTS delegation_family_no_delete
+            BEFORE DELETE ON delegation_families BEGIN
+                SELECT RAISE(ABORT, 'delegation families are retained');
+            END;
+            CREATE TRIGGER IF NOT EXISTS delegation_grant_no_update
+            BEFORE UPDATE ON delegation_grants BEGIN
+                SELECT RAISE(ABORT, 'delegation grants are immutable');
+            END;
+            CREATE TRIGGER IF NOT EXISTS delegation_grant_no_delete
+            BEFORE DELETE ON delegation_grants BEGIN
+                SELECT RAISE(ABORT, 'delegation grants are retained');
+            END;
+            CREATE TRIGGER IF NOT EXISTS delegation_event_no_update
+            BEFORE UPDATE ON delegation_events BEGIN
+                SELECT RAISE(ABORT, 'delegation events are immutable');
+            END;
+            CREATE TRIGGER IF NOT EXISTS delegation_event_no_delete
+            BEFORE DELETE ON delegation_events BEGIN
+                SELECT RAISE(ABORT, 'delegation events are retained');
+            END;
+            CREATE TRIGGER IF NOT EXISTS delegation_grantor_membership_delete
+            AFTER DELETE ON memberships BEGIN
+                INSERT OR IGNORE INTO delegation_events
+                    (id,grant_id,event_type,actor_id,at)
+                SELECT lower(hex(randomblob(16))),g.id,'invalidate','system',
+                    (julianday('now') - 2440587.5) * 86400.0
+                FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id
+                WHERE f.grantor_id=OLD.user_id AND f.project_id=OLD.project_id;
+                INSERT INTO audit
+                SELECT lower(hex(randomblob(16))),(julianday('now') - 2440587.5) * 86400.0,
+                    'system','delegation.invalidate',g.id,'ok'
+                FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id
+                WHERE f.grantor_id=OLD.user_id AND f.project_id=OLD.project_id
+                    AND EXISTS (SELECT 1 FROM delegation_events e
+                        WHERE e.grant_id=g.id AND e.event_type='invalidate')
+                    AND NOT EXISTS (SELECT 1 FROM audit a
+                        WHERE a.operation='delegation.invalidate' AND a.target_id=g.id);
+            END;
+            CREATE TRIGGER IF NOT EXISTS delegation_grantor_role_update
+            AFTER UPDATE OF permissions,denied_permissions ON roles BEGIN
+                INSERT OR IGNORE INTO delegation_events
+                    (id,grant_id,event_type,actor_id,at)
+                SELECT lower(hex(randomblob(16))),g.id,'invalidate','system',
+                    (julianday('now') - 2440587.5) * 86400.0
+                FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id
+                JOIN membership_roles mr ON mr.user_id=f.grantor_id
+                    AND mr.project_id=f.project_id AND mr.role=OLD.id
+                WHERE OLD.project_id=f.project_id;
+                INSERT INTO audit
+                SELECT lower(hex(randomblob(16))),(julianday('now') - 2440587.5) * 86400.0,
+                    'system','delegation.invalidate',g.id,'ok'
+                FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id
+                JOIN membership_roles mr ON mr.user_id=f.grantor_id
+                    AND mr.project_id=f.project_id AND mr.role=OLD.id
+                WHERE OLD.project_id=f.project_id
+                    AND EXISTS (SELECT 1 FROM delegation_events e
+                        WHERE e.grant_id=g.id AND e.event_type='invalidate')
+                    AND NOT EXISTS (SELECT 1 FROM audit a
+                        WHERE a.operation='delegation.invalidate' AND a.target_id=g.id);
+            END;
+            CREATE TRIGGER IF NOT EXISTS delegation_grantor_role_add
+            AFTER INSERT ON membership_roles BEGIN
+                INSERT OR IGNORE INTO delegation_events
+                    (id,grant_id,event_type,actor_id,at)
+                SELECT lower(hex(randomblob(16))),g.id,'invalidate','system',
+                    (julianday('now') - 2440587.5) * 86400.0
+                FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id
+                WHERE f.grantor_id=NEW.user_id AND f.project_id=NEW.project_id;
+                INSERT INTO audit
+                SELECT lower(hex(randomblob(16))),(julianday('now') - 2440587.5) * 86400.0,
+                    'system','delegation.invalidate',g.id,'ok'
+                FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id
+                WHERE f.grantor_id=NEW.user_id AND f.project_id=NEW.project_id
+                    AND EXISTS (SELECT 1 FROM delegation_events e
+                        WHERE e.grant_id=g.id AND e.event_type='invalidate')
+                    AND NOT EXISTS (SELECT 1 FROM audit a
+                        WHERE a.operation='delegation.invalidate' AND a.target_id=g.id);
+            END;
+            CREATE TRIGGER IF NOT EXISTS delegation_grantor_role_remove
+            AFTER DELETE ON membership_roles BEGIN
+                INSERT OR IGNORE INTO delegation_events
+                    (id,grant_id,event_type,actor_id,at)
+                SELECT lower(hex(randomblob(16))),g.id,'invalidate','system',
+                    (julianday('now') - 2440587.5) * 86400.0
+                FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id
+                WHERE f.grantor_id=OLD.user_id AND f.project_id=OLD.project_id;
+                INSERT INTO audit
+                SELECT lower(hex(randomblob(16))),(julianday('now') - 2440587.5) * 86400.0,
+                    'system','delegation.invalidate',g.id,'ok'
+                FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id
+                WHERE f.grantor_id=OLD.user_id AND f.project_id=OLD.project_id
+                    AND EXISTS (SELECT 1 FROM delegation_events e
+                        WHERE e.grant_id=g.id AND e.event_type='invalidate')
+                    AND NOT EXISTS (SELECT 1 FROM audit a
+                        WHERE a.operation='delegation.invalidate' AND a.target_id=g.id);
+            END;
+            CREATE TRIGGER IF NOT EXISTS delegation_grantor_role_update
+            AFTER UPDATE OF permissions,denied_permissions ON roles BEGIN
+                INSERT OR IGNORE INTO delegation_events
+                    (id,grant_id,event_type,actor_id,at)
+                SELECT lower(hex(randomblob(16))),g.id,'invalidate','system',
+                    (julianday('now') - 2440587.5) * 86400.0
+                FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id
+                JOIN membership_roles mr ON mr.user_id=f.grantor_id
+                    AND mr.project_id=f.project_id AND mr.role=OLD.id
+                WHERE OLD.project_id=f.project_id;
+                INSERT INTO audit
+                SELECT lower(hex(randomblob(16))),(julianday('now') - 2440587.5) * 86400.0,
+                    'system','delegation.invalidate',g.id,'ok'
+                FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id
+                JOIN membership_roles mr ON mr.user_id=f.grantor_id
+                    AND mr.project_id=f.project_id AND mr.role=OLD.id
+                WHERE OLD.project_id=f.project_id
+                    AND EXISTS (SELECT 1 FROM delegation_events e
+                        WHERE e.grant_id=g.id AND e.event_type='invalidate')
+                    AND NOT EXISTS (SELECT 1 FROM audit a
+                        WHERE a.operation='delegation.invalidate' AND a.target_id=g.id);
+            END;
+            CREATE TRIGGER IF NOT EXISTS delegation_grantor_deny_update
+            AFTER UPDATE OF denied_permissions ON memberships BEGIN
+                INSERT OR IGNORE INTO delegation_events
+                    (id,grant_id,event_type,actor_id,at)
+                SELECT lower(hex(randomblob(16))),g.id,'invalidate','system',
+                    (julianday('now') - 2440587.5) * 86400.0
+                FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id
+                WHERE f.grantor_id=NEW.user_id AND f.project_id=NEW.project_id
+                    AND OLD.denied_permissions<>NEW.denied_permissions
+                    AND NOT EXISTS (SELECT 1 FROM delegation_events e WHERE e.grant_id=g.id);
+                INSERT INTO audit
+                SELECT lower(hex(randomblob(16))),(julianday('now') - 2440587.5) * 86400.0,
+                    'system','delegation.invalidate',g.id,'ok'
+                FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id
+                WHERE f.grantor_id=NEW.user_id AND f.project_id=NEW.project_id
+                    AND EXISTS (SELECT 1 FROM delegation_events e
+                        WHERE e.grant_id=g.id AND e.event_type='invalidate')
+                    AND NOT EXISTS (SELECT 1 FROM audit a
+                        WHERE a.operation='delegation.invalidate' AND a.target_id=g.id);
+            END;
+            CREATE TRIGGER IF NOT EXISTS delegation_grantor_disable
+            AFTER UPDATE OF enabled ON users WHEN OLD.enabled<>NEW.enabled AND NEW.enabled=0 BEGIN
+                INSERT OR IGNORE INTO delegation_events
+                    (id,grant_id,event_type,actor_id,at)
+                SELECT lower(hex(randomblob(16))),g.id,'invalidate','system',
+                    (julianday('now') - 2440587.5) * 86400.0
+                FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id
+                WHERE f.grantor_id=NEW.id
+                    AND NOT EXISTS (SELECT 1 FROM delegation_events e WHERE e.grant_id=g.id);
+                INSERT INTO audit
+                SELECT lower(hex(randomblob(16))),(julianday('now') - 2440587.5) * 86400.0,
+                    'system','delegation.invalidate',g.id,'ok'
+                FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id
+                WHERE f.grantor_id=NEW.id
+                    AND EXISTS (SELECT 1 FROM delegation_events e
+                        WHERE e.grant_id=g.id AND e.event_type='invalidate')
+                    AND NOT EXISTS (SELECT 1 FROM audit a
+                        WHERE a.operation='delegation.invalidate' AND a.target_id=g.id);
+            END;
+            CREATE TRIGGER IF NOT EXISTS delegation_owner_change_invalidate
+            AFTER UPDATE OF user_id ON project_owners BEGIN
+                INSERT OR IGNORE INTO delegation_events
+                    (id,grant_id,event_type,actor_id,at)
+                SELECT lower(hex(randomblob(16))),g.id,'invalidate','system',
+                    (julianday('now') - 2440587.5) * 86400.0
+                FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id
+                WHERE f.grantor_id=OLD.user_id AND f.project_id=OLD.project_id
+                    AND NOT EXISTS (SELECT 1 FROM delegation_events e WHERE e.grant_id=g.id);
+                INSERT INTO audit
+                SELECT lower(hex(randomblob(16))),(julianday('now') - 2440587.5) * 86400.0,
+                    'system','delegation.invalidate',g.id,'ok'
+                FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id
+                WHERE f.grantor_id=OLD.user_id AND f.project_id=OLD.project_id
+                    AND EXISTS (SELECT 1 FROM delegation_events e
+                        WHERE e.grant_id=g.id AND e.event_type='invalidate')
+                    AND NOT EXISTS (SELECT 1 FROM audit a
+                        WHERE a.operation='delegation.invalidate' AND a.target_id=g.id);
+            END;
+            CREATE TRIGGER IF NOT EXISTS delegation_owner_delete_invalidate
+            AFTER DELETE ON project_owners BEGIN
+                INSERT OR IGNORE INTO delegation_events
+                    (id,grant_id,event_type,actor_id,at)
+                SELECT lower(hex(randomblob(16))),g.id,'invalidate','system',
+                    (julianday('now') - 2440587.5) * 86400.0
+                FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id
+                WHERE f.grantor_id=OLD.user_id AND f.project_id=OLD.project_id
+                    AND NOT EXISTS (SELECT 1 FROM delegation_events e WHERE e.grant_id=g.id);
+                INSERT INTO audit
+                SELECT lower(hex(randomblob(16))),(julianday('now') - 2440587.5) * 86400.0,
+                    'system','delegation.invalidate',g.id,'ok'
+                FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id
+                WHERE f.grantor_id=OLD.user_id AND f.project_id=OLD.project_id
+                    AND EXISTS (SELECT 1 FROM delegation_events e
+                        WHERE e.grant_id=g.id AND e.event_type='invalidate')
+                    AND NOT EXISTS (SELECT 1 FROM audit a
+                        WHERE a.operation='delegation.invalidate' AND a.target_id=g.id);
+            END;
+            CREATE TRIGGER IF NOT EXISTS membership_role_insert AFTER INSERT ON memberships
+            BEGIN
+                INSERT OR IGNORE INTO membership_roles (user_id,project_id,role)
+                VALUES (NEW.user_id,NEW.project_id,NEW.role);
+            END;
+            CREATE TRIGGER IF NOT EXISTS membership_role_update AFTER UPDATE OF role ON memberships
+            BEGIN
+                DELETE FROM membership_roles
+                WHERE user_id=NEW.user_id AND project_id=NEW.project_id AND role<>NEW.role;
+                INSERT OR IGNORE INTO membership_roles (user_id,project_id,role)
+                VALUES (NEW.user_id,NEW.project_id,NEW.role);
+            END;
+            CREATE TRIGGER IF NOT EXISTS membership_role_delete AFTER DELETE ON memberships
+            BEGIN
+                DELETE FROM membership_roles WHERE user_id=OLD.user_id
+                    AND project_id=OLD.project_id;
+            END;
             CREATE TABLE IF NOT EXISTS conversations (
                 id TEXT PRIMARY KEY, owner_id TEXT REFERENCES users(id),
                 project_id TEXT REFERENCES projects(id), created REAL NOT NULL
@@ -159,13 +412,33 @@ class Service:
                 user_id TEXT NOT NULL, text TEXT NOT NULL, scope TEXT NOT NULL,
                 attachments TEXT NOT NULL DEFAULT '[]', status TEXT NOT NULL,
                 detail TEXT NOT NULL DEFAULT '', message_id TEXT,
-                created REAL NOT NULL, updated REAL NOT NULL
+                created REAL NOT NULL, updated REAL NOT NULL,
+                cancel_requested INTEGER NOT NULL DEFAULT 0
             );
             CREATE TABLE IF NOT EXISTS audit (
                 id TEXT PRIMARY KEY, at REAL NOT NULL, actor_id TEXT NOT NULL,
                 operation TEXT NOT NULL, target_id TEXT NOT NULL, outcome TEXT NOT NULL
             );
         """)
+        chat_job_columns = {
+            row["name"] for row in self.conn.execute("PRAGMA table_info(chat_jobs)")
+        }
+        if "cancel_requested" not in chat_job_columns:
+            self.conn.execute(
+                "ALTER TABLE chat_jobs ADD COLUMN cancel_requested INTEGER NOT NULL DEFAULT 0"
+            )
+        # Additive migrations preserve databases created before concurrent role holdings.
+        self._ensure_column("memberships", "denied_permissions", "TEXT NOT NULL DEFAULT '[]'")
+        self._ensure_column("roles", "denied_permissions", "TEXT NOT NULL DEFAULT '[]'")
+        self.conn.execute(
+            "INSERT OR IGNORE INTO membership_roles (user_id,project_id,role) "
+            "SELECT user_id,project_id,role FROM memberships"
+        )
+
+    def _ensure_column(self, table: str, column: str, definition: str) -> None:
+        columns = {row["name"] for row in self.conn.execute(f"PRAGMA table_info({table})")}
+        if column not in columns:
+            self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
     @contextmanager
     def db(self) -> Iterator[sqlite3.Connection]:
@@ -270,12 +543,48 @@ class Service:
             "must_rotate": True,
         }
 
-    def create_project(self, org_id: str, project_id: str, name: str) -> None:
+    def create_project(
+        self, org_id: str, project_id: str, name: str, *, owner_id: str | None = None
+    ) -> None:
         with self.db() as db:
             db.execute("INSERT INTO projects VALUES (?,?,?)", (project_id, org_id, name))
+            if owner_id:
+                db.execute(
+                    "INSERT INTO project_owners (project_id,user_id) VALUES (?,?)",
+                    (project_id, owner_id),
+                )
             self._audit(db, "local-cli", "project.create", project_id)
 
+    def _replace_role_holding(
+        self, db: sqlite3.Connection, user_id: str, project_id: str, role: str
+    ) -> None:
+        db.execute(
+            "DELETE FROM membership_roles WHERE user_id=? AND project_id=?",
+            (user_id, project_id),
+        )
+        # An upsert here would override the OR IGNORE clauses of nested trigger
+        # bodies (SQLite conflict-resolution override) and abort live delegation
+        # invalidation with a spurious UNIQUE failure; update or insert explicitly.
+        updated = db.execute(
+            "UPDATE memberships SET role=? WHERE user_id=? AND project_id=?",
+            (role, user_id, project_id),
+        ).rowcount
+        if not updated:
+            db.execute(
+                "INSERT INTO memberships (user_id,project_id,role) VALUES (?,?,?)",
+                (user_id, project_id, role),
+            )
+        db.execute(
+            "DELETE FROM membership_roles WHERE user_id=? AND project_id=?",
+            (user_id, project_id),
+        )
+        db.execute(
+            "INSERT INTO membership_roles (user_id,project_id,role) VALUES (?,?,?)",
+            (user_id, project_id, role),
+        )
+
     def assign(self, username: str, project_id: str, role: str | None) -> None:
+        """Compatibility helper that replaces all role holdings with one role."""
         with self.db() as db:
             user = db.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()
             if not user:
@@ -283,6 +592,10 @@ class Service:
             if not db.execute("SELECT id FROM projects WHERE id=?", (project_id,)).fetchone():
                 fail(404, "プロジェクトが見つかりません")
             if role is None:
+                db.execute(
+                    "DELETE FROM membership_roles WHERE user_id=? AND project_id=?",
+                    (user["id"], project_id),
+                )
                 db.execute(
                     "DELETE FROM memberships WHERE user_id=? AND project_id=?",
                     (user["id"], project_id),
@@ -294,10 +607,204 @@ class Service:
             ).fetchone()
             if role not in ROLE_PERMISSIONS and not custom:
                 fail(422, "不明なロールです")
-            db.execute(
-                "INSERT OR REPLACE INTO memberships VALUES (?,?,?)", (user["id"], project_id, role)
-            )
+            self._replace_role_holding(db, user["id"], project_id, role)
             self._audit(db, "local-cli", "membership.assign", project_id + ":" + user["id"])
+
+    def create_admin_project(
+        self,
+        token: str | None,
+        project_id: str,
+        org_id: str,
+        name: str,
+        owner_id: str | None = None,
+    ) -> Json:
+        if (
+            not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}", project_id)
+            or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}", org_id)
+            or not name.strip()
+            or len(name) > 128
+            or any(ord(char) < 32 for char in name)
+        ):
+            fail(422, "プロジェクトID・組織ID・名称を確認してください")
+        with self.db() as db:
+            actor = self._authenticate(db, token)
+            if not actor.system_admin:
+                fail(403, "管理権限が必要です")
+            self._limit("admin-project:" + actor.id, 10)
+            try:
+                db.execute("INSERT INTO projects VALUES (?,?,?)", (project_id, org_id, name))
+                selected_owner_id = owner_id
+                if selected_owner_id is not None:
+                    owner = db.execute(
+                        "SELECT enabled FROM users WHERE id=?", (selected_owner_id,)
+                    ).fetchone()
+                    if not owner or not owner["enabled"]:
+                        fail(422, "有効な所有者を指定してください")
+                    db.execute(
+                        "INSERT INTO project_owners (project_id,user_id) VALUES (?,?)",
+                        (project_id, selected_owner_id),
+                    )
+            except sqlite3.IntegrityError:
+                fail(409, "プロジェクトIDまたは所有者の指定を確認してください")
+            self._audit(db, actor.id, "project.create", project_id)
+            return {"id": project_id, "org_id": org_id, "name": name}
+
+    def admin_projects(self, actor: Principal) -> list[Json]:
+        if not actor.system_admin:
+            fail(403, "管理権限が必要です")
+        with self.db() as db:
+            projects = [dict(row) for row in db.execute("SELECT * FROM projects ORDER BY name,id")]
+            for project in projects:
+                project["members"] = [
+                    {
+                        **dict(row),
+                        "roles": self._held_roles(db, row["user_id"], project["id"]),
+                        "denied_permissions": json.loads(row["denied_permissions"]),
+                        "effective_permissions": sorted(
+                            self._permissions(
+                                db,
+                                Principal(row["user_id"], row["username"], False, False),
+                                project["id"],
+                            )
+                        ),
+                    }
+                    for row in db.execute(
+                        "SELECT u.id AS user_id,u.username,m.role,m.denied_permissions "
+                        "FROM memberships m "
+                        "JOIN users u ON u.id=m.user_id WHERE m.project_id=? ORDER BY u.username",
+                        (project["id"],),
+                    )
+                ]
+                project["roles"] = [
+                    {"id": name, "name": name}
+                    for name in ROLE_PERMISSIONS
+                    if name != "system_admin"
+                ] + [
+                    {"id": row["id"], "name": row["name"]}
+                    for row in db.execute(
+                        "SELECT id,name FROM roles WHERE project_id=? ORDER BY name",
+                        (project["id"],),
+                    )
+                ]
+            return projects
+
+    def storage_status(self, actor: Principal) -> Json:
+        if not actor.system_admin:
+            fail(403, "管理権限が必要です")
+        with self.db() as db:
+            counts = {
+                row["status"]: row["count"]
+                for row in db.execute(
+                    "SELECT status,COUNT(*) AS count FROM documents GROUP BY status"
+                )
+            }
+            return {
+                "backend": "sqlite",
+                "mode": "local-only",
+                "external_enabled": False,
+                "accepted_formats": ["txt", "md", "csv"],
+                "max_file_bytes": 262144,
+                "ingestion_queue_limit": 32,
+                "per_user_ingestion_queue_limit": 4,
+                "ingestion_status_counts": counts,
+                "configuration_available": False,
+            }
+
+    def _project_member_mutation(
+        self,
+        db: sqlite3.Connection,
+        actor: Principal,
+        project_id: str,
+        user_id: str,
+        role: str | None,
+    ) -> Json:
+        if not db.execute("SELECT id FROM projects WHERE id=?", (project_id,)).fetchone():
+            fail(404, "プロジェクトが見つかりません")
+        target = db.execute("SELECT id FROM users WHERE id=?", (user_id,)).fetchone()
+        if not target:
+            fail(404, "利用者が見つかりません")
+        if role is None:
+            removed = (
+                db.execute(
+                    "DELETE FROM memberships WHERE user_id=? AND project_id=?",
+                    (user_id, project_id),
+                ).rowcount
+                > 0
+            )
+            if removed:
+                self._audit(db, actor.id, "membership.remove", project_id + ":" + user_id)
+            return {"project_id": project_id, "user_id": user_id, "removed": removed}
+        if role == "system_admin":
+            fail(422, "システム管理者ロールは所属に設定できません")
+        custom = db.execute(
+            "SELECT id FROM roles WHERE id=? AND project_id=?", (role, project_id)
+        ).fetchone()
+        if role not in ROLE_PERMISSIONS and not custom:
+            fail(422, "不明なロールです")
+        if not db.execute("SELECT enabled FROM users WHERE id=?", (user_id,)).fetchone()[0]:
+            fail(409, "無効な利用者は所属に追加できません")
+        member_changed = db.execute(
+            "INSERT OR IGNORE INTO memberships (user_id,project_id,role) VALUES (?,?,?)",
+            (user_id, project_id, role),
+        ).rowcount
+        role_changed = db.execute(
+            "INSERT OR IGNORE INTO membership_roles (user_id,project_id,role) VALUES (?,?,?)",
+            (user_id, project_id, role),
+        ).rowcount
+        if member_changed or role_changed:
+            self._audit(db, actor.id, "membership.assign", project_id + ":" + user_id)
+        return {"project_id": project_id, "user_id": user_id, "role": role}
+
+    def set_project_member(
+        self, token: str | None, project_id: str, user_id: str, role: str
+    ) -> Json:
+        with self.db() as db:
+            actor = self._authenticate(db, token)
+            if not actor.system_admin:
+                fail(403, "管理権限が必要です")
+            self._limit("admin-project-member:" + actor.id, 30)
+            return self._project_member_mutation(db, actor, project_id, user_id, role)
+
+    def remove_project_member(self, token: str | None, project_id: str, user_id: str) -> None:
+        with self.db() as db:
+            actor = self._authenticate(db, token)
+            if not actor.system_admin:
+                fail(403, "管理権限が必要です")
+            self._limit("admin-project-member:" + actor.id, 30)
+            self._project_member_mutation(db, actor, project_id, user_id, None)
+
+    def load_status(self, actor: Principal, *, model_busy: bool, model_enabled: bool) -> Json:
+        if not actor.system_admin:
+            fail(403, "管理権限が必要です")
+        with self.db() as db:
+            queued = db.execute("SELECT COUNT(*) FROM chat_jobs WHERE status='queued'").fetchone()[
+                0
+            ]
+            running = db.execute(
+                "SELECT j.id,u.username,j.updated FROM chat_jobs j "
+                "LEFT JOIN users u ON u.id=j.user_id WHERE j.status='running' "
+                "ORDER BY j.created,j.id LIMIT 1"
+            ).fetchone()
+            return {
+                "model_slot": {
+                    "enabled": model_enabled,
+                    "busy": model_busy,
+                },
+                "chat_queue": {
+                    "queued": queued,
+                    "limit": CHAT_QUEUE_LIMIT,
+                    "per_user_limit": CHAT_USER_QUEUE_LIMIT,
+                    "running_job": (
+                        {
+                            "id": running["id"],
+                            "username": running["username"],
+                            "started_at": running["updated"],
+                        }
+                        if running
+                        else None
+                    ),
+                },
+            }
 
     def _limit(self, key: str, maximum: int) -> None:
         now = time.time()
@@ -490,17 +997,710 @@ class Service:
             fail(404, "対象が見つかりません")
         return row  # type: ignore[no-any-return]
 
+    def _held_roles(self, db: sqlite3.Connection, user_id: str, project: str) -> list[str]:
+        rows = db.execute(
+            "SELECT role FROM membership_roles WHERE user_id=? AND project_id=? ORDER BY role",
+            (user_id, project),
+        ).fetchall()
+        # Legacy memberships are copied into this table during startup migration. An empty
+        # normalized set therefore stays permissionless rather than resurrecting stale roles.
+        return [row["role"] for row in rows]
+
+    def _role_permissions(
+        self, db: sqlite3.Connection, role: str, project: str
+    ) -> tuple[frozenset[str], frozenset[str]]:
+        if role in ROLE_PERMISSIONS:
+            return ROLE_PERMISSIONS[role], frozenset()
+        row = db.execute(
+            "SELECT permissions,denied_permissions FROM roles WHERE id=? AND project_id=?",
+            (role, project),
+        ).fetchone()
+        if not row:
+            return frozenset(), frozenset()
+        return frozenset(json.loads(row["permissions"])), frozenset(
+            json.loads(row["denied_permissions"])
+        )
+
+    def _role_access(
+        self, db: sqlite3.Connection, user_id: str, project: str
+    ) -> tuple[set[str], set[str], set[str]]:
+        membership = db.execute(
+            "SELECT denied_permissions FROM memberships WHERE user_id=? AND project_id=?",
+            (user_id, project),
+        ).fetchone()
+        if not membership:
+            fail(404, "対象が見つかりません")
+        roles = self._held_roles(db, user_id, project)
+        allowed: set[str] = set()
+        denied: set[str] = set(json.loads(membership["denied_permissions"]))
+        for role in roles:
+            role_allowed, role_denied = self._role_permissions(db, role, project)
+            allowed.update(role_allowed)
+            denied.update(role_denied)
+        return allowed, denied, set(roles)
+
+    def _delegation_authority(
+        self,
+        db: sqlite3.Connection,
+        grantor_id: str,
+        project: str,
+        permissions: set[str],
+    ) -> bool:
+        try:
+            user = db.execute("SELECT enabled FROM users WHERE id=?", (grantor_id,)).fetchone()
+            if not user or not user["enabled"]:
+                return False
+            allowed, denied, roles = self._role_access(db, grantor_id, project)
+            ceiling = self._permission_ceiling_for_grantor(db, grantor_id, project)
+        except (HTTPException, sqlite3.Error, ValueError, TypeError):
+            return False
+        owner = db.execute(
+            "SELECT 1 FROM project_owners WHERE project_id=? AND user_id=?",
+            (project, grantor_id),
+        ).fetchone()
+        # Organization-admin authority is represented by an explicit role holding
+        # on the target project in this prototype; there is no org-wide grant path.
+        grant_authority = bool(owner or "organization_admin" in roles)
+        return bool(
+            grant_authority
+            and (owner or "manage_roles" in (allowed - denied))
+            and permissions <= NON_ADMIN
+            and permissions <= ceiling
+            and permissions <= (allowed - denied)
+            and not ("retrieve" in permissions and "read" not in permissions)
+        )
+
+    def _delegation_now(self) -> float:
+        """Delegation clock boundary; Unix epoch seconds in the SQLite prototype."""
+        return time.time()
+
+    def _valid_delegation_now(self) -> float | None:
+        try:
+            now = self._delegation_now()
+        except Exception:
+            return None
+        if (
+            isinstance(now, bool)
+            or not isinstance(now, (int, float))
+            or not math.isfinite(now)
+            or now < 0
+        ):
+            return None
+        return float(now)
+
+    def _delegated_permissions(
+        self, db: sqlite3.Connection, actor: Principal, project: str
+    ) -> set[str]:
+        try:
+            user = db.execute("SELECT enabled FROM users WHERE id=?", (actor.id,)).fetchone()
+        except (sqlite3.Error, ValueError, TypeError):
+            return set()
+        if not user or not user["enabled"]:
+            return set()
+        try:
+            grants = db.execute(
+                "SELECT g.id,g.expires,g.permissions,f.grantor_id "
+                "FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id "
+                "WHERE f.recipient_id=? AND f.project_id=? AND g.version=("
+                "SELECT MAX(current.version) FROM delegation_grants current "
+                "WHERE current.family_id=g.family_id) ORDER BY g.id",
+                (actor.id, project),
+            ).fetchall()
+            now = self._valid_delegation_now()
+            if now is None:
+                return set()
+        except (sqlite3.Error, ValueError, TypeError, OverflowError):
+            return set()
+        permissions: set[str] = set()
+        for grant in grants:
+            events = db.execute(
+                "SELECT event_type FROM delegation_events WHERE grant_id=?",
+                (grant["id"],),
+            ).fetchall()
+            if events:
+                continue
+            try:
+                expires = float(grant["expires"])
+                granted = set(json.loads(grant["permissions"]))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                invalidated = db.execute(
+                    "INSERT OR IGNORE INTO delegation_events "
+                    "(id,grant_id,event_type,actor_id,at) VALUES (?,?,?,?,?)",
+                    (uid(), grant["id"], "invalidate", "system", now),
+                ).rowcount
+                if invalidated:
+                    self._audit(db, "system", "delegation.invalidate", grant["id"])
+                continue
+            if not math.isfinite(expires) or now >= expires:
+                inserted = db.execute(
+                    "INSERT OR IGNORE INTO delegation_events "
+                    "(id,grant_id,event_type,actor_id,at) VALUES (?,?,?,?,?)",
+                    (uid(), grant["id"], "expire", "system", now),
+                ).rowcount
+                if inserted:
+                    self._audit(db, "system", "delegation.expire", grant["id"])
+                continue
+            if self._delegation_authority(db, grant["grantor_id"], project, granted):
+                permissions.update(granted)
+            else:
+                invalidated = db.execute(
+                    "INSERT OR IGNORE INTO delegation_events "
+                    "(id,grant_id,event_type,actor_id,at) VALUES (?,?,?,?,?)",
+                    (uid(), grant["id"], "invalidate", "system", now),
+                ).rowcount
+                if invalidated:
+                    self._audit(db, "system", "delegation.invalidate", grant["id"])
+        return permissions
+
     def _permissions(
         self, db: sqlite3.Connection, actor: Principal, project: str
     ) -> frozenset[str]:
+        allowed, denied, _roles = self._role_access(db, actor.id, project)
+        allowed.update(self._delegated_permissions(db, actor, project))
+        # Explicit deny wins over every role and delegation allow. Membership is still
+        # independently required by _role_access, even when a grant otherwise matches.
+        effective = allowed - denied
+        if "read" not in effective:
+            effective.discard("retrieve")
+        return frozenset(effective)
+
+    def _permission_ceiling(
+        self, db: sqlite3.Connection, actor: Principal, project: str
+    ) -> frozenset[str]:
+        """Permissions that a non-admin custom role may grant to other users."""
         membership = self._membership(db, actor, project)
-        role = membership["role"]
-        if role in ROLE_PERMISSIONS:
-            return ROLE_PERMISSIONS[role]
-        row = db.execute(
-            "SELECT permissions FROM roles WHERE id=? AND project_id=?", (role, project)
-        ).fetchone()
-        return frozenset(json.loads(row["permissions"])) if row else frozenset()
+        roles = self._held_roles(db, actor.id, project)
+        if not roles:
+            return frozenset()
+        # A delegated role must be a subset of EACH held role's ceiling. Intersection is
+        # intentional: union here would let complementary roles manufacture a new authority.
+        ceilings = []
+        for role in roles:
+            allowed, denied = self._role_permissions(db, role, project)
+            ceilings.append((allowed - denied) & NON_ADMIN)
+        ceiling = set(ceilings[0])
+        for permissions in ceilings[1:]:
+            ceiling.intersection_update(permissions)
+        ceiling.difference_update(json.loads(membership["denied_permissions"]))
+        return frozenset(ceiling)
+
+    def _held_permission_ceiling(
+        self, db: sqlite3.Connection, actor: Principal, project: str
+    ) -> frozenset[str]:
+        """Intersection of held roles' own permissions; never union for delegation."""
+        membership = self._membership(db, actor, project)
+        roles = self._held_roles(db, actor.id, project)
+        if not roles:
+            return frozenset()
+        ceilings = []
+        for role in roles:
+            allowed, denied = self._role_permissions(db, role, project)
+            ceilings.append(allowed - denied)
+        ceiling = set(ceilings[0])
+        for permissions in ceilings[1:]:
+            ceiling.intersection_update(permissions)
+        ceiling.difference_update(json.loads(membership["denied_permissions"]))
+        return frozenset(ceiling)
+
+    def add_role_holding(self, actor: Principal, project: str, username: str, role: str) -> None:
+        with self.db() as db:
+            if not db.execute("SELECT 1 FROM projects WHERE id=?", (project,)).fetchone():
+                fail(404, "プロジェクトが見つかりません")
+            if not actor.system_admin:
+                self.require(db, actor, project, "manage_members")
+                self._membership(db, actor, project)
+            target = db.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()
+            if not target:
+                fail(404, "利用者が見つかりません")
+            enabled = db.execute(
+                "SELECT enabled FROM users WHERE id=?", (target["id"],)
+            ).fetchone()[0]
+            if not enabled:
+                fail(409, "無効な利用者にはロールを割り当てられません")
+            if role == "system_admin":
+                fail(422, "システム管理者ロールは所属に設定できません")
+            allowed, denied = self._role_permissions(db, role, project)
+            if (
+                role not in ROLE_PERMISSIONS
+                and not db.execute(
+                    "SELECT 1 FROM roles WHERE id=? AND project_id=?", (role, project)
+                ).fetchone()
+            ):
+                fail(404, "ロールが見つかりません")
+            if (
+                (
+                    not actor.system_admin
+                    and (
+                        not allowed <= NON_ADMIN
+                        or not allowed <= self._held_permission_ceiling(db, actor, project)
+                    )
+                )
+                or (actor.system_admin and not allowed <= NON_ADMIN)
+                or not denied <= ALL_PERMISSIONS
+            ):
+                fail(422, "ロールの権限が本人の非管理委任上限を超えています")
+            db.execute(
+                "INSERT OR IGNORE INTO membership_roles (user_id,project_id,role) VALUES (?,?,?)",
+                (target["id"], project, role),
+            )
+            db.execute(
+                "INSERT OR IGNORE INTO memberships (user_id,project_id,role) VALUES (?,?,?)",
+                (target["id"], project, role),
+            )
+            self._audit(db, actor.id, "membership.role.assign", project + ":" + target["id"])
+
+    def remove_role_holding(self, actor: Principal, project: str, username: str, role: str) -> None:
+        with self.db() as db:
+            if not db.execute("SELECT 1 FROM projects WHERE id=?", (project,)).fetchone():
+                fail(404, "プロジェクトが見つかりません")
+            if not actor.system_admin:
+                self.require(db, actor, project, "manage_members")
+            target = db.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()
+            if not target:
+                fail(404, "利用者が見つかりません")
+            deleted = db.execute(
+                "DELETE FROM membership_roles WHERE user_id=? AND project_id=? AND role=?",
+                (target["id"], project, role),
+            ).rowcount
+            if not deleted:
+                fail(404, "ロール所属が見つかりません")
+            remaining = self._held_roles(db, target["id"], project)
+            if remaining:
+                db.execute(
+                    "UPDATE memberships SET role=? WHERE user_id=? AND project_id=?",
+                    (remaining[0], target["id"], project),
+                )
+                db.executemany(
+                    "INSERT OR IGNORE INTO membership_roles (user_id,project_id,role) "
+                    "VALUES (?,?,?)",
+                    ((target["id"], project, held_role) for held_role in remaining),
+                )
+            else:
+                db.execute(
+                    "DELETE FROM memberships WHERE user_id=? AND project_id=?",
+                    (target["id"], project),
+                )
+            self._audit(db, actor.id, "membership.role.remove", project + ":" + target["id"])
+
+    def set_membership_denials(
+        self, actor: Principal, project: str, username: str, denied_permissions: list[str]
+    ) -> list[str]:
+        with self.db() as db:
+            if not db.execute("SELECT 1 FROM projects WHERE id=?", (project,)).fetchone():
+                fail(404, "プロジェクトが見つかりません")
+            if not actor.system_admin:
+                self.require(db, actor, project, "manage_members")
+            target = db.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()
+            if (
+                not target
+                or not db.execute(
+                    "SELECT 1 FROM memberships WHERE user_id=? AND project_id=?",
+                    (target["id"] if target else "", project),
+                ).fetchone()
+            ):
+                fail(404, "所属が見つかりません")
+            if not set(denied_permissions) <= ALL_PERMISSIONS:
+                fail(422, "不明な権限です")
+            normalized = sorted(set(denied_permissions))
+            db.execute(
+                "UPDATE memberships SET denied_permissions=? WHERE user_id=? AND project_id=?",
+                (json.dumps(normalized), target["id"], project),
+            )
+            self._audit(db, actor.id, "membership.deny.update", project + ":" + target["id"])
+            return normalized
+
+    def _permission_ceiling_for_grantor(
+        self, db: sqlite3.Connection, grantor_id: str, project: str
+    ) -> frozenset[str]:
+        """Apply concurrent-role ceilings independently of the active holding union."""
+        roles = self._role_access(db, grantor_id, project)[2]
+        if not roles:
+            return frozenset()
+        permissions = self._permission_ceiling(db, Principal(grantor_id, "", False, False), project)
+        ceilings = []
+        for role in roles:
+            allowed, denied = self._role_permissions(db, role, project)
+            ceilings.append((allowed - denied) & NON_ADMIN)
+        ceiling = set(ceilings[0])
+        for role_ceiling in ceilings[1:]:
+            ceiling.intersection_update(role_ceiling)
+        membership = self._membership(db, Principal(grantor_id, "", False, False), project)
+        ceiling.difference_update(json.loads(membership["denied_permissions"]))
+        return frozenset(ceiling) & permissions
+
+    def create_delegation(
+        self,
+        actor: Principal,
+        session_token: str | None,
+        project: str,
+        recipient_id: str,
+        permissions: list[str],
+        ttl_seconds: int | None = None,
+    ) -> Json:
+        ttl = 86400 if ttl_seconds is None else ttl_seconds
+        if isinstance(ttl, bool) or not isinstance(ttl, int) or not 900 <= ttl <= 604800:
+            fail(422, "委任の有効期間は900〜604800秒です")
+        requested = set(permissions)
+        if (
+            not requested
+            or not requested <= ALL_PERMISSIONS
+            or not requested <= NON_ADMIN
+            or ("retrieve" in requested and "read" not in requested)
+        ):
+            fail(422, "委任する権限を確認してください")
+        with self.db() as db:
+            current = self._authenticate(db, session_token)
+            if current.id != actor.id:
+                fail(401, "ログインしてください")
+            self._limit("delegation-create:" + current.id, 20)
+            project_row = db.execute("SELECT id FROM projects WHERE id=?", (project,)).fetchone()
+            recipient = db.execute(
+                "SELECT id,enabled FROM users WHERE id=?", (recipient_id,)
+            ).fetchone()
+            if not project_row or not recipient or not recipient["enabled"]:
+                fail(404, "委任先またはプロジェクトが見つかりません")
+            if recipient["id"] == current.id:
+                fail(403, "自分自身には委任できません")
+            if not self._delegation_authority(db, current.id, project, requested):
+                fail(403, "委任する権限または管理権限がありません")
+            normalized = json.dumps(sorted(requested), separators=(",", ":"))
+            active_families = db.execute(
+                "SELECT g.id,g.expires,g.permissions FROM delegation_grants g "
+                "JOIN delegation_families f ON f.id=g.family_id "
+                "WHERE f.grantor_id=? AND f.recipient_id=? AND f.project_id=? "
+                "AND g.version=(SELECT MAX(x.version) FROM delegation_grants x "
+                "WHERE x.family_id=g.family_id)",
+                (current.id, recipient_id, project),
+            ).fetchall()
+            now = self._valid_delegation_now()
+            if now is None:
+                fail(503, "現在時刻を検証できないため委任を停止しました")
+            for active in active_families:
+                events = db.execute(
+                    "SELECT 1 FROM delegation_events WHERE grant_id=?", (active["id"],)
+                ).fetchone()
+                try:
+                    active_expires = float(active["expires"])
+                except (TypeError, ValueError):
+                    active_expires = float("nan")
+                if not events and (not math.isfinite(active_expires) or now >= active_expires):
+                    db.execute(
+                        "INSERT OR IGNORE INTO delegation_events "
+                        "(id,grant_id,event_type,actor_id,at) VALUES (?,?,?,?,?)",
+                        (uid(), active["id"], "expire", "system", now),
+                    )
+                    self._audit(db, "system", "delegation.expire", active["id"])
+            family = db.execute(
+                "SELECT id FROM delegation_families WHERE grantor_id=? AND recipient_id=? "
+                "AND project_id=? AND permissions=? ORDER BY created,id LIMIT 1",
+                (current.id, recipient_id, project, normalized),
+            ).fetchone()
+            if family:
+                active_family = db.execute(
+                    "SELECT g.id,g.expires,g.permissions FROM delegation_grants g "
+                    "WHERE g.family_id=? AND g.version=(SELECT MAX(version) "
+                    "FROM delegation_grants WHERE family_id=?)",
+                    (family["id"], family["id"]),
+                ).fetchone()
+                if active_family:
+                    try:
+                        active_expires = float(active_family["expires"])
+                        active_permissions = set(json.loads(active_family["permissions"]))
+                    except (TypeError, ValueError, json.JSONDecodeError):
+                        active_expires = float("nan")
+                        active_permissions = set()
+                    active_event = db.execute(
+                        "SELECT 1 FROM delegation_events WHERE grant_id=?",
+                        (active_family["id"],),
+                    ).fetchone()
+                    if (
+                        not active_event
+                        and math.isfinite(active_expires)
+                        and now < active_expires
+                        and active_permissions == requested
+                    ):
+                        return {
+                            "id": active_family["id"],
+                            "family_id": family["id"],
+                            "version": db.execute(
+                                "SELECT version FROM delegation_grants WHERE id=?",
+                                (active_family["id"],),
+                            ).fetchone()["version"],
+                            "expires": active_expires,
+                            "deduplicated": True,
+                        }
+            else:
+                previous_family = db.execute(
+                    "SELECT f.id,g.id AS grant_id,g.expires,g.permissions "
+                    "FROM delegation_families f JOIN delegation_grants g ON g.family_id=f.id "
+                    "WHERE f.grantor_id=? AND f.recipient_id=? AND f.project_id=? "
+                    "AND g.version=(SELECT MAX(version) FROM delegation_grants "
+                    "WHERE family_id=f.id) ORDER BY f.created DESC LIMIT 1",
+                    (current.id, recipient_id, project),
+                ).fetchone()
+                if previous_family:
+                    try:
+                        previous_expires = float(previous_family["expires"])
+                        previous_permissions = set(json.loads(previous_family["permissions"]))
+                    except (TypeError, ValueError, json.JSONDecodeError):
+                        previous_expires = float("nan")
+                        previous_permissions = set()
+                    previous_event = db.execute(
+                        "SELECT 1 FROM delegation_events WHERE grant_id=?",
+                        (previous_family["grant_id"],),
+                    ).fetchone()
+                    if (
+                        not previous_event
+                        and math.isfinite(previous_expires)
+                        and now < previous_expires
+                        and previous_permissions != requested
+                    ):
+                        fail(409, "有効中の委任の範囲または権限は変更できません")
+            if family:
+                family_id = family["id"]
+                prior = db.execute(
+                    "SELECT g.id,g.expires FROM delegation_grants g WHERE g.family_id=? "
+                    "AND g.version=(SELECT MAX(version) FROM delegation_grants WHERE family_id=?)",
+                    (family_id, family_id),
+                ).fetchone()
+                if prior:
+                    events = db.execute(
+                        "SELECT 1 FROM delegation_events WHERE grant_id=?", (prior["id"],)
+                    ).fetchone()
+                    now = self._valid_delegation_now()
+                    if now is None:
+                        fail(503, "現在時刻を検証できないため委任を停止しました")
+                    try:
+                        prior_expires = float(prior["expires"])
+                    except (TypeError, ValueError):
+                        prior_expires = float("nan")
+                    if not events and math.isfinite(prior_expires) and prior_expires > now:
+                        return {
+                            "id": prior["id"],
+                            "family_id": family_id,
+                            "version": db.execute(
+                                "SELECT version FROM delegation_grants WHERE id=?",
+                                (prior["id"],),
+                            ).fetchone()["version"],
+                            "expires": prior["expires"],
+                            "deduplicated": True,
+                        }
+                    if not events:
+                        db.execute(
+                            "INSERT OR IGNORE INTO delegation_events "
+                            "(id,grant_id,event_type,actor_id,at) VALUES (?,?,?,?,?)",
+                            (uid(), prior["id"], "supersede", current.id, now),
+                        )
+                        self._audit(db, current.id, "delegation.supersede", prior["id"])
+                    version = db.execute(
+                        "SELECT COALESCE(MAX(version),0)+1 FROM delegation_grants "
+                        "WHERE family_id=?",
+                        (family_id,),
+                    ).fetchone()[0]
+                else:
+                    version = 1
+            else:
+                family_id = uid()
+                version = 1
+                now = self._delegation_now()
+                db.execute(
+                    "INSERT INTO delegation_families "
+                    "(id,grantor_id,recipient_id,project_id,permissions,created) "
+                    "VALUES (?,?,?,?,?,?)",
+                    (family_id, current.id, recipient_id, project, normalized, now),
+                )
+            now = self._valid_delegation_now()
+            if now is None:
+                fail(503, "現在時刻を検証できないため委任を停止しました")
+            grant_id = uid()
+            expires = now + ttl
+            if not math.isfinite(expires) or expires <= now:
+                fail(503, "現在時刻を検証できないため委任を停止しました")
+            if family:
+                previous = db.execute(
+                    "SELECT g.id,g.expires,g.permissions FROM delegation_grants g "
+                    "WHERE g.family_id=? AND g.version=(SELECT MAX(version) "
+                    "FROM delegation_grants WHERE family_id=?)",
+                    (family_id, family_id),
+                ).fetchone()
+                if previous:
+                    prior_expires = float(previous["expires"])
+                    prior_permissions = json.loads(previous["permissions"])
+                    if (
+                        math.isfinite(prior_expires)
+                        and now < prior_expires
+                        and prior_permissions != sorted(requested)
+                    ):
+                        fail(409, "有効中の委任の権限は変更できません")
+                    if not db.execute(
+                        "SELECT 1 FROM delegation_events WHERE grant_id=?", (previous["id"],)
+                    ).fetchone():
+                        db.execute(
+                            "INSERT INTO delegation_events "
+                            "(id,grant_id,event_type,actor_id,at) VALUES (?,?,?,?,?)",
+                            (uid(), previous["id"], "supersede", current.id, now),
+                        )
+                        self._audit(db, current.id, "delegation.supersede", previous["id"])
+            db.execute(
+                "INSERT INTO delegation_grants "
+                "(id,family_id,version,permissions,created,expires) VALUES (?,?,?,?,?,?)",
+                (grant_id, family_id, version, normalized, now, expires),
+            )
+            self._audit(db, current.id, "delegation.grant", grant_id)
+            return {
+                "id": grant_id,
+                "family_id": family_id,
+                "version": version,
+                "expires": expires,
+                "deduplicated": False,
+            }
+
+    def _end_delegation(
+        self,
+        actor: Principal,
+        session_token: str | None,
+        grant_id: str,
+        event_type: str,
+    ) -> Json:
+        with self.db() as db:
+            current = self._authenticate(db, session_token)
+            if current.id != actor.id:
+                fail(401, "ログインしてください")
+            self._limit("delegation-end:" + current.id, 30)
+            grant = db.execute(
+                "SELECT g.id,g.family_id,f.grantor_id,f.recipient_id "
+                "FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id "
+                "WHERE g.id=?",
+                (grant_id,),
+            ).fetchone()
+            if not grant:
+                fail(404, "委任が見つかりません")
+            authorized = (
+                current.id == grant["grantor_id"]
+                if event_type == "revoke"
+                else current.id == grant["recipient_id"]
+            )
+            if not authorized:
+                fail(404, "委任が見つかりません")
+            existing = db.execute(
+                "SELECT 1 FROM delegation_events WHERE grant_id=?", (grant_id,)
+            ).fetchone()
+            if not existing:
+                now = self._valid_delegation_now()
+                if now is None:
+                    fail(503, "現在時刻を検証できないため委任を停止しました")
+                db.execute(
+                    "INSERT OR IGNORE INTO delegation_events "
+                    "(id,grant_id,event_type,actor_id,at) VALUES (?,?,?,?,?)",
+                    (uid(), grant_id, event_type, current.id, now),
+                )
+                self._audit(db, current.id, f"delegation.{event_type}", grant_id)
+                changed = True
+            else:
+                self._audit(db, current.id, f"delegation.{event_type}", grant_id, "already_ended")
+                changed = False
+            return {"id": grant_id, "ended": True, "changed": changed}
+
+    def delegations(self, actor: Principal, session_token: str | None) -> list[Json]:
+        with self.db() as db:
+            current = self._authenticate(db, session_token)
+            if current.id != actor.id:
+                fail(401, "ログインしてください")
+            self._limit("delegation-list:" + current.id, 60)
+            stale = db.execute(
+                "SELECT g.id,g.expires,f.grantor_id,f.project_id,f.permissions "
+                "FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id "
+                "WHERE g.version=(SELECT MAX(x.version) FROM delegation_grants x "
+                "WHERE x.family_id=g.family_id)"
+            ).fetchall()
+            now = self._valid_delegation_now()
+            if now is None:
+                fail(503, "現在時刻を検証できないため委任を停止しました")
+            for grant in stale:
+                try:
+                    expires = float(grant["expires"])
+                    permissions = set(json.loads(grant["permissions"]))
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    event_type = "invalidate"
+                else:
+                    if not math.isfinite(expires) or now >= expires:
+                        event_type = "expire"
+                    elif not self._delegation_authority(
+                        db, grant["grantor_id"], grant["project_id"], permissions
+                    ):
+                        event_type = "invalidate"
+                    else:
+                        continue
+                inserted = db.execute(
+                    "INSERT OR IGNORE INTO delegation_events "
+                    "(id,grant_id,event_type,actor_id,at) VALUES (?,?,?,?,?)",
+                    (uid(), grant["id"], event_type, "system", now),
+                ).rowcount
+                if inserted:
+                    self._audit(db, "system", f"delegation.{event_type}", grant["id"])
+            rows = db.execute(
+                "SELECT g.id,g.family_id,g.version,g.permissions,g.created,g.expires,"
+                "f.grantor_id,f.recipient_id,f.project_id "
+                "FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id "
+                "WHERE f.grantor_id=? OR f.recipient_id=? ORDER BY g.created DESC,g.id",
+                (current.id, current.id),
+            ).fetchall()
+            results: list[Json] = []
+            now = self._valid_delegation_now()
+            if now is None:
+                fail(503, "現在時刻を検証できないため委任を停止しました")
+            for row in rows:
+                events = db.execute(
+                    "SELECT event_type,at,actor_id FROM delegation_events "
+                    "WHERE grant_id=? ORDER BY at,event_type",
+                    (row["id"],),
+                ).fetchall()
+                current_version = db.execute(
+                    "SELECT MAX(version) FROM delegation_grants WHERE family_id=?",
+                    (row["family_id"],),
+                ).fetchone()[0]
+                try:
+                    expires = float(row["expires"])
+                except (TypeError, ValueError):
+                    expires = float("nan")
+                status = (
+                    "ended"
+                    if events
+                    else "expired"
+                    if not math.isfinite(expires) or now >= expires
+                    else "active"
+                    if row["version"] == current_version
+                    else "superseded"
+                )
+                results.append(
+                    {
+                        "id": row["id"],
+                        "family_id": row["family_id"],
+                        "version": row["version"],
+                        "project_id": row["project_id"],
+                        "grantor_id": row["grantor_id"],
+                        "recipient_id": row["recipient_id"],
+                        "permissions": json.loads(row["permissions"]),
+                        "created": row["created"],
+                        "expires": row["expires"],
+                        "status": status,
+                        "events": [
+                            {
+                                "type": event["event_type"],
+                                "at": event["at"],
+                                "actor_id": event["actor_id"],
+                            }
+                            for event in events
+                        ],
+                    }
+                )
+            return results
+
+    def revoke_delegation(self, actor: Principal, session_token: str | None, grant_id: str) -> Json:
+        return self._end_delegation(actor, session_token, grant_id, "revoke")
+
+    def cancel_delegation(self, actor: Principal, session_token: str | None, grant_id: str) -> Json:
+        return self._end_delegation(actor, session_token, grant_id, "cancel")
 
     def require(
         self, db: sqlite3.Connection, actor: Principal, project: str, permission: str
@@ -516,9 +1716,42 @@ class Service:
                 (actor.id,),
             ).fetchall()
             return [
-                {**dict(row), "permissions": sorted(self._permissions(db, actor, row["id"]))}
+                {
+                    **dict(row),
+                    "roles": self._held_roles(db, actor.id, row["id"]),
+                    "permissions": sorted(self._permissions(db, actor, row["id"])),
+                }
                 for row in rows
             ]
+
+    def membership_roles(self, actor: Principal, project: str, username: str) -> Json:
+        with self.db() as db:
+            if not db.execute("SELECT 1 FROM projects WHERE id=?", (project,)).fetchone():
+                fail(404, "プロジェクトが見つかりません")
+            if not actor.system_admin:
+                self.require(db, actor, project, "manage_members")
+            target = db.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()
+            if not target:
+                fail(404, "所属が見つかりません")
+            membership = db.execute(
+                "SELECT denied_permissions FROM memberships WHERE user_id=? AND project_id=?",
+                (target["id"], project),
+            ).fetchone()
+            if not membership:
+                fail(404, "所属が見つかりません")
+            return {
+                "username": username,
+                "project_id": project,
+                "roles": self._held_roles(db, target["id"], project),
+                "denied_permissions": json.loads(membership["denied_permissions"]),
+                "effective_permissions": sorted(
+                    self._permissions(
+                        db,
+                        Principal(target["id"], username, False, False),
+                        project,
+                    )
+                ),
+            }
 
     def _conversation(
         self, db: sqlite3.Connection, actor: Principal, conversation: str
@@ -548,9 +1781,10 @@ class Service:
                 row["owner_id"] == actor.id
                 and (row["kind"] != "attachment" or row["conversation_id"] == conversation)
             )
-        membership = self._membership(db, actor, row["project_id"])
+        self._membership(db, actor, row["project_id"])
+        held_roles = set(self._held_roles(db, actor.id, row["project_id"]))
         return any(
-            g["role"] == membership["role"] and operation in g["operations"]
+            g["role"] in held_roles and operation in g["operations"]
             for g in json.loads(row["grants"])
         )
 
@@ -1001,6 +2235,22 @@ class Service:
             ]
             return {**dict(conv), "messages": messages, "attachments": attachments}
 
+    def _cancel_chat_if_requested(self, db: sqlite3.Connection, job: str) -> bool:
+        row = db.execute(
+            "SELECT user_id FROM chat_jobs WHERE id=? AND status='running' AND cancel_requested=1",
+            (job,),
+        ).fetchone()
+        if not row:
+            return False
+        changed = db.execute(
+            "UPDATE chat_jobs SET status='cancelled',updated=?,detail=?,message_id=NULL "
+            "WHERE id=? AND status='running' AND cancel_requested=1",
+            (time.time(), "質問を取り消しました", job),
+        ).rowcount
+        if changed:
+            self._audit(db, row["user_id"], "chat.cancelled", job)
+        return bool(changed)
+
     def send(
         self,
         actor: Principal,
@@ -1013,7 +2263,8 @@ class Service:
         validate: Callable[[], None] | None = None,
         token: str | None = None,
         charge_limit: bool = True,
-    ) -> Json:
+        chat_job_id: str | None = None,
+    ) -> Json | None:
         if scope not in {"all", "shared", "personal"}:
             fail(422, "参照範囲を確認してください")
         with self.db() as db:
@@ -1064,6 +2315,28 @@ class Service:
                     fail(401, "ログインしてください")
                 if validate:
                     validate()
+        # Honor cancellation before model dispatch, but never interrupt an HTTP
+        # request once started. The final transaction arbitrates racing completion.
+        if generate and citations and chat_job_id:
+            with self.db() as db:
+                if self._cancel_chat_if_requested(db, chat_job_id):
+                    return None
+        # Recheck immediately before dispatch: revocation/expiry between initial
+        # retrieval and the external model call must not expose stale citations.
+        if generate and citations:
+            with self.db() as db:
+                current = self._authenticate(db, token)
+                if current.id != actor.id:
+                    fail(401, "ログインしてください")
+                self._conversation(db, current, conversation)
+                for document in attachments:
+                    attached = self._document(db, current, document, conversation)
+                    if attached["kind"] != "attachment" or attached["status"] != "ready":
+                        fail(409, "添付の権限または状態が変わりました")
+                if validate:
+                    validate()
+                if self._citations(db, current, ids, conversation) != citations:
+                    fail(409, "参照資料の権限または内容が変わりました")
         # Never hold the database transaction during model I/O.
         generated = generate(text, citations) if generate and citations else None
         with self.db() as db:
@@ -1072,10 +2345,25 @@ class Service:
                 current = self._authenticate(db, token)
                 if current.id != actor.id:
                     fail(401, "ログインしてください")
+                self._conversation(db, current, conversation)
+                for document in attachments:
+                    attached = self._document(db, current, document, conversation)
+                    if attached["kind"] != "attachment" or attached["status"] != "ready":
+                        fail(409, "添付の権限または状態が変わりました")
                 if validate:
                     validate()
                 if self._citations(db, current, ids, conversation) != citations:
                     fail(409, "参照資料の権限または内容が変わりました")
+            if chat_job_id:
+                job_row = db.execute(
+                    "SELECT status,cancel_requested FROM chat_jobs WHERE id=? AND user_id=?",
+                    (chat_job_id, actor.id),
+                ).fetchone()
+                if not job_row or job_row["status"] != "running":
+                    return None
+                if job_row["cancel_requested"]:
+                    self._cancel_chat_if_requested(db, chat_job_id)
+                    return None
             if (
                 db.execute(
                     "SELECT COUNT(*) FROM messages WHERE conversation_id=?", (conversation,)
@@ -1090,6 +2378,15 @@ class Service:
             )
             if generated:
                 db.execute("INSERT INTO generated_answers VALUES (?,?,?)", (message, *generated))
+            if chat_job_id:
+                changed = db.execute(
+                    "UPDATE chat_jobs SET status='done',updated=?,detail='',message_id=? "
+                    "WHERE id=? AND status='running' AND cancel_requested=0",
+                    (time.time(), message, chat_job_id),
+                ).rowcount
+                if not changed:
+                    fail(409, "質問の状態が変わりました")
+                self._audit(db, "worker", "chat.done", chat_job_id)
             self._audit(db, actor.id, "retrieval.complete", conversation)
             return {
                 "id": message,
@@ -1204,13 +2501,20 @@ class Service:
             if not row:
                 fail(404, "質問が見つかりません")
             if row["status"] == "queued" and time.time() - row["created"] > CHAT_WAIT_SECONDS:
-                db.execute(
-                    "UPDATE chat_jobs SET status='failed',updated=?,detail=? WHERE id=?",
-                    (time.time(), "対話の待機上限を超えました。再度送信してください", job),
-                )
-                self._audit(db, actor.id, "chat.expired", job)
-                with self.chat_dispatch_lock:
-                    self.chat_dispatch.pop(job, None)
+                changed = db.execute(
+                    "UPDATE chat_jobs SET status='failed',updated=?,detail=? "
+                    "WHERE id=? AND user_id=? AND status='queued'",
+                    (
+                        time.time(),
+                        "対話の待機上限を超えました。再度送信してください",
+                        job,
+                        actor.id,
+                    ),
+                ).rowcount
+                if changed:
+                    self._audit(db, actor.id, "chat.expired", job)
+                    with self.chat_dispatch_lock:
+                        self.chat_dispatch.pop(job, None)
                 row = db.execute("SELECT * FROM chat_jobs WHERE id=?", (job,)).fetchone()
             return {
                 "id": row["id"],
@@ -1218,27 +2522,44 @@ class Service:
                 "status": row["status"],
                 "detail": row["detail"],
                 "message_id": row["message_id"],
+                "cancel_requested": bool(row["cancel_requested"]),
                 "created": row["created"],
             }
 
     def cancel_chat_job(self, actor: Principal, job: str) -> None:
-        """Cancel a queued question. A running request is reported, not interrupted."""
+        """Request cooperative cancellation without interrupting an in-flight model call."""
+        remove_dispatch = False
         with self.db() as db:
+            self._limit("chatjob:" + actor.id, 120)
             row = db.execute(
-                "SELECT * FROM chat_jobs WHERE id=? AND user_id=?", (job, actor.id)
+                "SELECT status,cancel_requested FROM chat_jobs WHERE id=? AND user_id=?",
+                (job, actor.id),
             ).fetchone()
             if not row:
                 fail(404, "質問が見つかりません")
-            if row["status"] == "running":
-                fail(409, "回答の生成中です。完了までお待ちください")
-            if row["status"] != "queued":
+            if row["status"] == "queued":
+                changed = db.execute(
+                    "UPDATE chat_jobs SET status='cancelled',updated=?,detail=?,message_id=NULL "
+                    "WHERE id=? AND user_id=? AND status='queued'",
+                    (time.time(), "質問を取り消しました", job, actor.id),
+                ).rowcount
+                if changed:
+                    self._audit(db, actor.id, "chat.cancel", job)
+                    remove_dispatch = True
+            elif row["status"] == "running":
+                if not row["cancel_requested"]:
+                    changed = db.execute(
+                        "UPDATE chat_jobs SET cancel_requested=1,updated=? "
+                        "WHERE id=? AND user_id=? AND status='running' AND cancel_requested=0",
+                        (time.time(), job, actor.id),
+                    ).rowcount
+                    if changed:
+                        self._audit(db, actor.id, "chat.cancel.requested", job)
+            elif row["status"] != "cancelled":
                 fail(409, "処理済みの質問です")
-            db.execute(
-                "UPDATE chat_jobs SET status='cancelled',updated=? WHERE id=?", (time.time(), job)
-            )
-            self._audit(db, actor.id, "chat.cancel", job)
-        with self.chat_dispatch_lock:
-            self.chat_dispatch.pop(job, None)
+        if remove_dispatch:
+            with self.chat_dispatch_lock:
+                self.chat_dispatch.pop(job, None)
 
     def process_next_chat(self) -> bool:
         """Run at most one queued dialogue; called by the background worker loop."""
@@ -1268,7 +2589,7 @@ class Service:
         job_id = row["id"]
         try:
             principal = self.authenticate(dispatch.token)
-            result = self.send(
+            self.send(
                 principal,
                 row["conversation_id"],
                 row["text"],
@@ -1280,17 +2601,24 @@ class Service:
                 # Submission already charged the per-user limit; worker retries
                 # must not consume it again while they wait for the slot.
                 charge_limit=False,
+                chat_job_id=job_id,
             )
         except ModelBusy:
-            # The slot was taken between pickup and dispatch: return to the line
-            # in arrival order without consuming the job; the wait deadline set
-            # at submission still applies on later ticks.
+            # No HTTP request started. Requeue only if cancellation did not win.
             with self.db() as db:
-                db.execute(
+                changed = db.execute(
                     "UPDATE chat_jobs SET status='queued',updated=? "
-                    "WHERE id=? AND status='running'",
+                    "WHERE id=? AND status='running' AND cancel_requested=0",
                     (time.time(), job_id),
-                )
+                ).rowcount
+                cancelled = False if changed else self._cancel_chat_if_requested(db, job_id)
+            if cancelled:
+                with self.chat_dispatch_lock:
+                    self.chat_dispatch.pop(job_id, None)
+                return True
+            if not changed:
+                self._finish_chat(job_id, "failed", "対話の実行状態を確認できませんでした")
+                return True
             return False
         except HTTPException as exc:
             detail = (
@@ -1303,7 +2631,10 @@ class Service:
         except Exception:
             self._finish_chat(job_id, "failed", "対話の処理中に問題が発生しました")
             return True
-        self._finish_chat(job_id, "done", "", result["id"])
+        # send() commits completion with its answer atomically; a cancellation
+        # winner commits no message. Drop the process-local dispatch either way.
+        with self.chat_dispatch_lock:
+            self.chat_dispatch.pop(job_id, None)
         return True
 
     def _fail_chat(self, db: sqlite3.Connection, job: str, detail: str) -> None:
@@ -1320,13 +2651,22 @@ class Service:
 
     def _finish_chat(self, job: str, status: str, detail: str, message: str | None = None) -> None:
         with self.db() as db:
-            changed = db.execute(
-                "UPDATE chat_jobs SET status=?,updated=?,detail=?,message_id=? WHERE id=?",
-                (status, time.time(), detail, message, job),
-            ).rowcount
-            if changed:
-                # A vanished row (conversation cascade) is not a state change.
-                self._audit(db, "worker", f"chat.{status}", job)
+            row = db.execute(
+                "SELECT cancel_requested FROM chat_jobs WHERE id=? AND status='running'",
+                (job,),
+            ).fetchone()
+            if not row:
+                changed = 0
+            elif row["cancel_requested"]:
+                changed = self._cancel_chat_if_requested(db, job)
+            else:
+                changed = db.execute(
+                    "UPDATE chat_jobs SET status=?,updated=?,detail=?,message_id=? "
+                    "WHERE id=? AND status='running' AND cancel_requested=0",
+                    (status, time.time(), detail, message, job),
+                ).rowcount
+                if changed:
+                    self._audit(db, "worker", f"chat.{status}", job)
         with self.chat_dispatch_lock:
             self.chat_dispatch.pop(job, None)
 
@@ -1339,36 +2679,70 @@ class Service:
                     for name, permissions in ROLE_PERMISSIONS.items()
                 ],
                 "custom": [
-                    {**dict(row), "permissions": json.loads(row["permissions"])}
+                    {
+                        **{key: row[key] for key in row.keys() if key != "denied_permissions"},
+                        "permissions": json.loads(row["permissions"]),
+                        **(
+                            {"denied_permissions": json.loads(row["denied_permissions"])}
+                            if json.loads(row["denied_permissions"])
+                            else {}
+                        ),
+                    }
                     for row in db.execute("SELECT * FROM roles WHERE project_id=?", (project,))
                 ],
-                "allowed_permissions": sorted(self._permissions(db, actor, project) & NON_ADMIN),
+                "allowed_permissions": sorted(self._permission_ceiling(db, actor, project)),
             }
 
     def create_role(
-        self, actor: Principal, project: str, name: str, permissions: list[str]
+        self,
+        actor: Principal,
+        project: str,
+        name: str,
+        permissions: list[str],
+        denied_permissions: list[str] | None = None,
     ) -> Json:
         with self.db() as db:
             self.require(db, actor, project, "manage_roles")
-            if not set(permissions) <= NON_ADMIN or not set(permissions) <= self._permissions(
-                db, actor, project
-            ):
-                fail(422, "本人の許可範囲内の非管理権限だけを指定できます")
+            if not set(permissions) <= NON_ADMIN or not set(
+                permissions
+            ) <= self._permission_ceiling(db, actor, project):
+                fail(422, "本人の委任上限内の非管理権限だけを指定できます")
+            denied = set(denied_permissions or [])
+            if not denied <= ALL_PERMISSIONS:
+                fail(422, "不明な拒否権限です")
+            # Denials only remove permissions, so any known permission may be denied;
+            # the non-admin ceiling applies to grants, not to reductions in access.
             if "retrieve" in permissions and "read" not in permissions:
                 fail(422, "チャット参照には閲覧権限も必要です")
             role_id = uid()
             try:
                 db.execute(
-                    "INSERT INTO roles VALUES (?,?,?,?)",
-                    (role_id, project, name, json.dumps(sorted(set(permissions)))),
+                    "INSERT INTO roles (id,project_id,name,permissions,denied_permissions) "
+                    "VALUES (?,?,?,?,?)",
+                    (
+                        role_id,
+                        project,
+                        name,
+                        json.dumps(sorted(set(permissions))),
+                        json.dumps(sorted(denied)),
+                    ),
                 )
             except sqlite3.IntegrityError:
                 fail(409, "ロール名は使用済みです")
             self._audit(db, actor.id, "role.create", role_id)
-            return {"id": role_id, "name": name, "permissions": sorted(set(permissions))}
+            result = {"id": role_id, "name": name, "permissions": sorted(set(permissions))}
+            if denied:
+                result["denied_permissions"] = sorted(denied)
+            return result
 
     def update_role(
-        self, actor: Principal, project: str, role_id: str, name: str, permissions: list[str]
+        self,
+        actor: Principal,
+        project: str,
+        role_id: str,
+        name: str,
+        permissions: list[str],
+        denied_permissions: list[str] | None = None,
     ) -> Json:
         with self.db() as db:
             self.require(db, actor, project, "manage_roles")
@@ -1379,21 +2753,42 @@ class Service:
                 ).fetchone()
             ):
                 fail(404, "ロールが見つかりません")
-            if not set(permissions) <= NON_ADMIN or not set(permissions) <= self._permissions(
-                db, actor, project
-            ):
-                fail(422, "本人の許可範囲内の非管理権限だけを指定できます")
+            if not set(permissions) <= NON_ADMIN or not set(
+                permissions
+            ) <= self._permission_ceiling(db, actor, project):
+                fail(422, "本人の委任上限内の非管理権限だけを指定できます")
+            existing = db.execute(
+                "SELECT denied_permissions FROM roles WHERE id=? AND project_id=?",
+                (role_id, project),
+            ).fetchone()
+            denied = set(
+                json.loads(existing["denied_permissions"])
+                if denied_permissions is None
+                else denied_permissions
+            )
+            if not denied <= ALL_PERMISSIONS:
+                fail(422, "不明な拒否権限です")
             if "retrieve" in permissions and "read" not in permissions:
                 fail(422, "チャット参照には閲覧権限も必要です")
             try:
                 db.execute(
-                    "UPDATE roles SET name=?,permissions=? WHERE id=? AND project_id=?",
-                    (name, json.dumps(sorted(set(permissions))), role_id, project),
+                    "UPDATE roles SET name=?,permissions=?,denied_permissions=? "
+                    "WHERE id=? AND project_id=?",
+                    (
+                        name,
+                        json.dumps(sorted(set(permissions))),
+                        json.dumps(sorted(denied)),
+                        role_id,
+                        project,
+                    ),
                 )
             except sqlite3.IntegrityError:
                 fail(409, "ロール名は使用済みです")
             self._audit(db, actor.id, "role.update", role_id)
-            return {"id": role_id, "name": name, "permissions": sorted(set(permissions))}
+            result = {"id": role_id, "name": name, "permissions": sorted(set(permissions))}
+            if denied:
+                result["denied_permissions"] = sorted(denied)
+            return result
 
     def record_model_discovery(self, actor: Principal, complete: bool) -> None:
         if not actor.system_admin:

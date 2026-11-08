@@ -6,10 +6,94 @@ Date: 2026-10-31. This tracks implementation progress, not production approval. 
 |---|---|---|
 | 0 Bootstrap | Python/FastAPI and React/TS/Vite/Tailwind, locked dependencies, lint/types/unit/integration/browser checks, offline secret scan, package audits, CI files, local scripts, ADR/risk/usage records | Remote CI/branch protection/trusted review integration; host-enforced reviewer restrictions unavailable |
 | 1 Authentication | Interactive local provisioning, unique IDs, Argon2id, expiring single-use temporary credentials, enforced first-login rotation, opaque digested sessions, idle/absolute expiry, revocation on change/logout, rate limits; admin-issued digest-only single-use recovery (24-hour expiry, all sessions revoked on redemption); web user provisioning (generated temporary password shown once, forced first-login rotation); web enable/disable (disabling purges sessions) | MFA; production TLS/session deployment policy approval and actual deployment validation |
-| 2 Scoped authorization | Project and organization identity, backend permission templates, per-project membership, private documents/history/attachments, live document-role grants, deny-by-default API tests | Production data model and delegation semantics; live delegation remains disabled |
+| 2 Scoped authorization | Project and organization identity, backend permission templates, per-project membership, private documents/history/attachments, live document-role grants, deny-by-default API tests, concurrent role holdings (兼任 union) with explicit deny override (PH2-B `10ee9c4`), admin project/member/storage/load screens (P4B `b8bae86`) with combined-role/denial/effective-permission management UI (PH2-E `9738ca2`), owner-approved time-limited delegation grants with live expiry enforcement replacing the 409 placeholder (PH2-D `55d1c39`→`3150f6b`), storage-destination ACL research note (PH2-C `0e06107`) | Delegation grant/revoke UI screens NOT implemented (backend APIs exist) — tracked remaining Phase-2 web item; org-wide delegation deferred by owner decision (project-scoped only); 元保存先ACL対応 implementation planning open/要決定 (research delivered); production data model/deployment items deferred per owner decisions and tracked in FINAL_ACCEPTANCE_CRITERIA.md |
 | 3 Ingestion and retrieval | Bounded text ingestion, source/page/chunk metadata, queue/cancel, scanner default quarantine, synthetic-only successful seed path, lexical search, live permission checks, derived-data deletion | Approved scanner/parser sandbox, PDF/OCR, storage connectors, approved DB/vector/model adapters, resumable distributed jobs |
-| 4 Researcher/admin UI | Approved sidebar/chat/composer/icon baseline, accessible navigation, IME handling, file/drop shared path, status/removal, project/reference scope, actual source viewer, owner history, mobile checks | Actual local LLM streaming, representative-user usability and accessibility audit beyond current checks |
-| 5 Roles/audit and optional extensions | Project role template cloning with permission ceiling, chips and scope preview, document publication preview, metadata-only audit, user listing | Live delegation explicitly disabled; GraphRAG, plots and cloud adapter deferred until their data/model/provider requirements are approved |
+| 4 Researcher/admin UI | Approved sidebar/chat/composer/icon baseline, accessible navigation, IME handling, file/drop shared path, status/removal, project/reference scope, actual source viewer, owner history, mobile checks; all five owner-approved Phase-4 remainder priorities integrated (running-question cancellation `5a7848c`; project/storage settings + load display `b8bae86`; structured comparison tables `c381023`; destructive-operation confirmations `a30ec52`) | Phase 4 is NOT declared complete. Actual local LLM streaming, representative-user usability and accessibility audit beyond current checks, measured representative concurrency/capacity, priority/fairness, and other original requirements remain. Production items stay deferred as recorded. |
+| 5 Roles/audit and optional extensions | Project role template cloning with permission ceiling, chips and scope preview, document publication preview, metadata-only audit, user listing. Phase-2 update (2026-11-09): time-limited delegation is implemented in the backend (PH2-D); its grant/revoke UI screens remain a tracked remaining item | GraphRAG, plots and cloud adapter deferred until their data/model/provider requirements are approved |
+
+## Phase-4 remainder integration and review evidence — 2026-11-08
+
+All five owner-approved Phase-4 remainder priorities are implemented and
+integrated with these source commits: (1) running-question cooperative
+cancellation `5a7848c`; (2) project/storage settings and (3) load display
+`b8bae86`; (4) structured comparison tables `c381023`; (5) destructive-operation
+target confirmations `a30ec52`. The independent aggregate review PH4-RV returned
+**accept after minor fixes**. Its conditions are reconciled in this fix cycle;
+this is not a claim that all Phase-4 product requirements or production work are
+complete.
+
+Integrated HEAD `183ccc31211f18570229dbb94985b7c3c26a7f6c` passed Prototype
+quality (run `42444300133`), Loop engine checks (run `42444300019`, all four
+matrix jobs), and PR title convention (run `42444300016`). P4D integrated HEAD
+`a30ec5227b754f7d0d480d5a8ed3307e4d0d51b6` passed Prototype quality
+(`42443623239`), Loop engine checks (`42443623273`, all four matrix jobs), and
+PR title convention (`42443623262`). The P4D feature branch at
+`5d779b316bdcb9a12b6b7d38b70566c400692f62` passed Prototype quality
+(`42441474907`), title convention (`42441474829`), and Loop engine checks on
+attempt 2 (`42441474871`). The first Windows/3.11 racing-controller failure
+was a transient flake; the same-SHA rerun passed without a code change. This is
+not a repair-based pass or an inferred result from a different SHA.
+
+The PH4-FIX fix-cycle implementation `6d03c7ab1a5a70eb9fa2758741f9c32697d7bccd`
+passed local QA (pytest 1145 passed/18 skipped; Ruff check/format; mypy; secret
+scan 0; frontend lint, 63 Vitest tests, build, and 12 Playwright tests). Its exact
+branch-head CI passed Prototype quality (`42446611321`), Loop engine checks
+(`42446611336`, all four matrix jobs), and PR title convention (`42446611259`).
+The display-only regression leaves server-facing data unchanged. A fully
+recreated Python 3.13 QA venv imported `_cffi_backend` and ran Playwright
+successfully.
+
+Production deployment, production storage, real-data validation, broader
+security/operations acceptance, and remaining product requirements stay
+deferred/open. No production or full Phase-4 completion claim is made.
+
+## Phase 2 completion declaration (verified scope) — 2026-11-09
+
+Phase 2 (認可・管理) is declared COMPLETE within the owner-approved prototype
+scope, based on the PH2-CA completion audit (2026-11-09). Evidence:
+
+- Features integrated into `loop/local-development`: concurrent role holdings
+  (union) and explicit deny (`10ee9c4`), admin project/member/storage/load
+  screens (`b8bae86`), combined-role/denial/effective-permission management UI
+  (`9738ca2`), storage-destination ACL research note (`0e06107`), and
+  owner-approved time-limited delegation grants with live expiry enforcement
+  (`55d1c39`, integrated `3150f6b`), replacing the disabled 409 placeholder.
+- Owner decisions recorded 2026-11-09: all 12 delegation-spec items approved
+  with binding conditions (TTL 24h default/7d max/15m min, live revalidation;
+  grantors = project owner + org admin; family/version re-grant; org-wide
+  grants deferred); MFA confirmed required for the final product with the
+  prototype deferral standing; post-phase automatic main integration adopted.
+- Audit verification at base `a473bf6` — identical to `5dceb62` except for
+  that commit's docs-only ledger addition (qa-venv Python 3.13):
+  full pytest **1156 passed / 18 skipped** (1174 collected); Ruff check clean;
+  Ruff format check 128 files already formatted; mypy `backend/app` 9 files
+  clean; offline secret scan 0 findings. New regressions cover delegation
+  (grant/expiry/subset/self-escalation/revocation/family rules/membership
+  gate), concurrent-roles union + deny precedence, and the admin UI flows
+  (`tests/test_delegations.py` 10, `tests/test_concurrent_roles.py` 8,
+  `tests/test_admin_project_storage_load.py` additions).
+- Hosted CI at the exact integrated heads: `a473bf6`
+  (quality 42461797597, engine 42461797637, title 42461797601) and `5dceb62`
+  (quality 42461848831, engine 42461848837 four-matrix, title 42461848840) —
+  all green; each feature branch was CI-green at its own implementation SHA
+  before integration (evidence in the per-task files).
+
+NOT claimed / explicitly remaining: the delegation grant/revoke UI screens are
+NOT implemented (backend APIs exist; tracked remaining Phase-2 web item);
+org-wide delegation is deferred by owner decision; 元保存先ACL対応
+implementation planning remains open/要決定 (research note only); production
+items (TLS, MFA, LAN deployment, production DB, delegation retention) remain
+deferred per owner decisions and tracked in FINAL_ACCEPTANCE_CRITERIA.md.
+Observation: prior local full-suite runs showed a recurring load-flake in
+`tests/integration/test_trial_input_native_v2.py` (with
+`test_notification_native.py`); those tests pass in isolation and in the hosted
+four-matrix CI, and in this audit's local run they were collected but skipped
+as environment-gated (pinned native CLI not provisioned). This is recorded as
+an observation, not a pass/fail claim.
+
+NEXT GATE: the aggregate independent review of the integrated Phase-2 state is
+the next gate before any main integration (owner-adopted B-2 mechanism). Its
+result is not pre-claimed here.
 
 ## Acceptance interpretation
 
@@ -213,3 +297,41 @@ Phase 1 is declared COMPLETE within the owner-approved prototype scope. Evidence
 NOT claimed: production deployment, LAN host verification, MFA, TLS/session
 production configuration. These remain tracked in the backlog and the
 production-deployment phase's completion conditions (never silently resolved).
+
+## Phase 2 completion declaration (verified scope) — 2026-11-09
+
+Phase 2 (認可・管理) is declared COMPLETE within the owner-approved prototype
+scope, per the adopted main-integration mechanism. Integrated and verified:
+- Concurrent role holdings (兼任, union permissions) with per-role intersection
+  ceilings and legacy migration (`10ee9c4`, PH2-B).
+- Explicit deny permissions with deny-overrides-allow, deny-by-default
+  preserved, cross-scope deny containment (`10ee9c4`).
+- Time-limited delegation grants per the owner-approved specification:
+  family/version scheme, TTL 15min–7days (default 24h), live revalidation at
+  every authorization point, grantor-authority-loss live invalidation
+  (fail-closed), recipient cancellation, membership-gate independence,
+  dedup/no-revival/no-coexistence (`3150f6b`, PH2-D). The disabled 409
+  placeholder was replaced by the real fail-closed implementation.
+- Combined-roles/deny management UI (`9738ca2`, PH2-E).
+- Storage-destination ACL research + implementation plan (`0e06107`, `acdbf2c`
+  — implementation planning remains open/要決定 as recorded).
+- Admin project/storage/load screens (`b8bae86`, PH1-P4B).
+
+Evidence: independent aggregate review PH2-RV verdict "accept after minor
+fixes" with NO critical/high authorization defects (14 authorization paths
+spot-checked); the review's integration condition (full-suite rerun in a
+supported environment) is satisfied by the hosted CI four-matrix runs (all
+success at db33ff8) — the local Windows pinned-CLI fixture was lost in this
+environment and those loop_engine native-launch tests pass in the hosted
+matrix and in isolation when the fixture is present (recorded as an
+environment observation, not a code defect). Full local suite: 1156 passed/
+9 skipped plus the environment-dependent native-launch subset.
+
+Remaining, explicitly tracked (NOT silently resolved): the delegation
+management UI is implemented; delegation recipient-side UI refinement and any
+org-level management surface remain future work pending the org-model
+decisions; storage-destination ACL implementation planning (要決定 items in
+PHASE2_STORAGE_ACL_IMPLEMENTATION_PLAN.md); MFA (required for the final
+product, prototype-deferred per owner decision); production
+TLS/session/LAN-deployment verification (deployment gate).
+Version bumped 0.2.0 -> 0.3.0.
