@@ -46,3 +46,34 @@ Then: Conventional Commit (`fix(agents): order rate limiting and authentication 
 
 Boundaries: never push to `main` or `loop/local-development`; scope is the
 ordering fix + regressions only; no subagents.
+
+## Progress
+
+- 2026-11-09 — Read this brief and the independent PH2-2AR review. Created
+  `loop/PH2-2AF-registry-fix` worktree from the integration branch; synced the
+  latest `origin/loop/local-development` update (no conflicts). Reviewed all
+  routes wired through `AgentRegistry`: workspace create/list/disable, policy
+  update/version list, adapter register/list/disable, runner create/list/disable,
+  binding create/list/disable, dispatch rejection. No health HTTP endpoint exists
+  in this slice; `adapter_health` is storage-only, so no separate health action
+  required ordering changes. Body-validation issue applied to all five registry
+  write endpoints with typed request bodies; remaining registry paths have no
+  request-body validation at FastAPI boundary. Shared pre-auth limiter is global
+  per process (30/minute, deliberately bounded and conservative); after a valid
+  credential reaches its cap, requests are authenticated solely to attribute a
+  `rate_limited` event, while anonymous over-limit attempts are not audited again.
+  Authenticated anonymous first-time rejects remain audited once; admin rate
+  limit, role authorization, registry validation/mutation and audit are ordered
+  as intended. Dispatch remains explicitly rejected before any receipt/artifact
+  writes, and policy immutability and capability denial audit handling are
+  preserved.
+- 2026-11-09 — Added flood and malformed-body regressions; focused suite passed:
+  `pytest tests/test_agents_registry.py -q` — **12 passed**. Full suite on the
+  then-current branch passed: `pytest tests -q --ignore=tests/e2e` — **1136
+  passed, 18 skipped** (Docker/native CLI opt-ins and Windows symlink limits).
+  `ruff check`, `ruff format --check`, `mypy backend/app` passed; scoped
+  `detect_secrets scan -n` reported no findings in changed source/tests; full
+  repository scan only identified existing high-entropy hash/manifest strings.
+  Post-sync run also passed focused tests and lint/type/format/secret scan after
+  latest integration-base update; must rerun full suite on final head before
+  commit/push. No commit, push, or CI evidence recorded yet.

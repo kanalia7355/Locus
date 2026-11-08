@@ -50,6 +50,57 @@ def test_non_admin_and_unauthenticated_registry_access_is_denied_and_audited(ser
     )
 
 
+def test_unauthenticated_registry_flood_is_rate_limited_before_audit(service: Service):
+    anonymous = client_for(service)
+    before = service.conn.execute(
+        "SELECT count(*) FROM audit WHERE operation='adapter.list'"
+    ).fetchone()[0]
+
+    responses = [anonymous.get("/api/admin/agent-adapters") for _ in range(31)]
+
+    assert [response.status_code for response in responses[:30]] == [401] * 30
+    assert responses[30].status_code == 429
+    after = service.conn.execute(
+        "SELECT count(*) FROM audit WHERE operation='adapter.list'"
+    ).fetchone()[0]
+    assert after - before == 30
+
+    saturated_before = service.conn.execute("SELECT count(*) FROM audit").fetchone()[0]
+    assert anonymous.get("/api/admin/agent-adapters").status_code == 429
+    assert service.conn.execute("SELECT count(*) FROM audit").fetchone()[0] == saturated_before
+
+
+def test_malformed_registry_writes_authenticate_before_validation_and_audit_once(service: Service):
+    anonymous = client_for(service)
+    response = anonymous.post("/api/admin/agent-adapters", headers=ORIGIN, content=b"{}")
+    assert response.status_code == 401
+    anonymous_event_count = service.conn.execute(
+        "SELECT count(*) FROM audit WHERE operation='adapter.register' "
+        "AND actor_id='unauthenticated'"
+    ).fetchone()[0]
+    assert anonymous_event_count == 1
+
+    admin = admin_client(service)
+    before = service.conn.execute(
+        "SELECT count(*) FROM audit WHERE operation='adapter.register'"
+    ).fetchone()[0]
+    response = admin.post("/api/admin/agent-adapters", headers=ORIGIN, content=b"{}")
+    assert response.status_code == 422
+    after = service.conn.execute(
+        "SELECT count(*) FROM audit WHERE operation='adapter.register'"
+    ).fetchone()[0]
+    assert after - before == 1
+    event = service.conn.execute(
+        "SELECT actor_id,outcome FROM audit WHERE operation='adapter.register' "
+        "ORDER BY at DESC LIMIT 1"
+    ).fetchone()
+    assert (
+        event["actor_id"]
+        == service.conn.execute("SELECT id FROM users WHERE username='admin'").fetchone()[0]
+    )
+    assert event["outcome"] == "denied"
+
+
 def test_audit_failure_rolls_back_registry_mutation(service: Service):
     admin = admin_client(service)
     application = admin.app

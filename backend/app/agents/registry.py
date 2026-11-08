@@ -70,6 +70,7 @@ class AgentRegistry:
     ) -> None:
         self.connection, self.lock = connection, lock
         self.authenticate, self.audit, self.limit = authenticate, audit, limit
+        self._current_action: tuple[str, str, str] | None = None
         connection.execute("PRAGMA foreign_keys = ON")
         connection.executescript(
             """
@@ -194,11 +195,28 @@ class AgentRegistry:
             except _AuditedDenial as exc:
                 self.connection.commit()
                 raise HTTPException(exc.status, exc.detail) from exc
+            except HTTPException as exc:
+                action = self._current_action
+                if action is None:
+                    self.connection.rollback()
+                else:
+                    actor_id, operation, target = action
+                    try:
+                        self.audit(
+                            self.connection, actor_id, operation, target or "unknown", "denied"
+                        )
+                        self.connection.commit()
+                    except BaseException:
+                        self.connection.rollback()
+                        raise
+                raise HTTPException(exc.status_code, exc.detail) from exc
             except BaseException:
                 self.connection.rollback()
                 raise
             else:
                 self.connection.commit()
+            finally:
+                self._current_action = None
 
     def _disable_bindings(
         self, db: sqlite3.Connection, actor_id: str, scope_column: str, scope_id: str
@@ -232,7 +250,23 @@ class AgentRegistry:
             )
             self.audit(db, actor_id, "workspace_adapter_binding.disable", target)
 
+    def _preauth_limit(
+        self, db: sqlite3.Connection, token: str | None, op: str, target: str
+    ) -> None:
+        try:
+            self.limit("agent-registry:preauth", 30)
+        except HTTPException as exc:
+            try:
+                actor = self.authenticate(db, token)
+            except HTTPException:
+                # Do not persist one audit row for every anonymous request after the cap.
+                pass
+            else:
+                self.audit(db, actor.id, op, target or "unknown", "rate_limited")
+            raise _AuditedDenial(exc.status_code, str(exc.detail)) from exc
+
     def _admin(self, db: sqlite3.Connection, token: str | None, op: str, target: str) -> Any:
+        self._preauth_limit(db, token, op, target)
         try:
             actor = self.authenticate(db, token)
         except HTTPException as exc:
@@ -246,7 +280,12 @@ class AgentRegistry:
         except HTTPException as exc:
             self.audit(db, actor.id, op, target or "unknown", "rate_limited")
             raise _AuditedDenial(exc.status_code, str(exc.detail)) from exc
+        self._current_action = (actor.id, op, target)
         return actor
+
+    @staticmethod
+    def _body(data: Mapping[str, Any] | Callable[[], Mapping[str, Any]]) -> Mapping[str, Any]:
+        return data() if callable(data) else data
 
     @staticmethod
     def _policy(policy: Mapping[str, Any]) -> dict[str, Any]:
@@ -298,11 +337,17 @@ class AgentRegistry:
         )
 
     def create_workspace(
-        self, token: str | None, *, name: str, policy: Mapping[str, Any]
+        self,
+        token: str | None,
+        *,
+        name: str | Callable[[], str],
+        policy: Mapping[str, Any] | Callable[[], Mapping[str, Any]],
     ) -> dict[str, Any]:
         workspace, policy_id, now = uid(), uid(), time.time()
         with self._db() as db:
             actor = self._admin(db, token, "workspace.create", workspace)
+            name = name() if callable(name) else name
+            policy = self._body(policy)
             if not isinstance(name, str) or not name.strip() or len(name) > 128:
                 _deny(422, "ワークスペース名が不正です")
             normalized = self._policy(policy)
@@ -345,10 +390,14 @@ class AgentRegistry:
             ]
 
     def update_workspace_policy(
-        self, token: str | None, workspace_id: str, policy: Mapping[str, Any]
+        self,
+        token: str | None,
+        workspace_id: str,
+        policy: Mapping[str, Any] | Callable[[], Mapping[str, Any]],
     ) -> dict[str, Any]:
         with self._db() as db:
             actor = self._admin(db, token, "workspace.policy.create_version", workspace_id)
+            policy = self._body(policy)
             normalized = self._policy(policy)
             row = db.execute(
                 "SELECT w.policy_id,w.policy_version,p.classification_ceiling,p.runner_types,"
@@ -415,10 +464,13 @@ class AgentRegistry:
                 ).fetchall()
             ]
 
-    def create_runner_instance(self, token: str | None, data: Mapping[str, Any]) -> dict[str, str]:
+    def create_runner_instance(
+        self, token: str | None, data: Mapping[str, Any] | Callable[[], Mapping[str, Any]]
+    ) -> dict[str, str]:
         runner = uid()
         with self._db() as db:
             actor = self._admin(db, token, "runner_instance.create", runner)
+            data = self._body(data)
             required = {"enrolled_os_principal_ref", "binary_identity", "transport_identity"}
             if set(data) != required or not all(
                 isinstance(data[k], str) and data[k].strip() for k in required
@@ -462,10 +514,14 @@ class AgentRegistry:
         return {"id": runner, "status": "disabled"}
 
     def create_binding(
-        self, token: str | None, workspace: str, data: Mapping[str, Any]
+        self,
+        token: str | None,
+        workspace: str,
+        data: Mapping[str, Any] | Callable[[], Mapping[str, Any]],
     ) -> dict[str, str]:
         with self._db() as db:
             actor = self._admin(db, token, "workspace_adapter_binding.create", workspace)
+            data = self._body(data)
             if set(data) != {"runner_instance_id", "adapter_id"}:
                 _deny(422, "Adapter binding metadata が不正です")
             policy = db.execute(
@@ -578,7 +634,9 @@ class AgentRegistry:
             _deny(422, "ネットワーク送信は許可されていません")
         return result
 
-    def register_adapter(self, token: str | None, data: Mapping[str, Any]) -> dict[str, str]:
+    def register_adapter(
+        self, token: str | None, data: Mapping[str, Any] | Callable[[], Mapping[str, Any]]
+    ) -> dict[str, str]:
         adapter = uid()
         required = {
             "name",
@@ -590,6 +648,7 @@ class AgentRegistry:
         }
         with self._db() as db:
             actor = self._admin(db, token, "adapter.register", adapter)
+            data = self._body(data)
             if set(data) != required:
                 _deny(422, "Adapter 定義が不正です")
             try:
@@ -657,11 +716,15 @@ class AgentRegistry:
     def dispatch_attempt(self, token: str | None, workspace: str) -> NoReturn:
         """B6 is an explicit Control-Plane rejection regardless of Runner presence."""
         with self._db() as db:
+            self._preauth_limit(db, token, "agent.dispatch.reject", workspace)
             try:
                 actor = self.authenticate(db, token)
             except HTTPException as exc:
                 self.audit(db, "unauthenticated", "agent.dispatch.reject", workspace, "denied")
                 raise _AuditedDenial(exc.status_code, str(exc.detail)) from exc
+            if not actor.system_admin:
+                self.audit(db, actor.id, "agent.dispatch.reject", workspace, "denied")
+                raise _AuditedDenial(403, "管理権限が必要です")
             try:
                 self.limit("agent-dispatch:" + actor.id, 10)
             except HTTPException as exc:

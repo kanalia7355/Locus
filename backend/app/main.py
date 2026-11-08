@@ -1,15 +1,16 @@
 """Loopback-only development API. Production startup is deliberately unsupported."""
 
 import asyncio
+import json
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.agents.registry import AgentRegistry
@@ -241,6 +242,7 @@ def create_app(
                         {"detail": "送信サイズが上限を超えています"}, status_code=413
                     )
             request._body = bytes(content)
+            request.scope.setdefault("state", {})["registry_request_body"] = bytes(content)
         response: Response = await call_next(request)
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -250,6 +252,21 @@ def create_app(
 
     def actor(request: Request) -> Principal:
         return svc.authenticate(request.cookies.get(COOKIE))
+
+    def validated_agent_body(
+        request: Request, model: type[BaseModel], *, exclude_unset: bool = False
+    ) -> Callable[[], dict[str, Any]]:
+        def validate() -> dict[str, Any]:
+            try:
+                body = request.scope["state"]["registry_request_body"]
+                parsed = model.model_validate(json.loads(body))
+            except ValidationError as exc:
+                raise HTTPException(422, detail=exc.errors()) from exc
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise HTTPException(422, detail="Request body is not valid JSON") from exc
+            return parsed.model_dump(exclude_unset=exclude_unset)
+
+        return validate
 
     Actor = Annotated[Principal, Depends(actor)]
 
@@ -510,9 +527,17 @@ def create_app(
         return svc.audit(user)
 
     @app.post("/api/admin/workspaces", status_code=201)
-    def create_agent_workspace(data: WorkspaceInput, request: Request) -> dict[str, Any]:
+    def create_agent_workspace(request: Request) -> dict[str, Any]:
+        workspace_data = validated_agent_body(request, WorkspaceInput)
+
+        def workspace_name() -> str:
+            return str(workspace_data()["name"])
+
+        def workspace_policy() -> dict[str, Any]:
+            return dict(workspace_data()["policy"])
+
         return registry.create_workspace(
-            request.cookies.get(COOKIE), name=data.name, policy=data.policy.model_dump()
+            request.cookies.get(COOKIE), name=workspace_name, policy=workspace_policy
         )
 
     @app.get("/api/admin/workspaces")
@@ -520,11 +545,11 @@ def create_app(
         return registry.list_workspaces(request.cookies.get(COOKIE))
 
     @app.put("/api/admin/workspaces/{workspace_id}/policy")
-    def update_agent_workspace_policy(
-        workspace_id: str, data: WorkspacePolicyInput, request: Request
-    ) -> dict[str, Any]:
+    def update_agent_workspace_policy(workspace_id: str, request: Request) -> dict[str, Any]:
         return registry.update_workspace_policy(
-            request.cookies.get(COOKIE), workspace_id, data.model_dump(exclude_unset=True)
+            request.cookies.get(COOKIE),
+            workspace_id,
+            validated_agent_body(request, WorkspacePolicyInput, exclude_unset=True),
         )
 
     @app.get("/api/admin/workspaces/{workspace_id}/policies")
@@ -536,8 +561,10 @@ def create_app(
         return registry.disable_workspace(request.cookies.get(COOKIE), workspace_id)
 
     @app.post("/api/admin/agent-adapters", status_code=201)
-    def register_agent_adapter(data: AdapterInput, request: Request) -> dict[str, str]:
-        return registry.register_adapter(request.cookies.get(COOKIE), data.model_dump())
+    def register_agent_adapter(request: Request) -> dict[str, str]:
+        return registry.register_adapter(
+            request.cookies.get(COOKIE), validated_agent_body(request, AdapterInput)
+        )
 
     @app.get("/api/admin/agent-adapters")
     def list_agent_adapters(request: Request) -> list[dict[str, Any]]:
@@ -548,8 +575,10 @@ def create_app(
         return registry.disable_adapter(request.cookies.get(COOKIE), adapter_id)
 
     @app.post("/api/admin/runner-instances", status_code=201)
-    def create_runner_instance(data: RunnerInstanceInput, request: Request) -> dict[str, str]:
-        return registry.create_runner_instance(request.cookies.get(COOKIE), data.model_dump())
+    def create_runner_instance(request: Request) -> dict[str, str]:
+        return registry.create_runner_instance(
+            request.cookies.get(COOKIE), validated_agent_body(request, RunnerInstanceInput)
+        )
 
     @app.get("/api/admin/runner-instances")
     def list_runner_instances(request: Request) -> list[dict[str, Any]]:
@@ -560,10 +589,12 @@ def create_app(
         return registry.disable_runner_instance(request.cookies.get(COOKIE), runner_id)
 
     @app.post("/api/admin/workspaces/{workspace_id}/adapter-bindings", status_code=201)
-    def create_adapter_binding(
-        workspace_id: str, data: AdapterBindingInput, request: Request
-    ) -> dict[str, str]:
-        return registry.create_binding(request.cookies.get(COOKIE), workspace_id, data.model_dump())
+    def create_adapter_binding(workspace_id: str, request: Request) -> dict[str, str]:
+        return registry.create_binding(
+            request.cookies.get(COOKIE),
+            workspace_id,
+            validated_agent_body(request, AdapterBindingInput),
+        )
 
     @app.get("/api/admin/workspaces/{workspace_id}/adapter-bindings")
     def list_adapter_bindings(workspace_id: str, request: Request) -> list[dict[str, Any]]:
