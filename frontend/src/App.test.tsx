@@ -78,6 +78,138 @@ describe("approved chat interaction baseline", () => {
     ).toHaveLength(1);
   });
 
+  it("renders an unambiguous retrieved markdown table with accessible headers", async () => {
+    vi.mocked(fetch).mockImplementation(async (input, options) => {
+      const path = String(input);
+      requests.push({ path, options });
+      if (path.endsWith("/auth/me"))
+        return new Response(
+          JSON.stringify({
+            id: "alice",
+            username: "alice",
+            system_admin: false,
+            must_rotate: false,
+          }),
+        );
+      if (path.endsWith("/projects"))
+        return new Response(
+          JSON.stringify([
+            {
+              id: "project",
+              org_id: "org",
+              name: "検証",
+              role: "researcher",
+              permissions: ["read", "retrieve", "upload"],
+            },
+          ]),
+        );
+      if (path.endsWith("/messages"))
+        return new Response(
+          JSON.stringify({
+            id: "message-table",
+            text: "条件を比較",
+            scope: "all",
+            citations: [
+              {
+                id: "citation-table",
+                document_id: "document-table",
+                page: 2,
+                ordinal: 3,
+                name: "合成資料.md",
+                text: "| 項目 | 条件A | 条件B |\n| --- | --- | --- |\n| 温度 | 180°C | 200°C |\n| 注記 | <script>文字列</script> | 記録なし |\n",
+              },
+              {
+                id: "citation-tsv",
+                document_id: "document-table",
+                page: 3,
+                ordinal: 4,
+                name: "合成資料.tsv",
+                text: "比較項目\t条件A\t条件B\n温度\t180°C\t200°C",
+              },
+            ],
+          }),
+        );
+      return new Response(JSON.stringify([]));
+    });
+    render(<App />);
+    const field = await screen.findByRole("textbox", { name: "メッセージ" });
+    fireEvent.change(field, { target: { value: "条件を比較" } });
+    fireEvent.click(screen.getByRole("button", { name: "送信" }));
+
+    const table = await screen.findByRole("table", {
+      name: "合成資料.md p.2 chunk 3 の表",
+    });
+    expect(screen.getAllByRole("columnheader")).toHaveLength(6);
+    expect(screen.getByRole("columnheader", { name: "項目" })).toHaveAttribute(
+      "scope",
+      "col",
+    );
+    expect(table.querySelector('th[scope="row"]')).toHaveTextContent("温度");
+    expect(table.closest('[role="region"]')).toHaveAttribute("tabindex", "0");
+    expect(table).toHaveTextContent("180°C");
+    const tsvTable = screen.getByRole("table", {
+      name: "合成資料.tsv p.3 chunk 4 の表",
+    });
+    expect(tsvTable).toHaveTextContent("200°C");
+    expect(table.querySelector("script")).toBeNull();
+    expect(table).toHaveTextContent("<script>文字列</script>");
+  });
+
+  it("keeps ambiguous retrieved tabular text in the existing plain rendering", async () => {
+    vi.mocked(fetch).mockImplementation(async (input, options) => {
+      const path = String(input);
+      requests.push({ path, options });
+      if (path.endsWith("/auth/me"))
+        return new Response(
+          JSON.stringify({
+            id: "alice",
+            username: "alice",
+            system_admin: false,
+            must_rotate: false,
+          }),
+        );
+      if (path.endsWith("/projects"))
+        return new Response(
+          JSON.stringify([
+            {
+              id: "project",
+              org_id: "org",
+              name: "検証",
+              role: "researcher",
+              permissions: ["read", "retrieve"],
+            },
+          ]),
+        );
+      if (path.endsWith("/messages"))
+        return new Response(
+          JSON.stringify({
+            id: "message-ambiguous",
+            text: "条件を確認",
+            scope: "all",
+            citations: [
+              {
+                id: "citation-ambiguous",
+                document_id: "document-ambiguous",
+                page: 1,
+                ordinal: 1,
+                name: "曖昧な資料.txt",
+                text: "| 項目 | 条件A |\n| --- | --- |\n| 温度 | 180°C | 200°C |\n",
+              },
+            ],
+          }),
+        );
+      return new Response(JSON.stringify([]));
+    });
+    render(<App />);
+    const field = await screen.findByRole("textbox", { name: "メッセージ" });
+    fireEvent.change(field, { target: { value: "条件を確認" } });
+    fireEvent.click(screen.getByRole("button", { name: "送信" }));
+
+    expect(await screen.findByText(/\| 項目 \| 条件A \|/)).toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "資料に見つかった記述" })).toBeVisible();
+  });
+
   it("keeps a draft when a file is rejected and allows individual removal", async () => {
     render(<App />);
     const field = await screen.findByRole("textbox", { name: "メッセージ" });

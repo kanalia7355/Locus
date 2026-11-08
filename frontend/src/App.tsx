@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { api, errorText, json, statusName } from "./api";
 import { RelatedDocuments } from "./RelatedDocuments";
+import { StructuredCitationText } from "./StructuredCitationText";
 import { IngestionProgress } from "./IngestionProgress";
 import { AdminLoad, AdminProjects, AdminStorage } from "./AdminSettings";
 import { ModelSettings } from "./ModelSettings";
@@ -988,7 +989,10 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
                       </h2>
                       {message.citations.map((citation) => (
                         <div key={citation.id} className="citation-excerpt">
-                          <blockquote>{citation.text}</blockquote>
+                          <StructuredCitationText
+                            text={citation.text}
+                            label={`${citation.name} p.${citation.page} chunk ${citation.ordinal} の表`}
+                          />
                           <button
                             className="text-link"
                             onClick={() => {

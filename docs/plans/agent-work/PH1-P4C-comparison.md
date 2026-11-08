@@ -50,3 +50,7 @@ push `loop/PH1-P4C-comparison` → wait branch CI → fix/re-push until ALL gree
 
 Boundaries: never push to `main` or `loop/local-development`; no admin-area or
 delete-operation work; no model calls; no subagents.
+
+## Progress
+
+- Set up the requested isolated branch/worktree from `origin/loop/local-development` (`ace8248`). Read Phase-4 requirements and rendering code. Implemented deterministic Markdown-pipe/TSV recognition for citation excerpts, semantic column/row headers, keyboard-focusable horizontal scrolling, safe React text rendering, and plain-text fallback for ambiguous rows. Added Vitest fixtures for Markdown, TSV, injection-like literal content, and ambiguous excerpts, plus a Playwright regression for table accessibility, mobile scroll, and fallback. Full backend suite: 1145 passed, 18 skipped. `ruff check .`, scoped `ruff format --check backend tests scripts` (127 formatted), `mypy backend/app`, project secret scan (0 findings), frontend lint/test (14 files, 61 tests)/build and Playwright E2E (12 passed) are green. Full-tree `ruff format --check .` flags pre-existing formatting in unrelated `docs/requirements/AUTONOMOUS_LOOP_SPEC.md:315`; did not modify out-of-scope docs. Initial broad raw detect-secrets scan also reported existing lock/fixture findings; required project scan is clean. Committing/push and branch CI evidence remain.
