@@ -1,10 +1,12 @@
 # Orchestrator ledger — Phase 1 parallel jobs
 
-Rules established by the owner (2026-11-06):
-- Up to 5 concurrent subagents, one job each; implementation, self-review and QA in one flow.
+Rules established by the owner (2026-11-06; AMENDED 2026-11-09 ~08:05 JST):
+- Up to 10 concurrent subagent slots (A–J), one job each. Each slot runs ONE flow: implementation → self-review → QA → delivery commit and push to its dedicated `loop/<slug>` branch, repeating the fix cycle until ALL configured checks pass (branch CI green, or recorded blocked while billing-blocked). No pushes to `main` or `loop/local-development` by agents.
+- Model ratio 1:1 (2026-11-09): alternate consecutive dispatches between deepai/glm-5.3-flash and deepai/gpt-6-luna (thinking effort high); record the model per slot in the ledger.
 - Coordination only through the markdown files in this directory; each agent appends progress to its own task file (in its worktree copy) whenever it finishes a step and at task end.
-- Each agent commits and pushes its dedicated `loop/PH1-<slug>` branch. No pushes to `main` or `loop/local-development` by agents.
-- Orchestrator checks every 10 minutes: read task files, verify finished work (local QA evidence + branch state), integrate approved branches into `loop/local-development`, and assign the next queued task.
+- Orchestrator checks every 30 MINUTES (2026-11-09; was 10): read task files, verify finished work (local QA evidence + branch state), integrate approved branches into `loop/local-development`, and assign the next queued task.
+- No-change cycles are NOT logged (2026-11-09): if a cycle produced no dispatch, delivery, integration or blocker ("steady state unchanged"), append nothing to the ledger and commit nothing. Historical noise lines of that form (16 entries) were removed from this ledger on the same instruction.
+- GitHub Actions runs minimally (2026-11-09): push/PR-triggered only, now with a cancel-in-progress concurrency group per ref (loop-ci.yml / quality.yml / pr-title.yml) so rapid pushes supersede in-flight runs instead of stacking; the orchestrator verifies CI in at most one batched window per cycle.
 - Merge to `main` still requires: phase completion criteria, independent review, and ALL required CI checks green at the exact HEAD. GitHub Actions is currently blocked by an account billing failure; while that persists, CI evidence is recorded as blocked, never passed.
 
 ## Active assignments
@@ -228,38 +230,6 @@ STATUS: ALL FIVE owner-approved Phase-4 remainder priorities are integrated, rev
 
 Cycle 2026-11-08 ~15:15 JST: steady state — no running slots, no dispatchable jobs. The pipeline remains blocked on the OPEN owner-decision register (OWNER_DECISION_REGISTER.md: 10 AUD-1 findings + 12 delegation-spec items). All completed work is integrated, CI-verified at the integrated head, and reflected in the status documents. No actions taken this cycle.
 
-Cycle 2026-11-08 ~15:25 JST: steady state unchanged — no slots, no dispatchable work, pipeline blocked on the OPEN owner-decision register. No actions taken.
-
-Cycle 2026-11-08 ~15:35 JST: steady state unchanged (blocked on the OPEN owner-decision register). No actions.
-
-Cycle 2026-11-08 ~15:45 JST: steady state unchanged. NOTE to owner: the 10-minute heartbeat now only appends empty cycle logs while blocked; it can be paused (update_scheduled_task) until the OPEN register answers arrive, if preferred. No actions.
-
-Cycle 2026-11-08 ~15:55 JST: steady state unchanged. No actions.
-
-Cycle 2026-11-08 ~16:05 JST: steady state unchanged. No actions.
-
-Cycle 2026-11-08 ~16:15 JST: steady state unchanged. No actions.
-
-Cycle 2026-11-08 ~16:25 JST: steady state unchanged. No actions.
-
-Cycle 2026-11-08 ~16:35 JST: steady state unchanged. No actions.
-
-Cycle 2026-11-08 ~16:45 JST: steady state unchanged. No actions.
-
-Cycle 2026-11-08 ~16:55 JST: steady state unchanged. No actions.
-
-Cycle 2026-11-08 ~17:05 JST: steady state unchanged. No actions.
-
-Cycle 2026-11-08 ~17:15 JST: steady state unchanged. No actions.
-
-Cycle 2026-11-08 ~17:25 JST: steady state unchanged. No actions.
-
-Cycle 2026-11-08 ~17:35 JST: steady state unchanged. No actions.
-
-Cycle 2026-11-08 ~17:45 JST: steady state unchanged. No actions.
-
-Cycle 2026-11-08 ~17:55 JST: steady state unchanged. No actions.
-
 OWNER DECISIONS APPLIED — PIPELINE RESTARTED (2026-11-09 ~10:15 JST):
 - The owner resolved ALL 22 OPEN register items: (A) the delegation spec's 12 items approved as recommended WITH binding conditions (TTL default 24h/max 7d/min 15m + live revalidation; grantors = project owner + org admin with legitimate authority, grant authority not delegable; re-grant family/version with no unintended revival/coexistence and new-authorization-required for scope change/expansion); (B) AUD-1 findings 1-10 resolved (phase-number normalization approved; post-phase automatic main merge formally adopted incl. PR-when-required; MFA confirmed REQUIRED for the final product with the prototype deferral standing; ADR-0012 wording-only correction approved; B-5..B-10 policies per the register).
 - Register updated (10d9fd0) and the delegation spec's section 8 banner records the binding conditions (64f2079).
@@ -291,3 +261,5 @@ Integration + dispatch (2026-11-09 ~18:45 JST): PH2-CA delivered (CI green at 66
 Provider 429 outage #2 (2026-11-09 ~07:33 JST / 22:33Z Nov 8): the PH2-RV independent review of the Phase-2 aggregate died with the provider-wide 429 daily limit before producing findings. Per policy: PAUSED, no retry until the window resets; the review must be relaunched with a new clientRequestId (ph2-rv-phase2-review-002) when the lane reopens — it is the FINAL GATE before the Phase-2 automatic main integration, so it has top priority in the next dispatch.
 
 Pipeline state at pause: loop/local-development HEAD 98fda8d — CI all green (title + Prototype quality + Loop engine 4-matrix, runs 42463368653/42463368674/42463368719 and the PH2-CA integration runs 42463311035/42463311037/42463311072). Integrated and verified: PH2-B/D/E (concurrent roles + deny + delegation + web UI), PH2-C research, PH2-CA completion declaration. Blocked ONLY on: the PH2-RV aggregate review (paused, 429) and then the automatic main integration + version bump. No other dispatchable work.
+
+Owner instruction applied (2026-11-09 ~08:05 JST): orchestration policy updated — orchestrator cadence 10m → 30m; concurrency cap 5 → 10 slots (A–J); model ratio glm-5.3-flash : gpt-6-luna fixed at 1:1 with alternating dispatches (thinking effort high); no-change cycles are no longer logged or committed and the 16 historical "steady state unchanged. No actions." ledger entries were removed; GitHub Actions minimized with per-ref cancel-in-progress concurrency groups added to loop-ci.yml / quality.yml / pr-title.yml. The scheduled orchestrator task was updated in place (same thread). Active slots at the change: none running — the pipeline remains paused on the PH2-RV 429 outage (relaunch ph2-rv-phase2-review-002 when the lane reopens, top priority).

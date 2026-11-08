@@ -4,6 +4,11 @@ on:
     types: [opened, edited, synchronize, reopened]
   push:
     branches-ignore: [main]
+# Owner rule (2026-11-09): minimal Actions usage - a new push on the same ref
+# supersedes the in-flight run instead of stacking runs.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
