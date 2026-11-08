@@ -94,5 +94,10 @@ no subagents.
   from `origin/main` contained 216 commits and existing validator refuses ranges
   over 200 (“Empty or oversized Push range requires assessment”). This was a
   range/validator interaction, not a commit-subject error. Kept the checker and
-  branch history unchanged; pushing an ordinary one-commit follow-up should use
-  the explicit before/after range and provide a fresh CI result.
+  branch history unchanged. The ordinary progress-note commit
+  `a2db859dcc29642ad41f8dc6e603ea10dde7303b` used a one-commit push range; all
+  required branch workflows passed on that exact SHA: Prototype quality
+  `42435494167` SUCCESS; Loop engine checks `42435494201` SUCCESS (Ubuntu/Windows
+  Python 3.11/3.13); PR title convention `42435494198` SUCCESS. The failed
+  initial range check remains recorded for transparency; latest exact-head status
+  is all green.
