@@ -140,8 +140,31 @@ it("assigns/removes project members through the admin endpoints", async () => {
         JSON.parse(String(options.body)).user_id === "user-b",
     ),
   ).toBe(true);
+  const remove = screen.getByRole("button", {
+    name: "aliceを合成プロジェクトから外す",
+  });
+  fireEvent.click(remove);
+  expect(
+    requests.some(
+      ({ path, options }) =>
+        path.endsWith("/members/user-a") && options?.method === "DELETE",
+    ),
+  ).toBe(false);
+  expect(
+    screen.getByRole("group", { name: "aliceの所属削除確認" }),
+  ).toHaveTextContent("利用者ID: user-a");
+  expect(
+    screen.getByRole("group", { name: "aliceの所属削除確認" }),
+  ).toHaveTextContent("プロジェクトID: project-a");
+  fireEvent.click(screen.getByRole("button", { name: "aliceの所属削除を取り消す" }));
+  expect(
+    screen.queryByRole("group", { name: "aliceの所属削除確認" }),
+  ).not.toBeInTheDocument();
+  fireEvent.click(remove);
   fireEvent.click(
-    screen.getByRole("button", { name: "aliceを合成プロジェクトから外す" }),
+    screen.getByRole("button", {
+      name: "aliceを合成プロジェクトから外す（確認）",
+    }),
   );
   await waitFor(() =>
     expect(
@@ -151,6 +174,53 @@ it("assigns/removes project members through the admin endpoints", async () => {
       ),
     ).toBe(true),
   );
+  expect(
+    screen.queryByRole("group", { name: "aliceの所属削除確認" }),
+  ).not.toBeInTheDocument();
+});
+
+it("retains membership and confirmation on removal failure and prevents double submit", async () => {
+  let finish!: (response: Response) => void;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
+      const path = String(input);
+      requests.push({ path, options });
+      if (path.endsWith("/members/user-a") && options?.method === "DELETE")
+        return new Promise<Response>((resolve) => { finish = resolve; });
+      if (path.endsWith("/admin/projects")) return respond([project]);
+      if (path.endsWith("/admin/users")) return respond(users);
+      return respond({});
+    }),
+  );
+  render(<AdminProjects />);
+  await screen.findByRole("heading", { name: "合成プロジェクト" });
+  fireEvent.click(
+    screen.getByRole("button", { name: "aliceを合成プロジェクトから外す" }),
+  );
+  const confirm = screen.getByRole("button", {
+    name: "aliceを合成プロジェクトから外す（確認）",
+  });
+  fireEvent.click(confirm);
+  fireEvent.click(confirm);
+  expect(confirm).toBeDisabled();
+  expect(
+    requests.filter(
+      ({ path, options }) =>
+        path.endsWith("/members/user-a") && options?.method === "DELETE",
+    ),
+  ).toHaveLength(1);
+  finish(respond({ detail: "所属を変更できません" }, 503));
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "所属を変更できません",
+  );
+  expect(screen.getByText("alice · 研究者")).toBeVisible();
+  expect(
+    screen.getByRole("group", { name: "aliceの所属削除確認" }),
+  ).toBeVisible();
+  expect(screen.getByRole("button", {
+    name: "aliceを合成プロジェクトから外す（確認）",
+  })).toBeEnabled();
 });
 
 it("shows local storage status and keeps external storage explicitly denied", async () => {

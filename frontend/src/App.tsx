@@ -1825,6 +1825,9 @@ function AdminList({
   );
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [disableConfirmation, setDisableConfirmation] = useState<string | null>(
+    null,
+  );
   const pending = useRef(false);
   const mounted = useRef(false);
   useEffect(() => {
@@ -1852,8 +1855,12 @@ function AdminList({
         `/admin/users/${encodeURIComponent(String(row.id))}/enabled`,
         json("PUT", { enabled: !row.enabled }),
       );
-      if (mounted.current)
-        setRows((current) => current.map((item) => item.id === updated.id ? updated : item));
+      if (mounted.current) {
+        setRows((current) =>
+          current.map((item) => (item.id === updated.id ? updated : item)),
+        );
+        if (!updated.enabled) setDisableConfirmation(null);
+      }
     } catch (error) {
       if (mounted.current) setError(errorText(error));
     } finally {
@@ -1880,13 +1887,55 @@ function AdminList({
                   {row.enabled ? "有効" : "無効"}
                   {row.must_rotate ? " · 初回変更待ち" : ""}
                 </span>
-                <IconButton
-                  label={`${row.username}を${row.enabled ? "無効" : "有効"}にする`}
-                  disabled={busy || row.id === currentUserId}
-                  onClick={() => void toggle(row)}
-                >
-                  {row.enabled ? <UserX size={18} /> : <UserCheck size={18} />}
-                </IconButton>
+                {row.enabled ? (
+                  <>
+                    <IconButton
+                      label={`${row.username}を無効にする`}
+                      disabled={busy || row.id === currentUserId}
+                      onClick={() => {
+                        setError("");
+                        setDisableConfirmation(String(row.id));
+                      }}
+                    >
+                      <UserX size={18} />
+                    </IconButton>
+                    {disableConfirmation === String(row.id) && (
+                      <div
+                        role="group"
+                        aria-label={`${row.username}のアカウント無効化確認`}
+                      >
+                        <p>
+                          「{row.username}」（利用者ID: {row.id}）のアカウントを無効にします。
+                          この利用者のすべてのログインセッションが取り消され、再有効化するまでログインできなくなります。
+                        </p>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          aria-label={`${row.username}を無効にする（確認）`}
+                          onClick={() => void toggle(row)}
+                        >
+                          アカウントを無効にする
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          aria-label={`${row.username}の無効化を取り消す`}
+                          onClick={() => setDisableConfirmation(null)}
+                        >
+                          取り消す
+                        </button>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <IconButton
+                    label={`${row.username}を有効にする`}
+                    disabled={busy || row.id === currentUserId}
+                    onClick={() => void toggle(row)}
+                  >
+                    <UserCheck size={18} />
+                  </IconButton>
+                )}
               </>
             ) : (
               <>
