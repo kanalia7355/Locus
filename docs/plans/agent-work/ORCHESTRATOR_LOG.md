@@ -203,3 +203,5 @@ Integration + dispatch log (2026-11-08 ~12:00 JST):
 - Remaining owner decisions: the OPEN register in OWNER_DECISION_REGISTER.md (10 AUD findings + 12 delegation items).
 
 Batched CI window (2026-11-08 ~12:35 JST): the integrated loop/local-development HEAD ace8248 is FULLY GREEN (title + Prototype quality + Loop engine 4-matrix). This covers today's integrations (PH2-2AF, AUD-2 traceability, PH1-P4B admin screens, CI-1 script repair) at the exact HEAD. Running: PH1-P4C (slot A), PH1-P4D (slot D). Free: B, C, E, F. Next integrations trigger fresh windows.
+
+Slot event (2026-11-08 ~12:55 JST): PH1-P4D hit its provider time limit mid-run (survey + plan complete, no code written yet — worktree clean except the task note). Relaunched as ph1-p4d-delete-002 (slot D) with the prior run's recorded plan (confirmation flow over the already-safe membership-removal and account-disable operations; no new deletion authority). Running: P4C (slot A), P4D (slot D). Free: B, C, E, F.
