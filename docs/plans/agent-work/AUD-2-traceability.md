@@ -55,3 +55,54 @@ Push `loop/AUD-2-traceability`; wait branch CI; fix/re-push until ALL green
 
 Boundaries: never push to `main` or `loop/local-development`; no code changes;
 no subagents.
+
+## Progress
+
+- Read this brief, mandatory governance/product/architecture/bootstrap documents,
+  GitHub workflow, AUD-1 ID scheme/gap analysis/roadmap, delegation spec and its
+  owner status register, ADR-0012, bootstrap approval record, Phase-1 status,
+  local-delivery migration, hybrid registry design, and review records. Fetched
+  origin and created the authorized isolated worktree at
+  `.loop/runtime/worktrees/AUD-2-traceability` from `origin/loop/local-development`
+  on branch `loop/AUD-2-traceability`; base is `167035d`.
+- Drafted all three requested deliverables in the worktree. Matrix includes the
+  92 stable IDs, source/approval, phase/job, code/test/review/gap/closure columns,
+  and explicit V/S/U verification methods; checked more than 25 code/test paths.
+  Acceptance criteria retain prototype-deferred production conditions and
+  separately identify the requested restart-persistent-session item as a proposal:
+  no approved source located specifies restart persistence. Decision register records
+  evidenced decisions and all 10 AUD-1 + 12 PH2-A open items with pointers.
+- During cross-check found a time-baseline mismatch: AUD-1 gap state is pinned
+  to `27c5a1d`, while this authorized branch starts at `167035d` and already
+  contains PH2-B integration `73beb25`. Kept IAM-012's requested frozen gap
+  state unchanged and documented the stale snapshot discrepancy explicitly;
+  did not update the AUD-1 finding or change code.
+- Structural self-review passed with the isolated QA Python: all 92 unique catalog IDs
+  have exactly one matrix row and a V/S/U method; all 92 gap-state values match
+  the AUD-1 crosswalk exactly; all 40 acceptance rows have valid requirement IDs,
+  evidence class and status; final conditions include TLS, final MFA, the requested
+  persistent-session decision/proposal, protected/retained audit, Runner isolation
+  and production storage. The open register has exactly 10 AUD-1 and 12 PH2-A rows
+  with evidence pointers. `git diff --check` passed. No tests/code were changed or run.
+- Fast-forwarded the documentation worktree to origin after six later commits,
+  including PH2-C research/integration; no conflict and no other agent's work was
+  changed. Current pre-delivery base is `82c8daf`. The deliverables and progress
+  remain the only changes.
+- Commit `450c45b8898eaa73eeceac8f4f7657b0c2c84855` was pushed to the authorized
+  task branch. Exact-SHA CI: Prototype quality and Loop engine checks succeeded;
+  PR title convention failed because the initial push's default comparison range
+  from `origin/main` contained 216 commits and existing validator refuses ranges
+  over 200 (“Empty or oversized Push range requires assessment”). This was a
+  range/validator interaction, not a commit-subject error. Kept the checker and
+  branch history unchanged. The ordinary progress-note commit
+  `a2db859dcc29642ad41f8dc6e603ea10dde7303b` used a one-commit push range; all
+  required branch workflows passed on that exact SHA: Prototype quality
+  `42435494167` SUCCESS; Loop engine checks `42435494201` SUCCESS (Ubuntu/Windows
+  Python 3.11/3.13); PR title convention `42435494198` SUCCESS. The failed
+  initial range check remains recorded for transparency; latest exact-head status
+  is all green. The deliverables commit `450c45b8898eaa73eeceac8f4f7657b0c2c84855`
+  is included in final documentation/evidence head `14c3b12f7c4be37592a267e959b03f83147cb780`,
+  whose exact-SHA checks all succeeded: Prototype quality `42436023730`; Loop
+  engine checks `42436023738` (4/4 Ubuntu/Windows Python 3.11/3.13 jobs); PR title
+  convention `42436023757`. The intervening progress-only commits record CI evidence;
+  no application code, workflow, or protected branch was changed.
