@@ -207,3 +207,11 @@ Batched CI window (2026-11-08 ~12:35 JST): the integrated loop/local-development
 Slot event (2026-11-08 ~12:55 JST): PH1-P4D hit its provider time limit mid-run (survey + plan complete, no code written yet — worktree clean except the task note). Relaunched as ph1-p4d-delete-002 (slot D) with the prior run's recorded plan (confirmation flow over the already-safe membership-removal and account-disable operations; no new deletion authority). Running: P4C (slot A), P4D (slot D). Free: B, C, E, F.
 
 Cycle 2026-11-08 ~13:05 JST: P4C/P4D still implementing (no pushes; both branches absent from origin). Batched CI window executed — no runs to check yet (branches unpushed). Free slots deliberately held (no dispatchable backlog: PH2-D awaits owner answers; AUD-2 follow-ups await the OPEN register decisions; slice 2b awaits the job-approval ADR).
+
+PHASE 4 REMAINDER COMPLETE (2026-11-08 ~13:35 JST):
+- PH1-P4C comparison tables: delivered (StructuredCitationText.tsx, CI green at 6b6f940, local 1145/18 + 61 unit + Playwright 12), integrated at c381023, cleaned.
+- PH1-P4D destructive-operation confirmations: implemented + locally verified by the agent (1145/18 + Vitest 60 + Playwright 11), orchestrator delivered (5d779b3), one Loop-engine failure on windows/3.11 in the racing-controller test (unrelated to the frontend-only change) PASSED on the same-SHA rerun (flake), integrated at a30ec52, post-integration full regression 1154 passed/9 skipped, cleaned.
+- Leftover PH2-A spec branch/worktree deleted (content integrated long ago). No job branches or worktrees remain except the main checkout.
+- ALL FIVE owner-approved Phase-4 remainder priorities are now integrated: (1) running-question cancellation, (2) project/storage settings, (3) load display, (4) comparison tables, (5) safe delete operations.
+
+Remaining open work (none dispatchable without owner input): PH2-D delegation implementation (12 owner answers pending), AUD-2 OPEN register (22 items: 10 AUD-1 findings + 12 delegation items), slice 2b adapter interface (job-approval ADR prerequisite), production-deferred items per FINAL_ACCEPTANCE_CRITERIA.md. Next orchestrator step: commission the independent review of the Phase-4-remainder aggregate (comparison + confirmation flows + cancellation) per the integration-review rule, using a free slot.
