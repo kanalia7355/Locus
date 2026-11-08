@@ -259,3 +259,10 @@ Cycle 2026-11-08 ~17:35 JST: steady state unchanged. No actions.
 Cycle 2026-11-08 ~17:45 JST: steady state unchanged. No actions.
 
 Cycle 2026-11-08 ~17:55 JST: steady state unchanged. No actions.
+
+OWNER DECISIONS APPLIED — PIPELINE RESTARTED (2026-11-09 ~10:15 JST):
+- The owner resolved ALL 22 OPEN register items: (A) the delegation spec's 12 items approved as recommended WITH binding conditions (TTL default 24h/max 7d/min 15m + live revalidation; grantors = project owner + org admin with legitimate authority, grant authority not delegable; re-grant family/version with no unintended revival/coexistence and new-authorization-required for scope change/expansion); (B) AUD-1 findings 1-10 resolved (phase-number normalization approved; post-phase automatic main merge formally adopted incl. PR-when-required; MFA confirmed REQUIRED for the final product with the prototype deferral standing; ADR-0012 wording-only correction approved; B-5..B-10 policies per the register).
+- Register updated (10d9fd0) and the delegation spec's section 8 banner records the binding conditions (64f2079).
+- DISPATCHED (3 slots, Luna effort high): PH2-D delegation implementation (slot A, ph2-d-delegation-001) — the pipeline's top priority; PH2-E web-management remainder + combined-roles/deny UI (slot B, ph2-e-web-mgmt-001); AUD-1F record-consistency fixes (slot C, aud-1f-consistency-001). Free: D, E, F (held for fix cycles/integration).
+- Still forbidden (unchanged): real data, LAN-external runners, cloud egress activation, unverified-isolation runtime activation, unapproved credential schemes, production exposure.
+- Next: Phase-2 completion audit after PH2-D/PH2-E land -> independent review -> all-CI-green -> automatic main integration per the adopted B-2 mechanism -> version bump -> next phase per the master roadmap.
