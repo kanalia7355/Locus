@@ -35,3 +35,9 @@ contract options (threat T-T1). Everything undecidable → 【要決定】; no
 activation claims; ground claims in real files (cite paths). Commit
 `docs(plans): draft the isolation and runner trust-root proposals`; push branch
 `loop/HYB-A2-isolation-trust`; wait branch CI until green.
+
+## Progress
+
+- 2026-11-09: Read the assigned brief, required governance/product/architecture/bootstrap documents, hybrid step-2 design, owner decision register including B-5/B-6/B-10 resolution, threat model, Docker/Windows peer/process/pipe precedents, ADR-0006, ADR-0009 and ADR-0010. Fetched origin and created the requested isolated worktree/branch from `origin/loop/local-development`; bootstrap completion record is present. Drafted `docs/plans/HYBRID_STEP3_ISOLATION_AND_TRUST_PROPOSALS.md`. No code or runtime boundary changed.
+- Self-review: verified cited repository paths exist and checked the recommendation stays proposal-only, distinguishes development-loop evidence from product isolation/enrollment, includes Windows/Linux option comparisons, fail-closed isolation verification, separate trust-root enrollment/rotation/revocation, and T-T1 signed-envelope/freshness/replay/race tests. Unresolved platform, key-custody, cryptographic, lifecycle and deployment details are marked 【要決定】. Path-citation check: no missing cited paths; 30 undecided markers.
+- Verification in isolated `.loop/runtime/qa-venv` (Python 3.13): Ruff check PASS; Ruff format check PASS (128 files); mypy `backend/app` PASS; offline secret scan PASS (0 findings). Full `pytest tests -q --ignore=tests/e2e`: 1156 passed, 9 skipped, 9 failed. The failures are existing Windows native CLI conformance cases requiring model slug `gpt-6.1-sol`, absent from the available user `models_cache.json` (`test_loop_c_min_native.py`, `test_notification_native.py`, `test_trial_input_native_v2.py`). Tests were not changed or weakened. Docker live tests skipped because opt-in; do not count those as live boundary evidence.
