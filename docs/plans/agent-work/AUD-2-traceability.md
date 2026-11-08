@@ -55,3 +55,36 @@ Push `loop/AUD-2-traceability`; wait branch CI; fix/re-push until ALL green
 
 Boundaries: never push to `main` or `loop/local-development`; no code changes;
 no subagents.
+
+## Progress
+
+- Read this brief, mandatory governance/product/architecture/bootstrap documents,
+  GitHub workflow, AUD-1 ID scheme/gap analysis/roadmap, delegation spec and its
+  owner status register, ADR-0012, bootstrap approval record, Phase-1 status,
+  local-delivery migration, hybrid registry design, and review records. Fetched
+  origin and created the authorized isolated worktree at
+  `.loop/runtime/worktrees/AUD-2-traceability` from `origin/loop/local-development`
+  on branch `loop/AUD-2-traceability`; base is `167035d`.
+- Drafted all three requested deliverables in the worktree. Matrix includes the
+  92 stable IDs, source/approval, phase/job, code/test/review/gap/closure columns,
+  and explicit V/S/U verification methods; checked more than 25 code/test paths.
+  Acceptance criteria retain prototype-deferred production conditions and
+  separately identify the requested restart-persistent-session item as a proposal:
+  no approved source located specifies restart persistence. Decision register records
+  evidenced decisions and all 10 AUD-1 + 12 PH2-A open items with pointers.
+- During cross-check found a time-baseline mismatch: AUD-1 gap state is pinned
+  to `27c5a1d`, while this authorized branch starts at `167035d` and already
+  contains PH2-B integration `73beb25`. Kept IAM-012's requested frozen gap
+  state unchanged and documented the stale snapshot discrepancy explicitly;
+  did not update the AUD-1 finding or change code.
+- Structural self-review passed with the isolated QA Python: all 92 unique catalog IDs
+  have exactly one matrix row and a V/S/U method; all 92 gap-state values match
+  the AUD-1 crosswalk exactly; all 40 acceptance rows have valid requirement IDs,
+  evidence class and status; final conditions include TLS, final MFA, the requested
+  persistent-session decision/proposal, protected/retained audit, Runner isolation
+  and production storage. The open register has exactly 10 AUD-1 and 12 PH2-A rows
+  with evidence pointers. `git diff --check` passed. No tests/code were changed or run.
+- Fast-forwarded the documentation worktree to origin after six later commits,
+  including PH2-C research/integration; no conflict and no other agent's work was
+  changed. Current pre-delivery base is `82c8daf`. The deliverables and progress
+  remain the only changes.
