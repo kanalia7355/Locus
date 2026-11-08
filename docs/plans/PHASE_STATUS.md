@@ -297,3 +297,41 @@ Phase 1 is declared COMPLETE within the owner-approved prototype scope. Evidence
 NOT claimed: production deployment, LAN host verification, MFA, TLS/session
 production configuration. These remain tracked in the backlog and the
 production-deployment phase's completion conditions (never silently resolved).
+
+## Phase 2 completion declaration (verified scope) — 2026-11-09
+
+Phase 2 (認可・管理) is declared COMPLETE within the owner-approved prototype
+scope, per the adopted main-integration mechanism. Integrated and verified:
+- Concurrent role holdings (兼任, union permissions) with per-role intersection
+  ceilings and legacy migration (`10ee9c4`, PH2-B).
+- Explicit deny permissions with deny-overrides-allow, deny-by-default
+  preserved, cross-scope deny containment (`10ee9c4`).
+- Time-limited delegation grants per the owner-approved specification:
+  family/version scheme, TTL 15min–7days (default 24h), live revalidation at
+  every authorization point, grantor-authority-loss live invalidation
+  (fail-closed), recipient cancellation, membership-gate independence,
+  dedup/no-revival/no-coexistence (`3150f6b`, PH2-D). The disabled 409
+  placeholder was replaced by the real fail-closed implementation.
+- Combined-roles/deny management UI (`9738ca2`, PH2-E).
+- Storage-destination ACL research + implementation plan (`0e06107`, `acdbf2c`
+  — implementation planning remains open/要決定 as recorded).
+- Admin project/storage/load screens (`b8bae86`, PH1-P4B).
+
+Evidence: independent aggregate review PH2-RV verdict "accept after minor
+fixes" with NO critical/high authorization defects (14 authorization paths
+spot-checked); the review's integration condition (full-suite rerun in a
+supported environment) is satisfied by the hosted CI four-matrix runs (all
+success at db33ff8) — the local Windows pinned-CLI fixture was lost in this
+environment and those loop_engine native-launch tests pass in the hosted
+matrix and in isolation when the fixture is present (recorded as an
+environment observation, not a code defect). Full local suite: 1156 passed/
+9 skipped plus the environment-dependent native-launch subset.
+
+Remaining, explicitly tracked (NOT silently resolved): the delegation
+management UI is implemented; delegation recipient-side UI refinement and any
+org-level management surface remain future work pending the org-model
+decisions; storage-destination ACL implementation planning (要決定 items in
+PHASE2_STORAGE_ACL_IMPLEMENTATION_PLAN.md); MFA (required for the final
+product, prototype-deferred per owner decision); production
+TLS/session/LAN-deployment verification (deployment gate).
+Version bumped 0.2.0 -> 0.3.0.
