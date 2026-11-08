@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import math
 import re
 import secrets
 import sqlite3
@@ -122,6 +123,10 @@ class Service:
             CREATE TABLE IF NOT EXISTS projects (
                 id TEXT PRIMARY KEY, org_id TEXT NOT NULL, name TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS project_owners (
+                project_id TEXT PRIMARY KEY REFERENCES projects(id),
+                user_id TEXT NOT NULL REFERENCES users(id)
+            );
             CREATE TABLE IF NOT EXISTS memberships (
                 user_id TEXT REFERENCES users(id), project_id TEXT REFERENCES projects(id),
                 role TEXT NOT NULL, PRIMARY KEY(user_id, project_id)
@@ -136,6 +141,230 @@ class Service:
                 role TEXT NOT NULL,
                 PRIMARY KEY(user_id, project_id, role)
             );
+            CREATE TABLE IF NOT EXISTS delegation_families (
+                id TEXT PRIMARY KEY,
+                grantor_id TEXT NOT NULL REFERENCES users(id),
+                recipient_id TEXT NOT NULL REFERENCES users(id),
+                project_id TEXT NOT NULL REFERENCES projects(id),
+                permissions TEXT NOT NULL,
+                created REAL NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS delegation_grants (
+                id TEXT PRIMARY KEY,
+                family_id TEXT NOT NULL REFERENCES delegation_families(id),
+                version INTEGER NOT NULL CHECK(version > 0),
+                permissions TEXT NOT NULL,
+                created REAL NOT NULL,
+                expires REAL NOT NULL,
+                UNIQUE(family_id, version)
+            );
+            CREATE TABLE IF NOT EXISTS delegation_events (
+                id TEXT PRIMARY KEY,
+                grant_id TEXT NOT NULL REFERENCES delegation_grants(id),
+                event_type TEXT NOT NULL,
+                actor_id TEXT NOT NULL,
+                at REAL NOT NULL,
+                UNIQUE(grant_id, event_type)
+            );
+            CREATE TRIGGER IF NOT EXISTS delegation_family_no_update
+            BEFORE UPDATE ON delegation_families BEGIN
+                SELECT RAISE(ABORT, 'delegation families are immutable');
+            END;
+            CREATE TRIGGER IF NOT EXISTS delegation_family_no_delete
+            BEFORE DELETE ON delegation_families BEGIN
+                SELECT RAISE(ABORT, 'delegation families are retained');
+            END;
+            CREATE TRIGGER IF NOT EXISTS delegation_grant_no_update
+            BEFORE UPDATE ON delegation_grants BEGIN
+                SELECT RAISE(ABORT, 'delegation grants are immutable');
+            END;
+            CREATE TRIGGER IF NOT EXISTS delegation_grant_no_delete
+            BEFORE DELETE ON delegation_grants BEGIN
+                SELECT RAISE(ABORT, 'delegation grants are retained');
+            END;
+            CREATE TRIGGER IF NOT EXISTS delegation_event_no_update
+            BEFORE UPDATE ON delegation_events BEGIN
+                SELECT RAISE(ABORT, 'delegation events are immutable');
+            END;
+            CREATE TRIGGER IF NOT EXISTS delegation_event_no_delete
+            BEFORE DELETE ON delegation_events BEGIN
+                SELECT RAISE(ABORT, 'delegation events are retained');
+            END;
+            CREATE TRIGGER IF NOT EXISTS delegation_grantor_membership_delete
+            AFTER DELETE ON memberships BEGIN
+                INSERT OR IGNORE INTO delegation_events
+                    (id,grant_id,event_type,actor_id,at)
+                SELECT lower(hex(randomblob(16))),g.id,'invalidate','system',
+                    (julianday('now') - 2440587.5) * 86400.0
+                FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id
+                WHERE f.grantor_id=OLD.user_id AND f.project_id=OLD.project_id;
+                INSERT INTO audit
+                SELECT lower(hex(randomblob(16))),(julianday('now') - 2440587.5) * 86400.0,
+                    'system','delegation.invalidate',g.id,'ok'
+                FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id
+                WHERE f.grantor_id=OLD.user_id AND f.project_id=OLD.project_id
+                    AND EXISTS (SELECT 1 FROM delegation_events e
+                        WHERE e.grant_id=g.id AND e.event_type='invalidate')
+                    AND NOT EXISTS (SELECT 1 FROM audit a
+                        WHERE a.operation='delegation.invalidate' AND a.target_id=g.id);
+            END;
+            CREATE TRIGGER IF NOT EXISTS delegation_grantor_role_update
+            AFTER UPDATE OF permissions,denied_permissions ON roles BEGIN
+                INSERT OR IGNORE INTO delegation_events
+                    (id,grant_id,event_type,actor_id,at)
+                SELECT lower(hex(randomblob(16))),g.id,'invalidate','system',
+                    (julianday('now') - 2440587.5) * 86400.0
+                FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id
+                JOIN membership_roles mr ON mr.user_id=f.grantor_id
+                    AND mr.project_id=f.project_id AND mr.role=OLD.id
+                WHERE OLD.project_id=f.project_id;
+                INSERT INTO audit
+                SELECT lower(hex(randomblob(16))),(julianday('now') - 2440587.5) * 86400.0,
+                    'system','delegation.invalidate',g.id,'ok'
+                FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id
+                JOIN membership_roles mr ON mr.user_id=f.grantor_id
+                    AND mr.project_id=f.project_id AND mr.role=OLD.id
+                WHERE OLD.project_id=f.project_id
+                    AND EXISTS (SELECT 1 FROM delegation_events e
+                        WHERE e.grant_id=g.id AND e.event_type='invalidate')
+                    AND NOT EXISTS (SELECT 1 FROM audit a
+                        WHERE a.operation='delegation.invalidate' AND a.target_id=g.id);
+            END;
+            CREATE TRIGGER IF NOT EXISTS delegation_grantor_role_add
+            AFTER INSERT ON membership_roles BEGIN
+                INSERT OR IGNORE INTO delegation_events
+                    (id,grant_id,event_type,actor_id,at)
+                SELECT lower(hex(randomblob(16))),g.id,'invalidate','system',
+                    (julianday('now') - 2440587.5) * 86400.0
+                FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id
+                WHERE f.grantor_id=NEW.user_id AND f.project_id=NEW.project_id;
+                INSERT INTO audit
+                SELECT lower(hex(randomblob(16))),(julianday('now') - 2440587.5) * 86400.0,
+                    'system','delegation.invalidate',g.id,'ok'
+                FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id
+                WHERE f.grantor_id=NEW.user_id AND f.project_id=NEW.project_id
+                    AND EXISTS (SELECT 1 FROM delegation_events e
+                        WHERE e.grant_id=g.id AND e.event_type='invalidate')
+                    AND NOT EXISTS (SELECT 1 FROM audit a
+                        WHERE a.operation='delegation.invalidate' AND a.target_id=g.id);
+            END;
+            CREATE TRIGGER IF NOT EXISTS delegation_grantor_role_remove
+            AFTER DELETE ON membership_roles BEGIN
+                INSERT OR IGNORE INTO delegation_events
+                    (id,grant_id,event_type,actor_id,at)
+                SELECT lower(hex(randomblob(16))),g.id,'invalidate','system',
+                    (julianday('now') - 2440587.5) * 86400.0
+                FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id
+                WHERE f.grantor_id=OLD.user_id AND f.project_id=OLD.project_id;
+                INSERT INTO audit
+                SELECT lower(hex(randomblob(16))),(julianday('now') - 2440587.5) * 86400.0,
+                    'system','delegation.invalidate',g.id,'ok'
+                FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id
+                WHERE f.grantor_id=OLD.user_id AND f.project_id=OLD.project_id
+                    AND EXISTS (SELECT 1 FROM delegation_events e
+                        WHERE e.grant_id=g.id AND e.event_type='invalidate')
+                    AND NOT EXISTS (SELECT 1 FROM audit a
+                        WHERE a.operation='delegation.invalidate' AND a.target_id=g.id);
+            END;
+            CREATE TRIGGER IF NOT EXISTS delegation_grantor_role_update
+            AFTER UPDATE OF permissions,denied_permissions ON roles BEGIN
+                INSERT OR IGNORE INTO delegation_events
+                    (id,grant_id,event_type,actor_id,at)
+                SELECT lower(hex(randomblob(16))),g.id,'invalidate','system',
+                    (julianday('now') - 2440587.5) * 86400.0
+                FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id
+                JOIN membership_roles mr ON mr.user_id=f.grantor_id
+                    AND mr.project_id=f.project_id AND mr.role=OLD.id
+                WHERE OLD.project_id=f.project_id;
+                INSERT INTO audit
+                SELECT lower(hex(randomblob(16))),(julianday('now') - 2440587.5) * 86400.0,
+                    'system','delegation.invalidate',g.id,'ok'
+                FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id
+                JOIN membership_roles mr ON mr.user_id=f.grantor_id
+                    AND mr.project_id=f.project_id AND mr.role=OLD.id
+                WHERE OLD.project_id=f.project_id
+                    AND EXISTS (SELECT 1 FROM delegation_events e
+                        WHERE e.grant_id=g.id AND e.event_type='invalidate')
+                    AND NOT EXISTS (SELECT 1 FROM audit a
+                        WHERE a.operation='delegation.invalidate' AND a.target_id=g.id);
+            END;
+            CREATE TRIGGER IF NOT EXISTS delegation_grantor_deny_update
+            AFTER UPDATE OF denied_permissions ON memberships BEGIN
+                INSERT OR IGNORE INTO delegation_events
+                    (id,grant_id,event_type,actor_id,at)
+                SELECT lower(hex(randomblob(16))),g.id,'invalidate','system',
+                    (julianday('now') - 2440587.5) * 86400.0
+                FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id
+                WHERE f.grantor_id=NEW.user_id AND f.project_id=NEW.project_id
+                    AND OLD.denied_permissions<>NEW.denied_permissions
+                    AND NOT EXISTS (SELECT 1 FROM delegation_events e WHERE e.grant_id=g.id);
+                INSERT INTO audit
+                SELECT lower(hex(randomblob(16))),(julianday('now') - 2440587.5) * 86400.0,
+                    'system','delegation.invalidate',g.id,'ok'
+                FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id
+                WHERE f.grantor_id=NEW.user_id AND f.project_id=NEW.project_id
+                    AND EXISTS (SELECT 1 FROM delegation_events e
+                        WHERE e.grant_id=g.id AND e.event_type='invalidate')
+                    AND NOT EXISTS (SELECT 1 FROM audit a
+                        WHERE a.operation='delegation.invalidate' AND a.target_id=g.id);
+            END;
+            CREATE TRIGGER IF NOT EXISTS delegation_grantor_disable
+            AFTER UPDATE OF enabled ON users WHEN OLD.enabled<>NEW.enabled AND NEW.enabled=0 BEGIN
+                INSERT OR IGNORE INTO delegation_events
+                    (id,grant_id,event_type,actor_id,at)
+                SELECT lower(hex(randomblob(16))),g.id,'invalidate','system',
+                    (julianday('now') - 2440587.5) * 86400.0
+                FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id
+                WHERE f.grantor_id=NEW.id
+                    AND NOT EXISTS (SELECT 1 FROM delegation_events e WHERE e.grant_id=g.id);
+                INSERT INTO audit
+                SELECT lower(hex(randomblob(16))),(julianday('now') - 2440587.5) * 86400.0,
+                    'system','delegation.invalidate',g.id,'ok'
+                FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id
+                WHERE f.grantor_id=NEW.id
+                    AND EXISTS (SELECT 1 FROM delegation_events e
+                        WHERE e.grant_id=g.id AND e.event_type='invalidate')
+                    AND NOT EXISTS (SELECT 1 FROM audit a
+                        WHERE a.operation='delegation.invalidate' AND a.target_id=g.id);
+            END;
+            CREATE TRIGGER IF NOT EXISTS delegation_owner_change_invalidate
+            AFTER UPDATE OF user_id ON project_owners BEGIN
+                INSERT OR IGNORE INTO delegation_events
+                    (id,grant_id,event_type,actor_id,at)
+                SELECT lower(hex(randomblob(16))),g.id,'invalidate','system',
+                    (julianday('now') - 2440587.5) * 86400.0
+                FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id
+                WHERE f.grantor_id=OLD.user_id AND f.project_id=OLD.project_id
+                    AND NOT EXISTS (SELECT 1 FROM delegation_events e WHERE e.grant_id=g.id);
+                INSERT INTO audit
+                SELECT lower(hex(randomblob(16))),(julianday('now') - 2440587.5) * 86400.0,
+                    'system','delegation.invalidate',g.id,'ok'
+                FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id
+                WHERE f.grantor_id=OLD.user_id AND f.project_id=OLD.project_id
+                    AND EXISTS (SELECT 1 FROM delegation_events e
+                        WHERE e.grant_id=g.id AND e.event_type='invalidate')
+                    AND NOT EXISTS (SELECT 1 FROM audit a
+                        WHERE a.operation='delegation.invalidate' AND a.target_id=g.id);
+            END;
+            CREATE TRIGGER IF NOT EXISTS delegation_owner_delete_invalidate
+            AFTER DELETE ON project_owners BEGIN
+                INSERT OR IGNORE INTO delegation_events
+                    (id,grant_id,event_type,actor_id,at)
+                SELECT lower(hex(randomblob(16))),g.id,'invalidate','system',
+                    (julianday('now') - 2440587.5) * 86400.0
+                FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id
+                WHERE f.grantor_id=OLD.user_id AND f.project_id=OLD.project_id
+                    AND NOT EXISTS (SELECT 1 FROM delegation_events e WHERE e.grant_id=g.id);
+                INSERT INTO audit
+                SELECT lower(hex(randomblob(16))),(julianday('now') - 2440587.5) * 86400.0,
+                    'system','delegation.invalidate',g.id,'ok'
+                FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id
+                WHERE f.grantor_id=OLD.user_id AND f.project_id=OLD.project_id
+                    AND EXISTS (SELECT 1 FROM delegation_events e
+                        WHERE e.grant_id=g.id AND e.event_type='invalidate')
+                    AND NOT EXISTS (SELECT 1 FROM audit a
+                        WHERE a.operation='delegation.invalidate' AND a.target_id=g.id);
+            END;
             CREATE TRIGGER IF NOT EXISTS membership_role_insert AFTER INSERT ON memberships
             BEGIN
                 INSERT OR IGNORE INTO membership_roles (user_id,project_id,role)
@@ -314,9 +543,16 @@ class Service:
             "must_rotate": True,
         }
 
-    def create_project(self, org_id: str, project_id: str, name: str) -> None:
+    def create_project(
+        self, org_id: str, project_id: str, name: str, *, owner_id: str | None = None
+    ) -> None:
         with self.db() as db:
             db.execute("INSERT INTO projects VALUES (?,?,?)", (project_id, org_id, name))
+            if owner_id:
+                db.execute(
+                    "INSERT INTO project_owners (project_id,user_id) VALUES (?,?)",
+                    (project_id, owner_id),
+                )
             self._audit(db, "local-cli", "project.create", project_id)
 
     def _replace_role_holding(
@@ -326,11 +562,18 @@ class Service:
             "DELETE FROM membership_roles WHERE user_id=? AND project_id=?",
             (user_id, project_id),
         )
-        db.execute(
-            "INSERT INTO memberships (user_id,project_id,role) VALUES (?,?,?) "
-            "ON CONFLICT(user_id,project_id) DO UPDATE SET role=excluded.role",
-            (user_id, project_id, role),
-        )
+        # An upsert here would override the OR IGNORE clauses of nested trigger
+        # bodies (SQLite conflict-resolution override) and abort live delegation
+        # invalidation with a spurious UNIQUE failure; update or insert explicitly.
+        updated = db.execute(
+            "UPDATE memberships SET role=? WHERE user_id=? AND project_id=?",
+            (role, user_id, project_id),
+        ).rowcount
+        if not updated:
+            db.execute(
+                "INSERT INTO memberships (user_id,project_id,role) VALUES (?,?,?)",
+                (user_id, project_id, role),
+            )
         db.execute(
             "DELETE FROM membership_roles WHERE user_id=? AND project_id=?",
             (user_id, project_id),
@@ -368,7 +611,12 @@ class Service:
             self._audit(db, "local-cli", "membership.assign", project_id + ":" + user["id"])
 
     def create_admin_project(
-        self, token: str | None, project_id: str, org_id: str, name: str
+        self,
+        token: str | None,
+        project_id: str,
+        org_id: str,
+        name: str,
+        owner_id: str | None = None,
     ) -> Json:
         if (
             not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}", project_id)
@@ -385,8 +633,19 @@ class Service:
             self._limit("admin-project:" + actor.id, 10)
             try:
                 db.execute("INSERT INTO projects VALUES (?,?,?)", (project_id, org_id, name))
+                selected_owner_id = owner_id
+                if selected_owner_id is not None:
+                    owner = db.execute(
+                        "SELECT enabled FROM users WHERE id=?", (selected_owner_id,)
+                    ).fetchone()
+                    if not owner or not owner["enabled"]:
+                        fail(422, "有効な所有者を指定してください")
+                    db.execute(
+                        "INSERT INTO project_owners (project_id,user_id) VALUES (?,?)",
+                        (project_id, selected_owner_id),
+                    )
             except sqlite3.IntegrityError:
-                fail(409, "プロジェクトIDは使用済みです")
+                fail(409, "プロジェクトIDまたは所有者の指定を確認してください")
             self._audit(db, actor.id, "project.create", project_id)
             return {"id": project_id, "org_id": org_id, "name": name}
 
@@ -762,19 +1021,144 @@ class Service:
             json.loads(row["denied_permissions"])
         )
 
-    def _permissions(
-        self, db: sqlite3.Connection, actor: Principal, project: str
-    ) -> frozenset[str]:
-        membership = self._membership(db, actor, project)
-        roles = self._held_roles(db, actor.id, project)
+    def _role_access(
+        self, db: sqlite3.Connection, user_id: str, project: str
+    ) -> tuple[set[str], set[str], set[str]]:
+        membership = db.execute(
+            "SELECT denied_permissions FROM memberships WHERE user_id=? AND project_id=?",
+            (user_id, project),
+        ).fetchone()
+        if not membership:
+            fail(404, "対象が見つかりません")
+        roles = self._held_roles(db, user_id, project)
         allowed: set[str] = set()
         denied: set[str] = set(json.loads(membership["denied_permissions"]))
         for role in roles:
             role_allowed, role_denied = self._role_permissions(db, role, project)
             allowed.update(role_allowed)
             denied.update(role_denied)
-        # Explicit deny wins over every allow held by this user in this project. Permissions
-        # absent from the union remain denied by default. Other projects are evaluated separately.
+        return allowed, denied, set(roles)
+
+    def _delegation_authority(
+        self,
+        db: sqlite3.Connection,
+        grantor_id: str,
+        project: str,
+        permissions: set[str],
+    ) -> bool:
+        try:
+            user = db.execute("SELECT enabled FROM users WHERE id=?", (grantor_id,)).fetchone()
+            if not user or not user["enabled"]:
+                return False
+            allowed, denied, roles = self._role_access(db, grantor_id, project)
+            ceiling = self._permission_ceiling_for_grantor(db, grantor_id, project)
+        except (HTTPException, sqlite3.Error, ValueError, TypeError):
+            return False
+        owner = db.execute(
+            "SELECT 1 FROM project_owners WHERE project_id=? AND user_id=?",
+            (project, grantor_id),
+        ).fetchone()
+        # Organization-admin authority is represented by an explicit role holding
+        # on the target project in this prototype; there is no org-wide grant path.
+        grant_authority = bool(owner or "organization_admin" in roles)
+        return bool(
+            grant_authority
+            and (owner or "manage_roles" in (allowed - denied))
+            and permissions <= NON_ADMIN
+            and permissions <= ceiling
+            and permissions <= (allowed - denied)
+            and not ("retrieve" in permissions and "read" not in permissions)
+        )
+
+    def _delegation_now(self) -> float:
+        """Delegation clock boundary; Unix epoch seconds in the SQLite prototype."""
+        return time.time()
+
+    def _valid_delegation_now(self) -> float | None:
+        try:
+            now = self._delegation_now()
+        except Exception:
+            return None
+        if (
+            isinstance(now, bool)
+            or not isinstance(now, (int, float))
+            or not math.isfinite(now)
+            or now < 0
+        ):
+            return None
+        return float(now)
+
+    def _delegated_permissions(
+        self, db: sqlite3.Connection, actor: Principal, project: str
+    ) -> set[str]:
+        try:
+            user = db.execute("SELECT enabled FROM users WHERE id=?", (actor.id,)).fetchone()
+        except (sqlite3.Error, ValueError, TypeError):
+            return set()
+        if not user or not user["enabled"]:
+            return set()
+        try:
+            grants = db.execute(
+                "SELECT g.id,g.expires,g.permissions,f.grantor_id "
+                "FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id "
+                "WHERE f.recipient_id=? AND f.project_id=? AND g.version=("
+                "SELECT MAX(current.version) FROM delegation_grants current "
+                "WHERE current.family_id=g.family_id) ORDER BY g.id",
+                (actor.id, project),
+            ).fetchall()
+            now = self._valid_delegation_now()
+            if now is None:
+                return set()
+        except (sqlite3.Error, ValueError, TypeError, OverflowError):
+            return set()
+        permissions: set[str] = set()
+        for grant in grants:
+            events = db.execute(
+                "SELECT event_type FROM delegation_events WHERE grant_id=?",
+                (grant["id"],),
+            ).fetchall()
+            if events:
+                continue
+            try:
+                expires = float(grant["expires"])
+                granted = set(json.loads(grant["permissions"]))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                invalidated = db.execute(
+                    "INSERT OR IGNORE INTO delegation_events "
+                    "(id,grant_id,event_type,actor_id,at) VALUES (?,?,?,?,?)",
+                    (uid(), grant["id"], "invalidate", "system", now),
+                ).rowcount
+                if invalidated:
+                    self._audit(db, "system", "delegation.invalidate", grant["id"])
+                continue
+            if not math.isfinite(expires) or now >= expires:
+                inserted = db.execute(
+                    "INSERT OR IGNORE INTO delegation_events "
+                    "(id,grant_id,event_type,actor_id,at) VALUES (?,?,?,?,?)",
+                    (uid(), grant["id"], "expire", "system", now),
+                ).rowcount
+                if inserted:
+                    self._audit(db, "system", "delegation.expire", grant["id"])
+                continue
+            if self._delegation_authority(db, grant["grantor_id"], project, granted):
+                permissions.update(granted)
+            else:
+                invalidated = db.execute(
+                    "INSERT OR IGNORE INTO delegation_events "
+                    "(id,grant_id,event_type,actor_id,at) VALUES (?,?,?,?,?)",
+                    (uid(), grant["id"], "invalidate", "system", now),
+                ).rowcount
+                if invalidated:
+                    self._audit(db, "system", "delegation.invalidate", grant["id"])
+        return permissions
+
+    def _permissions(
+        self, db: sqlite3.Connection, actor: Principal, project: str
+    ) -> frozenset[str]:
+        allowed, denied, _roles = self._role_access(db, actor.id, project)
+        allowed.update(self._delegated_permissions(db, actor, project))
+        # Explicit deny wins over every role and delegation allow. Membership is still
+        # independently required by _role_access, even when a grant otherwise matches.
         effective = allowed - denied
         if "read" not in effective:
             effective.discard("retrieve")
@@ -924,6 +1308,399 @@ class Service:
             )
             self._audit(db, actor.id, "membership.deny.update", project + ":" + target["id"])
             return normalized
+
+    def _permission_ceiling_for_grantor(
+        self, db: sqlite3.Connection, grantor_id: str, project: str
+    ) -> frozenset[str]:
+        """Apply concurrent-role ceilings independently of the active holding union."""
+        roles = self._role_access(db, grantor_id, project)[2]
+        if not roles:
+            return frozenset()
+        permissions = self._permission_ceiling(db, Principal(grantor_id, "", False, False), project)
+        ceilings = []
+        for role in roles:
+            allowed, denied = self._role_permissions(db, role, project)
+            ceilings.append((allowed - denied) & NON_ADMIN)
+        ceiling = set(ceilings[0])
+        for role_ceiling in ceilings[1:]:
+            ceiling.intersection_update(role_ceiling)
+        membership = self._membership(db, Principal(grantor_id, "", False, False), project)
+        ceiling.difference_update(json.loads(membership["denied_permissions"]))
+        return frozenset(ceiling) & permissions
+
+    def create_delegation(
+        self,
+        actor: Principal,
+        session_token: str | None,
+        project: str,
+        recipient_id: str,
+        permissions: list[str],
+        ttl_seconds: int | None = None,
+    ) -> Json:
+        ttl = 86400 if ttl_seconds is None else ttl_seconds
+        if isinstance(ttl, bool) or not isinstance(ttl, int) or not 900 <= ttl <= 604800:
+            fail(422, "委任の有効期間は900〜604800秒です")
+        requested = set(permissions)
+        if (
+            not requested
+            or not requested <= ALL_PERMISSIONS
+            or not requested <= NON_ADMIN
+            or ("retrieve" in requested and "read" not in requested)
+        ):
+            fail(422, "委任する権限を確認してください")
+        with self.db() as db:
+            current = self._authenticate(db, session_token)
+            if current.id != actor.id:
+                fail(401, "ログインしてください")
+            self._limit("delegation-create:" + current.id, 20)
+            project_row = db.execute("SELECT id FROM projects WHERE id=?", (project,)).fetchone()
+            recipient = db.execute(
+                "SELECT id,enabled FROM users WHERE id=?", (recipient_id,)
+            ).fetchone()
+            if not project_row or not recipient or not recipient["enabled"]:
+                fail(404, "委任先またはプロジェクトが見つかりません")
+            if recipient["id"] == current.id:
+                fail(403, "自分自身には委任できません")
+            if not self._delegation_authority(db, current.id, project, requested):
+                fail(403, "委任する権限または管理権限がありません")
+            normalized = json.dumps(sorted(requested), separators=(",", ":"))
+            active_families = db.execute(
+                "SELECT g.id,g.expires,g.permissions FROM delegation_grants g "
+                "JOIN delegation_families f ON f.id=g.family_id "
+                "WHERE f.grantor_id=? AND f.recipient_id=? AND f.project_id=? "
+                "AND g.version=(SELECT MAX(x.version) FROM delegation_grants x "
+                "WHERE x.family_id=g.family_id)",
+                (current.id, recipient_id, project),
+            ).fetchall()
+            now = self._valid_delegation_now()
+            if now is None:
+                fail(503, "現在時刻を検証できないため委任を停止しました")
+            for active in active_families:
+                events = db.execute(
+                    "SELECT 1 FROM delegation_events WHERE grant_id=?", (active["id"],)
+                ).fetchone()
+                try:
+                    active_expires = float(active["expires"])
+                except (TypeError, ValueError):
+                    active_expires = float("nan")
+                if not events and (not math.isfinite(active_expires) or now >= active_expires):
+                    db.execute(
+                        "INSERT OR IGNORE INTO delegation_events "
+                        "(id,grant_id,event_type,actor_id,at) VALUES (?,?,?,?,?)",
+                        (uid(), active["id"], "expire", "system", now),
+                    )
+                    self._audit(db, "system", "delegation.expire", active["id"])
+            family = db.execute(
+                "SELECT id FROM delegation_families WHERE grantor_id=? AND recipient_id=? "
+                "AND project_id=? AND permissions=? ORDER BY created,id LIMIT 1",
+                (current.id, recipient_id, project, normalized),
+            ).fetchone()
+            if family:
+                active_family = db.execute(
+                    "SELECT g.id,g.expires,g.permissions FROM delegation_grants g "
+                    "WHERE g.family_id=? AND g.version=(SELECT MAX(version) "
+                    "FROM delegation_grants WHERE family_id=?)",
+                    (family["id"], family["id"]),
+                ).fetchone()
+                if active_family:
+                    try:
+                        active_expires = float(active_family["expires"])
+                        active_permissions = set(json.loads(active_family["permissions"]))
+                    except (TypeError, ValueError, json.JSONDecodeError):
+                        active_expires = float("nan")
+                        active_permissions = set()
+                    active_event = db.execute(
+                        "SELECT 1 FROM delegation_events WHERE grant_id=?",
+                        (active_family["id"],),
+                    ).fetchone()
+                    if (
+                        not active_event
+                        and math.isfinite(active_expires)
+                        and now < active_expires
+                        and active_permissions == requested
+                    ):
+                        return {
+                            "id": active_family["id"],
+                            "family_id": family["id"],
+                            "version": db.execute(
+                                "SELECT version FROM delegation_grants WHERE id=?",
+                                (active_family["id"],),
+                            ).fetchone()["version"],
+                            "expires": active_expires,
+                            "deduplicated": True,
+                        }
+            else:
+                previous_family = db.execute(
+                    "SELECT f.id,g.id AS grant_id,g.expires,g.permissions "
+                    "FROM delegation_families f JOIN delegation_grants g ON g.family_id=f.id "
+                    "WHERE f.grantor_id=? AND f.recipient_id=? AND f.project_id=? "
+                    "AND g.version=(SELECT MAX(version) FROM delegation_grants "
+                    "WHERE family_id=f.id) ORDER BY f.created DESC LIMIT 1",
+                    (current.id, recipient_id, project),
+                ).fetchone()
+                if previous_family:
+                    try:
+                        previous_expires = float(previous_family["expires"])
+                        previous_permissions = set(json.loads(previous_family["permissions"]))
+                    except (TypeError, ValueError, json.JSONDecodeError):
+                        previous_expires = float("nan")
+                        previous_permissions = set()
+                    previous_event = db.execute(
+                        "SELECT 1 FROM delegation_events WHERE grant_id=?",
+                        (previous_family["grant_id"],),
+                    ).fetchone()
+                    if (
+                        not previous_event
+                        and math.isfinite(previous_expires)
+                        and now < previous_expires
+                        and previous_permissions != requested
+                    ):
+                        fail(409, "有効中の委任の範囲または権限は変更できません")
+            if family:
+                family_id = family["id"]
+                prior = db.execute(
+                    "SELECT g.id,g.expires FROM delegation_grants g WHERE g.family_id=? "
+                    "AND g.version=(SELECT MAX(version) FROM delegation_grants WHERE family_id=?)",
+                    (family_id, family_id),
+                ).fetchone()
+                if prior:
+                    events = db.execute(
+                        "SELECT 1 FROM delegation_events WHERE grant_id=?", (prior["id"],)
+                    ).fetchone()
+                    now = self._valid_delegation_now()
+                    if now is None:
+                        fail(503, "現在時刻を検証できないため委任を停止しました")
+                    try:
+                        prior_expires = float(prior["expires"])
+                    except (TypeError, ValueError):
+                        prior_expires = float("nan")
+                    if not events and math.isfinite(prior_expires) and prior_expires > now:
+                        return {
+                            "id": prior["id"],
+                            "family_id": family_id,
+                            "version": db.execute(
+                                "SELECT version FROM delegation_grants WHERE id=?",
+                                (prior["id"],),
+                            ).fetchone()["version"],
+                            "expires": prior["expires"],
+                            "deduplicated": True,
+                        }
+                    if not events:
+                        db.execute(
+                            "INSERT OR IGNORE INTO delegation_events "
+                            "(id,grant_id,event_type,actor_id,at) VALUES (?,?,?,?,?)",
+                            (uid(), prior["id"], "supersede", current.id, now),
+                        )
+                        self._audit(db, current.id, "delegation.supersede", prior["id"])
+                    version = db.execute(
+                        "SELECT COALESCE(MAX(version),0)+1 FROM delegation_grants "
+                        "WHERE family_id=?",
+                        (family_id,),
+                    ).fetchone()[0]
+                else:
+                    version = 1
+            else:
+                family_id = uid()
+                version = 1
+                now = self._delegation_now()
+                db.execute(
+                    "INSERT INTO delegation_families "
+                    "(id,grantor_id,recipient_id,project_id,permissions,created) "
+                    "VALUES (?,?,?,?,?,?)",
+                    (family_id, current.id, recipient_id, project, normalized, now),
+                )
+            now = self._valid_delegation_now()
+            if now is None:
+                fail(503, "現在時刻を検証できないため委任を停止しました")
+            grant_id = uid()
+            expires = now + ttl
+            if not math.isfinite(expires) or expires <= now:
+                fail(503, "現在時刻を検証できないため委任を停止しました")
+            if family:
+                previous = db.execute(
+                    "SELECT g.id,g.expires,g.permissions FROM delegation_grants g "
+                    "WHERE g.family_id=? AND g.version=(SELECT MAX(version) "
+                    "FROM delegation_grants WHERE family_id=?)",
+                    (family_id, family_id),
+                ).fetchone()
+                if previous:
+                    prior_expires = float(previous["expires"])
+                    prior_permissions = json.loads(previous["permissions"])
+                    if (
+                        math.isfinite(prior_expires)
+                        and now < prior_expires
+                        and prior_permissions != sorted(requested)
+                    ):
+                        fail(409, "有効中の委任の権限は変更できません")
+                    if not db.execute(
+                        "SELECT 1 FROM delegation_events WHERE grant_id=?", (previous["id"],)
+                    ).fetchone():
+                        db.execute(
+                            "INSERT INTO delegation_events "
+                            "(id,grant_id,event_type,actor_id,at) VALUES (?,?,?,?,?)",
+                            (uid(), previous["id"], "supersede", current.id, now),
+                        )
+                        self._audit(db, current.id, "delegation.supersede", previous["id"])
+            db.execute(
+                "INSERT INTO delegation_grants "
+                "(id,family_id,version,permissions,created,expires) VALUES (?,?,?,?,?,?)",
+                (grant_id, family_id, version, normalized, now, expires),
+            )
+            self._audit(db, current.id, "delegation.grant", grant_id)
+            return {
+                "id": grant_id,
+                "family_id": family_id,
+                "version": version,
+                "expires": expires,
+                "deduplicated": False,
+            }
+
+    def _end_delegation(
+        self,
+        actor: Principal,
+        session_token: str | None,
+        grant_id: str,
+        event_type: str,
+    ) -> Json:
+        with self.db() as db:
+            current = self._authenticate(db, session_token)
+            if current.id != actor.id:
+                fail(401, "ログインしてください")
+            self._limit("delegation-end:" + current.id, 30)
+            grant = db.execute(
+                "SELECT g.id,g.family_id,f.grantor_id,f.recipient_id "
+                "FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id "
+                "WHERE g.id=?",
+                (grant_id,),
+            ).fetchone()
+            if not grant:
+                fail(404, "委任が見つかりません")
+            authorized = (
+                current.id == grant["grantor_id"]
+                if event_type == "revoke"
+                else current.id == grant["recipient_id"]
+            )
+            if not authorized:
+                fail(404, "委任が見つかりません")
+            existing = db.execute(
+                "SELECT 1 FROM delegation_events WHERE grant_id=?", (grant_id,)
+            ).fetchone()
+            if not existing:
+                now = self._valid_delegation_now()
+                if now is None:
+                    fail(503, "現在時刻を検証できないため委任を停止しました")
+                db.execute(
+                    "INSERT OR IGNORE INTO delegation_events "
+                    "(id,grant_id,event_type,actor_id,at) VALUES (?,?,?,?,?)",
+                    (uid(), grant_id, event_type, current.id, now),
+                )
+                self._audit(db, current.id, f"delegation.{event_type}", grant_id)
+                changed = True
+            else:
+                self._audit(db, current.id, f"delegation.{event_type}", grant_id, "already_ended")
+                changed = False
+            return {"id": grant_id, "ended": True, "changed": changed}
+
+    def delegations(self, actor: Principal, session_token: str | None) -> list[Json]:
+        with self.db() as db:
+            current = self._authenticate(db, session_token)
+            if current.id != actor.id:
+                fail(401, "ログインしてください")
+            self._limit("delegation-list:" + current.id, 60)
+            stale = db.execute(
+                "SELECT g.id,g.expires,f.grantor_id,f.project_id,f.permissions "
+                "FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id "
+                "WHERE g.version=(SELECT MAX(x.version) FROM delegation_grants x "
+                "WHERE x.family_id=g.family_id)"
+            ).fetchall()
+            now = self._valid_delegation_now()
+            if now is None:
+                fail(503, "現在時刻を検証できないため委任を停止しました")
+            for grant in stale:
+                try:
+                    expires = float(grant["expires"])
+                    permissions = set(json.loads(grant["permissions"]))
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    event_type = "invalidate"
+                else:
+                    if not math.isfinite(expires) or now >= expires:
+                        event_type = "expire"
+                    elif not self._delegation_authority(
+                        db, grant["grantor_id"], grant["project_id"], permissions
+                    ):
+                        event_type = "invalidate"
+                    else:
+                        continue
+                inserted = db.execute(
+                    "INSERT OR IGNORE INTO delegation_events "
+                    "(id,grant_id,event_type,actor_id,at) VALUES (?,?,?,?,?)",
+                    (uid(), grant["id"], event_type, "system", now),
+                ).rowcount
+                if inserted:
+                    self._audit(db, "system", f"delegation.{event_type}", grant["id"])
+            rows = db.execute(
+                "SELECT g.id,g.family_id,g.version,g.permissions,g.created,g.expires,"
+                "f.grantor_id,f.recipient_id,f.project_id "
+                "FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id "
+                "WHERE f.grantor_id=? OR f.recipient_id=? ORDER BY g.created DESC,g.id",
+                (current.id, current.id),
+            ).fetchall()
+            results: list[Json] = []
+            now = self._valid_delegation_now()
+            if now is None:
+                fail(503, "現在時刻を検証できないため委任を停止しました")
+            for row in rows:
+                events = db.execute(
+                    "SELECT event_type,at,actor_id FROM delegation_events "
+                    "WHERE grant_id=? ORDER BY at,event_type",
+                    (row["id"],),
+                ).fetchall()
+                current_version = db.execute(
+                    "SELECT MAX(version) FROM delegation_grants WHERE family_id=?",
+                    (row["family_id"],),
+                ).fetchone()[0]
+                try:
+                    expires = float(row["expires"])
+                except (TypeError, ValueError):
+                    expires = float("nan")
+                status = (
+                    "ended"
+                    if events
+                    else "expired"
+                    if not math.isfinite(expires) or now >= expires
+                    else "active"
+                    if row["version"] == current_version
+                    else "superseded"
+                )
+                results.append(
+                    {
+                        "id": row["id"],
+                        "family_id": row["family_id"],
+                        "version": row["version"],
+                        "project_id": row["project_id"],
+                        "grantor_id": row["grantor_id"],
+                        "recipient_id": row["recipient_id"],
+                        "permissions": json.loads(row["permissions"]),
+                        "created": row["created"],
+                        "expires": row["expires"],
+                        "status": status,
+                        "events": [
+                            {
+                                "type": event["event_type"],
+                                "at": event["at"],
+                                "actor_id": event["actor_id"],
+                            }
+                            for event in events
+                        ],
+                    }
+                )
+            return results
+
+    def revoke_delegation(self, actor: Principal, session_token: str | None, grant_id: str) -> Json:
+        return self._end_delegation(actor, session_token, grant_id, "revoke")
+
+    def cancel_delegation(self, actor: Principal, session_token: str | None, grant_id: str) -> Json:
+        return self._end_delegation(actor, session_token, grant_id, "cancel")
 
     def require(
         self, db: sqlite3.Connection, actor: Principal, project: str, permission: str
@@ -1544,6 +2321,22 @@ class Service:
             with self.db() as db:
                 if self._cancel_chat_if_requested(db, chat_job_id):
                     return None
+        # Recheck immediately before dispatch: revocation/expiry between initial
+        # retrieval and the external model call must not expose stale citations.
+        if generate and citations:
+            with self.db() as db:
+                current = self._authenticate(db, token)
+                if current.id != actor.id:
+                    fail(401, "ログインしてください")
+                self._conversation(db, current, conversation)
+                for document in attachments:
+                    attached = self._document(db, current, document, conversation)
+                    if attached["kind"] != "attachment" or attached["status"] != "ready":
+                        fail(409, "添付の権限または状態が変わりました")
+                if validate:
+                    validate()
+                if self._citations(db, current, ids, conversation) != citations:
+                    fail(409, "参照資料の権限または内容が変わりました")
         # Never hold the database transaction during model I/O.
         generated = generate(text, citations) if generate and citations else None
         with self.db() as db:
@@ -1552,6 +2345,11 @@ class Service:
                 current = self._authenticate(db, token)
                 if current.id != actor.id:
                     fail(401, "ログインしてください")
+                self._conversation(db, current, conversation)
+                for document in attachments:
+                    attached = self._document(db, current, document, conversation)
+                    if attached["kind"] != "attachment" or attached["status"] != "ready":
+                        fail(409, "添付の権限または状態が変わりました")
                 if validate:
                     validate()
                 if self._citations(db, current, ids, conversation) != citations:

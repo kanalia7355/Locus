@@ -182,7 +182,19 @@ def test_roles_denied_by_default_and_audit_redaction(service: Service) -> None:
         ).status_code
         == 403
     )
-    assert client.post("/api/admin/delegations", json={}, headers=ORIGIN).status_code == 409
+    assert client.post("/api/admin/delegations", json={}, headers=ORIGIN).status_code == 422
+    assert (
+        client.post(
+            "/api/admin/delegations",
+            json={
+                "project_id": "project-a",
+                "recipient_id": service.provision("delegation-recipient", "Temporary-password-06!"),
+                "permissions": ["read"],
+            },
+            headers=ORIGIN,
+        ).status_code
+        == 403
+    )
     admin = client_for(service)
     login(admin, "admin", "01")
     assert (
