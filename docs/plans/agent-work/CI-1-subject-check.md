@@ -46,3 +46,9 @@ Then: Conventional Commit (`fix(ci): validate branch-local commit ranges and ski
 Boundaries: never push to `main` or `loop/local-development`; touch ONLY
 `scripts/check_commit_subjects.py` and its tests; do not weaken validation
 (genuine non-Conventional subjects must still fail); no subagents.
+
+## Progress
+
+- Implemented range fallback and merge skipping in the isolated CI-1 worktree; extended integration coverage for short ranges, merge commits, oversized fallback, empty fallback, and genuine violations.
+- Local QA: final `pytest tests -q --ignore=tests/e2e` — 1137 passed, 18 skipped (opt-in Docker, unavailable pinned CLI/native, and symlink-capability environment skips); Ruff check and format check on CI code paths (`backend tests scripts`) passed; `mypy backend/app` passed (9 source files); offline secret scan passed (0 findings). A broad `ruff format --check .` also reports an unrelated formatting issue in `docs/requirements/AUTONOMOUS_LOOP_SPEC.md`; the project CI scope `backend tests scripts` is clean. Focused promotion test: 4 passed.
+- Commit SHA and hosted branch-CI evidence: pending.
