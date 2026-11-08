@@ -100,4 +100,9 @@ no subagents.
   `42435494167` SUCCESS; Loop engine checks `42435494201` SUCCESS (Ubuntu/Windows
   Python 3.11/3.13); PR title convention `42435494198` SUCCESS. The failed
   initial range check remains recorded for transparency; latest exact-head status
-  is all green.
+  is all green. The deliverables commit `450c45b8898eaa73eeceac8f4f7657b0c2c84855`
+  is included in final documentation/evidence head `14c3b12f7c4be37592a267e959b03f83147cb780`,
+  whose exact-SHA checks all succeeded: Prototype quality `42436023730`; Loop
+  engine checks `42436023738` (4/4 Ubuntu/Windows Python 3.11/3.13 jobs); PR title
+  convention `42436023757`. The intervening progress-only commits record CI evidence;
+  no application code, workflow, or protected branch was changed.
