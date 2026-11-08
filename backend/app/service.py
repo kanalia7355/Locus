@@ -34,6 +34,7 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     "guest": frozenset({"read"}),
     "auditor": frozenset({"read"}),
 }
+ALL_PERMISSIONS = frozenset().union(*ROLE_PERMISSIONS.values()) | NON_ADMIN
 SYNTHETIC_TEXT = (
     "【合成サンプル・実研究データではありません】\n"
     "成膜条件Aは処理温度180°C、処理時間30分。\n"
@@ -129,6 +130,29 @@ class Service:
                 id TEXT PRIMARY KEY, project_id TEXT REFERENCES projects(id), name TEXT NOT NULL,
                 permissions TEXT NOT NULL, UNIQUE(project_id, name)
             );
+            CREATE TABLE IF NOT EXISTS membership_roles (
+                user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                role TEXT NOT NULL,
+                PRIMARY KEY(user_id, project_id, role)
+            );
+            CREATE TRIGGER IF NOT EXISTS membership_role_insert AFTER INSERT ON memberships
+            BEGIN
+                INSERT OR IGNORE INTO membership_roles (user_id,project_id,role)
+                VALUES (NEW.user_id,NEW.project_id,NEW.role);
+            END;
+            CREATE TRIGGER IF NOT EXISTS membership_role_update AFTER UPDATE OF role ON memberships
+            BEGIN
+                DELETE FROM membership_roles
+                WHERE user_id=NEW.user_id AND project_id=NEW.project_id AND role<>NEW.role;
+                INSERT OR IGNORE INTO membership_roles (user_id,project_id,role)
+                VALUES (NEW.user_id,NEW.project_id,NEW.role);
+            END;
+            CREATE TRIGGER IF NOT EXISTS membership_role_delete AFTER DELETE ON memberships
+            BEGIN
+                DELETE FROM membership_roles WHERE user_id=OLD.user_id
+                    AND project_id=OLD.project_id;
+            END;
             CREATE TABLE IF NOT EXISTS conversations (
                 id TEXT PRIMARY KEY, owner_id TEXT REFERENCES users(id),
                 project_id TEXT REFERENCES projects(id), created REAL NOT NULL
@@ -174,6 +198,18 @@ class Service:
             self.conn.execute(
                 "ALTER TABLE chat_jobs ADD COLUMN cancel_requested INTEGER NOT NULL DEFAULT 0"
             )
+        # Additive migrations preserve databases created before concurrent role holdings.
+        self._ensure_column("memberships", "denied_permissions", "TEXT NOT NULL DEFAULT '[]'")
+        self._ensure_column("roles", "denied_permissions", "TEXT NOT NULL DEFAULT '[]'")
+        self.conn.execute(
+            "INSERT OR IGNORE INTO membership_roles (user_id,project_id,role) "
+            "SELECT user_id,project_id,role FROM memberships"
+        )
+
+    def _ensure_column(self, table: str, column: str, definition: str) -> None:
+        columns = {row["name"] for row in self.conn.execute(f"PRAGMA table_info({table})")}
+        if column not in columns:
+            self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
     @contextmanager
     def db(self) -> Iterator[sqlite3.Connection]:
@@ -283,7 +319,29 @@ class Service:
             db.execute("INSERT INTO projects VALUES (?,?,?)", (project_id, org_id, name))
             self._audit(db, "local-cli", "project.create", project_id)
 
+    def _replace_role_holding(
+        self, db: sqlite3.Connection, user_id: str, project_id: str, role: str
+    ) -> None:
+        db.execute(
+            "DELETE FROM membership_roles WHERE user_id=? AND project_id=?",
+            (user_id, project_id),
+        )
+        db.execute(
+            "INSERT INTO memberships (user_id,project_id,role) VALUES (?,?,?) "
+            "ON CONFLICT(user_id,project_id) DO UPDATE SET role=excluded.role",
+            (user_id, project_id, role),
+        )
+        db.execute(
+            "DELETE FROM membership_roles WHERE user_id=? AND project_id=?",
+            (user_id, project_id),
+        )
+        db.execute(
+            "INSERT INTO membership_roles (user_id,project_id,role) VALUES (?,?,?)",
+            (user_id, project_id, role),
+        )
+
     def assign(self, username: str, project_id: str, role: str | None) -> None:
+        """Compatibility helper that replaces all role holdings with one role."""
         with self.db() as db:
             user = db.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()
             if not user:
@@ -291,6 +349,10 @@ class Service:
             if not db.execute("SELECT id FROM projects WHERE id=?", (project_id,)).fetchone():
                 fail(404, "プロジェクトが見つかりません")
             if role is None:
+                db.execute(
+                    "DELETE FROM membership_roles WHERE user_id=? AND project_id=?",
+                    (user["id"], project_id),
+                )
                 db.execute(
                     "DELETE FROM memberships WHERE user_id=? AND project_id=?",
                     (user["id"], project_id),
@@ -302,9 +364,7 @@ class Service:
             ).fetchone()
             if role not in ROLE_PERMISSIONS and not custom:
                 fail(422, "不明なロールです")
-            db.execute(
-                "INSERT OR REPLACE INTO memberships VALUES (?,?,?)", (user["id"], project_id, role)
-            )
+            self._replace_role_holding(db, user["id"], project_id, role)
             self._audit(db, "local-cli", "membership.assign", project_id + ":" + user["id"])
 
     def _limit(self, key: str, maximum: int) -> None:
@@ -498,17 +558,170 @@ class Service:
             fail(404, "対象が見つかりません")
         return row  # type: ignore[no-any-return]
 
+    def _held_roles(self, db: sqlite3.Connection, user_id: str, project: str) -> list[str]:
+        rows = db.execute(
+            "SELECT role FROM membership_roles WHERE user_id=? AND project_id=? ORDER BY role",
+            (user_id, project),
+        ).fetchall()
+        # Legacy memberships are copied into this table during startup migration. An empty
+        # normalized set therefore stays permissionless rather than resurrecting stale roles.
+        return [row["role"] for row in rows]
+
+    def _role_permissions(
+        self, db: sqlite3.Connection, role: str, project: str
+    ) -> tuple[frozenset[str], frozenset[str]]:
+        if role in ROLE_PERMISSIONS:
+            return ROLE_PERMISSIONS[role], frozenset()
+        row = db.execute(
+            "SELECT permissions,denied_permissions FROM roles WHERE id=? AND project_id=?",
+            (role, project),
+        ).fetchone()
+        if not row:
+            return frozenset(), frozenset()
+        return frozenset(json.loads(row["permissions"])), frozenset(
+            json.loads(row["denied_permissions"])
+        )
+
     def _permissions(
         self, db: sqlite3.Connection, actor: Principal, project: str
     ) -> frozenset[str]:
         membership = self._membership(db, actor, project)
-        role = membership["role"]
-        if role in ROLE_PERMISSIONS:
-            return ROLE_PERMISSIONS[role]
-        row = db.execute(
-            "SELECT permissions FROM roles WHERE id=? AND project_id=?", (role, project)
-        ).fetchone()
-        return frozenset(json.loads(row["permissions"])) if row else frozenset()
+        roles = self._held_roles(db, actor.id, project)
+        allowed: set[str] = set()
+        denied: set[str] = set(json.loads(membership["denied_permissions"]))
+        for role in roles:
+            role_allowed, role_denied = self._role_permissions(db, role, project)
+            allowed.update(role_allowed)
+            denied.update(role_denied)
+        # Explicit deny wins over every allow held by this user in this project. Permissions
+        # absent from the union remain denied by default. Other projects are evaluated separately.
+        effective = allowed - denied
+        if "read" not in effective:
+            effective.discard("retrieve")
+        return frozenset(effective)
+
+    def _permission_ceiling(
+        self, db: sqlite3.Connection, actor: Principal, project: str
+    ) -> frozenset[str]:
+        """Permissions that a non-admin custom role may grant to other users."""
+        membership = self._membership(db, actor, project)
+        roles = self._held_roles(db, actor.id, project)
+        if not roles:
+            return frozenset()
+        # A delegated role must be a subset of EACH held role's ceiling. Intersection is
+        # intentional: union here would let complementary roles manufacture a new authority.
+        ceilings = []
+        for role in roles:
+            allowed, denied = self._role_permissions(db, role, project)
+            ceilings.append((allowed - denied) & NON_ADMIN)
+        ceiling = set(ceilings[0])
+        for permissions in ceilings[1:]:
+            ceiling.intersection_update(permissions)
+        ceiling.difference_update(json.loads(membership["denied_permissions"]))
+        return frozenset(ceiling)
+
+    def _held_permission_ceiling(
+        self, db: sqlite3.Connection, actor: Principal, project: str
+    ) -> frozenset[str]:
+        """Intersection of held roles' own permissions; never union for delegation."""
+        membership = self._membership(db, actor, project)
+        roles = self._held_roles(db, actor.id, project)
+        if not roles:
+            return frozenset()
+        ceilings = []
+        for role in roles:
+            allowed, denied = self._role_permissions(db, role, project)
+            ceilings.append(allowed - denied)
+        ceiling = set(ceilings[0])
+        for permissions in ceilings[1:]:
+            ceiling.intersection_update(permissions)
+        ceiling.difference_update(json.loads(membership["denied_permissions"]))
+        return frozenset(ceiling)
+
+    def add_role_holding(self, actor: Principal, project: str, username: str, role: str) -> None:
+        with self.db() as db:
+            self.require(db, actor, project, "manage_members")
+            self._membership(db, actor, project)
+            target = db.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()
+            if not target:
+                fail(404, "利用者が見つかりません")
+            allowed, denied = self._role_permissions(db, role, project)
+            if (
+                role not in ROLE_PERMISSIONS
+                and not db.execute(
+                    "SELECT 1 FROM roles WHERE id=? AND project_id=?", (role, project)
+                ).fetchone()
+            ):
+                fail(404, "ロールが見つかりません")
+            if (
+                not allowed <= NON_ADMIN
+                or not allowed <= self._held_permission_ceiling(db, actor, project)
+                or not denied <= ALL_PERMISSIONS
+            ):
+                fail(422, "ロールの権限が本人の非管理委任上限を超えています")
+            db.execute(
+                "INSERT OR IGNORE INTO membership_roles (user_id,project_id,role) VALUES (?,?,?)",
+                (target["id"], project, role),
+            )
+            db.execute(
+                "INSERT OR IGNORE INTO memberships (user_id,project_id,role) VALUES (?,?,?)",
+                (target["id"], project, role),
+            )
+            self._audit(db, actor.id, "membership.role.assign", project + ":" + target["id"])
+
+    def remove_role_holding(self, actor: Principal, project: str, username: str, role: str) -> None:
+        with self.db() as db:
+            self.require(db, actor, project, "manage_members")
+            target = db.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()
+            if not target:
+                fail(404, "利用者が見つかりません")
+            deleted = db.execute(
+                "DELETE FROM membership_roles WHERE user_id=? AND project_id=? AND role=?",
+                (target["id"], project, role),
+            ).rowcount
+            if not deleted:
+                fail(404, "ロール所属が見つかりません")
+            remaining = self._held_roles(db, target["id"], project)
+            if remaining:
+                db.execute(
+                    "UPDATE memberships SET role=? WHERE user_id=? AND project_id=?",
+                    (remaining[0], target["id"], project),
+                )
+                db.executemany(
+                    "INSERT OR IGNORE INTO membership_roles (user_id,project_id,role) "
+                    "VALUES (?,?,?)",
+                    ((target["id"], project, held_role) for held_role in remaining),
+                )
+            else:
+                db.execute(
+                    "DELETE FROM memberships WHERE user_id=? AND project_id=?",
+                    (target["id"], project),
+                )
+            self._audit(db, actor.id, "membership.role.remove", project + ":" + target["id"])
+
+    def set_membership_denials(
+        self, actor: Principal, project: str, username: str, denied_permissions: list[str]
+    ) -> list[str]:
+        with self.db() as db:
+            self.require(db, actor, project, "manage_members")
+            target = db.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()
+            if (
+                not target
+                or not db.execute(
+                    "SELECT 1 FROM memberships WHERE user_id=? AND project_id=?",
+                    (target["id"] if target else "", project),
+                ).fetchone()
+            ):
+                fail(404, "所属が見つかりません")
+            if not set(denied_permissions) <= ALL_PERMISSIONS:
+                fail(422, "不明な権限です")
+            normalized = sorted(set(denied_permissions))
+            db.execute(
+                "UPDATE memberships SET denied_permissions=? WHERE user_id=? AND project_id=?",
+                (json.dumps(normalized), target["id"], project),
+            )
+            self._audit(db, actor.id, "membership.deny.update", project + ":" + target["id"])
+            return normalized
 
     def require(
         self, db: sqlite3.Connection, actor: Principal, project: str, permission: str
@@ -524,9 +737,39 @@ class Service:
                 (actor.id,),
             ).fetchall()
             return [
-                {**dict(row), "permissions": sorted(self._permissions(db, actor, row["id"]))}
+                {
+                    **dict(row),
+                    "roles": self._held_roles(db, actor.id, row["id"]),
+                    "permissions": sorted(self._permissions(db, actor, row["id"])),
+                }
                 for row in rows
             ]
+
+    def membership_roles(self, actor: Principal, project: str, username: str) -> Json:
+        with self.db() as db:
+            self.require(db, actor, project, "manage_members")
+            target = db.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()
+            if not target:
+                fail(404, "所属が見つかりません")
+            membership = db.execute(
+                "SELECT denied_permissions FROM memberships WHERE user_id=? AND project_id=?",
+                (target["id"], project),
+            ).fetchone()
+            if not membership:
+                fail(404, "所属が見つかりません")
+            return {
+                "username": username,
+                "project_id": project,
+                "roles": self._held_roles(db, target["id"], project),
+                "denied_permissions": json.loads(membership["denied_permissions"]),
+                "effective_permissions": sorted(
+                    self._permissions(
+                        db,
+                        Principal(target["id"], username, False, False),
+                        project,
+                    )
+                ),
+            }
 
     def _conversation(
         self, db: sqlite3.Connection, actor: Principal, conversation: str
@@ -556,9 +799,10 @@ class Service:
                 row["owner_id"] == actor.id
                 and (row["kind"] != "attachment" or row["conversation_id"] == conversation)
             )
-        membership = self._membership(db, actor, row["project_id"])
+        self._membership(db, actor, row["project_id"])
+        held_roles = set(self._held_roles(db, actor.id, row["project_id"]))
         return any(
-            g["role"] == membership["role"] and operation in g["operations"]
+            g["role"] in held_roles and operation in g["operations"]
             for g in json.loads(row["grants"])
         )
 
@@ -1432,36 +1676,70 @@ class Service:
                     for name, permissions in ROLE_PERMISSIONS.items()
                 ],
                 "custom": [
-                    {**dict(row), "permissions": json.loads(row["permissions"])}
+                    {
+                        **{key: row[key] for key in row.keys() if key != "denied_permissions"},
+                        "permissions": json.loads(row["permissions"]),
+                        **(
+                            {"denied_permissions": json.loads(row["denied_permissions"])}
+                            if json.loads(row["denied_permissions"])
+                            else {}
+                        ),
+                    }
                     for row in db.execute("SELECT * FROM roles WHERE project_id=?", (project,))
                 ],
-                "allowed_permissions": sorted(self._permissions(db, actor, project) & NON_ADMIN),
+                "allowed_permissions": sorted(self._permission_ceiling(db, actor, project)),
             }
 
     def create_role(
-        self, actor: Principal, project: str, name: str, permissions: list[str]
+        self,
+        actor: Principal,
+        project: str,
+        name: str,
+        permissions: list[str],
+        denied_permissions: list[str] | None = None,
     ) -> Json:
         with self.db() as db:
             self.require(db, actor, project, "manage_roles")
-            if not set(permissions) <= NON_ADMIN or not set(permissions) <= self._permissions(
-                db, actor, project
-            ):
-                fail(422, "本人の許可範囲内の非管理権限だけを指定できます")
+            if not set(permissions) <= NON_ADMIN or not set(
+                permissions
+            ) <= self._permission_ceiling(db, actor, project):
+                fail(422, "本人の委任上限内の非管理権限だけを指定できます")
+            denied = set(denied_permissions or [])
+            if not denied <= ALL_PERMISSIONS:
+                fail(422, "不明な拒否権限です")
+            # Denials only remove permissions, so any known permission may be denied;
+            # the non-admin ceiling applies to grants, not to reductions in access.
             if "retrieve" in permissions and "read" not in permissions:
                 fail(422, "チャット参照には閲覧権限も必要です")
             role_id = uid()
             try:
                 db.execute(
-                    "INSERT INTO roles VALUES (?,?,?,?)",
-                    (role_id, project, name, json.dumps(sorted(set(permissions)))),
+                    "INSERT INTO roles (id,project_id,name,permissions,denied_permissions) "
+                    "VALUES (?,?,?,?,?)",
+                    (
+                        role_id,
+                        project,
+                        name,
+                        json.dumps(sorted(set(permissions))),
+                        json.dumps(sorted(denied)),
+                    ),
                 )
             except sqlite3.IntegrityError:
                 fail(409, "ロール名は使用済みです")
             self._audit(db, actor.id, "role.create", role_id)
-            return {"id": role_id, "name": name, "permissions": sorted(set(permissions))}
+            result = {"id": role_id, "name": name, "permissions": sorted(set(permissions))}
+            if denied:
+                result["denied_permissions"] = sorted(denied)
+            return result
 
     def update_role(
-        self, actor: Principal, project: str, role_id: str, name: str, permissions: list[str]
+        self,
+        actor: Principal,
+        project: str,
+        role_id: str,
+        name: str,
+        permissions: list[str],
+        denied_permissions: list[str] | None = None,
     ) -> Json:
         with self.db() as db:
             self.require(db, actor, project, "manage_roles")
@@ -1472,21 +1750,42 @@ class Service:
                 ).fetchone()
             ):
                 fail(404, "ロールが見つかりません")
-            if not set(permissions) <= NON_ADMIN or not set(permissions) <= self._permissions(
-                db, actor, project
-            ):
-                fail(422, "本人の許可範囲内の非管理権限だけを指定できます")
+            if not set(permissions) <= NON_ADMIN or not set(
+                permissions
+            ) <= self._permission_ceiling(db, actor, project):
+                fail(422, "本人の委任上限内の非管理権限だけを指定できます")
+            existing = db.execute(
+                "SELECT denied_permissions FROM roles WHERE id=? AND project_id=?",
+                (role_id, project),
+            ).fetchone()
+            denied = set(
+                json.loads(existing["denied_permissions"])
+                if denied_permissions is None
+                else denied_permissions
+            )
+            if not denied <= ALL_PERMISSIONS:
+                fail(422, "不明な拒否権限です")
             if "retrieve" in permissions and "read" not in permissions:
                 fail(422, "チャット参照には閲覧権限も必要です")
             try:
                 db.execute(
-                    "UPDATE roles SET name=?,permissions=? WHERE id=? AND project_id=?",
-                    (name, json.dumps(sorted(set(permissions))), role_id, project),
+                    "UPDATE roles SET name=?,permissions=?,denied_permissions=? "
+                    "WHERE id=? AND project_id=?",
+                    (
+                        name,
+                        json.dumps(sorted(set(permissions))),
+                        json.dumps(sorted(denied)),
+                        role_id,
+                        project,
+                    ),
                 )
             except sqlite3.IntegrityError:
                 fail(409, "ロール名は使用済みです")
             self._audit(db, actor.id, "role.update", role_id)
-            return {"id": role_id, "name": name, "permissions": sorted(set(permissions))}
+            result = {"id": role_id, "name": name, "permissions": sorted(set(permissions))}
+            if denied:
+                result["denied_permissions"] = sorted(denied)
+            return result
 
     def record_model_discovery(self, actor: Principal, complete: bool) -> None:
         if not actor.system_admin:
