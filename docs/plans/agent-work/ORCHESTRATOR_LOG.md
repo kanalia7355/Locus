@@ -186,3 +186,5 @@ AUD-1 DELIVERED AND INTEGRATED (2026-11-08 ~10:15 JST): docs/plans/DESIGN_GAP_AN
 AUD-2 DISPATCHED (slot D, aud-2-traceability-001, Luna effort high): REQUIREMENTS_TRACEABILITY_MATRIX.md (all 92 IDs, >=25 spot-checked against real code), FINAL_ACCEPTANCE_CRITERIA.md (production items retained as final conditions), OWNER_DECISION_REGISTER.md (consolidated approvals + OPEN register: AUD-1's 10 findings + the delegation spec's 12 items).
 
 Owner-facing pointers: the consolidated status/decision document remains docs/plans/STATUS_AND_DECISIONS_2026-11-09.md; the OPEN decisions the owner must answer are the delegation spec's 12 items and (new) AUD-1's 10 findings. Running: AUD-2 (slot D), PH2-2AF (slot A), PH1-P4B (slot B), PH2-C (slot C). Free: E, F.
+
+Cycle 2026-11-08 ~10:30 JST: four slots running. PH2-2AF pushed its fix commit (1ee1315 fix(agents): order rate limiting and authentication before audit in the registry) — CI check deferred to the next window (batching rule). PH2-C pushed (a367d82, appears delivered). AUD-2 and PH1-P4B still working. No Actions queries this cycle (22.9 min elapsed at cycle start, under the 30-minute window).
