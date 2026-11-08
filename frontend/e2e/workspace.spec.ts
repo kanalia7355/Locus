@@ -95,6 +95,76 @@ test("first login, source retrieval, history and logout use actual API", async (
   expect(failures).toEqual([]);
 });
 
+test("retrieved comparison tables expose accessible headers and ambiguous text stays plain", async ({
+  page,
+}) => {
+  await enter(page, 10);
+  let ambiguous = false;
+  await page.route("**/api/conversations/*/messages", async (route) => {
+    const response = await route.fetch();
+    const message = await response.json();
+    if (message.citations.length)
+      message.citations[0].text = ambiguous
+        ? ["| 項目 | 条件A |", "| --- | --- |", "| 温度 | 180°C | 200°C |"].join("\n")
+        : [
+            "| 項目 | 条件A | 条件B | 条件C | 条件D | 条件E | 条件F |",
+            "| --- | --- | --- | --- | --- | --- | --- |",
+            "| 温度 | 180°C | 200°C | 190°C | 210°C | 205°C | 220°C |",
+          ].join("\n");
+    await route.fulfill({ response, json: message });
+  });
+
+  await page
+    .getByRole("textbox", { name: "メッセージ", exact: true })
+    .fill("成膜条件を比較");
+  await page.getByRole("button", { name: "送信", exact: true }).click();
+  const table = page.getByRole("table", {
+    name: /合成サンプル_成膜条件.txt p.\d+ chunk \d+ の表/,
+  });
+  await expect(table).toBeVisible();
+  await expect(table.getByRole("columnheader")).toHaveText([
+    "項目",
+    "条件A",
+    "条件B",
+    "条件C",
+    "条件D",
+    "条件E",
+    "条件F",
+  ]);
+  await expect(table.getByRole("rowheader", { name: "温度" })).toHaveAttribute(
+    "scope",
+    "row",
+  );
+  const scrollRegion = page.getByRole("region", { name: /表は横にスクロールできます/ });
+  await expect(scrollRegion).toHaveAttribute("tabindex", "0");
+  await expect(table).toContainText("180°C");
+  await scrollRegion.focus();
+  await expect(scrollRegion).toBeFocused();
+  await page
+    .getByRole("button", { name: "サイドバーを閉じる", exact: true })
+    .click();
+  await page.setViewportSize({ width: 320, height: 900 });
+  await expect
+    .poll(() => scrollRegion.evaluate((element) => element.scrollWidth > element.clientWidth))
+    .toBe(true);
+  await scrollRegion.press("ArrowRight");
+  await expect
+    .poll(() => scrollRegion.evaluate((element) => element.scrollLeft))
+    .toBeGreaterThan(0);
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+  ).toBe(true);
+
+  ambiguous = true;
+  await page
+    .getByRole("textbox", { name: "メッセージ", exact: true })
+    .fill("成膜条件をもう一度確認");
+  await page.getByRole("button", { name: "送信", exact: true }).click();
+  const latestExchange = page.locator("article.exchange").last();
+  await expect(latestExchange.getByRole("table")).toHaveCount(0);
+  await expect(latestExchange.getByText(/\| 項目 \| 条件A \|/)).toBeVisible();
+});
+
 test("citations open the actual page and chunk and reject stale targets", async ({
   page,
 }) => {
