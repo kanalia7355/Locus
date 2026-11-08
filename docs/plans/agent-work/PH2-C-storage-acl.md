@@ -44,3 +44,7 @@ Push `loop/PH2-C-storage-acl`; wait branch CI; fix/re-push until ALL green
 
 Boundaries: never push to `main` or `loop/local-development`; no code changes;
 no subagents.
+
+## Progress
+
+- Researched the original requirements/planning baseline and git history, the current integrated scanner/ingestion/document authorization paths, and the Phase-2/Phase-3 reconciliation. Confirmed P4B is an in-flight brief only, not integrated behavior. Drafted `docs/plans/PHASE2_STORAGE_ACL_RESEARCH.md` with source-backed interpretations, recommended proposal, enforcement/data/audit outline, explicit 【要決定】 list, contradictions, and phase placement. Self-review limited claims to code/docs at integrated HEAD; docs-only `git diff --check` passed. No code or test files changed.
