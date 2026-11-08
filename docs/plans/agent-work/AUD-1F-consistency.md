@@ -72,4 +72,16 @@ subagents.
   slice-2a-only scope remains unchanged. MFA policy now reflects B-3, without
   implying implementation or verification. `git diff --check` passed; changed
   paths are documentation only.
-- Commit SHA / branch CI evidence: pending.
+- Implementation commit: `30491c8003ecb8c771d1a7c013aeb749d0fab0a0`
+  (`docs(plans): normalize phase numbering aliases and correct the ADR-0012
+  wording per owner decision`). Pushed to `loop/AUD-1F-consistency` only.
+- Exact-SHA branch CI for `30491c8003ecb8c771d1a7c013aeb749d0fab0a0`: all
+  green. PR title convention run `42450012960`; Prototype quality run
+  `42450013000`; Loop engine checks run `42450013125` (Ubuntu 3.11/3.13 and
+  Windows 3.11/3.13 matrix). Run links:
+  <https://github.com/kanalia7355/Locus/actions/runs/42450012960>,
+  <https://github.com/kanalia7355/Locus/actions/runs/42450013000>,
+  <https://github.com/kanalia7355/Locus/actions/runs/42450013125>.
+- The progress record is appended in this follow-up documentation commit; the
+  exact-SHA CI evidence above corresponds to the implementation commit being
+  recorded.
