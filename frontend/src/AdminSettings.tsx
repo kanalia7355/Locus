@@ -6,6 +6,8 @@ interface ProjectMember {
   username: string;
   role: string;
   roles?: string[];
+  denied_permissions?: string[];
+  effective_permissions?: string[];
 }
 interface ProjectRole {
   id: string;
@@ -24,6 +26,16 @@ interface AdminUser {
   enabled: boolean;
   system_admin: boolean;
 }
+
+const permissionLabels: Record<string, string> = {
+  read: "閲覧",
+  retrieve: "チャット参照",
+  upload: "資料追加",
+  publish: "資料公開",
+  manage_roles: "役割管理",
+  manage_members: "所属管理",
+};
+const membershipPermissions = Object.keys(permissionLabels);
 
 const roleLabels: Record<string, string> = {
   organization_admin: "組織管理者",
@@ -120,6 +132,31 @@ export function AdminProjects() {
     }
   }
 
+  async function changeRoleHolding(
+    project: AdminProject,
+    username: string,
+    roleId: string,
+  ) {
+    if (mutationPending.current) return;
+    mutationPending.current = true;
+    setError("");
+    setNotice("");
+    setBusy(true);
+    try {
+      await api(
+        `/projects/${encodeURIComponent(project.id)}/members/${encodeURIComponent(username)}/roles/${encodeURIComponent(roleId)}`,
+        json("DELETE"),
+      );
+      await reload();
+      setNotice("ロールの所属を更新しました。");
+    } catch (reason) {
+      setError(errorText(reason));
+    } finally {
+      mutationPending.current = false;
+      setBusy(false);
+    }
+  }
+
   async function changeMember(
     project: AdminProject,
     userId: string,
@@ -150,9 +187,11 @@ export function AdminProjects() {
         );
         setMembershipConfirmation(null);
       } else {
+        const username = users.find((user) => user.id === userId)?.username;
+        if (!username) throw new Error("利用者を確認できません。更新してください。");
         await api(
-          `/admin/projects/${encodeURIComponent(project.id)}/members`,
-          json("PUT", { user_id: userId, role }),
+          `/projects/${encodeURIComponent(project.id)}/members/${encodeURIComponent(username)}/roles/${encodeURIComponent(role)}`,
+          json("POST"),
         );
         await reload();
       }
@@ -237,6 +276,36 @@ export function AdminProjects() {
                         )
                         .join("・")}
                     </span>
+                    <p>
+                      実効権限（各ロールの和集合、拒否を適用後）:{" "}
+                      {(member.effective_permissions ?? [])
+                        .map((permission) => permissionLabels[permission] ?? permission)
+                        .join("・") || "なし"}
+                    </p>
+                    <p>
+                      明示的な拒否: {(member.denied_permissions ?? [])
+                        .map((permission) => permissionLabels[permission] ?? permission)
+                        .join("・") || "なし"}
+                    </p>
+                    {(member.roles?.length ? member.roles : [member.role]).map((roleId) => (
+                      <button
+                        key={roleId}
+                        type="button"
+                        disabled={busy || (member.roles?.length ?? 1) <= 1}
+                        aria-label={`${member.username}の${roleLabels[roleId] ?? roleId}ロールを外す`}
+                        onClick={() => void changeRoleHolding(project, member.username, roleId)}
+                      >
+                        {roleLabels[roleId] ?? project.roles.find((role) => role.id === roleId)?.name ?? roleId}を外す
+                      </button>
+                    ))}
+                    <MembershipDenials
+                      projectId={project.id}
+                      projectName={project.name}
+                      member={member}
+                      onError={setError}
+                      onSaved={reload}
+                      disabled={busy}
+                    />
                     <button
                       type="button"
                       disabled={busy}
@@ -338,7 +407,14 @@ export function AdminProjects() {
               <button
                 type="button"
                 disabled={
-                  busy || !memberUsers[project.id] || !memberRoles[project.id]
+                  busy ||
+                  !memberUsers[project.id] ||
+                  !memberRoles[project.id] ||
+                  !!project.members.find(
+                    (member) =>
+                      member.user_id === memberUsers[project.id] &&
+                      (member.roles ?? [member.role]).includes(memberRoles[project.id]),
+                  )
                 }
                 onClick={() =>
                   void changeMember(
@@ -348,7 +424,7 @@ export function AdminProjects() {
                   )
                 }
               >
-                利用者を追加・更新
+                利用者にロールを追加
               </button>
             </div>
           </article>
@@ -368,6 +444,80 @@ interface StorageStatus {
   per_user_ingestion_queue_limit: number;
   ingestion_status_counts: Record<string, number>;
   configuration_available: boolean;
+}
+
+function MembershipDenials({
+  projectId,
+  projectName,
+  member,
+  onError,
+  onSaved,
+  disabled,
+}: {
+  projectId: string;
+  projectName: string;
+  member: ProjectMember;
+  onError: (error: string) => void;
+  onSaved: () => Promise<void>;
+  disabled: boolean;
+}) {
+  const [permission, setPermission] = useState("");
+  const [pending, setPending] = useState(false);
+  const denied = member.denied_permissions ?? [];
+  const available = membershipPermissions.filter((item) => !denied.includes(item));
+  async function save(next: string[]) {
+    setPending(true);
+    onError("");
+    try {
+      const username = encodeURIComponent(member.username);
+      await api(
+        `/projects/${encodeURIComponent(projectId)}/members/${username}/denials`,
+        json("PUT", { denied_permissions: next }),
+      );
+      await onSaved();
+      setPermission("");
+    } catch (reason) {
+      onError(errorText(reason));
+    } finally {
+      setPending(false);
+    }
+  }
+  return (
+    <div className="membership-denials" aria-label={`${member.username}の拒否権限`}>
+      <label>
+        {projectName}・{member.username}に追加する拒否権限
+        <select
+          aria-label={`${member.username}に追加する拒否権限`}
+          value={permission}
+          disabled={disabled || pending || available.length === 0}
+          onChange={(event) => setPermission(event.target.value)}
+        >
+          <option value="">権限を選択</option>
+          {available.map((item) => (
+            <option key={item} value={item}>{permissionLabels[item]}</option>
+          ))}
+        </select>
+      </label>
+      <button
+        type="button"
+        disabled={disabled || pending || !permission}
+        onClick={() => void save([...denied, permission])}
+      >
+        拒否を追加
+      </button>
+      {denied.map((item) => (
+        <button
+          key={item}
+          type="button"
+          disabled={disabled || pending}
+          aria-label={`${member.username}の${permissionLabels[item] ?? item}拒否を解除`}
+          onClick={() => void save(denied.filter((entry) => entry !== item))}
+        >
+          {permissionLabels[item] ?? item}の拒否を解除
+        </button>
+      ))}
+    </div>
+  );
 }
 
 export function AdminStorage() {

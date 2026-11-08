@@ -37,6 +37,8 @@ def test_admin_project_creation_and_membership_are_atomic_and_metadata_audited(s
             "username": "alice",
             "role": "researcher",
             "roles": ["researcher"],
+            "denied_permissions": [],
+            "effective_permissions": ["read", "retrieve", "upload"],
         }
     ]
     remove = admin.delete(f"/api/admin/projects/new-project/members/{alice['id']}", headers=ORIGIN)
@@ -77,6 +79,19 @@ def test_admin_member_assignment_preserves_other_held_roles(service: Service):
     )
     member = next(item for item in project["members"] if item["user_id"] == alice["id"])
     assert member["roles"] == ["researcher", "viewer"]
+    assert member["effective_permissions"] == ["read", "retrieve", "upload"]
+    denied = admin.put(
+        "/api/projects/project-a/members/alice/denials",
+        headers=ORIGIN,
+        json={"denied_permissions": ["retrieve"]},
+    )
+    assert denied.status_code == 200
+    refreshed = next(
+        item for item in admin.get("/api/admin/projects").json() if item["id"] == "project-a"
+    )
+    refreshed_alice = next(item for item in refreshed["members"] if item["user_id"] == alice["id"])
+    assert refreshed_alice["denied_permissions"] == ["retrieve"]
+    assert refreshed_alice["effective_permissions"] == ["read", "upload"]
     assert {
         row[0]
         for row in service.conn.execute(

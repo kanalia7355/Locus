@@ -237,6 +237,36 @@ def test_role_holding_and_denial_api_checks_manage_members(service: Service) -> 
     )
 
 
+def test_system_admin_can_manage_holdings_in_unassigned_project_with_non_admin_role_ceiling(
+    service: Service,
+) -> None:
+    admin = client_for(service)
+    login(admin, "admin", "01")
+    service.create_project("org-c", "unassigned-project", "Synthetic project")
+    assigned = admin.post(
+        "/api/projects/unassigned-project/members/alice/roles/researcher",
+        headers=ORIGIN,
+    )
+    assert assigned.status_code == 204
+    denied = admin.put(
+        "/api/projects/unassigned-project/members/alice/denials",
+        headers=ORIGIN,
+        json={"denied_permissions": ["retrieve"]},
+    )
+    assert denied.status_code == 200
+    state = admin.get("/api/projects/unassigned-project/members/alice/roles", headers=ORIGIN).json()
+    assert state["roles"] == ["researcher"]
+    assert state["denied_permissions"] == ["retrieve"]
+    assert state["effective_permissions"] == ["read", "upload"]
+    assert (
+        admin.post(
+            "/api/projects/unassigned-project/members/bob/roles/system_admin",
+            headers=ORIGIN,
+        ).status_code
+        == 422
+    )
+
+
 def test_role_update_denials_and_built_in_roles_remain_protected(service: Service) -> None:
     admin = client_for(service)
     login(admin, "admin", "01")
