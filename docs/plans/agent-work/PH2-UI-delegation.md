@@ -34,3 +34,11 @@ cancellation for grants received. Regressions: frontend unit + browser tests
 (existing conventions). Full pytest + frontend QA per the standard cycle.
 Commit `feat(admin): delegation management UI`; push branch
 `loop/PH2-UI-delegation`; wait branch CI until green.
+
+## Progress
+
+- [Step 1] Read PH2-UI brief, required governance/product/architecture/bootstrap docs, UI baseline/image/design guide, AdminSettings patterns, and integrated PH2-D API/service. Confirmed `.bootstrap/complete.json` exists.
+- [Step 2] Fetched latest `origin/loop/local-development`; created isolated `.loop/runtime/worktrees/PH2-UI-delegation` on branch `loop/PH2-UI-delegation` and rebased as concurrent integration advanced. Reused isolated Python 3.13 QA venv only, made the worktree `.venv` junction, and installed frontend dependencies offline inside the worktree.
+- [Step 3] Implemented additive delegation management screen: project-scoped grant options (recipients and computed permission ceiling), constrained permission selection, 15m/1h/1d/7d TTLs with validation, visible grant history/state/reason, exact-ID revoke confirmation, and recipient cancellation. Added API option endpoint/username display fields as UI prerequisites not provided by PH2-D; added unit, backend and end-to-end regressions.
+- [Step 4] QA: pytest `tests -q --ignore=tests/e2e` — 1157 passed, 18 skipped (opt-in Docker/native fixture/symlink constraints); Ruff check + format check passed; mypy backend/app passed; offline secret scan 0 findings. Frontend ESLint, TypeScript build, Vitest (15 files, 71 tests), Vite build passed; Playwright (13 tests) passed. Earlier test failures were investigated and corrected; final full suite reruns passed. Latest targeted delegation tests: 11 passed.
+- [Step 5] Conventional Commit `c1c5f4c4f6d58657302f64069c88dddddfe5d8e5` (`feat(admin): delegation management UI`) pushed to `origin/loop/PH2-UI-delegation`. Branch CI at this implementation SHA all green: Prototype quality run `42538214815` (success); Loop engine checks `42538214827` (success; Ubuntu/Windows Python 3.11/3.13); PR title convention `42538214818` (success). No main or integration branch push.

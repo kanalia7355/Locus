@@ -702,12 +702,80 @@ pre {
   color: var(--color-muted);
 }
 .admin-project-form,
-.admin-project-row {
+.admin-project-row,
+.admin-delegation-form,
+.admin-delegation-row {
   border-bottom: 1px solid var(--color-line);
   padding: 18px 0;
 }
-.admin-project-form {
+.admin-project-form,
+.admin-delegation-form {
   max-width: 560px;
+}
+.admin-delegation-form label {
+  margin: 12px 0;
+}
+.delegation-permissions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border: 0;
+  padding: 12px 0;
+  margin: 0;
+}
+.delegation-permissions legend {
+  padding: 0;
+}
+.delegation-permissions button[aria-pressed="true"] {
+  background: var(--color-selected);
+  border-color: var(--color-accent);
+}
+.admin-delegation-list {
+  list-style: none;
+  padding: 0;
+}
+.admin-delegation-row article {
+  display: grid;
+  gap: 12px;
+}
+.admin-delegation-row h3 {
+  overflow-wrap: anywhere;
+}
+.admin-delegation-row dl {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.5fr) minmax(0, 2fr);
+  margin: 0;
+}
+.admin-delegation-row dt,
+.admin-delegation-row dd {
+  margin: 0;
+  padding: 8px;
+  border-bottom: 1px solid var(--color-line);
+  overflow-wrap: anywhere;
+}
+.admin-delegation-row dd {
+  min-width: 0;
+}
+.admin-delegation-row [role="group"] {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  padding: 12px 0;
+}
+.admin-delegation-row [role="group"] p {
+  margin: 0;
+}
+@media (max-width: 560px) {
+  .admin-delegation-row dl {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .admin-delegation-row dt {
+    padding-bottom: 2px;
+    border-bottom: 0;
+  }
+  .admin-delegation-row dd {
+    padding-top: 4px;
+  }
 }
 .admin-project-form h2,
 .admin-project-row h3 {

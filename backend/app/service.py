@@ -1601,6 +1601,47 @@ class Service:
                 changed = False
             return {"id": grant_id, "ended": True, "changed": changed}
 
+    def delegation_options(self, actor: Principal, session_token: str | None) -> Json:
+        with self.db() as db:
+            current = self._authenticate(db, session_token)
+            if current.id != actor.id:
+                fail(401, "ログインしてください")
+            self._limit("delegation-options:" + current.id, 60)
+            rows = db.execute(
+                "SELECT p.id,p.name FROM projects p WHERE EXISTS ("
+                "SELECT 1 FROM memberships m WHERE m.project_id=p.id AND m.user_id=?) "
+                "OR EXISTS (SELECT 1 FROM project_owners o "
+                "WHERE o.project_id=p.id AND o.user_id=?) ORDER BY p.name,p.id",
+                (current.id, current.id),
+            ).fetchall()
+            projects = []
+            for row in rows:
+                project = row["id"]
+                if not self._delegation_authority(db, current.id, project, set()):
+                    continue
+                recipients = [
+                    {"id": recipient["id"], "username": recipient["username"]}
+                    for recipient in db.execute(
+                        "SELECT u.id,u.username FROM memberships m "
+                        "JOIN users u ON u.id=m.user_id "
+                        "WHERE m.project_id=? AND m.user_id<>? AND u.enabled=1 "
+                        "AND u.system_admin=0 "
+                        "ORDER BY u.username,u.id",
+                        (project, current.id),
+                    )
+                ]
+                projects.append(
+                    {
+                        "id": project,
+                        "name": row["name"],
+                        "recipients": recipients,
+                        "permission_ceiling": sorted(
+                            self._permission_ceiling_for_grantor(db, current.id, project)
+                        ),
+                    }
+                )
+            return {"projects": projects}
+
     def delegations(self, actor: Principal, session_token: str | None) -> list[Json]:
         with self.db() as db:
             current = self._authenticate(db, session_token)
@@ -1640,8 +1681,11 @@ class Service:
                     self._audit(db, "system", f"delegation.{event_type}", grant["id"])
             rows = db.execute(
                 "SELECT g.id,g.family_id,g.version,g.permissions,g.created,g.expires,"
-                "f.grantor_id,f.recipient_id,f.project_id "
+                "f.grantor_id,f.recipient_id,f.project_id,"
+                "grantor.username AS grantor_username,recipient.username AS recipient_username "
                 "FROM delegation_grants g JOIN delegation_families f ON f.id=g.family_id "
+                "JOIN users grantor ON grantor.id=f.grantor_id "
+                "JOIN users recipient ON recipient.id=f.recipient_id "
                 "WHERE f.grantor_id=? OR f.recipient_id=? ORDER BY g.created DESC,g.id",
                 (current.id, current.id),
             ).fetchall()
@@ -1679,7 +1723,9 @@ class Service:
                         "version": row["version"],
                         "project_id": row["project_id"],
                         "grantor_id": row["grantor_id"],
+                        "grantor_username": row["grantor_username"],
                         "recipient_id": row["recipient_id"],
+                        "recipient_username": row["recipient_username"],
                         "permissions": json.loads(row["permissions"]),
                         "created": row["created"],
                         "expires": row["expires"],
