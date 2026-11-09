@@ -51,3 +51,9 @@ repeat the fix cycle until all applicable checks pass. Append progress + SHA + C
 this file under ## Progress at each step end and at task end, and push.
 
 Conventional Commit subject suggestion: `docs(plans): update the roadmap and list the resumable jobs`
+
+## Progress
+
+- 2026-11-09 — Step 1 complete: read the required governance, owner decisions, roadmap, proposal, source re-evaluations, and current loop acceptance. Confirmed the worktree is clean on `loop/owner-roadmap-resume` at baseline SHA `0d631797f869c1bc5b23189ae39581a4b816a1b3`; bootstrap record exists. No task checks or CI have run yet; no pass is claimed. The work will keep unresolved §4 choices marked 【要決定】 and distinguish design readiness from implementation/activation.
+- 2026-11-09 — Step 2/3/4 complete: appended the dated Q1–Q7 roadmap update, created the resumable jobs and deferred-gates inventories. Design-ready status is limited to documents; dispatch, Runner profiles, egress, credentials, real data, and production remain inactive.
+- 2026-11-09 — Adversarial review and local QA: confirmed the roadmap is append-only; verified 2b/2c's receipt-contract and ADR-0012 activation gates, Q3 isolation non-activation, Q5/Q6 manual-upload/access-denial scope, Q7 production deferrals, and unresolved §4 【要決定】 status. Isolated QA venv commands: `python -m ruff check` PASS; `scripts/secret_scan.py` PASS (0 findings); `ruff format --check` reports only the existing untouched `docs/requirements/AUTONOMOUS_LOOP_SPEC.md:315` formatting discrepancy (out of allowed paths); changed-file format check PASS (4 files); `git diff --check` PASS. No files outside the allowed set were edited. Exact task SHA and CI evidence pending commit/push.
