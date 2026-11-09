@@ -17,6 +17,7 @@ import { RelatedDocuments } from "./RelatedDocuments";
 import { StructuredCitationText } from "./StructuredCitationText";
 import { IngestionProgress } from "./IngestionProgress";
 import { AdminLoad, AdminProjects, AdminStorage } from "./AdminSettings";
+import { AdminDelegations } from "./Delegations";
 import { ModelSettings } from "./ModelSettings";
 import { ProvisionUser } from "./ProvisionUser";
 import type {
@@ -40,6 +41,7 @@ type Page =
   | "users"
   | "roles"
   | "projects"
+  | "delegations"
   | "storage"
   | "load"
   | "ingestion"
@@ -60,6 +62,7 @@ const labels: Record<Page, string> = {
   users: "利用者",
   roles: "役割・管理権限",
   projects: "プロジェクト",
+  delegations: "管理委任",
   storage: "保存先の接続",
   load: "負荷・実行状況",
   ingestion: "取り込み状況",
@@ -477,12 +480,17 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
   pendingJobIdRef.current = pendingJobId ?? null;
   useEffect(() => {
     if (!pendingJobId || !pendingConversation || !pendingText) return;
-    const job = { id: pendingJobId, conversation: pendingConversation, text: pendingText };
+    const job = {
+      id: pendingJobId,
+      conversation: pendingConversation,
+      text: pendingText,
+    };
     const controller = new AbortController();
     const timer = setInterval(() => {
       void api<ChatJob>(`/chat-jobs/${job.id}`, { signal: controller.signal })
         .then((status) => {
-          if (controller.signal.aborted || pendingJobIdRef.current !== job.id) return;
+          if (controller.signal.aborted || pendingJobIdRef.current !== job.id)
+            return;
           if (status.status === "running") {
             setPendingJob((current) =>
               current && current.id === job.id
@@ -498,9 +506,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
             setPendingJob(null);
             setCancelledJob(null);
             if (status.conversation_id === conversationRef.current) {
-              void api<Conversation>(
-                `/conversations/${status.conversation_id}`,
-              )
+              void api<Conversation>(`/conversations/${status.conversation_id}`)
                 .then((conv) => {
                   if (
                     !controller.signal.aborted &&
@@ -524,7 +530,8 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
           }
         })
         .catch((error) => {
-          if (controller.signal.aborted || pendingJobIdRef.current !== job.id) return;
+          if (controller.signal.aborted || pendingJobIdRef.current !== job.id)
+            return;
           clearInterval(timer);
           setPendingJob(null);
           setError(
@@ -737,7 +744,9 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
           ? { ...current, cancelRequested: true }
           : current,
       );
-      setNotice("質問の取り消しを受け付けました。処理終了後に結果を破棄します。");
+      setNotice(
+        "質問の取り消しを受け付けました。処理終了後に結果を破棄します。",
+      );
     } catch (error) {
       setError(errorText(error));
     }
@@ -871,7 +880,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
         <nav aria-label="メインメニュー">
           <p className="nav-heading">資料・調査</p>
           {(["chat", "shared", "personal", "history"] as Page[]).map(navButton)}
-          {(user.system_admin || can("manage_roles")) && (
+          {(user.system_admin || can("manage_roles") || !!projectId) && (
             <>
               <div className="nav-divider" />
               <p className="nav-heading">管理</p>
@@ -882,6 +891,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
                 {user.system_admin && navButton("users")}
                 {can("manage_roles") && navButton("roles")}
                 {user.system_admin && navButton("projects")}
+                {!!projectId && navButton("delegations")}
               </details>
             </>
           )}
@@ -1022,7 +1032,9 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
                 <article className="exchange">
                   <p className="user-message">{cancelledJob.text}</p>
                   <div className="answer">
-                    <p role="status">質問を取り消しました。回答は表示されません。</p>
+                    <p role="status">
+                      質問を取り消しました。回答は表示されません。
+                    </p>
                   </div>
                 </article>
               )}
@@ -1259,8 +1271,11 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
         {page === "users" && user.system_admin && (
           <AdminUsers currentUserId={user.id} />
         )}
-        {page === "audit" && user.system_admin && <AdminList key="audit" kind="audit" />}
+        {page === "audit" && user.system_admin && (
+          <AdminList key="audit" kind="audit" />
+        )}
         {page === "projects" && user.system_admin && <AdminProjects />}
+        {page === "delegations" && <AdminDelegations />}
         {page === "storage" && user.system_admin && <AdminStorage />}
         {page === "load" && user.system_admin && <AdminLoad />}
         {page === "settings" && (
@@ -1848,7 +1863,12 @@ function AdminList({
       active = false;
     };
   }, [kind]);
-  useEffect(() => () => { mounted.current = false; }, []);
+  useEffect(
+    () => () => {
+      mounted.current = false;
+    },
+    [],
+  );
   async function toggle(row: Record<string, string | number | boolean>) {
     if (pending.current) return;
     pending.current = true;
@@ -1909,7 +1929,8 @@ function AdminList({
                         aria-label={`${row.username}のアカウント無効化確認`}
                       >
                         <p>
-                          「{row.username}」（利用者ID: {row.id}）のアカウントを無効にします。
+                          「{row.username}」（利用者ID: {row.id}
+                          ）のアカウントを無効にします。
                           この利用者のすべてのログインセッションが取り消され、再有効化するまでログインできなくなります。
                         </p>
                         <button

@@ -40,6 +40,40 @@ def _grant(client, recipient_id, permissions=("read",), **extra):
     )
 
 
+def test_delegation_ui_options_are_project_scoped_and_list_uses_display_names(service) -> None:
+    owner_client, recipient_client = client_for(service), client_for(service)
+    owner = _owner(service, owner_client)
+    login(recipient_client, "bob", "03")
+    recipient = service.authenticate(recipient_client.cookies.get("locus_session"))
+
+    options = owner_client.get("/api/admin/delegations/options", headers=ORIGIN)
+    assert options.status_code == 200, options.text
+    assert options.json()["projects"] == [
+        {
+            "id": "project-a",
+            "name": "研究プロジェクト",
+            "recipients": [{"id": recipient.id, "username": "bob"}],
+            "permission_ceiling": ["publish", "read", "retrieve", "upload"],
+        }
+    ]
+    assert "project-b" not in json.dumps(options.json())
+
+    grant = _grant(owner_client, recipient.id, ("read",))
+    assert grant.status_code == 201
+    listed = owner_client.get("/api/admin/delegations", headers=ORIGIN)
+    assert listed.status_code == 200
+    assert listed.json()[0]["recipient_username"] == "bob"
+    assert listed.json()[0]["grantor_username"] == "alice"
+    assert recipient_client.get("/api/admin/delegations/options", headers=ORIGIN).json() == {
+        "projects": []
+    }
+    received = recipient_client.get("/api/admin/delegations", headers=ORIGIN)
+    assert received.status_code == 200
+    assert received.json()[0]["grantor_username"] == "alice"
+    assert received.json()[0]["recipient_id"] == recipient.id
+    assert owner.id != recipient.id
+
+
 def test_owner_grants_live_subset_and_expiry_denies(service, monkeypatch) -> None:
     owner_client, recipient_client = client_for(service), client_for(service)
     _owner(service, owner_client)

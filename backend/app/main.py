@@ -671,6 +671,10 @@ def create_app(
     def reject_agent_dispatch(workspace_id: str, request: Request) -> None:
         registry.dispatch_attempt(request.cookies.get(COOKIE), workspace_id)
 
+    @app.get("/api/admin/delegations/options")
+    def delegation_options(request: Request, user: Actor) -> dict[str, Any]:
+        return svc.delegation_options(user, request.cookies.get(COOKIE))
+
     @app.get("/api/admin/delegations")
     def delegations(request: Request, user: Actor) -> list[dict[str, Any]]:
         return svc.delegations(user, request.cookies.get(COOKIE))

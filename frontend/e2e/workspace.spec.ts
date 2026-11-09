@@ -105,7 +105,11 @@ test("retrieved comparison tables expose accessible headers and ambiguous text s
     const message = await response.json();
     if (message.citations.length)
       message.citations[0].text = ambiguous
-        ? ["| 項目 | 条件A |", "| --- | --- |", "| 温度 | 180°C | 200°C |"].join("\n")
+        ? [
+            "| 項目 | 条件A |",
+            "| --- | --- |",
+            "| 温度 | 180°C | 200°C |",
+          ].join("\n")
         : [
             "| 項目 | 条件A | 条件B | 条件C | 条件D | 条件E | 条件F |",
             "| --- | --- | --- | --- | --- | --- | --- |",
@@ -135,7 +139,9 @@ test("retrieved comparison tables expose accessible headers and ambiguous text s
     "scope",
     "row",
   );
-  const scrollRegion = page.getByRole("region", { name: /表は横にスクロールできます/ });
+  const scrollRegion = page.getByRole("region", {
+    name: /表は横にスクロールできます/,
+  });
   await expect(scrollRegion).toHaveAttribute("tabindex", "0");
   await expect(table).toContainText("180°C");
   await scrollRegion.focus();
@@ -145,14 +151,20 @@ test("retrieved comparison tables expose accessible headers and ambiguous text s
     .click();
   await page.setViewportSize({ width: 320, height: 900 });
   await expect
-    .poll(() => scrollRegion.evaluate((element) => element.scrollWidth > element.clientWidth))
+    .poll(() =>
+      scrollRegion.evaluate(
+        (element) => element.scrollWidth > element.clientWidth,
+      ),
+    )
     .toBe(true);
   await scrollRegion.press("ArrowRight");
   await expect
     .poll(() => scrollRegion.evaluate((element) => element.scrollLeft))
     .toBeGreaterThan(0);
   expect(
-    await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
   ).toBe(true);
 
   ambiguous = true;
@@ -815,17 +827,27 @@ test("administrator can manage projects and inspect storage and load status", as
   await project.getByLabel("管理画面の合成案件の役割").selectOption("viewer");
   await project.getByRole("button", { name: "利用者にロールを追加" }).click();
   await expect(project.getByText("test-researcher-1 · 閲覧者")).toBeVisible();
-  await project.getByLabel("管理画面の合成案件の役割").selectOption("researcher");
+  await project
+    .getByLabel("管理画面の合成案件の役割")
+    .selectOption("researcher");
   await project.getByRole("button", { name: "利用者にロールを追加" }).click();
-  await expect(project.getByText("test-researcher-1 · 研究者・閲覧者")).toBeVisible();
+  await expect(
+    project.getByText("test-researcher-1 · 研究者・閲覧者"),
+  ).toBeVisible();
   const memberRow = project.locator("li").filter({
     hasText: "test-researcher-1 · 研究者・閲覧者",
   });
-  await expect(memberRow).toContainText("実効権限（各ロールの和集合、拒否を適用後）: 閲覧・チャット参照・資料追加");
-  await memberRow.getByLabel("test-researcher-1に追加する拒否権限").selectOption("retrieve");
+  await expect(memberRow).toContainText(
+    "実効権限（各ロールの和集合、拒否を適用後）: 閲覧・チャット参照・資料追加",
+  );
+  await memberRow
+    .getByLabel("test-researcher-1に追加する拒否権限")
+    .selectOption("retrieve");
   await memberRow.getByRole("button", { name: "拒否を追加" }).click();
   await expect(memberRow).toContainText("明示的な拒否: チャット参照");
-  await expect(memberRow).toContainText("実効権限（各ロールの和集合、拒否を適用後）: 閲覧・資料追加");
+  await expect(memberRow).toContainText(
+    "実効権限（各ロールの和集合、拒否を適用後）: 閲覧・資料追加",
+  );
   await project
     .getByRole("button", {
       name: "test-researcher-1を管理画面の合成案件から外す",
@@ -834,9 +856,7 @@ test("administrator can manage projects and inspect storage and load status", as
   const membershipConfirmation = project.getByRole("group", {
     name: "test-researcher-1の所属削除確認",
   });
-  await expect(membershipConfirmation).toContainText(
-    /利用者ID: [a-f0-9]{32}/,
-  );
+  await expect(membershipConfirmation).toContainText(/利用者ID: [a-f0-9]{32}/);
   await expect(membershipConfirmation).toContainText(
     "プロジェクトID: admin-screen-project",
   );
@@ -865,6 +885,221 @@ test("administrator can manage projects and inspect storage and load status", as
   await expect(
     page.getByRole("region", { name: "負荷・実行状況" }),
   ).toContainText("一人あたりの待ち上限");
+});
+
+test("administrator grants and recipient cancels an expiring project delegation", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByLabel("利用者ID").fill("test-researcher-0");
+  await page
+    .getByLabel("パスワード", { exact: true })
+    .fill("Changed-synthetic-password-01!");
+  let response = await page
+    .getByRole("button", { name: "ログイン", exact: true })
+    .click()
+    .then(() =>
+      page.waitForResponse(
+        (item) =>
+          item.request().method() === "POST" &&
+          item.url().endsWith("/auth/login"),
+      ),
+    );
+  if (!response.ok()) {
+    await page.getByLabel("利用者ID").fill("test-researcher-0");
+    await page
+      .getByLabel("パスワード", { exact: true })
+      .fill("Synthetic-test-password-01!");
+    const login = page.waitForResponse(
+      (item) =>
+        item.request().method() === "POST" &&
+        item.url().endsWith("/auth/login"),
+    );
+    await page.getByRole("button", { name: "ログイン", exact: true }).click();
+    response = await login;
+    expect(response.ok()).toBe(true);
+    await page
+      .getByLabel("仮パスワード", { exact: true })
+      .fill("Synthetic-test-password-01!");
+    await page
+      .getByLabel("新しいパスワード", { exact: true })
+      .fill("Changed-synthetic-password-01!");
+    await page
+      .getByLabel("新しいパスワード（確認）", { exact: true })
+      .fill("Changed-synthetic-password-01!");
+    await page.getByRole("button", { name: "変更して続ける" }).click();
+  }
+  await expect(
+    page.getByRole("heading", { name: "資料を調べる", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "管理委任", exact: true }).click();
+  await page
+    .getByLabel("委任するプロジェクト")
+    .selectOption("synthetic-project");
+  await page
+    .getByLabel("委任の受領者")
+    .selectOption({ label: "test-researcher-1" });
+  await page.getByRole("button", { name: "閲覧", exact: true }).click();
+  await page.getByRole("button", { name: "チャット参照", exact: true }).click();
+  await page.getByLabel("委任の有効期間").selectOption("900");
+  await page
+    .getByRole("button", { name: "管理委任を作成", exact: true })
+    .click();
+  await expect(page.getByRole("status")).toContainText(
+    "管理委任を作成しました",
+  );
+  const grant = page
+    .locator(".admin-delegation-row")
+    .filter({ hasText: "test-researcher-1" });
+  await expect(grant).toContainText("有効");
+  await expect(grant).toContainText("チャット参照");
+  const grantId = await grant.locator("dd").nth(3).textContent();
+  expect(grantId).toMatch(/^[a-f0-9]{32}$/);
+
+  let delegationPosts = 0;
+  page.on("request", (request) => {
+    if (
+      request.method() === "POST" &&
+      request.url().endsWith("/api/admin/delegations")
+    )
+      delegationPosts++;
+  });
+  await page.getByLabel("委任の有効期間").evaluate((select) => {
+    const option = document.createElement("option");
+    option.value = "899";
+    option.textContent = "無効な期間";
+    select.append(option);
+  });
+  await page
+    .getByLabel("委任の受領者")
+    .selectOption({ label: "test-researcher-1" });
+  await page.getByRole("button", { name: "閲覧", exact: true }).click();
+  await page.getByLabel("委任の有効期間").selectOption("899");
+  await page
+    .getByRole("button", { name: "管理委任を作成", exact: true })
+    .click();
+  await expect(page.getByRole("alert")).toContainText("15分〜7日");
+  expect(delegationPosts).toBe(0);
+  await page.getByLabel("委任の有効期間").selectOption("900");
+  await page.route("**/api/admin/delegations", async (route) => {
+    if (route.request().method() === "POST")
+      await route.fulfill({
+        status: 422,
+        contentType: "application/json",
+        body: JSON.stringify({ detail: "有効期間は900〜604800秒です（422）" }),
+      });
+    else await route.continue();
+  });
+  await page
+    .getByRole("button", { name: "管理委任を作成", exact: true })
+    .click();
+  await expect(page.getByRole("alert")).toContainText(
+    "有効期間は900〜604800秒です（422）",
+  );
+  await expect(page.getByLabel("委任の受領者")).toHaveValue(/.+/);
+  await page.unroute("**/api/admin/delegations");
+
+  const revokeId = grantId;
+  await grant
+    .getByRole("button", { name: new RegExp(`${revokeId}.*取り消し`) })
+    .click();
+  const revokeConfirmation = grant.getByRole("group", {
+    name: new RegExp(`${revokeId}の取り消し確認`),
+  });
+  await expect(revokeConfirmation).toContainText("test-researcher-1");
+  await revokeConfirmation
+    .getByRole("button", { name: new RegExp(`${revokeId}の取り消しを確認`) })
+    .click();
+  await expect(grant).toContainText("付与者が取り消し");
+
+  await page
+    .getByLabel("委任の受領者")
+    .selectOption({ label: "test-researcher-1" });
+  await page.getByRole("button", { name: "閲覧", exact: true }).click();
+  await page.getByRole("button", { name: "チャット参照", exact: true }).click();
+  await page.getByLabel("委任の有効期間").selectOption("900");
+  await page
+    .getByRole("button", { name: "管理委任を作成", exact: true })
+    .click();
+  await expect(page.getByRole("status")).toContainText(
+    "管理委任を作成しました",
+  );
+  const renewed = page
+    .locator(".admin-delegation-row")
+    .filter({ hasText: "test-researcher-1" })
+    .filter({ hasText: "有効" });
+  const renewedId = await renewed.locator("dd").nth(3).textContent();
+  expect(renewedId).not.toBe(grantId);
+
+  await page.getByRole("button", { name: "ログアウト", exact: true }).click();
+  await page.getByLabel("利用者ID").fill("test-researcher-1");
+  await page
+    .getByLabel("パスワード", { exact: true })
+    .fill("Changed-synthetic-password-01!");
+  response = await page
+    .getByRole("button", { name: "ログイン", exact: true })
+    .click()
+    .then(() =>
+      page.waitForResponse(
+        (item) =>
+          item.request().method() === "POST" &&
+          item.url().endsWith("/auth/login"),
+      ),
+    );
+  if (!response.ok()) {
+    await page.getByLabel("利用者ID").fill("test-researcher-1");
+    await page
+      .getByLabel("パスワード", { exact: true })
+      .fill("Synthetic-test-password-01!");
+    const login = page.waitForResponse(
+      (item) =>
+        item.request().method() === "POST" &&
+        item.url().endsWith("/auth/login"),
+    );
+    await page.getByRole("button", { name: "ログイン", exact: true }).click();
+    response = await login;
+    expect(response.ok()).toBe(true);
+    await page
+      .getByLabel("仮パスワード", { exact: true })
+      .fill("Synthetic-test-password-01!");
+    await page
+      .getByLabel("新しいパスワード", { exact: true })
+      .fill("Changed-synthetic-password-01!");
+    await page
+      .getByLabel("新しいパスワード（確認）", { exact: true })
+      .fill("Changed-synthetic-password-01!");
+    await page.getByRole("button", { name: "変更して続ける" }).click();
+  }
+  await page.route("**/api/admin/delegations/options", async (route) => {
+    await route.fulfill({
+      status: 403,
+      contentType: "application/json",
+      body: JSON.stringify({ detail: "委任の管理権限がありません（403）" }),
+    });
+  });
+  await page.getByRole("button", { name: "管理委任", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText(
+    "委任の管理権限がありません（403）",
+  );
+  await page.unroute("**/api/admin/delegations/options");
+  await page.getByRole("button", { name: "更新", exact: true }).click();
+  const receivedGrant = page
+    .locator(".admin-delegation-row")
+    .filter({ hasText: renewedId! });
+  await expect(receivedGrant).toContainText("有効");
+  await receivedGrant
+    .getByRole("button", { name: new RegExp(`受領した委任を取り消す`) })
+    .click();
+  const receivedConfirmation = receivedGrant.getByRole("group", {
+    name: new RegExp(`${renewedId!}の受領委任の取り消し確認`),
+  });
+  await expect(receivedConfirmation).toContainText("test-researcher-0");
+  await receivedConfirmation
+    .getByRole("button", {
+      name: new RegExp(`${renewedId!}の受領委任の取り消しを確認`),
+    })
+    .click();
+  await expect(receivedGrant).toContainText("受領者が取り消し");
 });
 
 test("development server rejects hostile and absent mutation origins", async ({

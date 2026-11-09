@@ -47,6 +47,12 @@ def main() -> None:
                         ("別プロジェクトの合成資料.txt", other),
                     )
         service.seed_synthetic("test-researcher-0", "synthetic-project", "shared")
+        with service.db() as db:
+            db.execute(
+                "INSERT INTO project_owners (project_id,user_id) "
+                "SELECT ?,id FROM users WHERE username=?",
+                ("synthetic-project", "test-researcher-0"),
+            )
         models = Path(temp) / "models"
         models.mkdir()
         (models / "fixture-model.gguf").write_bytes(b"synthetic-not-valid-weights")
