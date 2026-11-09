@@ -20,6 +20,8 @@ from argon2 import PasswordHasher
 from argon2.exceptions import VerificationError
 from fastapi import HTTPException
 
+from app.scanner import UNAVAILABLE, ScanResult
+
 Json = dict[str, Any]
 PASSWORDS = PasswordHasher(time_cost=2, memory_cost=19456, parallelism=1)
 NON_ADMIN = frozenset({"read", "retrieve", "upload", "publish"})
@@ -85,12 +87,12 @@ class Principal:
 
 
 class Scanner(Protocol):
-    def scan(self, content: str) -> bool: ...
+    def scan(self, content: str) -> ScanResult: ...
 
 
 class UnavailableScanner:
-    def scan(self, content: str) -> bool:
-        return False
+    def scan(self, content: str) -> ScanResult:
+        return UNAVAILABLE
 
 
 class Service:
@@ -104,6 +106,9 @@ class Service:
         # Fail-closed visibility: only an adapter that can actually perform the
         # safety check counts as configured; the placeholder always quarantines.
         self.scanner_configured = not isinstance(self.scanner, UnavailableScanner)
+        # Operational outcome of the most recent scan, reported separately from
+        # adapter configuration: None means no scan has run yet.
+        self.scanner_last_outcome: str | None = None
         self.limits: OrderedDict[str, list[float]] = OrderedDict()
         self.chat_dispatch: dict[str, ChatDispatch] = {}
         self.chat_dispatch_lock = threading.Lock()
@@ -708,6 +713,7 @@ class Service:
                 "accepted_formats": ["txt", "md", "csv"],
                 "max_file_bytes": 262144,
                 "scanner_configured": self.scanner_configured,
+                "scanner_last_outcome": self.scanner_last_outcome,
                 "ingestion_queue_limit": 32,
                 "per_user_ingestion_queue_limit": 4,
                 "ingestion_status_counts": counts,
@@ -2081,9 +2087,12 @@ class Service:
                 return True
             db.execute("UPDATE documents SET status='scanning' WHERE id=?", (row["id"],))
         try:
-            approved = self.scanner.scan(row["content"])
+            outcome = self.scanner.scan(row["content"]).outcome
         except Exception:
-            approved = False
+            # A configured adapter that raises still fails closed; the check
+            # simply could not run, which is not a rejection verdict.
+            outcome = "unavailable"
+        self.scanner_last_outcome = outcome
         # Scanner runs outside the transaction. Never publish stale work after revoke/delete/cancel.
         with self.db() as db:
             live = db.execute("SELECT * FROM documents WHERE id=?", (row["id"],)).fetchone()
@@ -2095,12 +2104,12 @@ class Service:
                     ("登録者の利用権限が失効しました", row["id"]),
                 )
                 return True
-            if not approved:
-                # Distinguish a rejected scan from a safety check that could not
-                # run at all; both fail closed and both stay out of retrieval.
+            if outcome != "clean":
+                # Fail closed for every non-clean outcome, but keep an explicit
+                # rejection distinct from a check that could not run at all.
                 reason = (
                     "安全検査を通過していないため隔離中です。本文は検索に使いません"
-                    if self.scanner_configured
+                    if outcome == "rejected"
                     else "安全検査を実行できないため隔離中です（既定拒否）。本文は検索に使いません"
                 )
                 db.execute(

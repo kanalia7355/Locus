@@ -4,6 +4,7 @@ import json
 import time
 
 import pytest
+from app.scanner import CLEAN, ScanResult
 from fastapi import HTTPException
 from test_api import ORIGIN, client_for, login
 
@@ -130,8 +131,8 @@ def test_expiry_blocks_document_chat_retrieval_history_and_attachments(
     )["id"]
 
     class ApprovedScanner:
-        def scan(self, content: str) -> bool:
-            return True
+        def scan(self, content: str) -> ScanResult:
+            return CLEAN
 
     service.scanner = ApprovedScanner()
     service.process_next()

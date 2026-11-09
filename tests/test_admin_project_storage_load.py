@@ -236,6 +236,7 @@ def test_storage_status_is_read_only_local_bounded_and_admin_only(service: Servi
         "accepted_formats": ["txt", "md", "csv"],
         "max_file_bytes": 262144,
         "scanner_configured": False,
+        "scanner_last_outcome": None,
         "ingestion_queue_limit": 32,
         "per_user_ingestion_queue_limit": 4,
         "ingestion_status_counts": {},
