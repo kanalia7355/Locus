@@ -66,3 +66,26 @@ not yet committed; no blocker, no quota error. Done so far, uncommitted:
   `frontend/src/AdminSettings.test.tsx` (検査不能 and 拒否 display states).
 - Not yet run: local QA (ruff/mypy/pytest, frontend lint/vitest/typecheck/build).
   Next: run QA, fix fallout, commit + push, then branch CI evidence.
+
+### 2026-11-10 — implementation complete, local QA green, deliverable pushed
+
+- Fixed the QA fallout found while running checks: oversized/unencodable content is
+  a content-level `rejected` result (not `unavailable`); only busy adapter, transport
+  errors/timeouts, truncated replies and protocol anomalies report `unavailable`.
+- Local QA (dedicated `.loop/runtime/qa-venv`, shared `.venv` untouched):
+  - `ruff check backend tests scripts` and `ruff format --check`: pass (one
+    reformat applied to `tests/test_api.py`).
+  - `mypy backend/app`: no issues in 9 source files.
+  - `pytest tests` (main groups): 1107 passed, 3 skipped (Windows symlink limits).
+  - `pytest tests/integration tests/e2e`: 56 passed, 15 skipped (opt-in live
+    Docker/native boundaries skipped by design).
+  - Total pytest: 1163 passed — satisfies the 1158+ acceptance bar.
+  - Frontend: `npm run lint`, `npm test` (15 files / 74 tests), `npm run typecheck`,
+    `npm run build` — all pass.
+- Deliverable commit: `8388383` `feat(storage): report scanner failure as an
+  unavailable check, not a failed verdict` (scanner.py, service.py,
+  AdminSettings.tsx + 6 test files). Fail-closed quarantine preserved for every
+  non-clean outcome; no ACL/connector/egress change; adapter configuration
+  (`scanner_configured`) and operational outcome (`scanner_last_outcome`) now
+  reported separately; admin UI distinguishes 有効 / 検査不能 / 拒否.
+- Next: push this commit, wait for branch CI, record run links, mark 完了.
