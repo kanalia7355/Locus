@@ -297,6 +297,7 @@ it("shows local storage status and keeps external storage explicitly denied", as
         max_file_bytes: 262144,
         ingestion_queue_limit: 32,
         per_user_ingestion_queue_limit: 4,
+        scanner_configured: false,
         ingestion_status_counts: { ready: 2 },
         configuration_available: false,
       });
@@ -305,9 +306,37 @@ it("shows local storage status and keeps external storage explicitly denied", as
   render(<AdminStorage />);
   expect(await screen.findByText("sqlite")).toBeVisible();
   expect(screen.getByText(/外部保存先/)).toBeVisible();
-  expect(screen.getByText(/既定拒否/)).toBeVisible();
+  expect(
+    screen.getByText(/未接続（既定拒否）・安全検査を実行できない資料は隔離され、検索には使われません/),
+  ).toBeVisible();
+  expect(screen.getByText(/未実装・無効（既定拒否）/)).toBeVisible();
   expect(requests).toHaveLength(1);
   expect(requests[0].path).toContain("/admin/storage");
+});
+
+it("shows a configured fail-closed scanner without claiming production readiness", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      requests.push({ path: String(input) });
+      return respond({
+        backend: "sqlite",
+        mode: "local-only",
+        external_enabled: false,
+        accepted_formats: ["txt", "md", "csv"],
+        max_file_bytes: 262144,
+        ingestion_queue_limit: 32,
+        per_user_ingestion_queue_limit: 4,
+        scanner_configured: true,
+        ingestion_status_counts: {},
+        configuration_available: false,
+      });
+    }),
+  );
+  render(<AdminStorage />);
+  expect(
+    await screen.findByText("有効・安全検査を通過した資料のみ取り込みます"),
+  ).toBeVisible();
 });
 
 it("keeps a running job's displayed start time when refreshed cancellation metadata changes", async () => {
