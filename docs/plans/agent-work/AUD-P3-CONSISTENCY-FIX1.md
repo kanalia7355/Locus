@@ -99,4 +99,10 @@ Conventional Commit subject suggestion: `docs(plans): apply the consistency-audi
   - Loop engine checks run `42553570483` — success (Ubuntu/Windows × Python 3.11/3.13).
   - PR title convention run `42553570479` — success.
 - Initial SHA `285d6fa96197a74b10878eb3572f1f7ef838a609` had its quality and engine workflows cancelled by the immediate task-ledger push; its title workflow succeeded. Required workflows completed successfully at the exact pushed branch tip above. No repair cycle was needed.
-- Task remains docs-only; no tests/code changed, no pending ADR decisions were changed, and no protected/main or `loop/local-development` push was performed.
+- Task remains docs-only; no tests/code changed, no pending ADR decisions were changed, and no protected/main or `loop/local-development` push was performed by this task.
+
+### 2026-11-09 — final HEAD CI and integration evidence
+
+- Final task-branch HEAD `ffacca8c0f0d0cddeabc70a4fcac60ca0ea5a82a` passed all three branch workflows: Prototype quality `42554589175` (success); Loop engine checks `42554589207` (success, Ubuntu/Windows × Python 3.11/3.13); PR title convention `42554589310` (success).
+- The docs fix was subsequently integrated into `loop/local-development` as `8dfdce3b20cba195664f9029c2d99692e7050063`; confirmed as an ancestor of integrated HEAD `8ad2ac5d2b17b6503f38710a0899065cbdca386f`. This records integration only; no push to integration branch was performed from this task.
+- All applicable local checks and branch CI are green. F5 remains deferred and unchanged. Task complete; no repair cycle needed.
