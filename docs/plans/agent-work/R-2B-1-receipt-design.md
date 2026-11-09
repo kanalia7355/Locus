@@ -58,3 +58,74 @@ Append progress + SHA + CI evidence to this file under ## Progress at each step 
 and at task end, and push.
 
 Conventional Commit subject suggestion: `docs(plans): author the receipt contract and 2b design package`
+
+## Progress
+
+### 2026-11-09 — implementation + self-review + QA + delivery complete; CI queued
+
+- **Implementation:** authored `docs/plans/HYBRID_STEP2_RECEIPT_CONTRACT.md`
+  (633 lines) reconciling the logical receipt/job-envelope contract against
+  ADR-0012 §4.1, ADR-0013 (DRAFT), step-2 §§2.1/2.2/2.6/3.1/3.2/3.3/6/6.11, owner
+  Q1–Q7 and the DP classification record. Contents: decision-tier taxonomy
+  (Tier-0 ADR-0012 invariants I-1…I-10 / owner-resolved Q1-Q2-Q4 / engineering
+  detail per classification / 【要決定】); receipt and job-envelope logical field
+  tables with full binding trace (job, actor, approver/authority, workspace,
+  policy version, adapter, destination, operation, runner instance) mapped to E1
+  and E2; automated issuance strictly inside current policy/authority (owner Q1,
+  Q2 personal scope, DP-004…023); online/current authorization and revocation
+  visibility (DP-007/008/009, fail-closed on unavailable authority); fail-closed
+  semantics matrix; audit requirements (`agent.receipt.*`, immutable events,
+  no credential bytes); mandatory-vs-contract-detail separation; 【要決定】
+  inventory (9 items: receipt TTL values DP-010/011, new permissions DP-021,
+  Runner trust/enrollment/key custody, provider credential supply DP-034b,
+  external communication DP-031/032, unverified isolation profiles, retention
+  DP-022, real data/production Q7, any boundary change). No code, no schema, no
+  dispatch-capable test, no key provisioning, no Runner activation.
+- **Adversarial self-review:** recorded in the document §12 (Q1 over-read risk,
+  tier-leakage risk, tension honesty, E2-reachability circularity, scope
+  discipline). Verified source citations against `backend/app/agents/registry.py`
+  (`dispatch_attempt` ~716, `workspace_policies` triggers ~99–117, presence-only
+  credentials ~53/186, placeholder `job_authorization_receipts` ~161) and
+  `backend/app/service.py` (`NON_ADMIN` ~25, `_delegation_now` ~1073,
+  `_delegation_authority` ~1042, delegation TTL 900–604800 s ~1341). Four
+  documentation/code tensions recorded (incl. slice-2a placeholder table vs
+  ADR-0013's "no receipt table" statement and the mutable `revoked` column vs the
+  immutable-event convention).
+- **QA (local, applicable docs subset):** `ruff check .` → All checks passed;
+  `ruff format --check docs/plans/HYBRID_STEP2_RECEIPT_CONTRACT.md` → already
+  formatted (full-tree check shows 1 PRE-EXISTING failure in
+  `docs/requirements/AUTONOMOUS_LOOP_SPEC.md:315`, a file this task must not
+  touch); `scripts/secret_scan.py` via a task-local `.loop/runtime/qa-venv`
+  (Python 3.13, detect-secrets installed; the shared `.venv` was never used) →
+  "Offline secret scan: 0 findings", exit 0.
+- **Delivery:** commit `1e51bae9a42c3a40957ae3f7ab38dd73fcaeb81e`, subject
+  `docs(plans): author the receipt contract and 2b design package`, pushed to
+  `origin loop/r2b1-receipt-design` (new branch; main and loop/local-development
+  untouched).
+- **CI evidence:** run 42637449714 ("Loop engine checks") queued for the SHA at
+  2026-11-09T14:43:23Z; result to be appended below when observed. Queued ≠
+  passed.
+- **Status:** completion gate satisfied on the design side (source-linked,
+  internally consistent, every owner open point marked 【要決定】, no activation
+  claim). 2b dispatch-capable implementation remains blocked until the
+  owner-approved receipt contract and separate slice authorization exist.
+
+### 2026-11-09 — TASK END: CI green for the delivered SHA
+
+- **CI evidence for `1e51bae9a42c3a40957ae3f7ab38dd73fcaeb81e`** (all observed
+  `completed success` on GitHub Actions, run at 2026-11-09T14:43Z):
+  - PR title convention — run 42637449704 — success (10 s)
+  - Prototype quality — run 42637450021 — success (3 m 7 s)
+  - Loop engine checks — run 42637449714 — success (7 m 2 s)
+  - Full CI for the SHA **passed**; no billing block this time (contrast with the
+    older billing-blocked history recorded in step-2 design §4). No fix cycle was
+    needed: local checks and CI were green on the first delivery.
+- **Note on the local format check:** the full-tree `ruff format --check` shows one
+  pre-existing would-reformat in `docs/requirements/AUTONOMOUS_LOOP_SPEC.md:315`
+  (outside this task's files and not modified); CI's checks for this SHA passed,
+  and the delivered file itself is ruff-clean.
+- **Task outcome:** deliverable `docs/plans/HYBRID_STEP2_RECEIPT_CONTRACT.md`
+  complete at `1e51bae9a42c3a40957ae3f7ab38dd73fcaeb81e` on
+  `loop/r2b1-receipt-design`, pushed. Remaining pipeline steps (independent
+  read-only review, integration) belong to later slots; dispatch stays disabled
+  and every §9 【要決定】 item remains with the owner.
