@@ -38,3 +38,31 @@ safety inspection is "有効" even when the scanner cannot run. Recommendation (
 ## Progress
 
 Agent: append your progress under ## Progress at each step end and at task end, and push.
+
+### 2026-11-10 — status check (orchestrator cycle)
+
+Implementation in progress in this worktree (branch loop/rstorage2-scanner-status-fix),
+not yet committed; no blocker, no quota error. Done so far, uncommitted:
+
+- `backend/app/scanner.py`: typed fail-closed result (`ScanResult` with
+  `clean` / `rejected` / `unavailable`); timeout/connection errors, busy adapter,
+  truncated or malformed daemon replies now report `unavailable` instead of being
+  conflated with a rejection verdict; explicit non-clean daemon verdicts report
+  `rejected`; no connectivity checks added, quarantine semantics unchanged.
+- `backend/app/service.py`: `Scanner` protocol and `UnavailableScanner` use the typed
+  result; `process_next` keys the quarantine reason off the outcome (rejected vs
+  unavailable) instead of adapter configuration; adapter configuration
+  (`scanner_configured`) is now reported separately from the operational outcome
+  (`scanner_last_outcome`, None until the first scan) in `storage_status`.
+- `frontend/src/AdminSettings.tsx`: 安全検査 display now distinguishes 有効 /
+  検査不能 / 拒否 via `scannerStatusText(status)`; `StorageStatus` carries
+  `scanner_last_outcome`.
+- Tests updated/added: `tests/test_scanner.py` (typed outcomes),
+  `tests/test_api.py` (configured scanner timeout/exception → quarantined with
+  unavailable reason + status; explicit rejection → quarantined with rejected
+  reason + status; `scanner_last_outcome` clean on success),
+  `tests/test_admin_project_storage_load.py` (exact storage-status payload),
+  scanner fakes in `tests/test_security.py` / `tests/test_delegations.py`,
+  `frontend/src/AdminSettings.test.tsx` (検査不能 and 拒否 display states).
+- Not yet run: local QA (ruff/mypy/pytest, frontend lint/vitest/typecheck/build).
+  Next: run QA, fix fallout, commit + push, then branch CI evidence.
