@@ -101,6 +101,9 @@ class Service:
         self.conn.execute("PRAGMA foreign_keys = ON")
         self.lock = threading.RLock()
         self.scanner = scanner or UnavailableScanner()
+        # Fail-closed visibility: only an adapter that can actually perform the
+        # safety check counts as configured; the placeholder always quarantines.
+        self.scanner_configured = not isinstance(self.scanner, UnavailableScanner)
         self.limits: OrderedDict[str, list[float]] = OrderedDict()
         self.chat_dispatch: dict[str, ChatDispatch] = {}
         self.chat_dispatch_lock = threading.Lock()
@@ -704,6 +707,7 @@ class Service:
                 "external_enabled": False,
                 "accepted_formats": ["txt", "md", "csv"],
                 "max_file_bytes": 262144,
+                "scanner_configured": self.scanner_configured,
                 "ingestion_queue_limit": 32,
                 "per_user_ingestion_queue_limit": 4,
                 "ingestion_status_counts": counts,
@@ -2092,9 +2096,16 @@ class Service:
                 )
                 return True
             if not approved:
+                # Distinguish a rejected scan from a safety check that could not
+                # run at all; both fail closed and both stay out of retrieval.
+                reason = (
+                    "安全検査を通過していないため隔離中です。本文は検索に使いません"
+                    if self.scanner_configured
+                    else "安全検査を実行できないため隔離中です（既定拒否）。本文は検索に使いません"
+                )
                 db.execute(
                     "UPDATE documents SET status='quarantined',reason=? WHERE id=?",
-                    ("安全検査を通過していないため隔離中です。本文は検索に使いません", row["id"]),
+                    (reason, row["id"]),
                 )
                 return True
             self._index(db, live)

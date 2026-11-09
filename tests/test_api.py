@@ -162,8 +162,53 @@ def test_upload_quarantine_and_validation(service: Service) -> None:
     assert response.status_code == 201, response.text
     document_id = response.json()["id"]
     service.process_next()
-    assert client.get(f"/api/documents/{document_id}").json()["status"] == "quarantined"
+    stored = client.get(f"/api/documents/{document_id}").json()
+    assert stored["status"] == "quarantined"
+    # Without a configured scanner the reason names the unavailable check itself,
+    # not an unsupported scan verdict; ingestion still fails closed either way.
+    unscanned_reason = "安全検査を実行できないため隔離中です（既定拒否）。本文は検索に使いません"
+    assert stored["reason"] == unscanned_reason
     assert client.get(f"/api/documents/{document_id}/chunks").status_code == 409
+    admin = client_for(service)
+    login(admin, "admin", "01")
+    principal = service.authenticate(admin.cookies.get("locus_session"))
+    assert service.storage_status(principal)["scanner_configured"] is False
+
+
+class AcceptingScanner:
+    def scan(self, content: str) -> bool:
+        return True
+
+
+def test_configured_scanner_ingests_and_reports_state(tmp_path) -> None:
+    svc = Service(tmp_path / "scan.sqlite3", scanner=AcceptingScanner())
+    try:
+        svc.provision("admin", "Temporary-password-01!", system_admin=True)
+        svc.provision("alice", "Temporary-password-02!")
+        svc.create_project("org-a", "project-a", "研究プロジェクト")
+        svc.assign("alice", "project-a", "researcher")
+        client = client_for(svc)
+        login(client)
+        response = client.post(
+            "/api/documents",
+            json={
+                "project_id": "project-a",
+                "name": "sample.txt",
+                "content": "synthetic sample",
+                "kind": "personal",
+            },
+            headers=ORIGIN,
+        )
+        assert response.status_code == 201, response.text
+        document_id = response.json()["id"]
+        assert svc.process_next()
+        assert client.get(f"/api/documents/{document_id}").json()["status"] == "ready"
+        admin = client_for(svc)
+        login(admin, "admin", "01")
+        principal = svc.authenticate(admin.cookies.get("locus_session"))
+        assert svc.storage_status(principal)["scanner_configured"] is True
+    finally:
+        svc.close()
 
 
 def test_roles_denied_by_default_and_audit_redaction(service: Service) -> None:

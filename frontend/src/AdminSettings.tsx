@@ -442,6 +442,7 @@ interface StorageStatus {
   max_file_bytes: number;
   ingestion_queue_limit: number;
   per_user_ingestion_queue_limit: number;
+  scanner_configured: boolean;
   ingestion_status_counts: Record<string, number>;
   configuration_available: boolean;
 }
@@ -548,6 +549,12 @@ export function AdminStorage() {
           <dd>{status.accepted_formats.join("、")}</dd>
           <dt>1件あたりの上限</dt>
           <dd>{(status.max_file_bytes / 1024).toLocaleString("ja-JP")} KiB</dd>
+          <dt>安全検査</dt>
+          <dd>
+            {status.scanner_configured
+              ? "有効・安全検査を通過した資料のみ取り込みます"
+              : "未接続（既定拒否）・安全検査を実行できない資料は隔離され、検索には使われません"}
+          </dd>
           <dt>取り込み待ち上限</dt>
           <dd>
             全体 {status.ingestion_queue_limit}件 · 一人{" "}
