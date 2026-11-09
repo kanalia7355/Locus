@@ -22,19 +22,36 @@ export interface Document {
   created: number;
   owned: boolean;
 }
-export interface Citation {
+export interface SourceChunk {
   id: string;
   document_id: string;
-  name: string;
   page: number;
   ordinal: number;
   text: string;
+}
+export interface Citation extends SourceChunk {
+  name: string;
 }
 export interface Message {
   id: string;
   text: string;
   scope: string;
   citations: Citation[];
+  answer?: string | null;
+  model?: string | null;
+  answer_hidden?: boolean;
+}
+export interface RelatedDocument {
+  document: Document;
+  method: "lexical-common-terms";
+  shared_term_count: number;
+  evidence: {
+    term: string;
+    source_chunk_id: string;
+    source_page: number;
+    target_chunk_id: string;
+    target_page: number;
+  }[];
 }
 export interface Conversation {
   id: string;
@@ -42,6 +59,20 @@ export interface Conversation {
   created: number;
   messages: Message[];
   attachments: Document[];
+}
+export interface ChatJobAccepted {
+  job_id: string;
+  status: "queued";
+  text: string;
+}
+export interface ChatJob {
+  id: string;
+  conversation_id: string;
+  status: "queued" | "running" | "done" | "failed" | "cancelled";
+  detail: string;
+  message_id: string | null;
+  cancel_requested: boolean;
+  created: number;
 }
 export interface Role {
   id: string;
@@ -52,6 +83,30 @@ export interface Roles {
   templates: Role[];
   custom: Role[];
   allowed_permissions: string[];
+}
+export interface ModelSource {
+  id: string;
+  label: string;
+  kind: "ollama" | "folder";
+}
+export interface ModelInventory {
+  inference_enabled: false;
+  sources: {
+    id: string;
+    status: string;
+    truncated: boolean;
+    count: number;
+    rejected_entries: number;
+  }[];
+  models: {
+    id: string;
+    source_id: string;
+    name: string;
+    size_bytes: number;
+    format: string;
+    status: string;
+    inference_enabled: false;
+  }[];
 }
 
 export async function api<T>(

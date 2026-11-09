@@ -108,9 +108,25 @@ class ApprovalQueue:
                 status = {"approve": "approved", "reject": "rejected", "revise": "revise"}[
                     choice["action"]
                 ]
+                decided = time.time()
+                if status == "approved":
+                    import json
+
+                    from loop_engine.run_authorization import RUN_QUESTION
+                    from loop_engine.run_authorization import activate as activate_run
+                    from loop_engine.trial_authorization import QUESTION, activate
+
+                    current = db.execute(
+                        "SELECT * FROM decisions WHERE id=?", (choice["id"],)
+                    ).fetchone()
+                    question = json.loads(current["document"])["question"]
+                    if question.startswith(QUESTION):
+                        activate(self.state, db, current, decided)
+                    elif question.startswith(RUN_QUESTION):
+                        activate_run(self.state, db, current, decided)
                 db.execute(
                     "UPDATE decisions SET status=?,actor=?,reason=?,decided=? WHERE id=?",
-                    (status, actor, choice["reason"], time.time(), choice["id"]),
+                    (status, actor, choice["reason"], decided, choice["id"]),
                 )
                 self.state._event(
                     db,

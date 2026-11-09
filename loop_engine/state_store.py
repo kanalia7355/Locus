@@ -15,10 +15,15 @@ from loop_engine.security import reject_secrets
 
 
 class StateStore:
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, readonly: bool = False) -> None:
         if path.is_symlink() or path.parent.is_symlink():
             raise ValueError("Unsafe state database path")
         self.path = path
+        self.readonly = readonly
+        if readonly:
+            if not path.is_file():
+                raise ValueError("Existing state database required")
+            return
         path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as db:
             db.executescript("""
@@ -81,6 +86,14 @@ class StateStore:
                     identity TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id),
                     first_head TEXT NOT NULL, last_head TEXT NOT NULL, document TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS c_min_runs (
+                    id TEXT PRIMARY KEY, document TEXT NOT NULL,
+                    started REAL, deadline REAL
+                );
+                CREATE TABLE IF NOT EXISTS model_run_bindings (
+                    invocation TEXT PRIMARY KEY, run_id TEXT NOT NULL,
+                    document TEXT NOT NULL, created REAL NOT NULL
+                );
                 CREATE TRIGGER IF NOT EXISTS events_no_update BEFORE UPDATE ON events
                     BEGIN SELECT RAISE(ABORT,'Events are append-only'); END;
                 CREATE TRIGGER IF NOT EXISTS events_no_delete BEFORE DELETE ON events
@@ -89,7 +102,14 @@ class StateStore:
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
-        db = sqlite3.connect(self.path, timeout=5, isolation_level=None)
+        target = (
+            self.path.resolve().as_uri() + "?mode=ro"
+            if getattr(self, "readonly", False)
+            else str(self.path)
+        )
+        db = sqlite3.connect(
+            target, uri=getattr(self, "readonly", False), timeout=5, isolation_level=None
+        )
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA foreign_keys=ON")
         try:

@@ -2,6 +2,13 @@ name: PR title convention
 on:
   pull_request:
     types: [opened, edited, synchronize, reopened]
+  push:
+    branches-ignore: [main]
+# Owner rule (2026-11-09): minimal Actions usage - a new push on the same ref
+# supersedes the in-flight run instead of stacking runs.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
@@ -9,6 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Validate Conventional Commits PR title
+        if: github.event_name == 'pull_request'
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
@@ -21,3 +29,11 @@ jobs:
               sys.exit(1)
           print('Valid Conventional Commits PR title')
           PYCODE
+      - uses: actions/checkout@v4
+        if: github.event_name == 'push'
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate actual pushed Conventional Commits
+        if: github.event_name == 'push'
+        run: python3 scripts/check_commit_subjects.py

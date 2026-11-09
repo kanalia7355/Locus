@@ -27,6 +27,9 @@ class GoalEvaluator:
     def __init__(self, runner: CodexRunner) -> None:
         self.runner = runner
 
+    def acknowledge(self) -> None:
+        self.runner.acknowledge()
+
     def assess(
         self,
         source: dict[str, Any],

@@ -1,18 +1,23 @@
 """Loopback-only development API. Production startup is deliberately unsupported."""
 
 import asyncio
+import json
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import Depends, FastAPI, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from app.service import Principal, Service, fail
+from app.agents.registry import AgentRegistry
+from app.local_model import LocalModel
+from app.model_catalog import ModelCatalog
+from app.scanner import scanner_from_environment
+from app.service import ModelBusy, Principal, Service, fail
 
 COOKIE = "locus_session"
 ALLOWED_ORIGINS = frozenset(
@@ -45,6 +50,32 @@ class Password(Input):
     new_password: str = Field(min_length=14, max_length=128)
 
 
+class AccountEnabled(Input):
+    enabled: bool = Field(strict=True)
+
+
+class Recovery(Input):
+    username: str = Field(min_length=1, max_length=64)
+    recovery_code: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=1, max_length=128)
+
+
+class ProvisionUser(Input):
+    username: str
+
+
+class AdminProjectInput(Input):
+    project_id: str = Field(min_length=1, max_length=64)
+    org_id: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=128)
+    owner_id: str | None = Field(default=None, min_length=1, max_length=64)
+
+
+class ProjectMemberInput(Input):
+    user_id: str = Field(min_length=1, max_length=64)
+    role: str = Field(min_length=1, max_length=64)
+
+
 class ProjectInput(Input):
     project_id: str = Field(min_length=1, max_length=64)
 
@@ -65,6 +96,18 @@ class Message(Input):
 class Role(Input):
     name: str = Field(min_length=1, max_length=64)
     permissions: list[str] = Field(max_length=10)
+    denied_permissions: list[str] | None = Field(default=None, max_length=20)
+
+
+class MembershipDenials(Input):
+    denied_permissions: list[str] = Field(max_length=20)
+
+
+class DelegationGrant(Input):
+    project_id: str = Field(min_length=1, max_length=64)
+    recipient_id: str = Field(min_length=1, max_length=64)
+    permissions: list[str] = Field(min_length=1, max_length=4)
+    ttl_seconds: int | None = Field(default=None, strict=True)
 
 
 class Grant(Input):
@@ -76,13 +119,69 @@ class Publication(Input):
     grants: list[Grant] = Field(max_length=10)
 
 
+class ModelRuntime(Input):
+    candidate_id: str | None = Field(default=None, max_length=64)
+    local_only_confirmed: bool = False
+    timeout_seconds: int = Field(default=30, strict=True)
+
+    @field_validator("timeout_seconds")
+    @classmethod
+    def bounded_timeout(cls, value: int) -> int:
+        if value not in {30, 120}:
+            raise ValueError("待機時間は30秒または120秒です")
+        return value
+
+
+class ModelDiscovery(Input):
+    sources: list[str] = Field(min_length=1, max_length=5)
+
+
+class WorkspacePolicyInput(Input):
+    classification_ceiling: str = "none"
+    runner_types: list[str] = Field(default_factory=list, max_length=4)
+    egress_mode: str = "local_only"
+    filesystem_scope: str = "workspace"
+    adapter_allowlist: list[str] = Field(default_factory=list, max_length=20)
+
+
+class WorkspaceInput(Input):
+    name: str = Field(min_length=1, max_length=128)
+    policy: WorkspacePolicyInput = Field(default_factory=WorkspacePolicyInput)
+
+
+class AdapterInput(Input):
+    name: str = Field(min_length=1, max_length=128)
+    adapter_type: str = Field(min_length=1, max_length=64)
+    binary_identity: str = Field(min_length=1, max_length=512)
+    version_pin: str = Field(min_length=1, max_length=128)
+    catalog_ref: str = Field(min_length=1, max_length=256)
+    capabilities: dict[str, Any] = Field(default_factory=dict)
+
+
+class RunnerInstanceInput(Input):
+    enrolled_os_principal_ref: str = Field(min_length=1, max_length=256)
+    binary_identity: str = Field(min_length=1, max_length=512)
+    transport_identity: str = Field(min_length=1, max_length=256)
+
+
+class AdapterBindingInput(Input):
+    runner_instance_id: str = Field(min_length=1, max_length=64)
+    adapter_id: str = Field(min_length=1, max_length=64)
+
+
 def cookie(response: Response, token: str) -> None:
     response.set_cookie(
         COOKIE, token, httponly=True, samesite="strict", secure=False, max_age=28800, path="/api"
     )
 
 
-def create_app(*, service: Service | None = None, start_worker: bool = True) -> FastAPI:
+def create_app(
+    *,
+    service: Service | None = None,
+    start_worker: bool = True,
+    model_catalog: ModelCatalog | None = None,
+    local_model: LocalModel | None = None,
+) -> FastAPI:
     if os.getenv("APP_ENV", "development") != "development":
         raise RuntimeError(
             "Only development mode is implemented; production deployment is disabled"
@@ -92,13 +191,22 @@ def create_app(*, service: Service | None = None, start_worker: bool = True) -> 
     if os.getenv("LOCAL_ONLY_MODE", "true").lower() != "true":
         raise RuntimeError("Only local mode is supported")
     owns_service = service is None
-    svc = service or Service(Path(__file__).resolve().parents[2] / "storage" / "locus.sqlite3")
+    svc = service or Service(
+        Path(__file__).resolve().parents[2] / "storage" / "locus.sqlite3",
+        scanner=scanner_from_environment(),
+    )
+    catalog = model_catalog or ModelCatalog()
+    runtime = local_model or LocalModel()
 
     stop = asyncio.Event()
 
     async def worker() -> None:
         while not stop.is_set():
             await asyncio.to_thread(svc.process_next)
+            # Advisory check only: a slot taken between this probe and the next
+            # pickup is handled by the queue's requeue path, not by failure.
+            if runtime.available():
+                await asyncio.to_thread(svc.process_next_chat)
             try:
                 await asyncio.wait_for(stop.wait(), timeout=0.25)
             except TimeoutError:
@@ -124,6 +232,14 @@ def create_app(*, service: Service | None = None, start_worker: bool = True) -> 
         openapi_url=None,
     )
     app.state.service = svc
+    registry = AgentRegistry(
+        svc.conn,
+        svc.lock,
+        authenticate=svc._authenticate,
+        audit=svc._audit,
+        limit=svc._limit,
+    )
+    app.state.agent_registry = registry
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost"])
 
     @app.middleware("http")
@@ -145,6 +261,7 @@ def create_app(*, service: Service | None = None, start_worker: bool = True) -> 
                         {"detail": "送信サイズが上限を超えています"}, status_code=413
                     )
             request._body = bytes(content)
+            request.scope.setdefault("state", {})["registry_request_body"] = bytes(content)
         response: Response = await call_next(request)
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -155,11 +272,31 @@ def create_app(*, service: Service | None = None, start_worker: bool = True) -> 
     def actor(request: Request) -> Principal:
         return svc.authenticate(request.cookies.get(COOKIE))
 
+    def validated_agent_body(
+        request: Request, model: type[BaseModel], *, exclude_unset: bool = False
+    ) -> Callable[[], dict[str, Any]]:
+        def validate() -> dict[str, Any]:
+            try:
+                body = request.scope["state"]["registry_request_body"]
+                parsed = model.model_validate(json.loads(body))
+            except ValidationError as exc:
+                raise HTTPException(422, detail=exc.errors()) from exc
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise HTTPException(422, detail="Request body is not valid JSON") from exc
+            return parsed.model_dump(exclude_unset=exclude_unset)
+
+        return validate
+
     Actor = Annotated[Principal, Depends(actor)]
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
         return {"status": "ok", "mode": "development-local-only"}
+
+    @app.post("/api/auth/recovery")
+    def recover(data: Recovery) -> dict[str, bool]:
+        svc.recover(data.username, data.recovery_code, data.new_password)
+        return {"ok": True}
 
     @app.post("/api/auth/login")
     def login(data: Login, request: Request, response: Response) -> dict[str, Any]:
@@ -181,8 +318,12 @@ def create_app(*, service: Service | None = None, start_worker: bool = True) -> 
 
     @app.post("/api/auth/password")
     def password(data: Password, request: Request, response: Response) -> dict[str, bool]:
-        user = svc.authenticate(request.cookies.get(COOKIE), allow_rotation=True)
-        cookie(response, svc.rotate(user, data.current_password, data.new_password))
+        token = request.cookies.get(COOKIE)
+        user = svc.authenticate(token, allow_rotation=True)
+        cookie(
+            response,
+            svc.rotate(user, data.current_password, data.new_password, session_token=token),
+        )
         return {"ok": True}
 
     @app.post("/api/auth/logout", status_code=204)
@@ -214,6 +355,12 @@ def create_app(*, service: Service | None = None, start_worker: bool = True) -> 
     ) -> list[dict[str, Any]]:
         return svc.chunks(user, document, conversation_id)
 
+    @app.get("/api/documents/{document}/related")
+    def related(
+        document: str, user: Actor, conversation_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        return svc.related(user, document, conversation_id)
+
     @app.delete("/api/documents/{document}", status_code=204)
     def delete_document(document: str, user: Actor) -> None:
         svc.delete_document(user, document)
@@ -239,10 +386,63 @@ def create_app(*, service: Service | None = None, start_worker: bool = True) -> 
         return svc.conversation(user, conversation)
 
     @app.post("/api/conversations/{conversation}/messages")
-    def message(conversation: str, data: Message, user: Actor) -> dict[str, Any]:
+    def message(conversation: str, data: Message, request: Request, user: Actor) -> Any:
         if not data.text.strip():
             fail(422, "メッセージを入力してください")
-        return svc.send(user, conversation, data.text, data.scope, data.attachment_ids)
+        with runtime.settings_lock:
+            model, version, seconds = runtime.model, runtime.version, runtime.timeout_seconds
+
+        def generate(text: str, citations: list[dict[str, Any]]) -> tuple[str, str]:
+            if not model:
+                # Fail-closed: the callback is only ever passed when a model is
+                # configured; the guard keeps that invariant enforced at the type level.
+                fail(422, "ローカルモデルが有効になっていません")
+            try:
+                return runtime.generate(model, text, citations, timeout_seconds=seconds)
+            except HTTPException as exc:
+                # Only the busy-slot signal becomes a queued dialogue; other
+                # failures keep their existing synchronous behavior.
+                if exc.status_code == 429 and exc.detail == "モデルは処理中です":
+                    raise ModelBusy() from exc
+                raise
+
+        token = request.cookies.get(COOKIE)
+        try:
+            return svc.send(
+                user,
+                conversation,
+                data.text,
+                data.scope,
+                data.attachment_ids,
+                generate=generate if model else None,
+                validate=(lambda: runtime.validate(model, version, seconds)) if model else None,
+                token=token,
+            )
+        except ModelBusy:
+            if token is None:
+                fail(429, "モデルは処理中です")
+            job_id = svc.enqueue_chat(
+                user,
+                conversation,
+                data.text,
+                data.scope,
+                data.attachment_ids,
+                token=token,
+                generate=generate,
+                validate=(lambda: runtime.validate(model, version, seconds)) if model else None,
+            )
+            return JSONResponse(
+                {"job_id": job_id, "status": "queued", "text": data.text},
+                status_code=202,
+            )
+
+    @app.get("/api/chat-jobs/{job}")
+    def chat_job(job: str, user: Actor) -> dict[str, Any]:
+        return svc.chat_job(user, job)
+
+    @app.delete("/api/chat-jobs/{job}", status_code=204)
+    def cancel_chat_job(job: str, user: Actor) -> None:
+        svc.cancel_chat_job(user, job)
 
     @app.delete("/api/conversations/{conversation}", status_code=204)
     def delete_conversation(conversation: str, user: Actor) -> None:
@@ -252,22 +452,250 @@ def create_app(*, service: Service | None = None, start_worker: bool = True) -> 
     def roles(project: str, user: Actor) -> dict[str, Any]:
         return svc.roles(user, project)
 
+    @app.get("/api/projects/{project}/members/{username}/roles")
+    def membership_roles(project: str, username: str, user: Actor) -> dict[str, Any]:
+        return svc.membership_roles(user, project, username)
+
+    @app.post("/api/projects/{project}/members/{username}/roles/{role_id}", status_code=204)
+    def add_membership_role(project: str, username: str, role_id: str, user: Actor) -> None:
+        svc.add_role_holding(user, project, username, role_id)
+
+    @app.delete("/api/projects/{project}/members/{username}/roles/{role_id}", status_code=204)
+    def remove_membership_role(project: str, username: str, role_id: str, user: Actor) -> None:
+        svc.remove_role_holding(user, project, username, role_id)
+
+    @app.put("/api/projects/{project}/members/{username}/denials")
+    def membership_denials(
+        project: str, username: str, data: MembershipDenials, user: Actor
+    ) -> dict[str, Any]:
+        denied = svc.set_membership_denials(user, project, username, data.denied_permissions)
+        return {"username": username, "project_id": project, "denied_permissions": denied}
+
     @app.post("/api/projects/{project}/roles", status_code=201)
     def role(project: str, data: Role, user: Actor) -> dict[str, Any]:
         if not data.name.strip():
             fail(422, "ロール名を入力してください")
-        return svc.create_role(user, project, data.name, data.permissions)
+        return svc.create_role(user, project, data.name, data.permissions, data.denied_permissions)
+
+    @app.put("/api/projects/{project}/roles/{role_id}")
+    def update_role(project: str, role_id: str, data: Role, user: Actor) -> dict[str, Any]:
+        if not data.name.strip():
+            fail(422, "ロール名を入力してください")
+        return svc.update_role(
+            user, project, role_id, data.name, data.permissions, data.denied_permissions
+        )
+
+    @app.get("/api/admin/projects")
+    def admin_projects(user: Actor) -> list[dict[str, Any]]:
+        return svc.admin_projects(user)
+
+    @app.post("/api/admin/projects", status_code=201)
+    def create_admin_project(data: AdminProjectInput, request: Request) -> dict[str, Any]:
+        if not data.project_id.strip() or not data.org_id.strip() or not data.name.strip():
+            fail(422, "プロジェクトID・組織ID・名称を入力してください")
+        return svc.create_admin_project(
+            request.cookies.get(COOKIE),
+            data.project_id,
+            data.org_id,
+            data.name,
+            data.owner_id,
+        )
+
+    @app.put("/api/admin/projects/{project_id}/members")
+    def set_project_member(
+        project_id: str, data: ProjectMemberInput, request: Request
+    ) -> dict[str, Any]:
+        return svc.set_project_member(
+            request.cookies.get(COOKIE), project_id, data.user_id, data.role
+        )
+
+    @app.delete("/api/admin/projects/{project_id}/members/{user_id}", status_code=204)
+    def remove_project_member(project_id: str, user_id: str, request: Request) -> None:
+        svc.remove_project_member(request.cookies.get(COOKIE), project_id, user_id)
+
+    @app.get("/api/admin/storage")
+    def storage_status(user: Actor) -> dict[str, Any]:
+        return svc.storage_status(user)
+
+    @app.get("/api/admin/load")
+    def load_status(user: Actor) -> dict[str, Any]:
+        return svc.load_status(
+            user,
+            model_busy=not runtime.available(),
+            model_enabled=bool(runtime.status()["enabled"]),
+        )
+
+    @app.get("/api/admin/models/sources")
+    def model_sources(user: Actor) -> list[dict[str, str]]:
+        if not user.system_admin:
+            fail(403, "管理権限が必要です")
+        return catalog.sources()
+
+    @app.post("/api/admin/models/discover")
+    def discover_models(data: ModelDiscovery, request: Request, user: Actor) -> dict[str, Any]:
+        if not user.system_admin:
+            fail(403, "管理権限が必要です")
+        result = catalog.discover(data.sources)
+        # Recheck after local I/O before returning privileged inventory metadata.
+        current = svc.authenticate(request.cookies.get(COOKIE))
+        svc.record_model_discovery(
+            current, all(item["status"] == "complete" for item in result["sources"])
+        )
+        with runtime.settings_lock:
+            runtime.registered = {
+                item["id"]: item["name"]
+                for item in result["models"]
+                if item["source_id"] == "ollama"
+            }
+        return result
+
+    @app.get("/api/admin/models/runtime")
+    def model_runtime(user: Actor) -> dict[str, Any]:
+        if not user.system_admin:
+            fail(403, "管理権限が必要です")
+        return runtime.status()
+
+    @app.put("/api/admin/models/runtime")
+    def configure_model(data: ModelRuntime, request: Request, user: Actor) -> dict[str, Any]:
+        with svc.db() as db:
+            current = svc._authenticate(db, request.cookies.get(COOKIE))
+            if not current.system_admin:
+                fail(403, "管理権限が必要です")
+            result = runtime.configure(
+                data.candidate_id, data.local_only_confirmed, data.timeout_seconds
+            )
+            svc._audit(db, current.id, "model.configure", "local-model-runtime")
+            return result
+
+    @app.put("/api/admin/users/{user_id}/enabled")
+    def set_user_enabled(user_id: str, data: AccountEnabled, request: Request) -> dict[str, Any]:
+        return svc.set_user_enabled(request.cookies.get(COOKIE), user_id, data.enabled)
 
     @app.get("/api/admin/users")
     def users(user: Actor) -> list[dict[str, Any]]:
         return svc.users(user)
 
+    @app.post("/api/admin/users", status_code=201)
+    def provision_user(data: ProvisionUser, request: Request, user: Actor) -> dict[str, Any]:
+        return svc.provision_web_user(
+            user, data.username, session_token=request.cookies.get(COOKIE)
+        )
+
     @app.get("/api/admin/audit")
     def audit(user: Actor) -> list[dict[str, Any]]:
         return svc.audit(user)
 
-    @app.post("/api/admin/delegations")
-    def delegation(user: Actor) -> None:
-        fail(409, "本番の管理委任は設計承認待ちのため無効です")
+    @app.post("/api/admin/workspaces", status_code=201)
+    def create_agent_workspace(request: Request) -> dict[str, Any]:
+        workspace_data = validated_agent_body(request, WorkspaceInput)
+
+        def workspace_name() -> str:
+            return str(workspace_data()["name"])
+
+        def workspace_policy() -> dict[str, Any]:
+            return dict(workspace_data()["policy"])
+
+        return registry.create_workspace(
+            request.cookies.get(COOKIE), name=workspace_name, policy=workspace_policy
+        )
+
+    @app.get("/api/admin/workspaces")
+    def list_agent_workspaces(request: Request) -> list[dict[str, Any]]:
+        return registry.list_workspaces(request.cookies.get(COOKIE))
+
+    @app.put("/api/admin/workspaces/{workspace_id}/policy")
+    def update_agent_workspace_policy(workspace_id: str, request: Request) -> dict[str, Any]:
+        return registry.update_workspace_policy(
+            request.cookies.get(COOKIE),
+            workspace_id,
+            validated_agent_body(request, WorkspacePolicyInput, exclude_unset=True),
+        )
+
+    @app.get("/api/admin/workspaces/{workspace_id}/policies")
+    def list_agent_workspace_policies(workspace_id: str, request: Request) -> list[dict[str, Any]]:
+        return registry.list_policy_versions(request.cookies.get(COOKIE), workspace_id)
+
+    @app.delete("/api/admin/workspaces/{workspace_id}")
+    def disable_agent_workspace(workspace_id: str, request: Request) -> dict[str, str]:
+        return registry.disable_workspace(request.cookies.get(COOKIE), workspace_id)
+
+    @app.post("/api/admin/agent-adapters", status_code=201)
+    def register_agent_adapter(request: Request) -> dict[str, str]:
+        return registry.register_adapter(
+            request.cookies.get(COOKIE), validated_agent_body(request, AdapterInput)
+        )
+
+    @app.get("/api/admin/agent-adapters")
+    def list_agent_adapters(request: Request) -> list[dict[str, Any]]:
+        return registry.list_adapters(request.cookies.get(COOKIE))
+
+    @app.delete("/api/admin/agent-adapters/{adapter_id}")
+    def disable_agent_adapter(adapter_id: str, request: Request) -> dict[str, str]:
+        return registry.disable_adapter(request.cookies.get(COOKIE), adapter_id)
+
+    @app.post("/api/admin/runner-instances", status_code=201)
+    def create_runner_instance(request: Request) -> dict[str, str]:
+        return registry.create_runner_instance(
+            request.cookies.get(COOKIE), validated_agent_body(request, RunnerInstanceInput)
+        )
+
+    @app.get("/api/admin/runner-instances")
+    def list_runner_instances(request: Request) -> list[dict[str, Any]]:
+        return registry.list_runner_instances(request.cookies.get(COOKIE))
+
+    @app.delete("/api/admin/runner-instances/{runner_id}")
+    def disable_runner_instance(runner_id: str, request: Request) -> dict[str, str]:
+        return registry.disable_runner_instance(request.cookies.get(COOKIE), runner_id)
+
+    @app.post("/api/admin/workspaces/{workspace_id}/adapter-bindings", status_code=201)
+    def create_adapter_binding(workspace_id: str, request: Request) -> dict[str, str]:
+        return registry.create_binding(
+            request.cookies.get(COOKIE),
+            workspace_id,
+            validated_agent_body(request, AdapterBindingInput),
+        )
+
+    @app.get("/api/admin/workspaces/{workspace_id}/adapter-bindings")
+    def list_adapter_bindings(workspace_id: str, request: Request) -> list[dict[str, Any]]:
+        return registry.list_bindings(request.cookies.get(COOKIE), workspace_id)
+
+    @app.delete("/api/admin/workspaces/{workspace_id}/adapter-bindings/{runner_id}/{adapter_id}")
+    def disable_adapter_binding(
+        workspace_id: str, runner_id: str, adapter_id: str, request: Request
+    ) -> dict[str, str]:
+        return registry.disable_binding(
+            request.cookies.get(COOKIE), workspace_id, runner_id, adapter_id
+        )
+
+    @app.post("/api/workspaces/{workspace_id}/agent-dispatch-attempts")
+    def reject_agent_dispatch(workspace_id: str, request: Request) -> None:
+        registry.dispatch_attempt(request.cookies.get(COOKIE), workspace_id)
+
+    @app.get("/api/admin/delegations/options")
+    def delegation_options(request: Request, user: Actor) -> dict[str, Any]:
+        return svc.delegation_options(user, request.cookies.get(COOKIE))
+
+    @app.get("/api/admin/delegations")
+    def delegations(request: Request, user: Actor) -> list[dict[str, Any]]:
+        return svc.delegations(user, request.cookies.get(COOKIE))
+
+    @app.post("/api/admin/delegations", status_code=201)
+    def delegation(data: DelegationGrant, request: Request, user: Actor) -> dict[str, Any]:
+        return svc.create_delegation(
+            user,
+            request.cookies.get(COOKIE),
+            data.project_id,
+            data.recipient_id,
+            data.permissions,
+            data.ttl_seconds,
+        )
+
+    @app.delete("/api/admin/delegations/{grant_id}")
+    def revoke_delegation(grant_id: str, request: Request, user: Actor) -> dict[str, Any]:
+        return svc.revoke_delegation(user, request.cookies.get(COOKIE), grant_id)
+
+    @app.delete("/api/admin/delegations/{grant_id}/cancel")
+    def cancel_delegation(grant_id: str, request: Request, user: Actor) -> dict[str, Any]:
+        return svc.cancel_delegation(user, request.cookies.get(COOKIE), grant_id)
 
     return app

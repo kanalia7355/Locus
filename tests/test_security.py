@@ -3,6 +3,7 @@ import time
 from collections.abc import Callable
 
 import pytest
+from app.scanner import CLEAN, ScanResult
 from app.service import PASSWORDS, Service, digest
 from fastapi import HTTPException
 from test_api import ORIGIN, client_for, login
@@ -12,9 +13,63 @@ class CallbackScanner:
     def __init__(self, action: Callable[[], None] = lambda: None) -> None:
         self.action = action
 
-    def scan(self, content: str) -> bool:
+    def scan(self, content: str) -> ScanResult:
         self.action()
-        return True
+        return CLEAN
+
+
+@pytest.mark.parametrize(
+    "revocation", ["membership", "upload", "disabled", "rotation", "attachment_retrieve"]
+)
+def test_revoked_ingestion_never_sends_content_to_scanner(
+    service: Service, revocation: str
+) -> None:
+    client = client_for(service)
+    login(client)
+    actor = service.authenticate(client.cookies.get("locus_session"))
+    attachment = revocation == "attachment_retrieve"
+    conversation = service.new_conversation(actor, "project-a")["id"] if attachment else None
+    document = service.upload(
+        actor,
+        "project-a",
+        "synthetic.txt",
+        "synthetic pre-scan content",
+        "attachment" if attachment else "personal",
+        conversation,
+    )
+    calls = []
+    service.scanner = CallbackScanner(lambda: calls.append(True))
+    if revocation == "membership":
+        service.assign("alice", "project-a", None)
+    elif revocation == "upload":
+        service.assign("alice", "project-a", "guest")
+    elif attachment:
+        admin = client_for(service)
+        login(admin, "admin", "01")
+        lead = service.authenticate(admin.cookies.get("locus_session"))
+        role = service.create_role(
+            lead, "project-a", "synthetic uploader without retrieval", ["read", "upload"]
+        )
+        service.assign("alice", "project-a", role["id"])
+    else:
+        with service.db() as db:
+            if revocation == "disabled":
+                db.execute("UPDATE users SET enabled=0 WHERE id=?", (actor.id,))
+            else:
+                db.execute("UPDATE users SET must_rotate=1 WHERE id=?", (actor.id,))
+    assert service.process_next()
+    assert calls == []
+    with service.db() as db:
+        assert (
+            db.execute("SELECT status FROM documents WHERE id=?", (document["id"],)).fetchone()[0]
+            == "cancelled"
+        )
+        assert (
+            db.execute(
+                "SELECT COUNT(*) FROM chunks WHERE document_id=?", (document["id"],)
+            ).fetchone()[0]
+            == 0
+        )
 
 
 def test_hashes_temporary_expiry_and_session_expiry(service: Service) -> None:  # noqa: F811

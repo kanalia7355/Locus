@@ -4,8 +4,11 @@ import os
 import tempfile
 from pathlib import Path
 
+import httpx
 import uvicorn
+from app.local_model import LocalModel
 from app.main import create_app
+from app.model_catalog import ModelCatalog
 from app.service import Service
 
 
@@ -15,17 +18,76 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="locus-e2e-") as temp:
         service = Service(Path(temp) / "test.sqlite3")
         service.create_project("synthetic-org", "synthetic-project", "検証用プロジェクト")
+        service.create_project("synthetic-org", "synthetic-project-b", "追加の検証プロジェクト")
         for index in range(12):
             username = f"test-researcher-{index}"
             service.provision(username, "Synthetic-test-password-01!", system_admin=index == 0)
             service.assign(
                 username, "synthetic-project", "project_lead" if index == 0 else "researcher"
             )
-            service.seed_synthetic(username, "synthetic-project")
+            document = service.seed_synthetic(username, "synthetic-project")
+            if index == 7:
+                # Fixed, non-research fixture only: exercise an actual second-page citation.
+                content = (
+                    "【合成資料の第1頁】\n"
+                    + "索引と画面移動を確認するための説明文です。\n" * 70
+                    + "\f【合成資料の第2頁】\nuniqueanchor は出典移動の検証語です。"
+                )
+                with service.db() as db:
+                    db.execute("UPDATE documents SET content=? WHERE id=?", (content, document))
+                    service._index(
+                        db, db.execute("SELECT * FROM documents WHERE id=?", (document,)).fetchone()
+                    )
+            if index == 9:
+                service.assign(username, "synthetic-project-b", "researcher")
+                other = service.seed_synthetic(username, "synthetic-project-b")
+                with service.db() as db:
+                    db.execute(
+                        "UPDATE documents SET name=? WHERE id=?",
+                        ("別プロジェクトの合成資料.txt", other),
+                    )
         service.seed_synthetic("test-researcher-0", "synthetic-project", "shared")
+        with service.db() as db:
+            db.execute(
+                "INSERT INTO project_owners (project_id,user_id) "
+                "SELECT ?,id FROM users WHERE username=?",
+                ("synthetic-project", "test-researcher-0"),
+            )
+        models = Path(temp) / "models"
+        models.mkdir()
+        (models / "fixture-model.gguf").write_bytes(b"synthetic-not-valid-weights")
+        catalog = ModelCatalog(
+            {"fixture-root": models},
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(
+                    200, json={"models": [{"name": "synthetic-ollama:latest", "size": 123}]}
+                )
+            ),
+        )
         try:
             uvicorn.run(
-                create_app(service=service),
+                create_app(
+                    service=service,
+                    model_catalog=catalog,
+                    local_model=LocalModel(
+                        transport=httpx.MockTransport(
+                            lambda request: httpx.Response(
+                                200,
+                                json={
+                                    "model": "synthetic-ollama:latest",
+                                    "done": True,
+                                    "message": {
+                                        "role": "assistant",
+                                        "content": (
+                                            "合成資料から生成したテスト用の提案です。"
+                                            "<script>実行しない</script>"
+                                        ),
+                                    },
+                                },
+                            )
+                        )
+                    ),
+                ),
                 host="127.0.0.1",
                 port=8000,
                 access_log=False,

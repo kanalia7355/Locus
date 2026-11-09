@@ -2,13 +2,14 @@
 
 import json
 import os
+import sqlite3
 import sys
 import tomllib
 from pathlib import Path
 from uuid import uuid4
 
 from loop_engine.codex_runner import codex_binary
-from loop_engine.security import SafetyError, fingerprint, within
+from loop_engine.security import SafetyError, fingerprint, reparse, within
 from loop_engine.toolless_boundary import ToollessBoundary
 
 
@@ -34,7 +35,27 @@ def boundary_for(root: Path) -> ToollessBoundary:
     receipt = json.loads(within(root, ".loop/runtime/qa-image.json").read_text())
     home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
     settings = tomllib.loads((home / "config.toml").read_text(encoding="utf-8"))
-    return ToollessBoundary(root, receipt["image_id"], list(settings.get("mcp_servers", {})))
+    policy = None
+    catalog_policy = None
+    path = root / ".loop/runtime/state.sqlite3"
+    if path.is_file():
+        if any(reparse(part) for part in (path, *path.parents)):
+            raise SafetyError("Profile metadata reparse boundary")
+        # Admission reads only existing nonsecret metadata, never initializes or
+        # approves a profile. The full profile remains bound by the live permit.
+        with sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True) as db:
+            row = db.execute("SELECT value FROM metadata WHERE key='c_min_auth_profile'").fetchone()
+        profile = json.loads(row[0]) if row else None
+        if isinstance(profile, dict):
+            policy = profile.get("notification_policy")
+            catalog_policy = profile.get("model_catalog")
+    return ToollessBoundary(
+        root,
+        receipt["image_id"],
+        list(settings.get("mcp_servers", {})),
+        notification_policy=policy,
+        catalog_policy=catalog_policy,
+    )
 
 
 def probe(root: Path) -> dict[str, object]:
@@ -58,7 +79,11 @@ print(json.dumps(d))
 """
     result = boundary.docker.run([sys.executable, "-c", code], work, timeout=20)
     expected = {"uid": 1000, "daemon_absent": True, "network_denied": True, "lease_denied": True}
-    qa = result.returncode == 0 and json.loads(result.stdout) == expected
+    qa = (
+        result.outcome == "exit"
+        and result.returncode == 0
+        and json.loads(result.stdout) == expected
+    )
     qa = qa and (work / "canary.txt").read_text() == "synthetic"
     timed = boundary.docker.run(
         [sys.executable, "-c", "import time;time.sleep(60)"], work, timeout=2
@@ -80,5 +105,20 @@ print(json.dumps(d))
 
 def require_receipt(root: Path) -> None:
     receipt = json.loads(within(root, ".loop/runtime/live-runtime.json").read_text())
-    if receipt.get("passed") is not True or receipt.get("identity") != runtime_identity(root):
+    if not isinstance(receipt, dict):
+        raise SafetyError("Runtime receipt must be an object")
+    surface = receipt.get("tool_surface", {})
+    if (
+        receipt.get("passed") is not True
+        or receipt.get("identity") != runtime_identity(root)
+        or not isinstance(surface, dict)
+        or surface.get("surface_version") != 3
+        or surface.get("protocol") != "c-min-lite-v3"
+        or surface.get("response_gate_verified") is not True
+        or surface.get("auth_profile_verified") is not True
+        or surface.get("live_path_verified") is not True
+        or surface.get("passed") is not True
+        or surface.get("no_tools") is not True
+        or surface.get("fresh_request") is not True
+    ):
         raise SafetyError("Runtime changed or live containment checks have not passed")

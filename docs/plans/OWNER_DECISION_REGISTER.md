@@ -1,0 +1,137 @@
+# Owner decision register
+
+This register records decisions evidenced by repository documents and the open decisions specifically identified by AUD-1 and the delegation specification. It does not convert proposals, recommendations, review verdicts, implementation state, or task briefs into owner approval. Unknown provenance is stated rather than reconstructed. Evidence pointers are repository-relative paths (and commit references where recorded).
+
+## Recorded owner decisions and scoped approvals
+
+| Date | Decision / scope | Status and limits | Evidence pointer / provenance |
+|---|---|---|---|
+| 2026-10-29 (documented baseline; approval provenance limited) | The selected chat workspace visual baseline and interaction requirements are recorded as user-selected; the product refinement also names personal documents, drag/drop attachments, role/scope publication and multi-user design. | UI baseline is user-selected; the exact approving conversation is not preserved. Product concept contains proposals and does not approve all proposed details. | `docs/planning/UI_IMPLEMENTATION_BASELINE.md`; `docs/planning/ui-baseline-chat.png`; `docs/planning/ui-and-multiuser-design.md`; `docs/requirements/PRODUCT_SPEC.md` refinement note. Original approval transcript/provenance beyond these records is unknown. |
+| 2026-10-31 (recorded) | Bootstrap and local synthetic-data prototype authorized; local development only, no external AI or real research data; production recovery, delegation, retention and LAN exposure disabled pending decisions. | Accepted for development only; does not approve production or resolve ADR-0001. The recorded source attributes it to user instruction in the session; original chat/transcript is not stored in this repository, so the underlying instruction's independent provenance is unavailable. | `docs/architecture/decisions/0002-development-prototype.md` header/Boundaries; `.bootstrap/complete.json`; `docs/BOOTSTRAP.md`. Initial product/design package was added at `c48065e` according to `DESIGN_GAP_ANALYSIS.md` provenance survey. |
+| 2026-10-31 (recorded) | Bootstrap verification and acceptance completed for the bounded local synthetic prototype. | Scope is bootstrap/prototype checks only. Does not satisfy final product, production deployment, live Controller, or all original-design acceptance. | `.bootstrap/complete.json`; `docs/plans/PHASE_STATUS.md`; `docs/plans/IMPLEMENTATION_LOG.md`. Approval source is recorded as owner-approved in the prototype decision; no separate signed artifact. |
+| 2026-11-03 | Adopt normal-development C-min boundary and authorize offline implementation/validation for the exact approved manifest hash. | Narrow offline implementation only; no live connection, credential extraction, external operation, or unattended Loop. Actual live use requires separate permission. | `docs/reviews/C_MIN_OWNER_APPROVAL.md` (manifest SHA `4c936fec…ddcb4`); `docs/architecture/ADR-0011-model-facing-zero-tool-gate-proposal.md`; `docs/plans/MODEL_BOUNDARY_FINAL_DESIGN.md`. |
+| 2026-11-06 (recorded) | Approve independently reviewed optional local Ollama/RAG proposal for offline implementation and mock QA. | Optional fixed-loopback adapter and bounded synthetic trials only. Real inference, daemon configuration changes, downloads/model loading, and general production inference require separate authorization; no cloud adapter approved. | `docs/architecture/decisions/0002-development-prototype.md` “Authorized offline local-model extension”; `docs/LOCAL_MODELS.md`; `docs/plans/PHASE_STATUS.md` local-model execution evidence. Original approving conversation is not stored; exact approval provenance beyond these records is unknown. |
+| 2026-11-07 | Approve ADR-0012 dual-plane boundary: preserve Plane-M C-min; separate Plane-R; B1–B7, fail-closed and static import checks mandatory; approval is not activation. Authorize metadata-only slice 2a; dispatch-capable code requires separate approval ADR. | Accepted architecture/slice-2a scope only. No runner execution, real data, external egress, or product runtime activation. | `docs/architecture/decisions/0012-dual-plane-model-gate-agent-runtime.md` front matter; `docs/plans/agent-work/ORCHESTRATOR_LOG.md` OWNER DECISION PACKAGE (2026-11-07); integration status in same ledger. ADR §Decision retains stale “proposed” wording; see AUD-1 finding 4. |
+| 2026-11-07 | Phase-1 prototype completion scope: MFA excluded for LAN-limited prototype; production TLS/session deployment deferred to production phase; LAN deployment verification is a mandatory later deployment gate; admin-read revocation takes effect at next authorization check, with revalidation in long operations. | Authorizes Phase-1 completion only within that prototype boundary. Does not settle final MFA policy, production TLS/session settings or deployment verification. | `docs/plans/agent-work/ORCHESTRATOR_LOG.md` OWNER DECISION PACKAGE; `docs/plans/PHASE_STATUS.md` Phase 1 completion declaration; `docs/plans/PHASE_SPEC_RECONCILIATION.md` Phase-1 row. |
+| 2026-11-07 | Answer step-2 design decisions: OS-standard credential mechanisms and registry presence-only; health probes not authorized; provider-contract recording schema approved but terms verified per provider before activation; isolation and Runner trust root before step 3; audit protection before activation; allowlisted is an approved non-operative placeholder (default deny, activation requires owner approval + boundary verification); admission values after design verification; real data not approved; LAN-external Runner not approved. | Recorded ten-item owner package; implementation and activation remain separate. It does not determine the actual OS isolation technology/trust root, terms, audit retention, numerical limits, or authorize probes/egress/runtime activation. | `docs/plans/agent-work/ORCHESTRATOR_LOG.md` 2026-11-07 OWNER DECISION PACKAGE; `docs/plans/HYBRID_STEP2_AGENT_REGISTRY_DESIGN.md` §6 and unresolved sub-items. |
+| 2026-11-07 | Approve all Phase-4 remainder scope and priority: cooperative running-question cancellation/state consistency; admin project/storage settings; admin load display; structured comparison; admin delete operations with confirmation/authz/audit/mistake-prevention. | Scope/priority approval, not completion. P4A integrated; other remainder remains dependent on delivery/integration evidence. | `docs/plans/agent-work/ORCHESTRATOR_LOG.md` OWNER DECISION PACKAGE; `docs/plans/STATUS_AND_DECISIONS_2026-11-09.md` §§1.3/3.5; task briefs in `docs/plans/agent-work/`. |
+| 2026-11-07 | Autonomous operating rules: phase end requires final audit and all CI green; main auto-merge/version bump and auto-advance as recorded; never auto-enable execution boundaries, external communications, real data or production; bounded retries; never weaken specs/ADRs. | The 2026-11-09 AUD-1 identified an unresolved conflict between this phase/main rule, the local development push migration, and the original PR/conditional-merge design. The scope rule is recorded; a secure main-delivery mechanism is not inferred. | `docs/plans/agent-work/ORCHESTRATOR_LOG.md` OWNER DECISION PACKAGE; `docs/governance/GITHUB_WORKFLOW.md`; `docs/plans/LOCAL_DELIVERY_MIGRATION_RESULT.md`; `docs/plans/MASTER_IMPLEMENTATION_ROADMAP.md` §1. |
+| 2026-11-02 (recorded) | Approve exact policy migration to `local_commit_push` targeting `loop/local-development`, with listed product paths enabled. | Scoped policy migration only; not main push, PR/main integration, unattended operation or final Controller acceptance. Decision applies to exact approved target; no broader delivery authority. | `docs/plans/LOCAL_DELIVERY_MIGRATION_RESULT.md` (target hash and migration hash); `docs/plans/LOCAL_DELIVERY_ACTIVATION.md`; `docs/LOCAL_COMMIT_PUSH_LOOP.md`. The exact operator authorization is evidenced in the result record, not a separately retained signed decision. |
+| 2026-11-09 | Restructure completion authority to the original approved design, not current phase numbering; require stable traceability and gap/roadmap/acceptance/decision deliverables; retain prototype-deferred production requirements; continue in-flight work. | Owner instruction recorded in append-only orchestration ledger; this documentation task is an extension of AUD-1, not a replacement or approval of open requirements. | `docs/plans/agent-work/ORCHESTRATOR_LOG.md` “OWNER INSTRUCTION RECEIVED (2026-11-09 ~09:40 JST)” and subsequent AUD-1/AUD-2 dispatch; current brief `docs/plans/agent-work/AUD-2-traceability.md`. Exact original conversational instruction provenance beyond ledger is not stored. |
+
+## Historical open-decision tables — superseded by the resolution below
+
+> **Status update — 2026-11-09:** The following AUD-1 and PH2-A tables preserve the open state as it stood before the owner decision recorded under “RESOLVED 2026-11-09.” Do not read their historical “Open” labels as the current decision state. Current owner resolution and its limits are recorded below; subsequent implementation, verification, and residual choices remain open where explicitly stated. No additional decision is inferred by this status note.
+
+## Open decisions — AUD-1 findings
+
+AUD-1 explicitly left these findings unreconciled at its audit baseline. The owner later resolved the findings as recorded in section B below; the historical rows remain for traceability. Pointer for each finding: `docs/plans/DESIGN_GAP_ANALYSIS.md` §“Explicit owner-decision / contradiction findings” (finding numbers below). Related IDs and consequences are preserved; these are decision records, not new product requirements.
+
+| # | Open decision / finding | Current status | Evidence pointer |
+|---|---|---|---|
+| AUD-1-01 | Resolve the canonical relationship/crosswalk between product roadmap P0–P5, PRODUCT_SPEC MVP slices 1–6, Controller L1–L6, and hybrid H1–H6; phase numbers are not interchangeable. | Resolved 2026-11-09 per §B.1: normalize relationships in the master roadmap while preserving numbering. Residual implementation/traceability work remains subject to its own evidence. | `docs/plans/DESIGN_GAP_ANALYSIS.md` finding 1; `docs/plans/ROADMAP.md`; `docs/requirements/PRODUCT_SPEC.md`; `docs/requirements/AUTONOMOUS_LOOP_SPEC.md`; this register §B.1. |
+| AUD-1-02 | Resolve safe authorized main-delivery policy: original Controller PR/conditional merge, later local push to `loop/local-development`, and 2026-11-07/09 phase/main rules conflict; PR-free Main activation and atomic base-binding are not approved/proven. | Owner resolved 2026-11-09 per §B.2: post-phase automatic main integration adopted subject to branch protection and required checks. This does not waive technical gates or authorize unsafe main mutation. | `docs/plans/DESIGN_GAP_ANALYSIS.md` finding 2; `docs/governance/GITHUB_WORKFLOW.md`; `docs/plans/LOCAL_DELIVERY_MIGRATION_RESULT.md`; `docs/plans/MAIN_PRODUCTION_ACTIVATION_PROPOSAL.md`; `docs/plans/STATUS_AND_DECISIONS_2026-11-09.md` §4. |
+| AUD-1-03 | Phase-1 MFA/TLS/LAN scope: prototype MFA exception and TLS/session/LAN deferral do not decide final policy or production verification. | MFA policy resolved 2026-11-09 per §B.3 as required for the final product; prototype deferral remains. TLS/session/LAN deployment decisions and verification remain outstanding. | `docs/plans/DESIGN_GAP_ANALYSIS.md` finding 3; `docs/plans/PHASE_STATUS.md` Phase 1 declaration; `docs/plans/agent-work/ORCHESTRATOR_LOG.md` 2026-11-07 decision package. |
+| AUD-1-04 | Resolve stale contradictory ADR-0012 §Decision “proposed; pending owner approval” text versus accepted front matter and later owner record; preserve approval scope and correct wording only through owner-reviewed documentation change. | Meaning-preserving wording correction approved 2026-11-09 per §B.4; no semantic expansion is approved. | `docs/plans/DESIGN_GAP_ANALYSIS.md` finding 4; `docs/architecture/decisions/0012-dual-plane-model-gate-agent-runtime.md`; orchestration ledger 2026-11-07 package. |
+| AUD-1-05 | Keep SQLite/lexical as approved replaceable prototype; select production database/vector/graph stack through an explicit later decision, not by treating architecture suggestions as approved. | Research/design comparisons and verification plans authorized per §B.5; production technology selection remains open and no technology is selected. | `docs/plans/DESIGN_GAP_ANALYSIS.md` finding 5; `docs/architecture/decisions/0002-development-prototype.md`; `docs/architecture/ARCHITECTURE.md` Initial stack. |
+| AUD-1-06 | Resolve the product/architecture deployment requirement versus current loopback-only development mode; actual LAN/private deployment, TLS, firewall/egress and session configuration remain later validation, not prototype completion. | Isolated synthetic-data verification plans authorized per §B.6. Production exposure and deployment remain unapproved and unverified. | `docs/plans/DESIGN_GAP_ANALYSIS.md` finding 6; `docs/architecture/decisions/0002-development-prototype.md`; `backend/app/main.py`; `docs/architecture/ARCHITECTURE.md` Deployment. |
+| AUD-1-07 | Preserve disabled delegation 409 until PH2-A is approved and PH2-D decisions/implementation are complete; phase plans’ “existing path” wording must not imply active grants. | Resolved per §B.7: reconciliation/spec fixes and implementation are allowed within approved decisions; PH2-D is implemented. Current 409-placeholder description is historical, not current status. | `docs/plans/DESIGN_GAP_ANALYSIS.md` finding 7; `docs/plans/PHASE2_DELEGATION_SPEC.md` §§0/8; `backend/app/main.py`; `tests/test_api.py`. |
+| AUD-1-08 | Reconcile early hybrid phase sequencing with accepted ADR-0012: approval before all step-2 code, separate job-approval ADR before dispatch, and no activation until all gates pass. | Sequencing normalization authorized per §B.8. ADR-0012 gates remain binding; runtime activation still requires safety boundaries to be proven and separately authorized. | `docs/plans/DESIGN_GAP_ANALYSIS.md` finding 8; `docs/architecture/decisions/0012-dual-plane-model-gate-agent-runtime.md`; `docs/plans/HYBRID_STEP2_AGENT_REGISTRY_DESIGN.md`. |
+| AUD-1-09 | Resolve remaining Development Loop completion and main-merge claims versus local/mock implementation and outstanding live proof; phase completion or mock E2E is not final acceptance. | Completion-declaration rules resolved per §B.9: requirement, verification, independent-review, CI and final-audit evidence remain mandatory. Live proof and implementation work are not thereby complete. | `docs/plans/DESIGN_GAP_ANALYSIS.md` finding 9; `docs/requirements/DEVELOPMENT_LOOP_SPEC.md`; `docs/architecture/ADR-0005-development-loop.md`; `docs/plans/LOOP_IMPLEMENTATION.md`. |
+| AUD-1-10 | Treat status reports as dated snapshots; reconcile latest integrated branches and exact-SHA CI without overwriting historical status or assuming in-flight work is complete. | Record time-limitation resolved per §B.10: distinguish historical records from current measured state; unverified items remain incomplete. Continuous evidence reconciliation remains necessary. | `docs/plans/DESIGN_GAP_ANALYSIS.md` finding 10; `docs/plans/STATUS_AND_DECISIONS_2026-11-09.md`; `docs/plans/agent-work/ORCHESTRATOR_LOG.md`. |
+
+## Open decisions — PH2-A delegation specification (historical snapshot)
+
+The 12 questions below are transcribed in scope from `docs/plans/PHASE2_DELEGATION_SPEC.md` §8 and were surfaced in `docs/plans/STATUS_AND_DECISIONS_2026-11-09.md` §2.2 as `[決定要求]` before the owner decision. Their open labels and recommendations are historical; §A below records that all twelve were resolved as recommended with binding conditions. PH2-D is unblocked and implemented. No new option is selected by this historical table.
+
+| # | Open question | Current status | Evidence pointer |
+|---|---|---|---|
+| PH2-A-01 | Default, maximum and minimum grant TTL; expiry input rules; who owns/configures the bound. | Resolved per §A: default 24h, maximum 7 days, minimum 15 minutes; live revalidation at each authorization point. | `docs/plans/PHASE2_DELEGATION_SPEC.md` §§2/8 item 1; `docs/plans/STATUS_AND_DECISIONS_2026-11-09.md` §2.2 #1. |
+| PH2-A-02 | Whether re-delegation is allowed; if so, lineage, parent invalidation, ceiling, depth/cycle limits and audit details. | Resolved per §A: no re-delegation. | `docs/plans/PHASE2_DELEGATION_SPEC.md` §§5/8 item 2; status §2.2 #2. |
+| PH2-A-03 | Who may grant/revoke; whether grant authority is separate and delegable; current code has no organization-admin authorization model. | Resolved per §A: project owner or organization administrator with legitimate administrative authority over the target project; grant authority is not delegable. | `docs/plans/PHASE2_DELEGATION_SPEC.md` §§1/4/8 item 3; status §2.2 #3. |
+| PH2-A-04 | Whether PH2-D supports organization-wide grants or project-only grants initially; behavior for future projects and org/project moves. | Resolved per §A: project-scoped grants only; org-wide grants deferred. | `docs/plans/PHASE2_DELEGATION_SPEC.md` §5/§8 item 4; status §2.2 #4. |
+| PH2-A-05 | Whether grantor continuing authority is a live dependency, including effects of grantor role/membership/account or parent-grant loss. | Resolved per §A: live invalidation on grantor authority loss/removal/disable is fail-closed. | `docs/plans/PHASE2_DELEGATION_SPEC.md` §§2–4/8 item 5; status §2.2 #5. |
+| PH2-A-06 | Recipient self-cancellation/request policy; who revokes; idempotent response and audit semantics. | Resolved per §A: recipient cancellation is allowed and audited idempotently. | `docs/plans/PHASE2_DELEGATION_SPEC.md` §3/§8 item 6; status §2.2 #6. |
+| PH2-A-07 | Renewal/regrant identity/version semantics; whether renewal changes scope/permissions; overlap/deduplication policy. | Resolved per §A: family/version scheme adopted; no unintended revival/coexistence; scope changes or permission expansions require new authorization. | `docs/plans/PHASE2_DELEGATION_SPEC.md` §§1–2/8 item 7; status §2.2 #7. |
+| PH2-A-08 | Authoritative production timestamp source and allowable cross-host clock skew. | Resolved per §A for the prototype: epoch-seconds time authority until the production-DB decision; this does not select a production clock policy. | `docs/plans/PHASE2_DELEGATION_SPEC.md` §§1–2/8 item 8; status §2.2 #8. |
+| PH2-A-09 | Whether administrative permissions (`manage_roles`, `manage_members`, etc.) may ever be delegated and exact delegable permission catalog. | Resolved per §A: administrative permissions are not delegable; the NON_ADMIN ceiling applies. | `docs/plans/PHASE2_DELEGATION_SPEC.md` §§1/4–5/8 item 9; status §2.2 #9. |
+| PH2-A-10 | Whether a delegation can confer project access without existing membership. | Resolved per §A: membership remains an independent gate. | `docs/plans/PHASE2_DELEGATION_SPEC.md` §§0/5/8 item 10; status §2.2 #10. |
+| PH2-A-11 | Retention of expired/revoked grant versions and audit events; administrative listing/redaction requirements. | Resolved per §A: expired/revoked grant versions and audit entries are retained until the production-deployment phase decision; no production retention decision is implied. | `docs/plans/PHASE2_DELEGATION_SPEC.md` §§1/8 item 11; status §2.2 #11. |
+| PH2-A-12 | User-visible response and concurrency semantics when revocation races a request, including future streaming. | Resolved per §A: revocation denies at the next authorization point; no stronger synchronous interruption guarantee is inferred. | `docs/plans/PHASE2_DELEGATION_SPEC.md` §3/§8 item 12; status §2.2 #12. |
+
+## Provenance limits
+
+- The repository's source survey records the earliest tracked product/Controller material at `c48065e` and says the ZIP reference package is dated 2026-10-29. The in-session bootstrap/user approvals are represented by decision records, not archived signed instructions. Exact original chat messages, identity/signature artifacts, and any oral approval outside the cited docs are **unknown / not present in repository**.
+- The 2026-11-07 and 2026-11-09 owner decisions are evidenced by append-only `ORCHESTRATOR_LOG.md` entries and corroborating status/ADR files; no cryptographic signature or external decision-service record was found/claimed.
+- Independent-review verdicts and test/CI records provide verification evidence, not owner approval. Proposed/recommended options in PH2-A and the hybrid design remain proposals until an explicit owner answer is recorded.
+
+## RESOLVED 2026-11-09 (owner decision notice: development pipeline restart)
+
+The owner formally resolved the entire OPEN register on 2026-11-09 (the decision
+text is owner-provided in this thread and summarized here; this register entry is
+the durable record):
+
+### A. Delegation specification — all 12 items APPROVED as recommended, with added conditions
+- TTL: default 24h, max 7 days, minimum 15 minutes; live revalidation at every
+  authorization point.
+- Grantors: the project owner, and an organization administrator holding
+  legitimate administrative authority over the target project.
+- Re-grant: family/version scheme adopted; unintended revival or coexistence of
+  old versions forbidden; scope changes or permission expansions REQUIRE a new
+  authorization.
+- The remaining nine items stand as recommended in
+  `docs/plans/PHASE2_DELEGATION_SPEC.md` §2.2 of
+  `STATUS_AND_DECISIONS_2026-11-09.md` (no re-delegation; org-wide grants
+  deferred; live invalidation on grantor authority loss fail-closed; recipient
+  cancellation allowed; dedupe within family; epoch-seconds time authority until
+  the production DB decision; administrative permissions NOT delegable;
+  membership remains an independent gate; audit retention until the
+  production-deployment phase; next-authorization-point denial semantics).
+- Effect: PH2-D (delegation implementation) is UNBLOCKED.
+
+### B. AUD-1 findings 1-10 — resolved
+1. Phase-number scheme collision: normalization APPROVED — consolidate the
+   ROADMAP/MVP/Loop-spec/Hybrid-step relationships into the master roadmap,
+   preserving existing phase numbers, commit history and approval records as
+   aliases/evidence.
+2. Main-integration mechanism: post-phase automatic merge FORMALLY ADOPTED —
+   implementation/review/QA complete on the working branch → completion
+   conditions + final audit → all-CI-green → automatic main integration →
+   version bump → automatic next-phase transition; GitHub branch protection and
+   required checks are never bypassed (create a PR and merge after conditions
+   are met if required).
+3. MFA: confirmed as a REQUIRED requirement of the final product; the
+   prototype-stage deferral stands but it is NOT removed from the final
+   acceptance conditions.
+4. ADR-0012 wording contradiction: a meaning-preserving wording correction is
+   APPROVED (accepted Plane M/Plane R separation, safety boundaries, fail-closed,
+   approval/activation separation unchanged); any semantic change goes back to
+   the owner.
+5-10. Approved policies: production DB/search — design comparison + verification
+   plans may be produced, technology selection decided only after evidence-backed
+   proposals; LAN deployment — isolated verification plans with synthetic data
+   allowed, production exposure/real data still forbidden; delegation path
+   reality — implementation/spec reconciliation and missing-path fixes allowed;
+   hybrid sequencing — normalize dependencies, never activate the runtime before
+   safety boundaries are proven; completion-declaration rules — requirement,
+   verification, independent-review, CI and final-audit evidence mandatory;
+   record time-limitation — distinguish historical records from current measured
+   state, never treat unverified items as complete.
+- These authorize organization/investigation/design within the existing approved
+  specifications; they do NOT blanket-approve unstated technology choices or any
+  safety-boundary change.
+
+### Still forbidden (unchanged)
+Real-data use; LAN-external runner reachability; cloud-egress activation; Agent
+Runtime activation with unverified isolation; unapproved credential-use schemes;
+production exposure.
+
+### Priority restart order
+1. PH2-D (delegation implementation) 2. PH2-E (web-management remainder)
+3. AUD-1 design/record consistency fixes 4. Phase-2 completion audit
+5. main integration + version bump 6. automatic next-phase transition.
+Up to five parallel slots; 429 → no retry spam; preserve uncommitted artifacts;
+keep using the isolated QA environment; the heartbeat may continue but must not
+make unnecessary model calls while blocked; do not re-request decisions already
+given. Track the 92 requirement IDs and 40 final acceptance criteria
+continuously; unresolved items carry forward explicitly.
