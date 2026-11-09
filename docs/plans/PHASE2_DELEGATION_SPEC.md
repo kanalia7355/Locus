@@ -1,11 +1,17 @@
 # Phase 2 delegation specification (draft)
 
-Status: design draft for owner decisions; **not approved**. This document specifies
-fail-closed authorization semantics for the later PH2-D implementation. The
-【要決定】 items below are blockers for any behavior that depends on them; this
-draft does not silently select their values.
+> **Status update — 2026-11-09:** This document began as a design draft. The owner resolved its twelve decision items and authorized PH2-D in §8; the backend implementation was integrated at `3150f6b`, and the delegation management UI was integrated at `c1c5f4c` / `a445b3f` (integration recorded in `84dc1eb`). The draft framing and pre-implementation observations below are historical and must not be used to describe current code or reopen the resolved items. This document preserves that history; current implementation status is in `PHASE_STATUS.md`.
+
+The proposal and its constraints remain documented below. Section 8 records the owner resolution and the binding conditions; it does not authorize any behavior beyond the resolved PH2-D scope.
+
+> Historical header (superseded): “Status: design draft for owner decisions; **not approved**. This document specifies fail-closed authorization semantics for the later PH2-D implementation. The 【要決定】 items below are blockers for any behavior that depends on them; this draft does not silently select their values.”
 
 ## Grounding and security invariants
+
+**Historical grounding snapshot (superseded 2026-11-09):** The following
+pre-implementation description was true of the disabled 409 endpoint before the
+owner resolution and PH2-D integration. It is retained for context only; current
+status is documented in `PHASE_STATUS.md` and the PH2-D task evidence.
 
 The product requires delegated administration bounded by permission subset,
 scope, and expiration, with audit and no privilege/self-escalation. The Phase-2
@@ -15,16 +21,21 @@ currently always returns that 409. Keep the endpoint disabled (409) until the
 spec is approved and PH2-D is implemented and verified. Nothing here authorizes
 bypassing that guard early.
 
-Current `service.py` resolves a single project membership to a built-in or
-project-local custom role; `_permissions` and `require` are the live permission
-path. Custom role create/update is limited to the actor's effective permissions
-intersected with `NON_ADMIN`; publication is restricted to same-project role
-IDs and `read`/`retrieve`, and read/retrieval authorization is rechecked against
-current membership, role, and publication data. Administrative writes use
-`BEGIN IMMEDIATE` transactions and `_audit` metadata rows in the same
-transaction. The existing data model does not implement organization-scoped
-memberships or active delegations. In particular, organization scope and
-project-level role membership must not be conflated.
+**Historical grounding snapshot (superseded 2026-11-09):** The following
+service-code description also predates PH2-B/PH2-D and must not be read as a
+current implementation summary.
+
+At drafting time, `service.py` resolved a single project membership to a
+built-in or project-local custom role; `_permissions` and `require` were the
+live permission path. Custom role create/update was limited to the actor's
+effective permissions intersected with `NON_ADMIN`; publication was restricted
+to same-project role IDs and `read`/`retrieve`, and read/retrieval authorization
+was rechecked against current membership, role, and publication data.
+Administrative writes used `BEGIN IMMEDIATE` transactions and `_audit`
+metadata rows in the same transaction. The then-existing data model did not
+implement organization-scoped memberships or active delegations. In
+particular, organization scope and project-level role membership must not be
+conflated.
 
 Mandatory invariants for any future implementation:
 
@@ -420,6 +431,11 @@ below is retained verbatim as the historical record of what was asked.
     deny at the next authorization point.
 
 ## Source-code observations and boundaries
+
+**Historical source-observation snapshot (superseded 2026-11-09):** These
+pre-PH2-D observations describe the code state when the draft was prepared.
+They are not current implementation claims; consult `PHASE_STATUS.md` and the
+PH2-D/PH2-UI integration evidence for current state.
 
 Verified files: `backend/app/service.py`, `backend/app/main.py`,
 `tests/test_custom_role_publication.py`, `tests/test_role_updates.py`,

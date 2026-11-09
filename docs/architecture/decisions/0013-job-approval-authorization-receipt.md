@@ -49,12 +49,14 @@ delegation implementation with concrete TTL and grantor-authority conditions, an
 reaffirming the existing sequencing constraints: "never activate the runtime
 before safety boundaries are proven". That resolution governs the *delegation*
 path (`backend/app/service.py`, specification
-`docs/plans/PHASE2_DELEGATION_SPEC.md`, whose §2 open items 1–12 the resolution
+`docs/plans/PHASE2_DELEGATION_SPEC.md`, whose §8 open items 1–12 the resolution
 approved as recommended with the §A conditions); it does **not** select a
 job-receipt authority. PH2-A-11 (grant/audit retention) is recorded in the same
 register; its outcome bounds, but does not decide, receipt retention here.
 
 ### Current state of the code (verified)
+
+> Source line numbers below are indicative snapshots from the drafting review, not stable anchors; symbols and cited files identify the code, and line positions may drift as the implementation changes. Verify against the current source before relying on a line reference.
 
 - `backend/app/agents/registry.py` implements the metadata-only registry:
   `runner_instances`, `workspace_policies` (immutable, versioned,
