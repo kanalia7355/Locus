@@ -83,3 +83,4 @@ No HIGH finding. One MEDIUM R-STORAGE-1 reporting/coverage finding above; it doe
 
 - Review report commit: `37cc2aa33a24a0f13ea9a2eac28bece59fa8ec47`; pushed to `origin/loop/design-review-aggregate`.
 - Exact-head branch CI for that commit: Prototype quality run [42681341941](https://github.com/kanalia7355/Locus/actions/runs/42681341941) — success. CI emitted only runner/action deprecation and image-migration annotations; no check failure.
+- Evidence update commit: `fc7c7abb771492f6b2c93d839371ce5f841ccebf`, pushed on the same branch. CI for this exact head: PR title convention [42681972487](https://github.com/kanalia7355/Locus/actions/runs/42681972487), Prototype quality [42681972919](https://github.com/kanalia7355/Locus/actions/runs/42681972919), and Loop engine checks [42681972898](https://github.com/kanalia7355/Locus/actions/runs/42681972898) — all successful. Only non-failing runner/action deprecation and Ubuntu image-migration annotations were reported.
