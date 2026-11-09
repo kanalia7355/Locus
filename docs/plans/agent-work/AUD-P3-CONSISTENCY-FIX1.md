@@ -103,6 +103,7 @@ Conventional Commit subject suggestion: `docs(plans): apply the consistency-audi
 
 ### 2026-11-09 — final HEAD CI and integration evidence
 
-- Final task-branch HEAD `ffacca8c0f0d0cddeabc70a4fcac60ca0ea5a82a` passed all three branch workflows: Prototype quality `42554589175` (success); Loop engine checks `42554589207` (success, Ubuntu/Windows × Python 3.11/3.13); PR title convention `42554589310` (success).
+- Task-ledger-only HEAD `0a1c13b58eea33e6e74a3301bd97c9ccfea64547`: Loop engine checks `42555561168` succeeded (all four matrix jobs), PR title check `42555561105` succeeded. Prototype quality `42555561152` initially failed because the `tests-quality-remaining` partition exceeded its existing 120-second test budget (`exit_code 124`, elapsed 120.01s); this was unrelated to the docs changes. Reran only the failed workflow jobs without changing code, tests, CI, or limits; the same run `42555561152` then succeeded at the same SHA.
+- Prior source-change HEAD `ffacca8c0f0d0cddeabc70a4fcac60ca0ea5a82a` also had all workflows green: Prototype quality `42554589175`, Loop engine checks `42554589207` (four matrix jobs), PR title convention `42554589310`.
 - The docs fix was subsequently integrated into `loop/local-development` as `8dfdce3b20cba195664f9029c2d99692e7050063`; confirmed as an ancestor of integrated HEAD `8ad2ac5d2b17b6503f38710a0899065cbdca386f`. This records integration only; no push to integration branch was performed from this task.
-- All applicable local checks and branch CI are green. F5 remains deferred and unchanged. Task complete; no repair cycle needed.
+- All applicable local checks and branch CI are green after the bounded CI rerun. F5 remains deferred and unchanged. No source repair was needed.
