@@ -3,6 +3,7 @@ import struct
 
 import pytest
 from app import scanner
+from app.scanner import CLEAN, REJECTED, UNAVAILABLE
 
 
 class Socket:
@@ -50,7 +51,7 @@ def install(monkeypatch, parts):
 def test_framing_split_reply_and_cleanup(monkeypatch):
     connection, calls = install(monkeypatch, [b"stream:", b" OK\0", b""])
     adapter = scanner.ClamAVScanner()
-    assert adapter.scan("合成")
+    assert adapter.scan("合成") == CLEAN
     payload = "合成".encode()
     assert connection.sent == [b"zINSTREAM\0", struct.pack("!I", len(payload)) + payload, bytes(4)]
     assert calls == [(socket.AF_INET, socket.SOCK_STREAM)]
@@ -61,34 +62,37 @@ def test_framing_split_reply_and_cleanup(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "parts",
+    ["parts", "expected"],
     [
-        [b"stream: FOUND\0", b""],
-        [b"stream: OK", b""],
-        [b"stream: OK\0extra", b""],
-        [b"stream: OK\0stream: OK\0", b""],
-        [
-            b"",
-        ],
-        [b"x" * 1025],
-        [TimeoutError()],
-        [OSError()],
-        [b"stream: OK\0", TimeoutError()],
+        # Explicit daemon verdict that is not the clean sentinel: a rejection.
+        ([b"stream: FOUND\0", b""], REJECTED),
+        # Complete-but-duplicated reply: a daemon verdict that is not clean.
+        ([b"stream: OK\0stream: OK\0", b""], REJECTED),
+        # Replies cut off or malformed before a trustworthy verdict: the check
+        # could not complete, which is unavailable rather than a rejection.
+        ([b"stream: OK", b""], UNAVAILABLE),
+        ([b"stream: OK\0extra", b""], UNAVAILABLE),
+        ([b""], UNAVAILABLE),
+        ([b"x" * 1025], UNAVAILABLE),
+        # Transport failures and timeouts: unavailable, never a verdict.
+        ([TimeoutError()], UNAVAILABLE),
+        ([OSError()], UNAVAILABLE),
+        ([b"stream: OK\0", TimeoutError()], UNAVAILABLE),
     ],
 )
-def test_fail_closed(monkeypatch, parts):
+def test_fail_closed_outcomes(monkeypatch, parts, expected):
     connection, _ = install(monkeypatch, parts)
     adapter = scanner.ClamAVScanner()
-    assert not adapter.scan("synthetic")
+    assert adapter.scan("synthetic") == expected
     assert connection.closed
     assert adapter._lock.acquire(False)
     adapter._lock.release()
 
 
 @pytest.mark.parametrize("content", ["", None, "\ud800", "a" * 262145, "あ" * 87382])
-def test_invalid_input_no_io(monkeypatch, content):
+def test_invalid_input_rejected_without_io(monkeypatch, content):
     _, calls = install(monkeypatch, [])
-    assert not scanner.ClamAVScanner().scan(content)
+    assert scanner.ClamAVScanner().scan(content) == REJECTED
     assert not calls
 
 
@@ -97,7 +101,8 @@ def test_busy_no_io(monkeypatch):
     adapter = scanner.ClamAVScanner()
     adapter._lock.acquire()
     try:
-        assert not adapter.scan("synthetic")
+        # A busy adapter cannot run the check: unavailable, not a verdict.
+        assert adapter.scan("synthetic") == UNAVAILABLE
         assert not calls
     finally:
         adapter._lock.release()
@@ -107,7 +112,7 @@ def test_total_deadline(monkeypatch):
     connection, _ = install(monkeypatch, [])
     times = iter([0, 1, 11])
     monkeypatch.setattr(scanner.time, "monotonic", lambda: next(times))
-    assert not scanner.ClamAVScanner().scan("synthetic")
+    assert scanner.ClamAVScanner().scan("synthetic") == UNAVAILABLE
     assert connection.sent == []
     assert connection.closed
 
@@ -126,11 +131,11 @@ def test_explicit_configuration_without_io(monkeypatch):
     assert not calls
 
 
-def test_late_eof_rejected(monkeypatch):
+def test_reply_cut_off_before_verdict_is_unavailable(monkeypatch):
     connection, _ = install(monkeypatch, [b"stream: OK\0", b""])
     times = iter([0, 1, 2, 3, 4, 5, 9, 9, 11])
     monkeypatch.setattr(scanner.time, "monotonic", lambda: next(times))
-    assert not scanner.ClamAVScanner().scan("synthetic")
+    assert scanner.ClamAVScanner().scan("synthetic") == UNAVAILABLE
     assert connection.closed
 
 

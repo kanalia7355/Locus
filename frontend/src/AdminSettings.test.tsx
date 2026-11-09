@@ -298,6 +298,7 @@ it("shows local storage status and keeps external storage explicitly denied", as
         ingestion_queue_limit: 32,
         per_user_ingestion_queue_limit: 4,
         scanner_configured: false,
+        scanner_last_outcome: null,
         ingestion_status_counts: { ready: 2 },
         configuration_available: false,
       });
@@ -328,6 +329,7 @@ it("shows a configured fail-closed scanner without claiming production readiness
         ingestion_queue_limit: 32,
         per_user_ingestion_queue_limit: 4,
         scanner_configured: true,
+        scanner_last_outcome: null,
         ingestion_status_counts: {},
         configuration_available: false,
       });
@@ -337,6 +339,62 @@ it("shows a configured fail-closed scanner without claiming production readiness
   expect(
     await screen.findByText("有効・安全検査を通過した資料のみ取り込みます"),
   ).toBeVisible();
+});
+
+it("reports a configured scanner that cannot run as 検査不能, not 有効", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      requests.push({ path: String(input) });
+      return respond({
+        backend: "sqlite",
+        mode: "local-only",
+        external_enabled: false,
+        accepted_formats: ["txt", "md", "csv"],
+        max_file_bytes: 262144,
+        ingestion_queue_limit: 32,
+        per_user_ingestion_queue_limit: 4,
+        scanner_configured: true,
+        scanner_last_outcome: "unavailable",
+        ingestion_status_counts: { quarantined: 1 },
+        configuration_available: false,
+      });
+    }),
+  );
+  render(<AdminStorage />);
+  expect(
+    await screen.findByText(
+      "検査不能・安全検査は設定されていますが直近の検査を実行できず、該当資料は隔離されます（既定拒否）",
+    ),
+  ).toBeVisible();
+  expect(screen.queryByText(/有効・安全検査を通過した資料のみ取り込みます/)).toBeNull();
+});
+
+it("reports an explicit scanner rejection as 拒否 while staying fail-closed", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      requests.push({ path: String(input) });
+      return respond({
+        backend: "sqlite",
+        mode: "local-only",
+        external_enabled: false,
+        accepted_formats: ["txt", "md", "csv"],
+        max_file_bytes: 262144,
+        ingestion_queue_limit: 32,
+        per_user_ingestion_queue_limit: 4,
+        scanner_configured: true,
+        scanner_last_outcome: "rejected",
+        ingestion_status_counts: { quarantined: 1 },
+        configuration_available: false,
+      });
+    }),
+  );
+  render(<AdminStorage />);
+  expect(
+    await screen.findByText("有効（拒否あり）・直近の検査で資料を拒否して隔離しました"),
+  ).toBeVisible();
+  expect(screen.queryByText(/検査不能/)).toBeNull();
 });
 
 it("keeps a running job's displayed start time when refreshed cancellation metadata changes", async () => {

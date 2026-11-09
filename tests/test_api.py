@@ -2,6 +2,7 @@ import time
 
 import pytest
 from app.main import create_app
+from app.scanner import CLEAN, REJECTED, UNAVAILABLE, ScanResult
 from app.service import Service
 from fastapi.testclient import TestClient
 
@@ -176,8 +177,8 @@ def test_upload_quarantine_and_validation(service: Service) -> None:
 
 
 class AcceptingScanner:
-    def scan(self, content: str) -> bool:
-        return True
+    def scan(self, content: str) -> ScanResult:
+        return CLEAN
 
 
 def test_configured_scanner_ingests_and_reports_state(tmp_path) -> None:
@@ -206,7 +207,118 @@ def test_configured_scanner_ingests_and_reports_state(tmp_path) -> None:
         admin = client_for(svc)
         login(admin, "admin", "01")
         principal = svc.authenticate(admin.cookies.get("locus_session"))
-        assert svc.storage_status(principal)["scanner_configured"] is True
+        status = svc.storage_status(principal)
+        assert status["scanner_configured"] is True
+        assert status["scanner_last_outcome"] == "clean"
+    finally:
+        svc.close()
+
+
+class UnreachableScanner:
+    """Configured adapter whose operational check raises (timeout / outage)."""
+
+    def scan(self, content: str) -> ScanResult:
+        raise TimeoutError("scanner unreachable")
+
+
+class UnavailableResultScanner:
+    """Configured adapter that reports the check could not complete."""
+
+    def scan(self, content: str) -> ScanResult:
+        return UNAVAILABLE
+
+
+@pytest.mark.parametrize(
+    "scanner",
+    [UnreachableScanner(), UnavailableResultScanner()],
+    ids=["exception", "unavailable-result"],
+)
+def test_configured_scanner_failure_still_quarantines_and_reports_unavailable(
+    tmp_path, scanner
+) -> None:
+    """A configured scanner that cannot run stays fail-closed, but the status
+    names the unavailable check instead of claiming a failed verdict."""
+    svc = Service(tmp_path / "scan.sqlite3", scanner=scanner)
+    try:
+        svc.provision("admin", "Temporary-password-01!", system_admin=True)
+        svc.provision("alice", "Temporary-password-02!")
+        svc.create_project("org-a", "project-a", "研究プロジェクト")
+        svc.assign("alice", "project-a", "researcher")
+        client = client_for(svc)
+        login(client)
+        response = client.post(
+            "/api/documents",
+            json={
+                "project_id": "project-a",
+                "name": "sample.txt",
+                "content": "synthetic sample",
+                "kind": "personal",
+            },
+            headers=ORIGIN,
+        )
+        assert response.status_code == 201, response.text
+        document_id = response.json()["id"]
+        assert svc.process_next()
+        stored = client.get(f"/api/documents/{document_id}").json()
+        assert stored["status"] == "quarantined"
+        assert (
+            stored["reason"]
+            == "安全検査を実行できないため隔離中です（既定拒否）。本文は検索に使いません"
+        )
+        assert client.get(f"/api/documents/{document_id}/chunks").status_code == 409
+        admin = client_for(svc)
+        login(admin, "admin", "01")
+        principal = svc.authenticate(admin.cookies.get("locus_session"))
+        status = svc.storage_status(principal)
+        assert status["scanner_configured"] is True
+        assert status["scanner_last_outcome"] == "unavailable"
+    finally:
+        svc.close()
+
+
+class RejectingScanner:
+    """Configured adapter that explicitly rejects the content."""
+
+    def scan(self, content: str) -> ScanResult:
+        return REJECTED
+
+
+def test_configured_scanner_explicit_rejection_still_quarantines_as_rejected(
+    tmp_path,
+) -> None:
+    """An explicit rejection keeps fail-closed ingestion with the rejected
+    status, distinct from a check that could not run."""
+    svc = Service(tmp_path / "scan.sqlite3", scanner=RejectingScanner())
+    try:
+        svc.provision("admin", "Temporary-password-01!", system_admin=True)
+        svc.provision("alice", "Temporary-password-02!")
+        svc.create_project("org-a", "project-a", "研究プロジェクト")
+        svc.assign("alice", "project-a", "researcher")
+        client = client_for(svc)
+        login(client)
+        response = client.post(
+            "/api/documents",
+            json={
+                "project_id": "project-a",
+                "name": "sample.txt",
+                "content": "synthetic sample",
+                "kind": "personal",
+            },
+            headers=ORIGIN,
+        )
+        assert response.status_code == 201, response.text
+        document_id = response.json()["id"]
+        assert svc.process_next()
+        stored = client.get(f"/api/documents/{document_id}").json()
+        assert stored["status"] == "quarantined"
+        assert stored["reason"] == "安全検査を通過していないため隔離中です。本文は検索に使いません"
+        assert client.get(f"/api/documents/{document_id}/chunks").status_code == 409
+        admin = client_for(svc)
+        login(admin, "admin", "01")
+        principal = svc.authenticate(admin.cookies.get("locus_session"))
+        status = svc.storage_status(principal)
+        assert status["scanner_configured"] is True
+        assert status["scanner_last_outcome"] == "rejected"
     finally:
         svc.close()
 

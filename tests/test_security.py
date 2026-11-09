@@ -3,6 +3,7 @@ import time
 from collections.abc import Callable
 
 import pytest
+from app.scanner import CLEAN, ScanResult
 from app.service import PASSWORDS, Service, digest
 from fastapi import HTTPException
 from test_api import ORIGIN, client_for, login
@@ -12,9 +13,9 @@ class CallbackScanner:
     def __init__(self, action: Callable[[], None] = lambda: None) -> None:
         self.action = action
 
-    def scan(self, content: str) -> bool:
+    def scan(self, content: str) -> ScanResult:
         self.action()
-        return True
+        return CLEAN
 
 
 @pytest.mark.parametrize(

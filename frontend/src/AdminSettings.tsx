@@ -434,6 +434,8 @@ export function AdminProjects() {
   );
 }
 
+type ScannerOutcome = "clean" | "rejected" | "unavailable" | null;
+
 interface StorageStatus {
   backend: string;
   mode: string;
@@ -443,8 +445,25 @@ interface StorageStatus {
   ingestion_queue_limit: number;
   per_user_ingestion_queue_limit: number;
   scanner_configured: boolean;
+  scanner_last_outcome: ScannerOutcome;
   ingestion_status_counts: Record<string, number>;
   configuration_available: boolean;
+}
+
+// Adapter configuration and the operational scan outcome are reported
+// separately: 有効 (running), 検査不能 (configured but the check could not
+// run), 拒否 (the check ran and explicitly rejected the content).
+function scannerStatusText(status: StorageStatus): string {
+  if (!status.scanner_configured) {
+    return "未接続（既定拒否）・安全検査を実行できない資料は隔離され、検索には使われません";
+  }
+  if (status.scanner_last_outcome === "unavailable") {
+    return "検査不能・安全検査は設定されていますが直近の検査を実行できず、該当資料は隔離されます（既定拒否）";
+  }
+  if (status.scanner_last_outcome === "rejected") {
+    return "有効（拒否あり）・直近の検査で資料を拒否して隔離しました";
+  }
+  return "有効・安全検査を通過した資料のみ取り込みます";
 }
 
 function MembershipDenials({
@@ -550,11 +569,7 @@ export function AdminStorage() {
           <dt>1件あたりの上限</dt>
           <dd>{(status.max_file_bytes / 1024).toLocaleString("ja-JP")} KiB</dd>
           <dt>安全検査</dt>
-          <dd>
-            {status.scanner_configured
-              ? "有効・安全検査を通過した資料のみ取り込みます"
-              : "未接続（既定拒否）・安全検査を実行できない資料は隔離され、検索には使われません"}
-          </dd>
+          <dd>{scannerStatusText(status)}</dd>
           <dt>取り込み待ち上限</dt>
           <dd>
             全体 {status.ingestion_queue_limit}件 · 一人{" "}
