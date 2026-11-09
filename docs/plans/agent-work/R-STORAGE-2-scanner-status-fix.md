@@ -89,3 +89,25 @@ not yet committed; no blocker, no quota error. Done so far, uncommitted:
   (`scanner_configured`) and operational outcome (`scanner_last_outcome`) now
   reported separately; admin UI distinguishes 有効 / 検査不能 / 拒否.
 - Next: push this commit, wait for branch CI, record run links, mark 完了.
+
+### 2026-11-10 — task complete (branch CI green)
+
+- Pushed `8388383` (deliverable) and `d2fa294` (evidence). Branch: `loop/rstorage2-scanner-status-fix`.
+- CI note: an earlier Prototype quality run (`42709038260`) on the docs-only head
+  `8e10d6b` failed with a `tests-quality-remaining` 120s timeout flake before the
+  deliverable existed; the locally measured cost of the new tests is ~2s and the
+  exact-head rerun passed with headroom (remaining group 108.03s).
+- CI evidence for exact head `d2fa294` (all successful):
+  - Prototype quality: run [42711196888](https://github.com/kanalia7355/Locus/actions/runs/42711196888)
+    — all checks exit 0 including browser-e2e, secret-scan, python/npm advisories;
+    tests-quality-integration 78.87s, tests-quality-remaining 108.03s.
+  - PR title convention: run [42711196645](https://github.com/kanalia7355/Locus/actions/runs/42711196645).
+  - Loop engine checks: run [42711196643](https://github.com/kanalia7355/Locus/actions/runs/42711196643).
+- Acceptance: 1163 pytest passed locally (1158+ bar met); frontend lint + vitest
+  (74 tests) + typecheck + build pass; fail-closed quarantine preserved for every
+  non-clean scanner outcome; clean/rejected/unavailable are separate typed
+  statuses; adapter configuration reported separately from the operational
+  outcome; admin UI distinguishes 有効 / 検査不能 / 拒否; no ACL weakening, no
+  connector/egress addition, no activation claims.
+
+完了。
