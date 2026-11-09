@@ -85,4 +85,9 @@ Conventional Commit subject suggestion: `docs(plans): apply the consistency-audi
 
 - Reviewed the complete documentation diff against F1–F8 and the original findings. Confirmed each historical table/declaration is visibly time-bounded, resolved decisions point to the existing RESOLVED section, unknown/residual items remain open, and old 18-skip versus 9-skip/9-failure reports are explicitly scoped by environment.
 - Confirmed the delegation UI is documented as integrated on `loop/local-development`, not falsely included in main `c307939`; `MASTER_IMPLEMENTATION_ROADMAP.md` preserves the open storage ACL work, final-product MFA and deployment requirements. H2 2b/2c explicitly require owner-approved ADR-0013 and separate slice authorization; B6 dispatch stays disabled.
-- Confirmed the ADR-0013 revocation candidate section is unchanged and retains all 23 pending markers. No code/tests changed. `git diff --check` is clean. Ready to commit the docs-only diff; exact-SHA CI remains pending.
+- Confirmed the ADR-0013 revocation candidate section is unchanged and retains all 23 pending markers. No code/tests changed. `git diff --check` is clean.
+
+### 2026-11-09 — commit and push (CI pending)
+
+- Docs-only Conventional Commit `285d6fa96197a74b10878eb3572f1f7ef838a609` (`docs(plans): apply the consistency-audit staleness fixes`) created and pushed to `origin/loop/aud-p3-consistency-fix1`.
+- Push succeeded. Exact-SHA branch CI evidence is not yet available; will record the workflow outcomes when queried. No CI pass is claimed at this step.
