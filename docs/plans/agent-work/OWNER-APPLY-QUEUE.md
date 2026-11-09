@@ -56,3 +56,12 @@ repeat the fix cycle until all applicable checks pass. Append progress + SHA + C
 this file under ## Progress at each step end and at task end, and push.
 
 Conventional Commit subject suggestion: `docs(plans): apply the owner's Q1-Q7 decisions to the queue`
+
+## Progress
+
+### 2026-11-09 — Slot H: queue cells filled + classification created (step end)
+
+- Read AGENTS.md, docs/governance/DEVELOPMENT_POLICY.md, docs/plans/OWNER_DECISIONS_2026-11-09-EVENING.md, this brief, the queue, the proposal and (via the consolidated proposal) the re-evaluations. Bootstrap state verified: `.bootstrap/complete.json` exists; worktree `loop/owner-apply-queue` clean at start.
+- `docs/plans/OWNER_DECISION_QUEUE_2026-11-09.md`: all **72 OWNER DECISION cells** filled (verified programmatically: 72 rows, no empty cells, 8 columns per row, each cell links `OWNER_DECISIONS_2026-11-09-EVENING.md` and the classification file). Owner-directed mappings applied: DP-005→Q1, DP-006→Q2, DP-024–030→Q3, DP-034→Q4 (split a/b), DP-054–055→Q5, DP-058→Q6, DP-066–070/072→Q7. No technical number or permission invented; owner §4 items (receipt TTL numbers DP-010/011, new permission DP-021, Runner trust/enrollment/key management DP-035–041 + DP-043b, provider credential supply DP-034b, unapproved external communication DP-031/032, DP-071 org model) remain 【要決定】 as OWNER_DECISION_REQUIRED. Only the OWNER DECISION cells were edited; the queue header/ID columns were intentionally left untouched per the brief's cells-only constraint (residual header wording noted as an inconsistency for slot I/the owner).
+- `docs/plans/OWNER_QUEUE_CLASSIFICATION_2026-11-09.md` created: 81 rows (72 primaries + 9 split items → 18 a/b rows; splits: DP-015, DP-034, DP-043, DP-053, DP-057, DP-059, DP-060, DP-062, DP-064) into OWNER_POLICY_RESOLVED 22 / EXISTING_DECISION 8 / ENGINEERING_DETAIL 25 / OWNER_DECISION_REQUIRED 15 / DEFERRED_WITH_GATE 11; OWNER_DECISION_REQUIRED presented in the owner-directed 8-field format (6 grouped decision requests: DP-010/011, DP-021, DP-031/032, DP-034b, DP-035–041+043b, DP-071); DEFERRED_WITH_GATE gates D-1/D-2/D-3 with start conditions; Q1–Q7 recorded as cross-cutting design constraints. Proposal, re-evaluations, roadmap and other agents' files untouched. Coordinated with slot I (no file overlap; shared the ENGINEERING_DETAIL row list).
+- Next: local verification (ruff check + ruff format --check + scripts/secret_scan.py, never the shared `.venv`), Conventional Commit, push, CI evidence. Final SHA/evidence to be appended after push.
