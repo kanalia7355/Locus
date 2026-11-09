@@ -291,12 +291,9 @@ PH2-UI DELIVERED AND INTEGRATED (2026-11-09 ~09:45 JST): delegation management U
 
 Pipeline state: Phase 2 fully delivered (all deltas incl. the delegation UI; remaining open items unchanged: org-level surface decisions, storage-ACL implementation 要決定, MFA/deployment gates). Next per the master roadmap: hybrid step 2b (common Agent Adapter interface + health lifecycle, offline-only) is design-authorized but code-blocked until ADR-0013 (23 要決定) and the HYB-A2 proposals get owner approval; those remain the owner's pending decisions. Free slots: all; dispatchable jobs without owner input: none identified this cycle beyond monitoring.
 
-Cycle 2026-11-09 ~10:05 JST: steady state — no running slots; the integrated head 84dc1eb CI all green (title+quality+engine 4-matrix, run 42542506993). Dispatchable-without-owner-input jobs: none this cycle (Phase 2 fully delivered; slice 2b/step-3 code awaits ADR-0013 + HYB-A2 owner approvals; remaining design work is gated on those decisions). No actions.
-
-Cycle 2026-11-09 ~10:35 JST: steady state unchanged. No actions.
-
-Cycle 2026-11-09 ~11:05 JST: steady state unchanged. No actions.
-
-Cycle 2026-11-09 ~11:35 JST: steady state unchanged. No actions.
-
 Owner instruction applied (2026-11-09): the orchestrator scheduled task was rebound from the former thread fb8e3331 to the owner's current thread (e357d0f0). At the move there were zero active slots (pipeline paused on the PH2-RV 429 outage), so no delegated-task handoff is required; worktree task files and origin branch state remain the handoff evidence. Cadence (30m), 10-slot cap and 1:1 model ratio are unchanged.
+
+NEW-CHAT SUBAGENT MODEL ADOPTED + BATCH DISPATCHED (2026-11-09 ~11:45 JST, owner instruction): subagents are henceforth dispatched as NEW top-level DeepAI Code threads, each bound to its own worktree/branch via deepai_thread_launch (replaces delegate_task child slots); the orchestrator tracks slot threadIds in this ledger, steers via deepai_thread_send and follows with deepai_thread_read/wait. Four steady-state noise entries appended by the former thread after the no-noise rule (10:05/10:35/11:05/11:35 JST cycles) were removed per the same rule. Dispatched batch (2 slots, model mix kept 1:1 with the recent Luna/GLM deliveries):
+- Slot A: HYB-DECISION-PACKAGE (Luna, thinking high) — consolidate the ~64 pending owner decisions (ADR-0013 ×23, HYB-A2 ×30, PH2-C2 ×11, plus register cross-check) into docs/plans/OWNER_DECISION_QUEUE_2026-11-09.md. This is the critical-path unblocker: the owner's single-pass decision sheet. Brief: docs/plans/agent-work/HYB-DECISION-PACKAGE.md; branch loop/HYB-decision-package.
+- Slot B: AUD-P3-CONSISTENCY (glm-5.3-flash, thinking high) — read-only consistency audit of ADR-0013, the HYB-A2 proposals, the storage-ACL plan and the phase-status/roadmap/register set. Brief: docs/plans/agent-work/AUD-P3-CONSISTENCY.md; branch loop/aud-p3-consistency.
+- Implementation/code work remains blocked: 2b/2c need owner-approved ADR-0013 (roadmap H2 gate), storage-ACL slices need their 要決定 items. Safety-boundary items cannot proceed without explicit owner approval.
