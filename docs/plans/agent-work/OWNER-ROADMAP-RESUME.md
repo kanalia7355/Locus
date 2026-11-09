@@ -1,0 +1,53 @@
+# OWNER-ROADMAP-RESUME — update the roadmap, list the resumable jobs, and inventory the deferred gates
+
+Agent: append your progress under "## Progress" below every time you complete a step.
+Do not edit other agents' files. Work ONLY in your own worktree/branch. Docs-only task:
+do NOT modify code, specs, tests, the OWNER_DECISION_QUEUE, the proposal, or the
+re-evaluation files. Never push to `main` or `loop/local-development`; no subagents of
+your own. NEVER touch the shared `.venv`; use `.loop/runtime/qa-venv` if needed.
+
+## Task
+
+The owner's formal decisions Q1–Q7 are recorded in `docs/plans/OWNER_DECISIONS_2026-11-09-EVENING.md`
+(2026-11-09 evening). The owner directed (§5–7): approved-scope work never stops on other
+pending items; the roadmap must be updated; the resumable jobs must be listed; and the
+deferred items must carry gates. Deliverables:
+
+1. Update `docs/plans/MASTER_IMPLEMENTATION_ROADMAP.md` — reflect the owner's Q1–Q7 decisions:
+   the hybrid step-2 receipt design (2b) and step-3 isolation profiles are now DESIGN-READY
+   under the owner's decisions (Q1/Q3), storage-ACL is manual-upload-first with connectors
+   deferred (Q5), production tech is deferred with gates (Q7). Preserve the existing gating
+   language: 2b/2c still require the owner-approved receipt contract and dispatch remains
+   disabled until the ADR-0012 activation gate; the owner's §4 unresolved list stays
+   【要決定】. Do not delete the prior history; append a dated update section.
+2. Create `docs/plans/RESUMABLE_JOBS_2026-11-09.md` — the list of work that can start now
+   within the approved scope, with a slot-assignment shape (implementation → self-review →
+   QA → delivery → integration), grouped into: design docs ready for the receipt/2b contract
+   (excluding owner-decision points), isolation-profile design docs (per-environment, excluding
+   the unverified-profile activation), storage manual-upload first, and the engineering
+   details that are ENGINEERING_DETAIL-classified. Each job: scope, the owner decision it
+   relies on, the safety boundary that must not change, and the completion gate.
+3. Create `docs/plans/DEFERRED_WITH_GATES_2026-11-09.md` — the deferred items with explicit
+   start conditions and acceptance gates (connectors per Q5, production tech per Q7, the
+   owner's §4 unresolved list, and any other deferred row).
+4. You may edit ONLY: `docs/plans/MASTER_IMPLEMENTATION_ROADMAP.md` (append a dated update
+   section), `docs/plans/RESUMABLE_JOBS_2026-11-09.md` (new), and
+   `docs/plans/DEFERRED_WITH_GATES_2026-11-09.md` (new). Do not edit the queue cells, the
+   proposal, or the re-evaluations — slot H handles those.
+5. Standing instructions: approved-scope work never stops; do not re-open approved decisions;
+   do not weaken any safety boundary (ADR-0011/0012, B6, no-egress, fail-closed); the owner's
+   §4 unresolved list stays 【要決定】; dispatch/isolation/egress/credentials/production stay
+   inactive until their own gates.
+
+## Process
+
+Read AGENTS.md + docs/governance/DEVELOPMENT_POLICY.md, then the owner decision record, then
+MASTER_IMPLEMENTATION_ROADMAP.md and OWNER_DECISION_PROPOSAL_2026-11-09.md (the recommendations
+for context), then the source reviews (OWNER_REEVAL-A-RECEIPT.md / OWNER_REEVAL-B-ISOLATION.md /
+OWNER_REEVAL-C-STORAGE-MISC.md) as needed. Self-review adversarially; run the docs-applicable
+verification subset (ruff check + ruff format --check + scripts/secret_scan.py via the qa-venv
+if needed). Conventional Commit (`docs(plans): ...`); push origin loop/owner-roadmap-resume;
+repeat the fix cycle until all applicable checks pass. Append progress + SHA + CI evidence to
+this file under ## Progress at each step end and at task end, and push.
+
+Conventional Commit subject suggestion: `docs(plans): update the roadmap and list the resumable jobs`
