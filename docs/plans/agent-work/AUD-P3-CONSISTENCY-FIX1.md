@@ -90,4 +90,13 @@ Conventional Commit subject suggestion: `docs(plans): apply the consistency-audi
 ### 2026-11-09 — commit and push (CI pending)
 
 - Docs-only Conventional Commit `285d6fa96197a74b10878eb3572f1f7ef838a609` (`docs(plans): apply the consistency-audit staleness fixes`) created and pushed to `origin/loop/aud-p3-consistency-fix1`.
-- Push succeeded. Exact-SHA branch CI evidence is not yet available; will record the workflow outcomes when queried. No CI pass is claimed at this step.
+- Task-ledger progress commit `7aefc940157fd0feed7b5e34668cabf6c4aea7d4` was then pushed to record delivery and make the status/evidence available at branch tip.
+
+### 2026-11-09 — exact-pushed-HEAD CI green
+
+- Branch CI at exact pushed HEAD `7aefc940157fd0feed7b5e34668cabf6c4aea7d4`: all required workflows succeeded.
+  - Prototype quality run `42553570548` — success.
+  - Loop engine checks run `42553570483` — success (Ubuntu/Windows × Python 3.11/3.13).
+  - PR title convention run `42553570479` — success.
+- Initial SHA `285d6fa96197a74b10878eb3572f1f7ef838a609` had its quality and engine workflows cancelled by the immediate task-ledger push; its title workflow succeeded. Required workflows completed successfully at the exact pushed branch tip above. No repair cycle was needed.
+- Task remains docs-only; no tests/code changed, no pending ADR decisions were changed, and no protected/main or `loop/local-development` push was performed.
