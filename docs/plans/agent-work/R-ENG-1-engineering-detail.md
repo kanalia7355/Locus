@@ -61,3 +61,44 @@ until all applicable checks pass. Append progress + SHA + CI evidence to this fi
 under ## Progress at each step end and at task end, and push.
 
 Conventional Commit subject suggestion: `docs(plans): author the engineering detail inventory`
+
+## Progress
+
+- 2026-11-09 (JST evening) — Step 1: Read AGENTS.md, DEVELOPMENT_POLICY.md, owner
+  decisions Q1–Q7 (OWNER_DECISIONS_2026-11-09-EVENING.md), the classification record
+  (OWNER_QUEUE_CLASSIFICATION_2026-11-09.md) and the three existing engineering
+  deliverables (receipt contract R-2B-1, isolation profiles R-ISO-1, isolation
+  engineering detail R-ISO-2). Confirmed the exact 25 ENGINEERING_DETAIL rows
+  (14 receipt-group + 11 profile-group + 0 manual-upload-group; DP-053b excluded as
+  EXISTING_DECISION) and identified which are already covered vs residual.
+- 2026-11-09 — Step 2: Authored `docs/plans/HYBRID_ENGINEERING_DETAIL_INVENTORY.md`:
+  coverage map for all 25 rows (citing, not duplicating, the classification record and
+  the covering packages); residual receipt-group engineering detail (A-1 serialization/
+  replay, A-2 issuer-key custody, A-3 metadata-only schema + immutable events, A-4
+  reason enum, A-5 audit event names, A-6 expiry shape/clock with TTL numbers kept
+  【要決定】 per DP-010/011 and inherited by DP-046, A-7 invalidation triggers) recorded
+  as candidate options with evidence and consequences, nothing adopted; Group B fully
+  covered by R-ISO-2 with the task's boundary conditions restated as travel-with-row
+  constraints (DP-046 bounds inherit DP-010/011 and cannot be set; DP-044/045/049
+  contract-detail design only; DP-053a evidence binding design-only, no activation);
+  Group C recorded as containing no ENGINEERING_DETAIL row. Adversarial self-review
+  (§7) and source-anchor verification (§8: registry.py 161/734, service.py
+  1046–1075/1077, tests/test_agents_registry.py 293/339) performed. No code, spec,
+  test or queue cell modified; nothing activated.
+- 2026-11-09 — Step 3: Local verification via isolated `.loop/runtime/qa-venv`
+  (recreated fresh with Python 3.13; shared `.venv` untouched):
+  `ruff check .` PASS; `scripts/secret_scan.py` PASS (0 findings); `ruff format
+  --check` — my file PASS; one pre-existing failure at HEAD unrelated to this task
+  (`docs/requirements/AUTONOMOUS_LOOP_SPEC.md` would be reformatted; a spec file this
+  docs-only task must not modify — recorded honestly, not "fixed" by weakening scope).
+- 2026-11-09 — Step 4: Commit `44f769f9502c393bced96450ac4215f0e049f94e`
+  (`docs(plans): author the hybrid engineering detail inventory`) pushed to
+  `origin/loop/reng1-engineering-detail`.
+- 2026-11-09 — Step 5 (task end): CI evidence on 44f769f:
+  - Loop engine checks (run 42668253774) — **PASS** (ubuntu/windows × 3.11/3.13).
+  - PR title convention (run 42668254164) — **PASS** (conventional-title).
+  - Prototype quality (run 42668253831) — first attempt FAILED on a 120s timeout of
+    `tests-quality-remaining` (docs-only change; unrelated); rerun of the failed job
+    **PASS** in 3m48s. No test, workflow or gate was altered.
+  All applicable checks pass. Task complete; no owner §4 item resolved; no quota
+  error encountered.
