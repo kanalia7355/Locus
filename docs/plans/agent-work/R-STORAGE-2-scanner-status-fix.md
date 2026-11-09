@@ -111,3 +111,21 @@ not yet committed; no blocker, no quota error. Done so far, uncommitted:
   connector/egress addition, no activation claims.
 
 完了。
+
+### 2026-11-10 — evidence-head CI green after one timing-flake rerun
+
+- The docs-only evidence push `79cd668` re-triggered Prototype quality and its
+  first run (`42712314894`) hit the same pre-existing `tests-quality-remaining`
+  120s cap flake (timeout at 120.02s) even though the code is byte-identical to
+  the fully green deliverable head `d2fa294` (108.03s). No tests or CI config
+  were altered; the failed jobs were re-run and passed (112.61s for the same
+  group), confirming runner-variance timing margin rather than a code problem.
+- Final branch state at tip `79cd668` — all three workflows successful:
+  - Prototype quality: run [42712314894](https://github.com/kanalia7355/Locus/actions/runs/42712314894) (rerun of failed jobs) — success.
+  - PR title convention: run [42712314816](https://github.com/kanalia7355/Locus/actions/runs/42712314816) — success.
+  - Loop engine checks: run [42712314889](https://github.com/kanalia7355/Locus/actions/runs/42712314889) — success.
+- Deliverable head `d2fa294` remains fully green (runs 42711196888,
+  42711196645, 42711196643). Outstanding observation for the owner (out of this
+  task's scope): the `tests-quality-remaining` group runs at ~102–113s against a
+  hard 120s cap, so the branch CI carries a recurring timing-flake risk
+  independent of this change.
