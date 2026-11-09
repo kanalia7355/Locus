@@ -20,6 +20,16 @@
 - **Start condition:** A later connector phase must be explicitly scheduled and scoped; for each source type provide an owner-authorized source-specific design, threat/data-flow review, source identity and permission model, connector/network authorization, and credential handling plan. If network access, external transfer, or credentials are needed, obtain their separate approvals before testing those operations. Manual-upload work remains available and should not wait.
 - **Acceptance gate:** Source permission is an additional gate to all Locus ACLs (membership, explicit deny, publication, personal/attachment scope); current permission is checked before read/retrieval/citation/reuse and on derived-result re-display. Loss, staleness or inability to verify source authorization denies access immediately, including derived data. Demonstrate race-safe lifecycle behavior and fail-closed handling. Keep read-only by default: no upstream mutation/deletion without separate authority. Retention, backups and physical deletion follow separately approved policy; no source-read permission authorizes external-AI egress. Do not imply a connector works merely because manual upload does.
 
+### Deferred-item gate mapping (classification gates D-1 through D-3)
+
+| Gate | Deferred rows | Start condition | Acceptance gate |
+|---|---|---|---|
+| D-1 — Production retention/audit policy | DP-022, DP-060b, DP-064b | Owner's Q7 production retention/backup/audit decisions (DP-068/DP-069) are made. | Explicitly approve the applicable retention/access/erasure policy and apply it to receipt, audit, artifact and source records; infer no period before then. Q6 deny-immediately/retain-separately semantics apply meanwhile. |
+| D-2 — Artifact retention wiring | DP-050 | D-1 decisions exist and step-2/step-3 contract design is available. | Artifact/audit retention follows approved policy; verify live ACL/classification/source revalidation before persistence, reuse, export or release. |
+| D-3 — Connector design phase | DP-056, DP-057b, DP-059b, DP-060a, DP-061, DP-062b, DP-063 | Q5 later-phase connector design is authorized; connection, authentication and data transfer have separate approval as required by Q5. | Approve a connector-specific design with current live authorization and fail-closed behavior; keep source ACL additive to Locus ACL/explicit deny; no upstream writes or deletes without authority; no credentials in metadata/audit; egress default-deny unless separately approved; complete independent review. |
+
+The exact row classifications and split-row descriptions are maintained by the companion [owner queue classification](OWNER_QUEUE_CLASSIFICATION_2026-11-09.md); this table records their gates, not a reclassification.
+
 ## 4. Production technology and operations (Q7)
 
 - **Deferred items:** Production database, vector/search and graph choices; TLS, session lifecycle, LAN/private deployment and exposure; audit protection; research data retention, backup/restore and deletion; production provider/model and measured capacity are deferred to a later phase under Q7. This includes DP-066–070 and DP-072. DP-071's remaining organization-management/UI surface is separately deferred below. Deferral preserves final requirements and traceability.
