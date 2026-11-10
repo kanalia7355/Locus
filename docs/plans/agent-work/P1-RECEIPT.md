@@ -47,3 +47,7 @@ Read AGENTS.md + DEVELOPMENT_POLICY.md + owner decisions + HYBRID_STEP2_RECEIPT_
 Implement; run FULL QA (ruff, mypy, pytest --ignore=tests/e2e, frontend tests if UI changed);
 Conventional Commit; push origin loop/p1-receipt-2b; repeat until all checks pass.
 Conventional Commit subject: `feat(receipt): implement the receipt 2b contract with owner-approved TTL and approval flow`
+
+## Progress
+
+- 2026-11-11: Read the task brief, owner Entry 1–6 decisions, receipt contract, ADR-0011/0012/0013, and relevant governance/architecture docs; inspected current service, registry and tests. No code changes yet. Starting a receipt-issuance-only implementation that preserves B6 and does not dispatch, enqueue, or activate execution. The existing task checkout does not contain `.loop/runtime/qa-venv`; I will report whether the required QA environment can be used after checking available setup. Existing contract/roadmap docs still label ADR-0013 as DRAFT and say owner approval is required before dispatch-capable 2b; I will not implement dispatch-capable behavior or weaken those gates.
