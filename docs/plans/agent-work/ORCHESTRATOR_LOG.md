@@ -384,3 +384,9 @@ The owner formally approved Entry 1-6 (docs/plans/OWNER_DECISIONS_2026-11-10-ENT
 - Slot S P3-COMM DESIGN = mcp:6b51cc7d-0e1a-46f1-8555-005b77bacf34 (GPT-6-Luna, thinking high, loop/p3-comm-design → docs/plans/HYBRID_RUNNER_COMMUNICATION_DESIGN.md). Authenticated LAN-internal channel, endpoint approval table, isolation profile comparison, verification plans, activation evidence inventory. Design approval only — NOT firewall/port/activation.
 - Slot T P4-ADAPTER RESEARCH = mcp:9dc7cf92-7b20-4140-8b96-160080a6f52d (GLM-5.3-Flash, thinking high, loop/p4-adapter-design → docs/plans/HYBRID_AGENT_ADAPTER_DESIGN.md). Per-adapter research (Codex CLI, Claude Code), credential supply options (broker/direct/no-supply), broker comparison, availability matrix. Design/verification only — NOT actual credential access.
 1:1 alternation: P=GLM → Q=Luna → R=GLM → S=Luna → T=GLM ✓. Active slots: 4/10 (Q, R, S, T). Priority 5 (UI/research) queued for dispatch as slots free. Dispatch stays disabled until ADR-0012 activation gate; no credential access, no egress, no real data, no production.
+
+★ POLICY CORRECTION (2026-11-11, owner instruction): main branch must NOT receive orchestrator bookkeeping commits (steer confirmations, dispatch logs, CI fix notes, integration logs). These are internal process records that pollute the commit history. Going forward:
+- ALL merges to `main` MUST use squash-merge (like the Phase-2 PR #8 pattern) so individual orchestrator/process commits are collapsed into a single meaningful product commit.
+- The orchestrator log (ORCHESTRATOR_LOG.md), task files, steer records, and CI fix notes remain on `loop/local-development` only.
+- The v0.4.0 merge introduced ~50 bookkeeping commits into main history — this will not happen again. Future main merges produce exactly 1 commit per phase (feat/chore with a meaningful subject).
+- If a PR workflow is used, the PR must be squash-merged.
