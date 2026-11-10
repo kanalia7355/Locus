@@ -4,6 +4,14 @@ Agent: append your progress under "## Progress" below every time you complete a 
 Work ONLY in your own worktree/branch. Docs-only task: do NOT modify code.
 Never push to `main` or `loop/local-development`; no subagents.
 
+## Progress
+
+- Read the repository instructions, development policy, owner Entry 1–6, this task brief, ADR-0011/0012, the isolation-profile comparison, the step-3 isolation/trust proposal, and the product/architecture context. Confirmed this is documentation-only and the worktree is clean on `loop/p3-comm-design`; bootstrap marker is present.
+- Checked current loop status/decisions; the CLI returned `ValueError` diagnostics. No loop launch or product execution was attempted. The requested `.loop/runtime/qa-venv` is absent at initial inspection; verification will use only that dedicated environment if it exists/becomes available and will not use shared `.venv`.
+- Authored `docs/plans/HYBRID_RUNNER_COMMUNICATION_DESIGN.md`. It marks all endpoints inactive, proposes Runner-initiated HTTPS/TCP destination port 443 to an exact CP listener (exact target pending; port is subject to verification, independent review, and separate approval), gates conditional DNS separately, isolates job network access, and specifies endpoint-specific verification/review/Owner gates, profile comparison, network/file/process plans, and activation evidence. No network/profile/firewall action was taken.
+- Adversarial self-review checked that Entry 3 design approval is not confused with port/firewall/activation approval; bootstrap authentication is fail-closed; TCP source ports/replies and candidate destination ports are distinguished; CP/DNS are exact separately gated endpoint classes; no destination wildcard, implicit provider/cloud route, job-network route, fallback, or skip-as-pass claim is introduced; and remote Runner requirements remain for separate design. No independent reviewer was spawned (explicit task prohibition); independent review and separate Owner approval remain endpoint activation gates.
+- QA using the task's isolated `.loop/runtime/qa-venv` (Python 3.13; Ruff 0.17.3; detect-secrets 1.5.0): `ruff check .` PASS; `ruff format --check` FAIL on pre-existing unrelated `docs/requirements/AUTONOMOUS_LOOP_SPEC.md:315` only; targeted `ruff format --check docs/plans/HYBRID_RUNNER_COMMUNICATION_DESIGN.md docs/plans/agent-work/P3-COMM.md` PASS; `scripts/secret_scan.py` PASS (0 findings); `git diff --check` PASS; design-specific checklist PASS. The unrelated existing formatting issue was not changed. Loop status/decisions CLI remains unavailable due the previously recorded `ValueError` diagnostics.
+
 ## Task
 
 Author the Runner communication topology and isolation profile design per the
