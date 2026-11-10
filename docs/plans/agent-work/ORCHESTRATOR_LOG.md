@@ -390,3 +390,9 @@ The owner formally approved Entry 1-6 (docs/plans/OWNER_DECISIONS_2026-11-10-ENT
 - The orchestrator log (ORCHESTRATOR_LOG.md), task files, steer records, and CI fix notes remain on `loop/local-development` only.
 - The v0.4.0 merge introduced ~50 bookkeeping commits into main history — this will not happen again. Future main merges produce exactly 1 commit per phase (feat/chore with a meaningful subject).
 - If a PR workflow is used, the PR must be squash-merged.
+
+Integration log (2026-11-11): P2-TRUST (slot R, GLM-5.3-Flash) DELIVERED AND INTEGRATED — merged loop/p2-trust-design at c38ee12. Deliverable: docs/plans/HYBRID_RUNNER_TRUST_DESIGN.md (522 lines) — runner trust/enrollment/key-management design per owner Entry 5: OS keystore per-instance ID, vetted TLS, admin one-time challenge, strict binding, revocable ID, measured rotation, revoke-then-re-enroll, audit taxonomy, per-platform comparison, compromise runbook, 7 verification conditions. CI all green (quality 42731980595, engine 42731980623, title 42731980460). Secret scan 0. Slot R retired.
+
+Integration log (2026-11-11): P4-ADAPTER (slot T, GLM-5.3-Flash) DELIVERED AND INTEGRATED — merged loop/p4-adapter-design at c38ee12. Deliverable: docs/plans/HYBRID_AGENT_ADAPTER_DESIGN.md (768 lines) — agent adapter and credential supply design per owner Entry 4: per-adapter research (Codex CLI, Claude Code), credential supply options (broker/direct/no-supply), broker comparison, execution constraints, safe verification test plan (mock/stub only), availability matrix. CI all green (quality 42731362340, engine 42731362367, title 42731362337). Secret scan 0. Slot T retired.
+
+Both slots retired, branches/worktrees deleted. 1:1 alternation: Q=Luna → R=GLM → S=Luna → T=GLM ✓. Active slots: 2/10 (Q: P1-RECEIPT, S: P3-COMM). Q still implementing (no push yet); S engine checks in progress.
