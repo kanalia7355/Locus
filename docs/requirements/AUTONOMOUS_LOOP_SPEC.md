@@ -312,11 +312,7 @@ while controller.can_continue():
         result = runner.execute(task)
         verification = verifier.run(task)
 
-        state.record_attempt(
-            task,
-            result,
-            verification
-        )
+        state.record_attempt(task, result, verification)
 
         if verification.passed:
             break
