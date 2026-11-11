@@ -1,4 +1,4 @@
-# Slot W — Skills P0 Audit, Remaining-Item Resolution & Actual-Usage Integration
+# Slot Y — Skills P0 Audit, Remaining-Item Resolution & Actual-Usage Integration
 
 Model: GPT-6-Luna (thinking high) | Branch: loop/skills-usage-integration | Owner directive: 2026-11-11 (Skills P0 実装評価・残件解消・実利用統合指示)
 
