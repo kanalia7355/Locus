@@ -18,4 +18,14 @@ Implement ONLY the approved-scope items from the integrated UI research §7.1. P
 - Tests: frontend unit tests (npm test in frontend/), existing suites unbroken, accessibility attributes preserved, regression on existing UI behavior. Update or add component tests for ChatView/ChatMessage/ChatComposer projections.
 - QA: frontend npm test + backend regression untouched (no backend changes). Use .loop/runtime/qa-venv for any python-side checks; NEVER shared .venv.
 - Conventional Commits (refactor(ui)/fix(ui)/test(ui)); push origin loop/ui-chat-refactor; repeat fix cycle until ALL checks green (frontend + CI workflows). Never push main or loop/local-development. Never spawn subagents. Never bypass hooks.
-- Append progress to this file under ## Progress.
+
+## Progress
+
+- Confirmed clean worktree on `loop/ui-chat-refactor`; read approved baseline/research and task scope before editing.
+- Extracted `ChatView`, `ChatMessage`, and `ChatComposer`; added `projectChatRows` with stable message/job keys and active-conversation filtering. Existing presentation classes, citations, `message.model` footnote, attachment behavior, and accessibility labels are retained.
+- Replaced direct `crypto.randomUUID()` with an attachment UI-key helper: UUID API when present; secure random bytes when available; non-security fallback only when Web Crypto is unavailable.
+- Unified queued/running/done/failed/cancelled status rows using existing backend states, with failure detail; unified attachment state/error styling with `statusName` and `reason`. No backend or §7.2 changes.
+- Added projection and component tests for the new components, processing states, attachment failure, accessibility/IME behavior, and UUID fallback.
+- Final local verification: `cd frontend && npm test` — 85 tests passed; `npm run typecheck`, `npm run lint`, and `npm run build` passed. Playwright E2E — 13 tests passed with a temporary config using `C:/Users/hirot/Locus/.loop/runtime/qa-venv/Scripts/python.exe`; the checked-in config's worktree `.venv` path was not used. `git diff --check` passed.
+- Tooling used the already-existing frontend packages from the primary checkout, materialized locally as temporary untracked verification files; no package install or new dependency was performed. Removed temporary dependencies, build output, Playwright results, and the temporary QA Playwright config. No backend files changed.
+- Remaining: final diff review, Conventional Commit, push only `origin/loop/ui-chat-refactor`, then inspect CI/workflow status; remote CI is not yet verified.

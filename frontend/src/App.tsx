@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import {
-  ArrowUp,
   ChevronDown,
   FileText,
   LogOut,
   PanelLeft,
-  Plus,
   SquarePen,
   UserCheck,
   UserX,
@@ -14,7 +12,13 @@ import {
 } from "lucide-react";
 import { api, errorText, json, statusName } from "./api";
 import { RelatedDocuments } from "./RelatedDocuments";
-import { StructuredCitationText } from "./StructuredCitationText";
+import { ChatView } from "./ChatView";
+import {
+  createAttachmentKey,
+  type ChatAttachment,
+  type PendingChatJob,
+  type ChatJobNotice,
+} from "./chatProjection";
 import { IngestionProgress } from "./IngestionProgress";
 import { AdminLoad, AdminProjects, AdminStorage } from "./AdminSettings";
 import { AdminDelegations } from "./Delegations";
@@ -47,13 +51,6 @@ type Page =
   | "ingestion"
   | "audit"
   | "settings";
-type Attachment = {
-  key: string;
-  name: string;
-  status: string;
-  id?: string;
-  reason?: string;
-};
 const labels: Record<Page, string> = {
   chat: "資料を調べる",
   shared: "共有資料",
@@ -279,24 +276,15 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
   const [scope, setScope] = useState("all");
-  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [ingestionRefresh, setIngestionRefresh] = useState<
     "waiting" | "updating" | "stopped"
   >("waiting");
   const [busy, setBusy] = useState(false);
-  const [pendingJob, setPendingJob] = useState<{
-    id: string;
-    conversation: string;
-    text: string;
-    status: "queued" | "running";
-    cancelRequested: boolean;
-  } | null>(null);
-  const [cancelledJob, setCancelledJob] = useState<{
-    conversation: string;
-    text: string;
-  } | null>(null);
+  const [pendingJob, setPendingJob] = useState<PendingChatJob | null>(null);
+  const [terminalJob, setTerminalJob] = useState<ChatJobNotice | null>(null);
   const [source, setSource] = useState<{
     document: Document;
     chunks: SourceChunk[];
@@ -305,7 +293,6 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
   const [sourceError, setSourceError] = useState("");
   const conversationPromise = useRef<Promise<string> | null>(null);
   const conversationRef = useRef<string | null>(null);
-  const fileInput = useRef<HTMLInputElement>(null);
   const personalInput = useRef<HTMLInputElement>(null);
   const sourceClose = useRef<HTMLButtonElement>(null);
   const sourceTarget = useRef<HTMLDivElement>(null);
@@ -504,15 +491,21 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
             );
           } else if (status.status === "done") {
             setPendingJob(null);
-            setCancelledJob(null);
+            setTerminalJob({
+              conversation: job.conversation,
+              text: job.text,
+              status: "done",
+            });
             if (status.conversation_id === conversationRef.current) {
               void api<Conversation>(`/conversations/${status.conversation_id}`)
                 .then((conv) => {
                   if (
                     !controller.signal.aborted &&
                     conversationRef.current === status.conversation_id
-                  )
+                  ) {
                     setMessages(conv.messages);
+                    setTerminalJob(null);
+                  }
                 })
                 .catch((error) => setError(errorText(error)));
             } else
@@ -521,11 +514,19 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
               );
           } else if (status.status === "failed") {
             setPendingJob(null);
-            setCancelledJob(null);
-            setError(`回答を生成できませんでした。${status.detail}`);
+            setTerminalJob({
+              conversation: job.conversation,
+              text: job.text,
+              status: "failed",
+              detail: status.detail,
+            });
           } else if (status.status === "cancelled") {
             setPendingJob(null);
-            setCancelledJob({ conversation: job.conversation, text: job.text });
+            setTerminalJob({
+              conversation: job.conversation,
+              text: job.text,
+              status: "cancelled",
+            });
             setNotice("質問を取り消しました。");
           }
         })
@@ -567,7 +568,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
     if (window.innerWidth < 768) setSidebar(false);
   }
   function newChat() {
-    setCancelledJob(null);
+    setTerminalJob(null);
     conversationRef.current = null;
     conversationPromise.current = null;
     setConversationId(null);
@@ -610,7 +611,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
       const conversation =
         kind === "attachment" ? await ensureConversation() : null;
       for (const file of files) {
-        const key = crypto.randomUUID();
+        const key = createAttachmentKey();
         if (kind === "attachment")
           setAttachments((items) => [
             ...items,
@@ -679,7 +680,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
       setBusy(false);
     }
   }
-  async function removeAttachment(item: Attachment) {
+  async function removeAttachment(item: ChatAttachment) {
     try {
       if (item.id) await api(`/documents/${item.id}`, json("DELETE"));
       setAttachments((items) =>
@@ -692,7 +693,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
   async function send(event: FormEvent) {
     event.preventDefault();
     if (!draft.trim() || busy || pendingJob || !can("retrieve")) return;
-    setCancelledJob(null);
+    setTerminalJob(null);
     setError("");
     if (attachments.some((item) => item.status !== "ready")) {
       setError(
@@ -756,7 +757,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
     try {
       const conv = await api<Conversation>(`/conversations/${id}`);
       conversationRef.current = id;
-      setCancelledJob(null);
+      setTerminalJob(null);
       setConversationId(id);
       setMessages(conv.messages);
       setAttachments(
@@ -950,220 +951,29 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
           </p>
         )}
         {projectId && page === "chat" && (
-          <div className="chat">
-            <label className="scope-label">
-              参照範囲
-              <select
-                value={scope}
-                disabled={busy}
-                onChange={(e) => setScope(e.target.value)}
-              >
-                <option value="all">共有資料＋個人資料</option>
-                <option value="shared">共有資料</option>
-                <option value="personal">個人資料</option>
-              </select>
-            </label>
-            <div className="messages" aria-live="polite">
-              {messages.length === 0 ? (
-                <div className="chat-empty">
-                  <FileText size={25} strokeWidth={1.3} />
-                  <p>参照できる資料を調べる</p>
-                  <span>資料の本文と出典を確認できます。</span>
-                </div>
-              ) : (
-                messages.map((message) => (
-                  <article className="exchange" key={message.id}>
-                    <p className="user-message">{message.text}</p>
-                    <div className="answer">
-                      {message.answer && (
-                        <>
-                          <h2>資料に基づく提案</h2>
-                          <p style={{ whiteSpace: "pre-wrap" }}>
-                            {message.answer}
-                          </p>
-                          <p className="footnote">
-                            {message.model}{" "}
-                            による生成内容です。判断には元資料を確認してください。
-                          </p>
-                        </>
-                      )}
-                      {message.answer_hidden && (
-                        <p>
-                          出典の削除または権限変更により、生成回答を非表示にしました。
-                        </p>
-                      )}
-                      <h2>
-                        {message.citations.length
-                          ? "資料に見つかった記述"
-                          : "参照できる記述が見つかりませんでした"}
-                      </h2>
-                      {message.citations.map((citation) => (
-                        <div key={citation.id} className="citation-excerpt">
-                          <StructuredCitationText
-                            text={citation.text}
-                            label={`${citation.name} p.${citation.page} chunk ${citation.ordinal} の表`}
-                          />
-                          <button
-                            className="text-link"
-                            onClick={() => {
-                              void openSource(
-                                citation.document_id,
-                                citation.id,
-                              );
-                            }}
-                          >
-                            {citation.name} · p.{citation.page} · chunk{" "}
-                            {citation.ordinal}
-                          </button>
-                        </div>
-                      ))}
-                      <p className="footnote">
-                        {message.citations.length
-                          ? message.answer
-                            ? "以下の出典は検索で抽出した原文です。生成内容とは区別して確認してください。"
-                            : "検索で抽出した原文です。AI生成の回答ではありません。判断には元資料を確認してください。"
-                          : "参照範囲・資料の処理状態・質問の語句を確認してください。"}
-                      </p>
-                    </div>
-                  </article>
-                ))
-              )}
-              {cancelledJob && cancelledJob.conversation === conversationId && (
-                <article className="exchange">
-                  <p className="user-message">{cancelledJob.text}</p>
-                  <div className="answer">
-                    <p role="status">
-                      質問を取り消しました。回答は表示されません。
-                    </p>
-                  </div>
-                </article>
-              )}
-              {pendingJob && pendingJob.conversation === conversationId && (
-                <article className="exchange">
-                  <p className="user-message">{pendingJob.text}</p>
-                  <div className="answer">
-                    <p role="status">
-                      {pendingJob.cancelRequested
-                        ? "質問の取り消しを受け付けました。処理終了後に結果を破棄します。"
-                        : pendingJob.status === "running"
-                          ? "回答を作成中です。完成するとこの会話に表示されます。"
-                          : "回答の生成は順番待ちです。モデルが空くと自動的に処理されます。"}
-                    </p>
-                    {!pendingJob.cancelRequested && (
-                      <button
-                        className="text-link"
-                        onClick={() => {
-                          void cancelPendingJob();
-                        }}
-                      >
-                        この質問を取り消す
-                      </button>
-                    )}
-                  </div>
-                </article>
-              )}
-            </div>
-            <form
-              className="composer"
-              onSubmit={send}
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={(event) => {
-                event.preventDefault();
-                void addFiles(Array.from(event.dataTransfer.files));
-              }}
-            >
-              {attachments.length > 0 && (
-                <ul className="attachments">
-                  {attachments.map((item) => (
-                    <li key={item.key}>
-                      <FileText size={15} />
-                      <span className="attachment-name" title={item.name}>
-                        {item.name}
-                      </span>
-                      <span
-                        className={
-                          item.status === "failed" ||
-                          item.status === "quarantined"
-                            ? "error"
-                            : "muted"
-                        }
-                        title={item.reason}
-                      >
-                        {statusName[item.status] ?? item.status}
-                      </span>
-                      <IconButton
-                        label={`${item.name}を取り外す`}
-                        disabled={busy}
-                        onClick={() => {
-                          void removeAttachment(item);
-                        }}
-                      >
-                        <X size={14} />
-                      </IconButton>
-                      {item.reason && (
-                        <span className="attachment-reason">{item.reason}</span>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
-              <textarea
-                placeholder="メッセージを入力"
-                aria-label="メッセージ"
-                value={draft}
-                maxLength={4000}
-                disabled={busy || !can("retrieve")}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(event) => {
-                  if (
-                    event.key === "Enter" &&
-                    !event.shiftKey &&
-                    !event.nativeEvent.isComposing &&
-                    event.keyCode !== 229
-                  ) {
-                    event.preventDefault();
-                    event.currentTarget.form?.requestSubmit();
-                  }
-                }}
-              />
-              <div className="composer-actions">
-                <IconButton
-                  label="ファイルを添付"
-                  disabled={busy || !can("upload")}
-                  onClick={() => fileInput.current?.click()}
-                >
-                  <Plus size={20} />
-                </IconButton>
-                <input
-                  ref={fileInput}
-                  type="file"
-                  hidden
-                  multiple
-                  accept=".txt,.md,.csv"
-                  aria-label="添付ファイルを選択"
-                  onChange={(event) => {
-                    void addFiles(Array.from(event.target.files ?? []));
-                    event.target.value = "";
-                  }}
-                />
-                <span className="send-state" role="status">
-                  {busy ? "処理中…" : pendingJob ? "順番待ちあり" : ""}
-                </span>
-                <IconButton
-                  label="送信"
-                  type="submit"
-                  disabled={
-                    busy || !!pendingJob || !draft.trim() || !can("retrieve")
-                  }
-                >
-                  <ArrowUp size={20} />
-                </IconButton>
-              </div>
-            </form>
-            <p className="composer-note">
-              検証用の検索です。外部AIへ送信しません。
-            </p>
-          </div>
+          <ChatView
+            attachments={attachments}
+            busy={busy}
+            canRetrieve={can("retrieve")}
+            canUpload={can("upload")}
+            terminalJob={terminalJob}
+            conversationId={conversationId}
+            draft={draft}
+            messages={messages}
+            pendingJob={pendingJob}
+            scope={scope}
+            onAddFiles={(files) => void addFiles(files)}
+            onCancelPendingJob={() => void cancelPendingJob()}
+            onChangeDraft={setDraft}
+            onOpenSource={(documentId, chunkId) => {
+              void openSource(documentId, chunkId);
+            }}
+            onRemoveAttachment={(attachment) =>
+              void removeAttachment(attachment)
+            }
+            onScopeChange={setScope}
+            onSubmit={send}
+          />
         )}
         {projectId && ["shared", "personal", "ingestion"].includes(page) && (
           <>
