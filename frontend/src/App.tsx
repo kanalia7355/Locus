@@ -274,6 +274,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
       window.innerWidth >= 768,
   );
   const [documents, setDocuments] = useState<Document[]>([]);
+  const [documentQuery, setDocumentQuery] = useState("");
   const [history, setHistory] = useState<Conversation[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -1175,6 +1176,16 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
                     ? "本人のみが参照できる資料です。会話添付はここに自動登録されません。"
                     : "このプロジェクトで閲覧を許可された資料です。"}
               </p>
+              <label className="search-field">
+                <span className="visually-hidden">資料を検索</span>
+                <input
+                  type="search"
+                  value={documentQuery}
+                  onChange={(event) => setDocumentQuery(event.target.value)}
+                  placeholder="資料名で検索"
+                  aria-label="資料名で検索"
+                />
+              </label>
               <button
                 disabled={busy}
                 onClick={() => {
@@ -1216,9 +1227,11 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
             <DocumentList
               key={projectId}
               projectId={projectId}
-              documents={documents.filter(
-                (doc) => page === "ingestion" || doc.kind === page,
-              )}
+              documents={documents.filter((doc) => {
+                if (page !== "ingestion" && doc.kind !== page) return false;
+                const q = documentQuery.trim().toLowerCase();
+                return !q || doc.name.toLowerCase().includes(q);
+              })}
               canPublish={can("publish")}
               canManageRoles={can("manage_roles")}
               onSource={openSource}

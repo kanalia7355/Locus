@@ -1890,22 +1890,28 @@ class Service:
         }
         return {**data, "owned": row["owner_id"] == actor_id}
 
-    def documents(self, actor: Principal, project: str) -> list[Json]:
+    def documents(self, actor: Principal, project: str, q: str | None = None) -> list[Json]:
         with self.db() as db:
             self.require(db, actor, project, "read")
-            return [
-                self._metadata(row, actor.id)
-                for row in db.execute(
-                    "SELECT * FROM documents WHERE project_id=? ORDER BY created DESC",
-                    (project,),
-                ).fetchall()
-                if self._can_read(db, actor, row)
-                or (
-                    row["owner_id"] == actor.id
-                    and row["kind"] == "shared"
-                    and "upload" in self._permissions(db, actor, project)
-                )
-            ]
+            needle = (q or "").strip().lower()
+            rows = []
+            for row in db.execute(
+                "SELECT * FROM documents WHERE project_id=? ORDER BY created DESC",
+                (project,),
+            ).fetchall():
+                if not (
+                    self._can_read(db, actor, row)
+                    or (
+                        row["owner_id"] == actor.id
+                        and row["kind"] == "shared"
+                        and "upload" in self._permissions(db, actor, project)
+                    )
+                ):
+                    continue
+                if needle and needle not in row["name"].lower():
+                    continue
+                rows.append(self._metadata(row, actor.id))
+            return rows
 
     def document(self, actor: Principal, document: str, conversation: str | None = None) -> Json:
         with self.db() as db:

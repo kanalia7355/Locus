@@ -336,8 +336,10 @@ def create_app(
         return svc.projects(user)
 
     @app.get("/api/documents")
-    def documents(project_id: str, user: Actor) -> list[dict[str, Any]]:
-        return svc.documents(user, project_id)
+    def documents(
+        project_id: str, user: Actor, q: str | None = None
+    ) -> list[dict[str, Any]]:
+        return svc.documents(user, project_id, q)
 
     @app.post("/api/documents", status_code=201)
     def upload(data: Upload, user: Actor) -> dict[str, Any]:

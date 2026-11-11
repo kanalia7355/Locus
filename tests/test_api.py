@@ -506,3 +506,68 @@ def test_admin_web_provisioning_is_rate_limited(service: Service) -> None:
     limited = admin.post("/api/admin/users", json={"username": "rate-user-last"}, headers=ORIGIN)
     assert limited.status_code == 429
     assert limited.json()["detail"] == "試行回数が多いため、1分後に再試行してください"
+
+def test_document_list_search_filters_by_name(service: Service) -> None:
+    client = client_for(service)
+    login(client)
+    svc = service
+    # seed two personal docs with distinct names
+    doc_a = svc.seed_synthetic("alice", "project-a", "personal")
+    # rename not directly available; create via upload path for controlled names
+    with svc.db() as db:
+        db.execute("UPDATE documents SET name=? WHERE id=?", ("alpha-notes.txt", doc_a))
+    res = client.post(
+        "/api/documents",
+        json={
+            "project_id": "project-a",
+            "name": "beta-report.txt",
+            "content": "synthetic beta",
+            "kind": "personal",
+        },
+        headers=ORIGIN,
+    )
+    assert res.status_code == 201, res.text
+    doc_b = res.json()["id"]
+    assert svc.process_next()
+
+    all_docs = client.get("/api/documents", params={"project_id": "project-a"}).json()
+    names = {d["name"] for d in all_docs}
+    assert "alpha-notes.txt" in names and "beta-report.txt" in names
+
+    filtered = client.get(
+        "/api/documents", params={"project_id": "project-a", "q": "alpha"}
+    ).json()
+    assert [d["name"] for d in filtered] == ["alpha-notes.txt"]
+
+    filtered_ci = client.get(
+        "/api/documents", params={"project_id": "project-a", "q": "BETA"}
+    ).json()
+    assert [d["id"] for d in filtered_ci] == [doc_b]
+
+    none_match = client.get(
+        "/api/documents", params={"project_id": "project-a", "q": "nomatch"}
+    ).json()
+    assert none_match == []
+
+
+def test_document_list_search_respects_visibility(service: Service) -> None:
+    alice = client_for(service)
+    bob = client_for(service)
+    login(alice)
+    login(bob, "bob", "03")
+    private = service.seed_synthetic("alice", "project-a", "personal")
+    shared = service.seed_synthetic("alice", "project-a", "shared")
+    with service.db() as db:
+        db.execute("UPDATE documents SET name=? WHERE id=?", ("alpha-private.txt", private))
+        db.execute("UPDATE documents SET name=? WHERE id=?", ("alpha-shared.txt", shared))
+
+    alice_hits = alice.get(
+        "/api/documents", params={"project_id": "project-a", "q": "alpha"}
+    ).json()
+    assert {d["id"] for d in alice_hits} == {private, shared}
+
+    bob_hits = bob.get(
+        "/api/documents", params={"project_id": "project-a", "q": "alpha"}
+    ).json()
+    assert [d["id"] for d in bob_hits] == [shared]
+    assert all(d["name"] == "alpha-shared.txt" for d in bob_hits)
