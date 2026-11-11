@@ -259,6 +259,7 @@ class OpenCodeRunner:
         model: str | None = None,
         binary: str | None = None,
         agent: str | None = None,
+        fallback_models: list[str] | None = None,
     ) -> None:
         self.root = root
         self.boundary = boundary or UnprovenBoundary()
@@ -267,6 +268,7 @@ class OpenCodeRunner:
         self.model = model
         self.binary = binary
         self.agent = agent
+        self.fallback_models = list(fallback_models or [])
         self.pending_model: Any = None
 
     def acknowledge(self) -> None:
@@ -458,9 +460,51 @@ class OpenCodeRunner:
                 "OpenCode adapter file-proposal mode is not implemented",
                 category="model_tool_incompatible",
             )
-        result = self.invoke(
-            "result", prompt, workspace, readonly=False, timeout=timeout, cancelled=cancelled
-        )
+
+        models = [self.model] if self.model else [None]
+        for candidate in self.fallback_models:
+            if candidate not in models:
+                models.append(candidate)
+        last_error: OpenCodeError | None = None
+        for index, model in enumerate(models):
+            previous = self.model
+            self.model = model
+            try:
+                result = self.invoke(
+                    "result",
+                    prompt,
+                    workspace,
+                    readonly=False,
+                    timeout=timeout,
+                    cancelled=cancelled,
+                )
+                check_result(task, result)
+                return result
+            except OpenCodeError as error:
+                last_error = error
+                has_next = index + 1 < len(models)
+                if has_next and error.category in {
+                    "quota_exhausted",
+                    "unavailable",
+                    "model_tool_incompatible",
+                }:
+                    self._record(
+                        "opencode.fallback",
+                        schema="result",
+                        task_id=task.id,
+                        from_model=model,
+                        to_model=models[index + 1],
+                        category=error.category,
+                        status="retrying",
+                    )
+                    continue
+                raise
+            finally:
+                if last_error is not None and index + 1 == len(models):
+                    self.model = previous
+        if last_error is not None:
+            raise last_error
+        raise OpenCodeError("OpenCode execution failed: unavailable", category="unavailable")
         check_result(task, result)
         return result
 
