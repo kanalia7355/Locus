@@ -1,6 +1,6 @@
-# Slot Y — Skills P0 Audit, Remaining-Item Resolution & Actual-Usage Integration
+# Slot Z — Skills P0 Audit, Remaining-Item Resolution & Actual-Usage Integration
 
-Model: GPT-6-Luna (thinking high) | Branch: loop/skills-usage-integration | Owner directive: 2026-11-11 (Skills P0 実装評価・残件解消・実利用統合指示)
+Model: GLM-5.3-Flash (thinking high) | Branch: loop/skills-usage-integration | Owner directive: 2026-11-11 (Skills P0 実装評価・残件解消・実利用統合指示)
 
 ## Objective
 Audit the P0 skills deliverables, resolve remaining items, and make the three P0 skills ACTUALLY discoverable, loadable, and usable by Locus development agents. Placement of Markdown files alone is NOT completion. Preserve the existing Loop Orchestrator, permission management, approval boundaries, and audit profile while PROVING actual usage.
