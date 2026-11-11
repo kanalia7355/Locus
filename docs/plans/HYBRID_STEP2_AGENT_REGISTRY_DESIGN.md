@@ -128,8 +128,12 @@ execute files/commands inside an OS-enforced workspace:
   from the Control Plane and model-gate relay identities; workspace binding, adapter
   health and credential-presence metadata are scoped to `(runner_instance_id,
   adapter_id)` and never to `adapter_id` alone. The identity must distinguish separate
-  devices/process instances and support revocation (T-S1/T-T1/T-E4). The exact trust
-  root/enrollment ceremony remains 【要決定】; `windows_tcp_peer.py` is only same-SID/PID
+  devices/process instances and support revocation (T-S1/T-T1/T-E4). The trust
+  design policy is decided by **Entry 5 (2026-11-10)**: OS-keystore-protected
+  per-instance identity, vetted TLS and authenticated-administrator one-time-challenge
+  enrollment ([HYBRID_RUNNER_TRUST_DESIGN.md](HYBRID_RUNNER_TRUST_DESIGN.md)); its
+  verification conditions and activation gates still apply, so enrollment remains
+  unperformed until they pass. `windows_tcp_peer.py` is only same-SID/PID
   groundwork, not proof of user-vs-runner separation.
 - **B6 (fail-closed unproven boundary).** Until hybrid 実装順 3 lands verified OS
   isolation, the runner-side boundary uses the existing `UnprovenBoundary` pattern

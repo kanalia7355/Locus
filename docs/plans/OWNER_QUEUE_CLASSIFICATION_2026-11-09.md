@@ -2,11 +2,13 @@
 
 **Status:** reclassification of every row of the [owner decision queue](OWNER_DECISION_QUEUE_2026-11-09.md) after the owner's formal decisions recorded in [OWNER_DECISIONS_2026-11-09-EVENING.md](OWNER_DECISIONS_2026-11-09-EVENING.md). This file classifies and structures the remaining decision requests; it approves no implementation, activation, credential use, egress, real-data use or production exposure. The recommendation layer remains [OWNER_DECISION_PROPOSAL_2026-11-09.md](OWNER_DECISION_PROPOSAL_2026-11-09.md) with full source reviews [A](OWNER_REEVAL-A-RECEIPT.md) / [B](OWNER_REEVAL-B-ISOLATION.md) / [C](OWNER_REEVAL-C-STORAGE-MISC.md).
 
+**Update 2026-11-11 — Entry 1–6 recorded (2026-11-10):** the owner's formal decisions in [OWNER_DECISIONS_2026-11-10-ENTRIES.md](OWNER_DECISIONS_2026-11-10-ENTRIES.md) resolve the affected `OWNER_DECISION_REQUIRED` rows (DP-010/011, DP-021, DP-031/032, DP-034b, DP-035–041, DP-043b, DP-071) to `OWNER_POLICY_RESOLVED` below. Unrelated rows are unchanged. §"Entry 1–6 resolution" near the end of this file records the mapping; the six decision-request blocks in §OWNER_DECISION_REQUIRED are retained as historical proposals and are no longer open. Cross-references elsewhere in this file (e.g., DP-046) that cite those rows as "still 【要決定】" are superseded accordingly. Residual owner §4 items that no Entry decided (unverified isolation profiles, unapproved external communication/egress beyond the Entry 3 *design* approval, real-data use, production release, actual credential supply/activation beyond the Entry 4 *design/verification* approval, dispatch/Runner activation) remain 【要決定】／別途承認.
+
 **Standing rules carried forward from the owner's message:**
 
 - Approved-scope work never stops because another item is still pending.
 - Items containing multiple unresolved parts are **split** (a/b suffixes) while preserving the original DP numbering.
-- The owner's §4 unresolved list stays **【要決定】**: Receipt TTL numbers, new permissions/approval exceptions, Runner trust/enrollment/key management, unverified isolation profiles, provider credential supply, unapproved external communication, real-data use, production release, other safety-boundary changes. Nothing here treats them as approved.
+- The owner's §4 unresolved list stays **【要決定】**: Receipt TTL numbers, new permissions/approval exceptions, Runner trust/enrollment/key management, unverified isolation profiles, provider credential supply, unapproved external communication, real-data use, production release, other safety-boundary changes. Nothing here treats them as approved. *(Update 2026-11-11: Entries 1–6 of [OWNER_DECISIONS_2026-11-10-ENTRIES.md](OWNER_DECISIONS_2026-11-10-ENTRIES.md) resolved the rows they directly decide — see §"Entry 1–6 resolution"; the remaining §4 items above stay 【要決定】.)*
 - Existing mandatory semantics (B6 dispatch-rejection gate, ADR-0011 zero-tool boundary, ADR-0012 dual-plane separation, live rechecks, fail-closed, no-egress, separation of approval from activation) are not weakened and are not reopened.
 - Technical implementation details within the initial design, existing ADRs and safety requirements are proposed, compared and verified by the orchestrator with the required independent review — they are not owner decisions. Owner decisions are not fragmented more than necessary, so closely related open items are grouped into one decision request.
 
@@ -24,10 +26,10 @@
 
 | Category | Rows |
 |---|---:|
-| OWNER_POLICY_RESOLVED | 22 |
+| OWNER_POLICY_RESOLVED | 37 |
 | EXISTING_DECISION | 8 |
 | ENGINEERING_DETAIL | 25 |
-| OWNER_DECISION_REQUIRED | 15 |
+| OWNER_DECISION_REQUIRED | 0 |
 | DEFERRED_WITH_GATE | 11 |
 | **Total rows (72 original + 9 splits)** | **81** |
 
@@ -46,8 +48,8 @@
 | DP-007 | — | ENGINEERING_DETAIL | CP-internal protected issuer key; no receipt-only PKI; Runner verification stays online/authenticated. |
 | DP-008 | — | ENGINEERING_DETAIL | Online live revocation check at E1/E2 with fail-closed on unavailability, within ADR-0013 §3's mandatory live-recheck property. |
 | DP-009 | — | ENGINEERING_DETAIL | Zero staleness at enforcement; no default negative cache; any later measured cache is a separate reviewed decision. |
-| DP-010 | — | OWNER_DECISION_REQUIRED | Owner §4「Receipt TTLの具体的な数値」stays 【要決定】. Entry 1 below (grouped with DP-011). |
-| DP-011 | — | OWNER_DECISION_REQUIRED | Owner §4「Receipt TTLの具体的な数値」stays 【要決定】. Entry 1 below (grouped with DP-010). |
+| DP-010 | — | OWNER_POLICY_RESOLVED | **Entry 1** ([OWNER_DECISIONS_2026-11-10-ENTRIES.md](OWNER_DECISIONS_2026-11-10-ENTRIES.md)): default TTL **24 h**, maximum TTL **7 days**; Control-Plane-authoritative absolute epoch-seconds expiry; **no grace period**; reuse of expired receipts prohibited; automatic reissue for in-scope jobs only as a NEW authorization decision after current permission/policy re-verification (never an extension), prohibited on permission loss/policy change/out-of-scope operation; receipt TTL managed separately from delegation TTL. Formerly OWNER_DECISION_REQUIRED (Entry 1, grouped with DP-011). |
+| DP-011 | — | OWNER_POLICY_RESOLVED | **Entry 1** (same values as DP-010): default 24 h / maximum 7 days, absolute epoch-seconds, no grace, no expired-receipt reuse, in-scope auto-reissue as a new authorization decision. Formerly OWNER_DECISION_REQUIRED (Entry 1, grouped with DP-010). |
 | DP-012 | — | ENGINEERING_DETAIL | Absolute expiry / no grace as the fail-closed default within ADR-0013 §7. |
 | DP-013 | — | ENGINEERING_DETAIL | Reuse the delegation CP clock for the prototype; production time source follows Q7 (DP-066). |
 | DP-014 | — | ENGINEERING_DETAIL | CP-authoritative online expiry; no invented skew tolerance; any tolerance measured first. |
@@ -58,7 +60,7 @@
 | DP-018 | — | EXISTING_DECISION | ADR-0012 §4.1 mandatory live check already answers this: authority loss after enqueue is visible at E2 and queued jobs fail closed. |
 | DP-019 | — | ENGINEERING_DETAIL | Small closed versioned reason enum mapped to the existing 409 dispatch-rejection pattern. |
 | DP-020 | — | ENGINEERING_DETAIL | Audit naming `agent.receipt.*` under the existing `agent.*` convention. |
-| DP-021 | — | OWNER_DECISION_REQUIRED | Owner §4「新規の権限・承認例外」stays 【要決定】. Entry 2 below. Existing role-ceiling rules remain mandatory. |
+| DP-021 | — | OWNER_POLICY_RESOLVED | **Entry 2**: **no new `approve_jobs` permission is added**; approval authority is derived from the existing Owner/Grantor/administrator roles and permission model; personal-workspace owner self-approval within the Q2-approved bounds; organization/shared workspaces keep existing administrator controls and approver authority ceilings. Must not bypass upper policy, explicit deny, membership conditions or delegation limits; approver-subject/execution-subject separation is kept where required. Existing role-ceiling rules remain mandatory. Formerly OWNER_DECISION_REQUIRED (Entry 2). |
 | DP-022 | — | DEFERRED_WITH_GATE | No receipt-specific retention period; follows the production retention/audit decisions (DP-068/069, Q7 track). Gate D-1 below. |
 | DP-023 | — | ENGINEERING_DETAIL | Metadata-only receipt/audit content with no credential bytes (existing mandatory rule); schema is design detail. |
 | DP-024 | — | OWNER_POLICY_RESOLVED | **Q3**: per-environment verified isolation profiles; no universal VM mandate; specific supported targets remain unverified/unapproved per owner §4. |
@@ -68,21 +70,21 @@
 | DP-028 | — | OWNER_POLICY_RESOLVED | **Q3**: VM/microVM where the risk profile warrants, not universally; per-environment constraints and guarantees stated explicitly. |
 | DP-029 | — | OWNER_POLICY_RESOLVED | **Q3**: additional layers (rootless OCI etc.) only where verified for the profile; container-only is never equated with kernel separation. |
 | DP-030 | — | OWNER_POLICY_RESOLVED | **Q3**: if isolation cannot be verified, execution does not run; no unverified host-direct execution or implicit downgrade. |
-| DP-031 | — | OWNER_DECISION_REQUIRED | New communication approval needed for any Runner↔Control-Plane reachability/firewall path (owner §4「未承認の外部通信」). Entry 3 below (grouped with DP-032). Default deny maintained until separately approved. |
-| DP-032 | — | OWNER_DECISION_REQUIRED | No endpoint may cross guest/private-network/external-egress boundaries without exact separate approval (owner §4「未承認の外部通信」). Entry 3 below. |
+| DP-031 | — | OWNER_POLICY_RESOLVED | **Entry 3 (design approval):** an authenticated, authorized, encrypted LAN-internal Runner↔Control-Plane channel is approved as the base communication *design*. Endpoints/ports/protocols/direction/boundaries must be explicit and individually designed, verified, independently reviewed and separately Owner-approved; communication to non-approved destinations is denied; no implicit internet/cloud/unapproved-LAN/provider-API allowance; fail-closed on unverifiable paths. This is NOT approval of firewall changes, port opening or Runner communication start. Remote/external-network Runner operation stays in the final requirements for separate design. Formerly OWNER_DECISION_REQUIRED (Entry 3, grouped with DP-032; owner §4「未承認の外部通信」activation still separately gated). |
+| DP-032 | — | OWNER_POLICY_RESOLVED | **Entry 3 (design approval):** no endpoint may cross guest/private-network/external-egress boundaries without exact separate approval; the approved LAN-channel design inherits per-endpoint design→verification→independent review→separate Owner approval and default-deny for everything else. Provider egress stays denied regardless. Formerly OWNER_DECISION_REQUIRED (Entry 3). |
 | DP-033 | — | ENGINEERING_DETAIL | Minimal verified transfer mechanism within no-unrestricted-host-access and fail-closed constraints; no bespoke broker mandated without threat evidence. |
 | DP-034a | DP-034 | OWNER_POLICY_RESOLVED | **Q4**: official CLI / existing login methods preferred; no unofficial auth circumvention; API-key not forced; per-adapter verification of terms/auth/isolated operation. |
-| DP-034b | DP-034 | OWNER_DECISION_REQUIRED | Actual provider credential supply stays 【要決定】 per owner §4「プロバイダー認証情報の供給」. Entry 4 below. Credentials never enter job inputs or audit logs. |
-| DP-035 | — | OWNER_DECISION_REQUIRED | Runner trust anchor/key custody — owner §4「Runnerの具体的な信頼・登録・鍵管理方式」. Cluster entry 5 below. |
-| DP-036 | — | OWNER_DECISION_REQUIRED | Crypto/hardware/quorum — part of the trust/key-management cluster (owner §4). Cluster entry 5 below. |
-| DP-037 | — | OWNER_DECISION_REQUIRED | Enterprise PKI availability/scope — part of the trust/key-management cluster (owner §4). Cluster entry 5 below. |
-| DP-038 | — | OWNER_DECISION_REQUIRED | Keystore/non-exportability/attestation — part of the trust/key-management cluster (owner §4). Cluster entry 5 below. |
-| DP-039 | — | OWNER_DECISION_REQUIRED | Enrollment/revocation authority and local confirmation channel — part of the trust/enrollment cluster (owner §4). Cluster entry 5 below. |
-| DP-040 | — | OWNER_DECISION_REQUIRED | Key lifetime/rotation/overlap values, set on measurement — part of the trust/key-management cluster (owner §4). Cluster entry 5 below. |
-| DP-041 | — | OWNER_DECISION_REQUIRED | Re-enrollment/recovery/compromise rules — part of the trust/key-management cluster (owner §4). Cluster entry 5 below. |
+| DP-034b | DP-034 | OWNER_POLICY_RESOLVED | **Entry 4 (design/verification approval):** actual provider credential supply to Runners is **not permitted at this stage**. Officially supported auth/execution methods (Codex CLI, Claude Code, etc.) take priority; per-adapter verification of auth method, terms, isolated-environment operation and credential protection; broker-mediated supply is designed and compared, and its adoption requires verification evidence, independent review and separate Owner approval. Credentials never enter job inputs, receipts, audit logs or model context; adapters that cannot demonstrate safe supply are rejected for that environment; unofficial circumvention/subscription-bypass is prohibited. This approves the design and verification of supply methods, not real account login, credential readout/transfer/supply. Formerly OWNER_DECISION_REQUIRED (Entry 4). |
+| DP-035 | — | OWNER_POLICY_RESOLVED | **Entry 5 (recommended configuration approved as design policy):** OS-keystore-protected per-instance Runner identity; vetted standard TLS; one-time challenge enrollment by an authenticated administrator; strict binding of Runner instance to enrolled ID; revocable Runner ID. Formerly OWNER_DECISION_REQUIRED (trust anchor/key custody — owner §4 cluster; Entry 5). |
+| DP-036 | — | OWNER_POLICY_RESOLVED | **Entry 5:** vetted standard TLS/crypto as the baseline; custom CA, dedicated hardware authentication and multi-administrator quorum are **not required initially** (unless necessity is demonstrated). Numeric cipher/suite selections remain standards+measurement-driven (verification condition). Formerly OWNER_DECISION_REQUIRED (cluster; Entry 5). |
+| DP-037 | — | OWNER_POLICY_RESOLVED | **Entry 5:** no custom CA hierarchy / enterprise PKI requirement as a default; enterprise PKI integrates only where a deployment actually has it. Formerly OWNER_DECISION_REQUIRED (cluster; Entry 5). |
+| DP-038 | — | OWNER_POLICY_RESOLVED | **Entry 5:** OS keystore is the approved custody mechanism; hardware attestation/non-exportability requirements are not required initially. Verification condition: OS keystore availability and key/credential protection must be demonstrated per platform. Formerly OWNER_DECISION_REQUIRED (cluster; Entry 5). |
+| DP-039 | — | OWNER_POLICY_RESOLVED | **Entry 5:** enrollment is a one-time challenge by an authenticated authorized administrator binding the exact Runner instance/key; enrollment/revocation authority maps to the existing RBAC (verification condition). Formerly OWNER_DECISION_REQUIRED (cluster; Entry 5). |
+| DP-040 | — | OWNER_POLICY_RESOLVED | **Entry 5:** key lifetime/rotation is measured and verification-driven — standard methods plus measured operational data fix the values; no fixed interval without evidence. Formerly OWNER_DECISION_REQUIRED (cluster; Entry 5). |
+| DP-041 | — | OWNER_POLICY_RESOLVED | **Entry 5:** revoke-then-re-enroll on key loss/compromise; privilege escalation during key update/revocation/recovery must be verified absent. Formerly OWNER_DECISION_REQUIRED (cluster; Entry 5). |
 | DP-042 | — | ENGINEERING_DETAIL | Live revocation status via the same authority, fail-closed on uncertainty; no invented SLA/cache values. |
 | DP-043a | DP-043 | EXISTING_DECISION | Queued/active-work cancellation and hold follow ADR-0012's mandatory cancellation/hold semantics; not reopened. |
-| DP-043b | DP-043 | OWNER_DECISION_REQUIRED | Root-compromise recovery and held-output disposition — part of the trust/key-management cluster (owner §4). Cluster entry 5 below. |
+| DP-043b | DP-043 | OWNER_POLICY_RESOLVED | **Entry 5:** compromise response is revoke-then-re-enroll with defined procedures for job stop, result hold and re-enrollment; audit of recovery operations. Formerly OWNER_DECISION_REQUIRED (root-compromise recovery / held-output disposition — owner §4 cluster; Entry 5). |
 | DP-044 | — | ENGINEERING_DETAIL | Opaque one-use reference over authenticated transport to a closed versioned contract; no second job-envelope signature by default. |
 | DP-045 | — | ENGINEERING_DETAIL | No second signature family; vetted TLS + closed schema; any later algorithm choice separately reviewed. |
 | DP-046 | — | ENGINEERING_DETAIL | CP-authoritative online freshness; no second envelope TTL or skew grace; numeric bounds only via DP-010/011 (still 【要決定】). |
@@ -116,7 +118,7 @@
 | DP-068 | — | OWNER_POLICY_RESOLVED | **Q7**: audit protection/retention/erasure decided in a later phase after comparison; audit protection remains a runtime-activation gate. |
 | DP-069 | — | OWNER_POLICY_RESOLVED | **Q7**: production retention/backup/secure-deletion policy decided in a later phase; no period inferred; Q6 retain-but-deny applies meanwhile. |
 | DP-070 | — | OWNER_POLICY_RESOLVED | **Q7**: production AI provider/capacity decided after evidence and provider-term review; routing requires explicit policy/terms approval. |
-| DP-071 | — | OWNER_DECISION_REQUIRED | Residual org-model / management-UI scope is a genuine remaining owner decision. Entry 6 below. Org-wide delegation itself stays deferred by the resolved PH2-A decision and is not reopened. |
+| DP-071 | — | OWNER_POLICY_RESOLVED | **Entry 6 (option c):** delegatee-side UI improvement is the approved priority; the current project-scoped delegation/permission model is maintained. UI must let users understand delegation expiry, grantor, scope, revocation state and self-revocation; backend permission verification is mandatory (UI hiding alone is insufficient). Organization-level delegation expansion is **not implemented now** — it stays in the final requirements for a later phase with explicit requirements/dependencies/acceptance criteria, and is not reopened. Formerly OWNER_DECISION_REQUIRED (Entry 6). |
 | DP-072 | — | OWNER_POLICY_RESOLVED | **Q7**: production session persistence/lifecycle decided in the later production phase after comparison; nothing inferred for the prototype. |
 
 ## Split register
@@ -133,7 +135,24 @@
 | DP-062 | DP-062a (shared-root config authority — EXISTING_DECISION), DP-062b (credentials/egress — connector phase) | Config authority is settled; credential/egress approval is gated. |
 | DP-064 | DP-064a (metadata-only audit — EXISTING_DECISION), DP-064b (retention/access/privacy — audit track) | The exclusion rule is existing; retention restrictions follow the audit retention decision. |
 
+## Entry 1–6 resolution — 2026-11-10 (recorded 2026-11-11)
+
+The owner's formal decisions [OWNER_DECISIONS_2026-11-10-ENTRIES.md](OWNER_DECISIONS_2026-11-10-ENTRIES.md) resolve the previously open `OWNER_DECISION_REQUIRED` rows. Full decision-to-artifact traceability lives in [OWNER_DECISION_REGISTER.md](OWNER_DECISION_REGISTER.md).
+
+| Entry | Choice | DP rows | Decided values (summary) | Implementing artifact(s) |
+|---|---|---|---|---|
+| Entry 1 | (a) 承認 | DP-010, DP-011 | Receipt TTL default 24 h / maximum 7 days; CP-authoritative absolute epoch-seconds; no grace; no expired-receipt reuse; in-scope auto-reissue as a new authorization decision; receipt TTL separate from delegation TTL | 2b receipt implementation (slot Q, `agent-work/P1-RECEIPT.md`); ADR-0013 §7; HYBRID_STEP2_RECEIPT_CONTRACT §2.1 |
+| Entry 2 | (a) 承認 | DP-021 | No new `approve_jobs` permission; approval authority derived from existing Owner/Grantor/admin roles; Q2-bounded personal self-approval; existing ceilings preserved | 2b approval-flow implementation (slot Q, same package) |
+| Entry 3 | (a) 承認（設計） | DP-031, DP-032 | Authenticated LAN-internal channel approved as design; per-endpoint design→verification→independent review→separate Owner approval; deny elsewhere; fail-closed; not firewall/port/activation approval | `HYBRID_RUNNER_COMMUNICATION_DESIGN.md` (slot P3) |
+| Entry 4 | (a) 承認（設計・検証のみ） | DP-034b | No real credential supply yet; official CLI methods preferred; per-adapter verification; broker-mediated design/compare with evidence+review+separate approval; credentials never enter inputs/receipts/audit/model context | `HYBRID_AGENT_ADAPTER_DESIGN.md` (slot P4) |
+| Entry 5 | 推奨構成 承認（設計方針） | DP-035–041, DP-043b | OS-keystore per-instance identity, vetted TLS, admin one-time-challenge enrollment, strict ID binding, revocable ID, measured rotation, revoke-then-re-enroll, full audit; no custom CA/hardware/quorum initially; design-policy approval only — no key issuance/registration/activation | `HYBRID_RUNNER_TRUST_DESIGN.md` (slot P2) |
+| Entry 6 | (c) 承認 | DP-071 | Delegatee-side UI only; project-scoped delegation model maintained; backend permission verification required; org-level delegation not implemented now (kept in final requirements for a later phase) | UI research `UI_OPENCODE_RESEARCH.md` (slot V); UI implementation running (slot W) |
+
+Still **【要決定】／別途承認** after Entries 1–6: individual endpoint approvals (Entry 3 scope), real credential supply/activation (Entry 4 scope), actual key issuance/Runner registration/communication start/execution activation (Entry 5 scope), unverified isolation profiles, B6 dispatch release, unapproved external communication/egress, real-data use, production release, production retention/audit (D-1–D-3). The owner's §2 scope (design/spec/QA approved; activation/data/production not approved) governs.
+
 ## OWNER_DECISION_REQUIRED — decision requests in the owner-directed 8-field format
+
+> **Update 2026-11-11:** all six decision requests below were **resolved by the owner's Entry 1–6 decisions of 2026-11-10** ([OWNER_DECISIONS_2026-11-10-ENTRIES.md](OWNER_DECISIONS_2026-11-10-ENTRIES.md)); `OWNER_DECISION_REQUIRED` is now empty. The blocks below are retained as historical proposals for traceability — their 「後回し可否」/「stays 【要決定】」closings and "unapproved options" wording are historical and superseded by the resolution table above. The owner's §2/§5 standing boundaries (approval ≠ activation; no dispatch, credential supply, egress, real data or production activation) are unchanged.
 
 These are the only genuinely open owner decisions after applying Q1–Q7 and existing decisions. No technical number, permission or activation is granted anywhere below; source-proposal values are cited as **unapproved options**. Per the owner's standing instruction, related items are grouped into one decision request rather than fragmented.
 
@@ -222,6 +241,8 @@ These are the only genuinely open owner decisions after applying Q1–Q7 and exi
 - **Q7** applies to production-technology items (DP-066–070, DP-072) and to all prototype-to-production inheritances (DP-003/013/022): compare and verify, then fix in a later phase; deferral is not removal from final requirements; traceability of acceptance criteria maintained; production release and real-data use separately approved.
 
 ## Adversarial self-review notes
+
+> **Update 2026-11-11:** the notes below are the dated self-review at the 2026-11-09 classification baseline; the owner's Entry 1–6 decisions (2026-11-10) subsequently resolved the rows listed in §"Entry 1–6 resolution". They are retained as historical evidence and are not silently overwritten.
 
 - All 72 original DP numbers appear exactly once as primaries; 9 split rows carry a/b labels pointing back to their originals (81 rows total, matched by the summary counts).
 - No cell or row was resolved by inventing a value: TTL numbers (DP-010/011), new permissions (DP-021), Runner trust/enrollment/key management (DP-035–041, DP-043b), unverified isolation profiles (residual of DP-024–030), provider credential supply (DP-034b), unapproved external communication (DP-031/032), real-data use and production release (Q7 gates) all remain 【要決定】 per owner §4.

@@ -61,7 +61,8 @@ contract details.
 - Dispatch-capable tests of any kind, including tests that would require an enabled
   dispatch path (step-2 design §6.11; ADR-0013 §5).
 - Runner trust root, enrollment ceremony, key custody, per-platform credential
-  mechanisms (step-2 design §6 items 4/5; owner §4) — 【要決定】.
+  mechanisms (step-2 design §6 items 4/5; owner §4) — design policy decided by
+  Entry 5 / Entry 4 (2026-11-10); implementation/verification and activation remain gated.
 - Isolation profiles and their verification (separate packages
   [R-ISO-1/2](RESUMABLE_JOBS_2026-11-09.md)); profiles are inputs to E2
   preconditions only.
@@ -114,7 +115,8 @@ From ADR-0012 §4.1 and the step-2 design §2.6/§3.2 (E1/E2)/§3.3/§6.11:
   methods are preferred; subscription use only as officially permitted; API-key is
   not the only allowed mechanism; per-adapter verification of terms, authentication
   and isolated operation; credentials never enter job inputs or audit logs. The
-  actual provider credential supply remains 【要決定】 (DP-034b).
+  actual provider credential supply is decided by **Entry 4 (2026-11-10): design
+  and verification approved, real supply not permitted at this stage** (DP-034b).
 - **Step-2 design §6 resolutions (2026-11-07)** that bound this contract: dual-plane
   ADR approved (item 1); registry stores credential presence only (item 2); provider
   contract verification recording schema approved, per-provider activation gate
@@ -157,12 +159,11 @@ record). No receipt-specific retention period is invented here.
 
 ### 1.4 Tier 3 — 【要決定】: owner choices this package must not fill in
 
-See §9 for the full inventory. Every item below is marked 【要決定】 at each point of
-use and is **not** resolved, defaulted, or implicitly assumed anywhere in this
-package: receipt TTL values (DP-010/011); new permissions/approval exceptions
-(DP-021); Runner trust/enrollment/key custody; provider credential supply (DP-034b);
-unapproved external communication incl. the Runner↔Control-Plane reachability path
-(DP-031/032); unverified isolation profiles (owner §4); receipt retention (DP-022,
+See §9 for the full inventory and its 2026-11-11 resolution update: items decided
+by owner Entries 1–6 (TTL values, approval permissions, trust design policy,
+credential-supply design scope, LAN-channel design) carry their decided values at
+each point of use below; items 6–9 remain 【要決定】: unverified isolation profiles;
+receipt retention (DP-022,
 gated); real-data use and production exposure (Q7); any other safety-boundary
 change.
 
@@ -191,7 +192,7 @@ exists only as an **approval of one job**; denials are audit events, never recei
 | `operation` | The specific operation authorized (the B3 adapter surface `run_job(job, workspace_policy)`); a receipt for one operation never authorizes another | E1, E2 | ADR-0012 B3 |
 | `runner instance binding` | ADR-0012's exact-instance E2 check is mandatory: the checked pair (receipt, envelope) must be bound to the exact enrolled `runner_instance_id` the workspace is bound to (`workspace_adapter_bindings`, `workspaces.runner_instance_id`); carrier placement (receipt field vs envelope field) is engineering detail (DP-001) | E2 (and consistency at E1) | DP-001; B5 |
 | `decision` | `approved` (a persisted receipt is an approval; `pending`/`denied` states are not receipts) | — | ADR-0013 §1 |
-| `issued_at`, `expires_at` | Issuance/expiry instants under the CP-authoritative clock (DP-013/014); absolute expiry, no grace (DP-012); numeric values 【要決定】 (DP-010/011) | E1, E2 | ADR-0013 §7 |
+| `issued_at`, `expires_at` | Issuance/expiry instants under the CP-authoritative clock (DP-013/014); absolute expiry, no grace (DP-012); numeric values decided by **Entry 1 (2026-11-10): default 24 h / maximum 7 days** (DP-010/011) | E1, E2 | ADR-0013 §7; [OWNER_DECISIONS_2026-11-10-ENTRIES.md](OWNER_DECISIONS_2026-11-10-ENTRIES.md) |
 | `revocation state` | Resolved **live at each check** via online authority check (DP-008); revocation recorded as an immutable event, never an in-place mutation (DP-003) | E1, E2 | ADR-0013 §3 |
 | `schema_version` | Explicit version field from day one, exchanged only via the versioned `runner_contract/` transport; unknown fields/unsupported versions fail closed (B4) | E1, E2 | threat-model cross-cutting verdict 3; B4 |
 
@@ -200,7 +201,11 @@ verification scheme) are engineering detail inside DP-002/DP-007's mandate: onli
 authoritative verification against the Control-Plane-internal protected issuer key;
 no custom Runner signature protocol. Any trust-root-dependent mechanism beyond this
 (e.g. asymmetric keys provisioned to runners) would import the Runner
-trust/enrollment/key-custody decision and is therefore 【要決定】 (§9, item 3).
+trust/enrollment/key-custody decision — **the design policy is now decided by
+Entry 5 (2026-11-10): OS-keystore per-instance identity, vetted TLS, admin
+one-time-challenge enrollment** ([HYBRID_RUNNER_TRUST_DESIGN.md](HYBRID_RUNNER_TRUST_DESIGN.md));
+its verification conditions and activation gates still apply, and the online-verification
+mandate above stays the operative default until that verification passes.
 
 ### 2.2 The job envelope (logical fields)
 
@@ -213,7 +218,7 @@ in-process calls, no shared objects, no alternate channels).
 | Closed, versioned schema | Unknown fields, unsupported versions, unreviewed upgrades fail closed at both planes | B4; step-2 §1.2 |
 | Receipt reference | Carries the `receipt_id` (and the exact binding set of §2.1) it was enqueued under; E2 rechecks the same receipt, not a Control-Plane assertion | ADR-0013 §4; I-2 |
 | Job identity + freshness | `job_id` binding, freshness/expiry checks at both E1 and E2; replay of the same envelope rejects | step-2 §2.2; §3.2 E1 |
-| Integrity | The envelope must be verifiable by the Runner as authentic and unmodified under the trust contract selected for the issuer (DP-002/DP-007); the specific mechanism is contract detail, and any runner-side key material raises the Runner key-custody 【要決定】 | DP-002/007; §9 |
+| Integrity | The envelope must be verifiable by the Runner as authentic and unmodified under the trust contract selected for the issuer (DP-002/DP-007); the specific mechanism is contract detail, and any runner-side key material raises the Runner key-custody gate — design policy decided by Entry 5 (2026-11-10; [HYBRID_RUNNER_TRUST_DESIGN.md](HYBRID_RUNNER_TRUST_DESIGN.md)), verification/activation still gated | DP-002/007; §9 |
 | No credential/content leakage | Envelope contains job/policy metadata only — never credential bytes, never provider-credential content, never model-facing request content (I-6; Q4; B2) | I-6 |
 | No tool declarations | The envelope never carries tool declarations toward any model-facing path; native CLI tools remain inside Plane R (ADR-0011 preserved; B3) | I-7 |
 | Policy echo | Carries the `policy_id`/`policy_version` the job was admitted under, matching the workspace binding and the runner's health `policy_version_echo` (T-T1 stale-policy defense) | step-2 §2.5 |
@@ -221,7 +226,9 @@ in-process calls, no shared objects, no alternate channels).
 Envelope fields that depend on the owner-decided trust contract (nonce carrier,
 signature blocks, key references) are contract detail inside DP-002 **only under the
 CP-internal-key / online-verification mandate**; they are not license to build a
-runner-held-key protocol, which stays 【要決定】 (§9, item 3).
+runner-held-key protocol, which stays 【要決定】 (§9, item 3) — with the Entry 5
+design-policy approval noted there (verification conditions and activation gates
+still apply; no runner-held-key protocol is enabled by this package).
 
 ### 2.3 Binding trace — where each binding is established and rechecked
 
@@ -307,9 +314,10 @@ runner-held-key protocol, which stays 【要決定】 (§9, item 3).
   lost fails closed at E2.
 - **No credentials anywhere.** The issuer consumes only presence metadata
   (`adapter_credentials.state` ∈ enrolled/absent/revoked). Provider credential
-  supply itself is 【要決定】 (DP-034b) and is not assumed by any part of this
-  contract; no receipt, envelope, audit record or log may contain credential bytes
-  or credential content (I-6, Q4).
+  supply is governed by **Entry 4 (2026-11-10): design/verification approved,
+  actual supply not permitted at this stage** (DP-034b) and is not assumed by any
+  part of this contract; no receipt, envelope, audit record or log may contain
+  credential bytes or credential content (I-6, Q4).
 
 ### 3.2 What automated issuance is not
 
@@ -317,7 +325,9 @@ runner-held-key protocol, which stays 【要決定】 (§9, item 3).
 - It is not permission to widen any policy value: the issuer reads policy; it never
   writes it. Policy writes stay admin-only under existing role ceilings (E7).
 - It is not approval of new permissions: any `approve_jobs`-style permission or
-  approval exception is a boundary change and stays 【要決定】 (DP-021; §9, item 2).
+  approval exception would have been a boundary change — **decided by Entry 2
+  (2026-11-10): no new permission; approval authority derives from the existing
+  Owner/Grantor/administrator roles** (DP-021; §9, item 2).
 - It is not a delegation primitive: the receipt binds identity, not permission sets;
   effective permissions are rechecked live at every point (ADR-0013 §6).
 
@@ -359,9 +369,12 @@ report/audit through the Control-Plane audit path:
 
 1. **Runner-instance identity.** Verify its own immutable, revocable
    `runner_instance_id` binding (enrolled OS principal, pinned binary identity,
-   transport identity per B5). The exact trust root/enrollment/key-custody mechanism
-   is 【要決定】 (§9, item 3); until decided and verified, no execution pathway
-   exists at all (B6 holds).
+   transport identity per B5). The trust design policy is decided by **Entry 5
+   (2026-11-10): OS-keystore per-instance identity, vetted TLS, admin
+   one-time-challenge enrollment** ([HYBRID_RUNNER_TRUST_DESIGN.md](HYBRID_RUNNER_TRUST_DESIGN.md));
+   the verification conditions (keystore/protection/RBAC/no-escalation/compromise
+   procedures/independent review) must pass and activation stays separately gated,
+   so until verified, no execution pathway exists at all (B6 holds).
 2. **Envelope authenticity/freshness.** Independently verify the envelope: version
    support (B4), integrity, freshness, replay rejection (T-T1, T-S1).
 3. **Receipt recheck — online.** Independently resolve the **same** receipt online
@@ -413,7 +426,7 @@ These are Tier-0 semantics; only owner-decided mechanisms/limits sit on top of t
 |---|---|---|
 | No receipt / approval denied | Reject before enqueue; audit denial; no receipt row is created for a denial | Not reachable (nothing enqueued); if observed anyway ⇒ reject |
 | Revoked after enqueue | Reject on any recheck observing revocation | **Must** reject before execution (canonical test) |
-| Expired | Reject; absolute expiry, no grace (DP-012); numeric TTL 【要決定】 | Reject on the same rule |
+| Expired | Reject; absolute expiry, no grace (DP-012); numeric TTL decided by **Entry 1 (2026-11-10): default 24 h / max 7 days** | Reject on the same rule |
 | Stale policy (version changed) | Reject (new policy version ⇒ old receipt stale) | Reject; also reject on health-echo mismatch |
 | Binding mismatch (workspace/adapter/destination/operation/runner instance) | Reject | Reject; exact-instance mismatch included (DP-001) |
 | Unavailable authority | Reject — never assume valid | Reject — an unreachable authority is not proof of validity |
@@ -436,9 +449,12 @@ enabled dispatch path while B6 is active (§8.3).
   rejection condition, not a degraded-allow condition (I-3; DP-008). Consequence:
   runner execution requires Control-Plane reachability for the authorization check;
   the Runner↔Control-Plane transport itself is intranet traffic, distinct from
-  external sends (step-2 §3.2 clarification), and any reachability/firewall path is
-  itself unapproved external-communication territory — 【要決定】 (DP-031/032; §9,
-  item 5). This package does not approve any network path.
+  external sends (step-2 §3.2 clarification), and any reachability/firewall path was
+  unapproved external-communication territory — **now decided by Entry 3
+  (2026-11-10) at the design level: an authenticated LAN-internal channel is
+  approved as a design; each exact endpoint still requires design → verification →
+  independent review → separate Owner approval, and no network path is activated by
+  this package** (DP-031/032; §9, item 5).
 - **Freshness inputs.** Heartbeat freshness and `policy_version_echo` must match the
   job's policy version at E1; the Runner re-derives its own view at E2 (step-2
   §2.5; T-T1).
@@ -528,12 +544,22 @@ fail-closed condition, merge the planes, weaken B6/B1–B7, or convert any
   the Control Plane (DP-007), reason enum values (DP-019), audit event names
   (DP-020), metadata-only schema representation (DP-001/DP-003/DP-023), expiry
   shape/clock (DP-012/013/014), invalidation trigger design (DP-016/DP-017).
-- Owner decision (【要決定】, §9): everything listed there — notably numeric TTLs,
-  new permissions, runner trust/enrollment/key custody, provider credential supply,
-  network reachability, retention, real data/production.
+- Owner decision (§9; resolved 2026-11-10 by Entries 1–6 at the design level for
+  TTLs, permissions, trust, credential-supply scope and LAN-channel design; the
+  remaining §9 items 6–9 stay 【要決定】): retention, real data/production, other
+  safety-boundary changes.
 - Never decidable by either: Tier-0 invariants (§8.2).
 
 ## 9. 【要決定】 inventory — unresolved owner choices
+
+> **Resolution update 2026-11-11:** owner Entries 1–6 ([OWNER_DECISIONS_2026-11-10-ENTRIES.md](OWNER_DECISIONS_2026-11-10-ENTRIES.md), 2026-11-10) resolved items 1–5 of this inventory at the design level:
+> - **Item 1 (TTL):** decided by Entry 1 — default 24 h / maximum 7 days; CP-authoritative absolute epoch-seconds; no grace; no expired-receipt reuse; in-scope auto-reissue as a new authorization decision.
+> - **Item 2 (new permissions):** decided by Entry 2 — no new `approve_jobs` permission; authority derived from existing Owner/Grantor/admin roles; Q2-bounded personal self-approval.
+> - **Item 3 (trust/enrollment/key custody):** design policy decided by Entry 5 (OS-keystore per-instance identity, vetted TLS, admin one-time-challenge enrollment, [HYBRID_RUNNER_TRUST_DESIGN.md](HYBRID_RUNNER_TRUST_DESIGN.md)); verification conditions and activation gates still apply.
+> - **Item 4 (credential supply):** decided by Entry 4 — design/verification approved; actual supply not permitted at this stage; broker adoption needs evidence + independent review + separate Owner approval.
+> - **Item 5 (external communication):** decided by Entry 3 at the design level — authenticated LAN-internal channel; each exact endpoint requires design → verification → independent review → separate Owner approval; no network path is activated by this package.
+>
+> Items 6–9 (unverified isolation profiles, receipt/audit retention D-1, real-data/production, other safety-boundary changes) remain **【要決定】**／別途承認. The table and the inline 【要決定】 markers elsewhere in this package are retained as the historical snapshot; where an inline marker corresponds to an item above, the Entry resolution supersedes it.
 
 Each item cites its owner §4 wording and the classification row. None is resolved,
 defaulted or implicitly assumed anywhere in this package.
@@ -570,7 +596,9 @@ recommendation and changes no queue cell.
   `tests/integration/test_loop_c_min_launch.py`,
   `tests/integration/test_c_min_public_reference_scan.py`) all remain exactly as
   they are.
-- It leaves every §9 item 【要決定】 and adds no approval surface.
+- It leaves every §9 item that no owner Entry decided 【要決定】 and adds no approval
+  surface; items 1–5 carry the Entry 1–6 design-level resolutions recorded in §9
+  (with their activation gates intact), and items 6–9 remain unresolved.
 
 ## 11. Verification requirements for the future implementation (not performed here)
 

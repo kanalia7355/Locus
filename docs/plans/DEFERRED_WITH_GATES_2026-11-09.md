@@ -1,6 +1,6 @@
 # Deferred work and explicit gates — 2026-11-09
 
-**Authority:** formal owner decisions [Q1–Q7](OWNER_DECISIONS_2026-11-09-EVENING.md), accepted ADR-0011/0012, source requirements, and the existing roadmap. Deferral is sequencing, not removal from final requirements. This inventory does not alter decision-queue status, grant permission, or activate any capability. The classification of each DP and any split row is maintained separately in [OWNER_QUEUE_CLASSIFICATION_2026-11-09.md](OWNER_QUEUE_CLASSIFICATION_2026-11-09.md); this document records start conditions and acceptance gates, not new classifications.
+**Authority:** formal owner decisions [Q1–Q7](OWNER_DECISIONS_2026-11-09-EVENING.md), accepted ADR-0011/0012, source requirements, and the existing roadmap. Deferral is sequencing, not removal from final requirements. This inventory does not alter decision-queue status, grant permission, or activate any capability. The classification of each DP and any split row is maintained separately in [OWNER_QUEUE_CLASSIFICATION_2026-11-09.md](OWNER_QUEUE_CLASSIFICATION_2026-11-09.md); this document records start conditions and acceptance gates, not new classifications. *(Update 2026-11-11: Owner Entries 1–6 of [OWNER_DECISIONS_2026-11-10-ENTRIES.md](OWNER_DECISIONS_2026-11-10-ENTRIES.md) resolved parts of the §5 unresolved list as design decisions — see the dated update section at the end of this file. Every activation gate below remains intact.)*
 
 ## 1. Receipt-contract unresolved decisions and dispatch activation
 
@@ -64,3 +64,19 @@ These items are not approved by Q1–Q7 and must never be marked resolved by imp
 ## 7. Gate discipline
 
 A deferred item's start condition is a prerequisite, not permission to bypass any other gate. For all work, preserve ADR-0011 zero-tool rejection, ADR-0012 B1–B7 and approval/activation separation, explicit B6 dispatch rejection, default-deny no-egress, fail-closed authorization, and independent review where required. Blocked or unavailable evidence is recorded as blocked/skipped, never passed. Track every deferred requirement to its owner decision, exact evidence and eventual acceptance; do not delete or weaken deferred rows to make a phase appear complete.
+
+## 8. Update 2026-11-11 — Owner Entries 1–6 partially resolve §5; gates intact
+
+The owner's formal decisions [OWNER_DECISIONS_2026-11-10-ENTRIES.md](OWNER_DECISIONS_2026-11-10-ENTRIES.md) (2026-11-10) resolve the **decision** part of several §5 unresolved items while leaving every **activation** gate below unchanged. The §5 table is retained as the gate record; this section records what is now decided and what still cannot run.
+
+| §5 unresolved item | Now decided (Entry) | Still gated |
+|---|---|---|
+| Receipt TTL concrete values | Entry 1: default 24 h / max 7 days; CP-authoritative absolute epoch-seconds; no grace; no expired-receipt reuse; in-scope auto-reissue as a new authorization decision | Whole receipt-contract approval and dispatch activation (B6, ADR-0012 activation gate); E1/E2 fail-closed checks unchanged |
+| New permission or approval exception | Entry 2: no new `approve_jobs` permission; authority derived from existing Owner/Grantor/admin roles; Q2-bounded personal self-approval; existing ceilings preserved | Any future new permission/exception remains a separate owner decision |
+| Runner trust, enrollment and key management | Entry 5: recommended configuration approved as design policy (OS-keystore per-instance identity, vetted TLS, one-time-challenge enrollment, strict ID binding, revocable ID, measured rotation, revoke-then-re-enroll, full audit; no custom CA/hardware/quorum initially) | Actual key issuance, Runner registration, communication connection, execution activation; verification conditions (keystore/protection/RBAC/no-escalation/compromise procedures/standards+measurement crypto/independent review) must pass first |
+| Provider credential supply | Entry 4: design and verification of supply methods approved; official CLI methods preferred; broker-mediated adoption requires evidence + independent review + separate Owner approval | Real account login, credential readout/transfer/supply; adapters that cannot demonstrate safe supply stay rejected; no egress/provider connection |
+| Unapproved external communication / egress | Entry 3: authenticated LAN-internal channel approved as **design**; per-endpoint design→verification→independent review→separate Owner approval; deny elsewhere; fail-closed | Any firewall change, port opening, communication start or egress; provider-API egress denied regardless |
+| Any unverified isolation profile | Q3 direction (per-environment verified profiles) stands | Each concrete profile still requires exact-platform evidence, independent review and separate activation |
+| Real data / production publication / other safety-boundary changes | Not decided by any Entry | Unchanged — separate owner approval required |
+
+Unlocked work (design/implementation within the approved scope) is recorded in [RESUMABLE_JOBS_2026-11-09.md](RESUMABLE_JOBS_2026-11-09.md) §"Update 2026-11-11". The deferred-item gate discipline in §7 applies unchanged to everything above.

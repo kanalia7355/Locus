@@ -10,6 +10,13 @@ no dispatch path and no code.** Dispatch-capable Plane-R code (slice 2b) remains
 forbidden until this ADR is approved per ADR-0012 §4.1 and step-2 design
 §3.3/§6.11.
 
+**Resolution update 2026-11-11:** owner Entries 1–2 ([OWNER_DECISIONS_2026-11-10-ENTRIES.md](../../plans/OWNER_DECISIONS_2026-11-10-ENTRIES.md),
+2026-11-10) directly decided specific 【要決定】 items of this ADR and are annotated
+inline in §5, §7 and §8. This ADR itself remains DRAFT and unapproved as a whole;
+items not decided by an Entry (envelope binding, issuer mechanism, revocation
+mechanism, self-approval/registry form, approver-authority-loss E2 effect, clock
+skew tolerance, audit operation naming, retention, PH2-A-11) remain 【要決定】.
+
 ## Context
 
 ADR-0012 (ACCEPTED, owner approval 2026-11-07) established the dual-plane
@@ -216,7 +223,7 @@ step-2 design §6.11 already specifies:
 |---|---|
 | No receipt / denied approval | Reject before enqueue; audit denial. A denial is never persisted as a receipt |
 | Revoked after enqueue | E1 may already have enqueued; E2 must reject before execution (revocation between enqueue and execution is the canonical test) |
-| Expired | Reject at whichever check observes expiry; no grace period 【要決定】 (proposed default: none) |
+| Expired | Reject at whichever check observes expiry; **no grace period — decided by Entry 1 (2026-11-10): none** (the proposed fail-closed default was adopted) |
 | Stale policy | `workspace_policies` version changed since issuance ⇒ reject; the version is immutable in `backend/app/agents/registry.py`, so any change is a new version |
 | Binding mismatch | Any of workspace/adapter/destination/operation/runner-instance differs ⇒ reject |
 | Unavailable authority | Reject (never "assume valid") |
@@ -261,19 +268,8 @@ dispatch path.
 
 Expiry is a mandatory receipt field (§1). Bounds are owner decisions:
 
-- Default TTL and maximum TTL for job receipts 【要決定】. For orientation
-  only: the owner-resolved delegation TTL is 15 min minimum / 24 h default /
-  7 days maximum (`create_delegation`, `backend/app/service.py`). A job receipt
-  plausibly wants a shorter horizon because it authorizes one execution, but
-  no value is proposed here.
-- Whether expiry is absolute (wall-clock) or anchored to a job deadline
-  (`deadline_seconds` is currently CHECK-constrained to NULL in
-  `backend/app/agents/registry.py`), and the timestamp authority (the
-  delegation path currently uses epoch seconds from
-  `_delegation_now`, pending the production-DB/clock decision per the
-  2026-11-09 resolution item 8) are 【要決定】.
-- Clock skew tolerance between Control Plane and Runner 【要決定】; the
-  fail-closed default is zero tolerance until the owner selects one.
+- Default TTL and maximum TTL for job receipts — **decided by Entry 1 (2026-11-10, [OWNER_DECISIONS_2026-11-10-ENTRIES.md](../../plans/OWNER_DECISIONS_2026-11-10-ENTRIES.md)): default 24 hours, maximum 7 days.** Failure is Control-Plane-authoritative absolute epoch-seconds; no grace period; reuse of expired receipts is prohibited; automatic reissue is allowed only for in-scope jobs after current permission/policy re-verification, treated as a NEW authorization decision (never an extension), and is prohibited on permission loss, policy change or out-of-scope operation; receipt TTL is managed as a separate concept from the delegation TTL (15 min min / 24 h default / 7 d max, `create_delegation`, `backend/app/service.py`).
+- Expiry form and timestamp authority — **decided by Entry 1 as absolute (wall-clock) epoch-seconds with the Control Plane as authority**; this is consistent with the prototype's epoch-seconds time authority (2026-11-09 resolution item 8) and does not by itself select the production clock policy (Q7 track). Clock skew tolerance between Control Plane and Runner remains 【要決定】; the fail-closed default of zero tolerance stands until the owner selects one.
 
 ### 8. Audit and role-ceiling integration (mandatory conventions)
 
@@ -289,7 +285,12 @@ Expiry is a mandatory receipt field (§1). Bounds are owner decisions:
   role-ceiling rules (E7): writes reject permission sets outside `NON_ADMIN`
   and any delegated-admin attempt to widen ceilings (T-E2). No new permission
   is added to `NON_ADMIN` without owner approval; a new `approve_jobs`-style
-  permission would be a boundary change requiring an owner decision 【要決定】.
+  permission was a boundary change requiring an owner decision — **decided by
+  Entry 2 (2026-11-10): no new `approve_jobs` permission is added**; approval
+  authority is derived from the existing Owner/Grantor/administrator roles and
+  permission model, personal-workspace self-approval stays within the Q2
+  bounds, and the existing ceilings and approver/actor separation are
+  preserved.
 - Receipt records retain the delegation model's immutability discipline:
   receipt rows are never updated or deleted; revocation and expiry are
   recorded as new immutable events (pattern:
