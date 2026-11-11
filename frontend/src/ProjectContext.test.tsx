@@ -150,7 +150,7 @@ it("does not start an obsolete mutation refresh after logout/unmount", async () 
 it("an old deletion cannot clear another conversation, but current deletion still clears it", async () => {
   const { counts, release } = await setup("history");
   fireEvent.click(screen.getByRole("button", { name: "調査履歴" }));
-  fireEvent.click(screen.getAllByRole("button", { name: /^調査 ·/ })[0]);
+  fireEvent.click(screen.getAllByRole("button", { name: /^調査(?!履歴)/ })[0]);
   await waitFor(() =>
     expect(
       screen.getByRole("textbox", { name: "メッセージ" }),
@@ -159,7 +159,7 @@ it("an old deletion cannot clear another conversation, but current deletion stil
   fireEvent.click(screen.getByRole("button", { name: "調査履歴" }));
   fireEvent.click(screen.getAllByRole("button", { name: "削除" })[0]);
   await waitFor(() => expect(counts.pending).toBe(true));
-  fireEvent.click(screen.getAllByRole("button", { name: /^調査 ·/ })[1]);
+  fireEvent.click(screen.getAllByRole("button", { name: /^調査(?!履歴)/ })[1]);
   await screen.findByText("新しい会話の質問");
   const draft = screen.getByRole("textbox", { name: "メッセージ" });
   fireEvent.change(draft, { target: { value: "保持する下書き" } });

@@ -2237,15 +2237,27 @@ class Service:
     def conversations(self, actor: Principal, project: str) -> list[Json]:
         with self.db() as db:
             self.require(db, actor, project, "retrieve")
-            return [
-                dict(row)
-                for row in db.execute(
-                    "SELECT id,project_id,created FROM conversations "
-                    "WHERE owner_id=? AND project_id=? "
-                    "ORDER BY created DESC",
-                    (actor.id, project),
-                ).fetchall()
-            ]
+            rows = []
+            for row in db.execute(
+                """
+                SELECT c.id, c.project_id, c.created,
+                       (SELECT m.text FROM messages m
+                        WHERE m.conversation_id = c.id
+                        ORDER BY m.created ASC, m.rowid ASC
+                        LIMIT 1) AS preview
+                FROM conversations c
+                WHERE c.owner_id=? AND c.project_id=?
+                ORDER BY c.created DESC
+                """,
+                (actor.id, project),
+            ).fetchall():
+                item = dict(row)
+                preview = " ".join((item.get("preview") or "").split())
+                if len(preview) > 80:
+                    preview = preview[:79].rstrip() + "…"
+                item["preview"] = preview
+                rows.append(item)
+            return rows
 
     def _citations(
         self, db: sqlite3.Connection, actor: Principal, ids: list[str], conversation: str

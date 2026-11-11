@@ -513,7 +513,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
                     !controller.signal.aborted &&
                     conversationRef.current === status.conversation_id
                   )
-                    setMessages(conv.messages);
+                    setMessages(conv.messages ?? []);
                 })
                 .catch((error) => setError(errorText(error)));
             } else
@@ -759,9 +759,9 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
       conversationRef.current = id;
       setCancelledJob(null);
       setConversationId(id);
-      setMessages(conv.messages);
+      setMessages(conv.messages ?? []);
       setAttachments(
-        conv.attachments.map((doc) => ({
+        (conv.attachments ?? []).map((doc) => ({
           key: doc.id,
           id: doc.id,
           name: doc.name,
@@ -1252,8 +1252,13 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
                       void openConversation(conv.id);
                     }}
                   >
-                    調査 ·{" "}
-                    {new Date(conv.created * 1000).toLocaleString("ja-JP")}
+                    <span className="conversation-preview">
+                      {conv.preview?.trim() || "調査"}
+                    </span>
+                    <span className="muted">
+                      {" "}
+                      {new Date(conv.created * 1000).toLocaleString("ja-JP")}
+                    </span>
                   </button>
                   <button
                     onClick={() => {

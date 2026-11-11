@@ -57,8 +57,9 @@ export interface Conversation {
   id: string;
   project_id: string;
   created: number;
-  messages: Message[];
-  attachments: Document[];
+  messages?: Message[];
+  attachments?: Document[];
+  preview?: string;
 }
 export interface ChatJobAccepted {
   job_id: string;

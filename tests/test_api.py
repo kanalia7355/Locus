@@ -571,3 +571,22 @@ def test_document_list_search_respects_visibility(service: Service) -> None:
     ).json()
     assert [d["id"] for d in bob_hits] == [shared]
     assert all(d["name"] == "alpha-shared.txt" for d in bob_hits)
+
+
+def test_conversation_list_includes_preview(service: Service) -> None:
+    client = client_for(service)
+    login(client)
+    conv = client.post(
+        "/api/conversations", json={"project_id": "project-a"}, headers=ORIGIN
+    ).json()["id"]
+    res = client.post(
+        f"/api/conversations/{conv}/messages",
+        json={"text": "量子ドットの合成条件を確認したい", "scope": "all", "attachment_ids": []},
+        headers=ORIGIN,
+    )
+    assert res.status_code == 200, res.text
+
+    items = client.get("/api/conversations", params={"project_id": "project-a"}).json()
+    match = [item for item in items if item["id"] == conv]
+    assert match, items
+    assert "量子ドットの合成条件" in match[0].get("preview", "")
