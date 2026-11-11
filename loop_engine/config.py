@@ -56,7 +56,7 @@ DEFAULT: dict[str, Any] = {
         "delivery": "local",
     },
     "verification": {},
-    "opencode": {"model": None, "binary": None, "agent": None},
+    "opencode": {"model": None, "binary": None, "agent": None, "fallback_models": []},
 }
 
 

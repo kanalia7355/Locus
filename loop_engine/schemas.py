@@ -219,8 +219,9 @@ CONFIG = obj(
                 "model": {"type": ["string", "null"], "maxLength": 200},
                 "binary": {"type": ["string", "null"], "maxLength": 1000},
                 "agent": {"type": ["string", "null"], "maxLength": 100},
+                "fallback_models": strings(20),
             },
-            required=["model", "binary", "agent"],
+            required=["model", "binary", "agent", "fallback_models"],
         ),
     },
     required=[

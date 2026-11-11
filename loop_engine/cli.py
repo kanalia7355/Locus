@@ -290,6 +290,7 @@ def build_controller(root: Path, state: StateStore) -> Any:
             model=opencode.get("model"),
             binary=opencode.get("binary"),
             agent=opencode.get("agent"),
+            fallback_models=opencode.get("fallback_models") or [],
         )
     else:
         boundary = UnprovenBoundary()
