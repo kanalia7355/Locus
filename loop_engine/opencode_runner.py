@@ -8,7 +8,6 @@ network egress, or provider access.
 from __future__ import annotations
 
 import json
-import re
 import shutil
 import time
 from collections.abc import Callable
@@ -19,7 +18,6 @@ from loop_engine.models import Task, check_result
 from loop_engine.process import ProcessRunner
 from loop_engine.schemas import SCHEMAS, validate
 from loop_engine.security import SafetyError, reject_secrets
-
 
 MAX_PROMPT_CHARS = 300_000
 
@@ -39,6 +37,28 @@ class UnprovenBoundary:
 
     def command(self, argv: list[str], workspace: Path) -> list[str]:
         raise SafetyError("Execution boundary unavailable")
+
+
+class LocalWorkspaceBoundary:
+    """Minimal local boundary for synthetic/offline OpenCode execution paths."""
+
+    file_proposals = False
+    c_min = False
+
+    def __init__(self, root: Path) -> None:
+        self.root = root.resolve()
+
+    def require(self, workspace: Path, control_root: Path) -> None:
+        if control_root.resolve() != self.root:
+            raise SafetyError("Control-root mismatch")
+        resolved = workspace.resolve()
+        if not resolved.is_dir():
+            raise SafetyError("Workspace unavailable")
+        if not (resolved == self.root or resolved.is_relative_to(self.root)):
+            raise SafetyError("Workspace outside control root")
+
+    def command(self, argv: list[str], workspace: Path) -> list[str]:
+        return argv
 
 
 class OpenCodeError(SafetyError):
@@ -267,6 +287,17 @@ class OpenCodeRunner:
         }
         return json.dumps(prompt, ensure_ascii=False)
 
+    def _record(self, kind: str, **data: Any) -> None:
+        state = getattr(self, "state", None)
+        if state is None:
+            return
+        event = getattr(state, "event", None)
+        if callable(event):
+            try:
+                event(kind, None, **data)
+            except Exception:
+                return
+
     def _run_cli(
         self,
         prompt: str,
@@ -274,6 +305,8 @@ class OpenCodeRunner:
         *,
         timeout: float,
         cancelled: Callable[[], bool],
+        schema: str,
+        task_id: str | None = None,
     ) -> Any:
         deadline = time.monotonic() + timeout
 
@@ -286,6 +319,15 @@ class OpenCodeRunner:
 
         self.boundary.require(workspace, self.root)
         if len(prompt) > MAX_PROMPT_CHARS:
+            self._record(
+                "opencode.execution",
+                schema=schema,
+                task_id=task_id,
+                model=self.model,
+                status="failed",
+                category="unavailable",
+                reason="prompt_too_large",
+            )
             raise OpenCodeError("OpenCode prompt exceeds bounded size", category="unavailable")
         reject_secrets(prompt)
         binary = resolve_binary(self.binary)
@@ -298,6 +340,14 @@ class OpenCodeRunner:
         argv.append(prompt)
         argv = self.boundary.command(argv, workspace)
 
+        self._record(
+            "opencode.invocation",
+            schema=schema,
+            task_id=task_id,
+            model=self.model,
+            binary=binary,
+            status="started",
+        )
         outcome = self.process.run(
             argv,
             workspace,
@@ -312,8 +362,31 @@ class OpenCodeRunner:
             stderr=outcome.stderr,
         )
         if category != "ok":
+            self._record(
+                "opencode.execution",
+                schema=schema,
+                task_id=task_id,
+                model=self.model,
+                status="failed",
+                category=category,
+                outcome=outcome.outcome,
+                returncode=outcome.returncode,
+                elapsed=getattr(outcome, "elapsed", None),
+            )
             raise OpenCodeError(f"OpenCode execution failed: {category}", category=category)
-        return _extract_json(outcome.stdout)
+        parsed = _extract_json(outcome.stdout)
+        self._record(
+            "opencode.execution",
+            schema=schema,
+            task_id=task_id,
+            model=self.model,
+            status="ok",
+            category="ok",
+            outcome=outcome.outcome,
+            returncode=outcome.returncode,
+            elapsed=getattr(outcome, "elapsed", None),
+        )
+        return parsed
 
     def invoke(
         self,
@@ -333,8 +406,17 @@ class OpenCodeRunner:
                 category="model_tool_incompatible",
             )
         self.boundary.require(workspace, self.root)
+        task_id = None
+        task = prompt.get("task")
+        if isinstance(task, dict) and isinstance(task.get("id"), str):
+            task_id = task.get("id")
         result = self._run_cli(
-            self._build_prompt(schema, prompt), workspace, timeout=timeout, cancelled=cancelled
+            self._build_prompt(schema, prompt),
+            workspace,
+            timeout=timeout,
+            cancelled=cancelled,
+            schema=schema,
+            task_id=task_id,
         )
         if not isinstance(result, dict):
             raise OpenCodeError("OpenCode result is not an object", category="malformed_output")
@@ -363,6 +445,15 @@ class OpenCodeRunner:
             ),
         }
         if getattr(self.boundary, "file_proposals", False):
+            self._record(
+                "opencode.execution",
+                schema="result",
+                task_id=task.id,
+                model=self.model,
+                status="failed",
+                category="model_tool_incompatible",
+                reason="file_proposals_unsupported",
+            )
             raise OpenCodeError(
                 "OpenCode adapter file-proposal mode is not implemented",
                 category="model_tool_incompatible",

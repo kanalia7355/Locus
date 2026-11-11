@@ -185,3 +185,43 @@ def test_execute_parses_json_line_result(tmp_path: Path) -> None:
         binary="opencode",
     )
     assert runner.execute(task, {}, tmp_path, timeout=30, cancelled=lambda: False) == result_payload
+
+
+def test_execute_rejects_file_proposals_boundary(tmp_path: Path) -> None:
+    from loop_engine.opencode_runner import OpenCodeError, OpenCodeRunner
+
+    task = sample_task()
+
+    class ProposalBoundary(NoBoundary):
+        file_proposals = True
+
+    runner = OpenCodeRunner(
+        tmp_path,
+        boundary=ProposalBoundary(),
+        process=FakeProcess(SimpleNamespace()),
+        model="opencode/iceman-free",
+        binary="opencode",
+    )
+    with pytest.raises(OpenCodeError) as exc:
+        runner.execute(task, {}, tmp_path, timeout=30, cancelled=lambda: False)
+    assert exc.value.category == "model_tool_incompatible"
+
+
+def test_invoke_rejects_c_min_boundary(tmp_path: Path) -> None:
+    from loop_engine.opencode_runner import OpenCodeError, OpenCodeRunner
+
+    class CMinBoundary(NoBoundary):
+        c_min = True
+
+    runner = OpenCodeRunner(
+        tmp_path,
+        boundary=CMinBoundary(),
+        process=FakeProcess(SimpleNamespace()),
+        model="opencode/iceman-free",
+        binary="opencode",
+    )
+    with pytest.raises(OpenCodeError) as exc:
+        runner.invoke(
+            "result", {"task": sample_task().document()}, tmp_path, readonly=False, timeout=30
+        )
+    assert exc.value.category == "model_tool_incompatible"

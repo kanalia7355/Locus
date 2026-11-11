@@ -56,6 +56,7 @@ DEFAULT: dict[str, Any] = {
         "delivery": "local",
     },
     "verification": {},
+    "opencode": {"model": None, "binary": None, "agent": None},
 }
 
 
@@ -69,6 +70,7 @@ def load(path: Path) -> dict[str, Any]:
     data.setdefault("qa", deepcopy(DEFAULT["qa"]))
     data.setdefault("development", deepcopy(DEFAULT["development"]))
     data.setdefault("approval", {}).setdefault("routine_publication", False)
+    data.setdefault("opencode", deepcopy(DEFAULT["opencode"]))
     for section, aliases in {
         "github": {"base_branch": "base"},
         "security": {"allow_unrestricted_codex_execution": "allow_unrestricted_execution"},

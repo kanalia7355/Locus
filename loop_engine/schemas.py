@@ -191,7 +191,9 @@ CONFIG = obj(
                 "allow_destructive_operations": {"const": False},
                 "allow_unrestricted_execution": {"const": False},
                 "allow_model_execution": {"type": "boolean"},
-                "sandbox_executor": {"enum": ["codex", "proposal-docker", "unavailable"]},
+                "sandbox_executor": {
+                    "enum": ["codex", "proposal-docker", "unavailable", "opencode"]
+                },
             }
         ),
         "github": obj(
@@ -212,7 +214,25 @@ CONFIG = obj(
             "propertyNames": {"pattern": "^[a-zA-Z0-9_-]{1,100}$"},
             "additionalProperties": {"type": "array", "items": COMMAND, "maxItems": 100},
         },
-    }
+        "opencode": obj(
+            {
+                "model": {"type": ["string", "null"], "maxLength": 200},
+                "binary": {"type": ["string", "null"], "maxLength": 1000},
+                "agent": {"type": ["string", "null"], "maxLength": 100},
+            },
+            required=["model", "binary", "agent"],
+        ),
+    },
+    required=[
+        "version",
+        "qa",
+        "development",
+        "loop",
+        "approval",
+        "security",
+        "github",
+        "verification",
+    ],
 )
 CRITERION = obj(
     {"id": text(80), "status": {"enum": ["met", "unmet", "unknown"]}, "evidence": text()}

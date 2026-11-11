@@ -92,7 +92,7 @@ def doctor(root: Path, *, check_sandbox: bool = False) -> dict[str, Any]:
         ("codex", ["login", "status"]),
         ("gh", ["auth", "status", "--hostname", "github.com"]),
     ):
-        if tool == "codex":
+        if tool == "codex" and config["security"]["sandbox_executor"] != "opencode":
             from loop_engine.runtime_diagnostics import require_receipt
 
             # A diagnostic/launch request cannot bootstrap authentication through
@@ -115,6 +115,17 @@ def doctor(root: Path, *, check_sandbox: bool = False) -> dict[str, Any]:
             executable
             and process.run([executable, *args], root, timeout=15, model=True).returncode == 0
         )
+    if config["security"]["sandbox_executor"] == "opencode":
+        opencode_bin = shutil.which(config.get("opencode", {}).get("binary") or "opencode")
+        result["opencode"] = {
+            "available": opencode_bin is not None,
+            "configured_model": config.get("opencode", {}).get("model"),
+        }
+        if opencode_bin:
+            probe = process.run([opencode_bin, "--version"], root, timeout=15)
+            result["opencode"]["version"] = (
+                probe.stdout.splitlines()[0][:100] if probe.returncode == 0 else "unavailable"
+            )
     git_head = process.run(["git", "rev-parse", "--verify", "HEAD"], root, timeout=10)
     result["committed_git_baseline"] = git_head.outcome == "exit" and git_head.returncode == 0
     result["ready_for_live_execution"] = False
@@ -148,6 +159,13 @@ def doctor(root: Path, *, check_sandbox: bool = False) -> dict[str, Any]:
             result["sandbox"] = "unverified or stale: execution blocked"
         if config["github"]["delivery"] == "pull_request":
             result["automatic_merge"] = "held: PR-only delivery; safe merge is not activated"
+    elif config["security"]["sandbox_executor"] == "opencode":
+        result["sandbox"] = "local workspace boundary (non-proposal OpenCode mode)"
+        result["ready_for_live_execution"] = bool(
+            config["security"]["allow_model_execution"]
+            and result.get("opencode", {}).get("available")
+            and result["committed_git_baseline"]
+        )
     elif check_sandbox:
         from loop_engine.diagnostics import sandbox_probe
 
@@ -246,7 +264,7 @@ def build_controller(root: Path, state: StateStore) -> Any:
             None,
             "scope",
             queue_hash,
-            "Approve source-only Codex execution after isolation proof; configure before planning.",
+            "Approve model execution after isolation proof; configure before planning.",
             "high",
         )
         raise SafetyError("Model execution is not authorized")
@@ -258,11 +276,26 @@ def build_controller(root: Path, state: StateStore) -> Any:
         if not boundary.docker.audit_evidence(root):
             raise SafetyError("Audited immutable QA image is stale or mismatched")
         qa_boundary = boundary.docker
+        runner = CodexRunner(root, boundary=boundary, state=state)
+    elif config["security"]["sandbox_executor"] == "opencode":
+        from loop_engine.opencode_runner import LocalWorkspaceBoundary, OpenCodeRunner
+
+        boundary = LocalWorkspaceBoundary(root)
+        qa_boundary = boundary
+        opencode = config.get("opencode", {})
+        runner = OpenCodeRunner(
+            root,
+            boundary=boundary,
+            state=state,
+            model=opencode.get("model"),
+            binary=opencode.get("binary"),
+            agent=opencode.get("agent"),
+        )
     else:
         boundary = UnprovenBoundary()
         boundary.require(root, root)
         qa_boundary = boundary
-    runner = CodexRunner(root, boundary=boundary, state=state)
+        runner = CodexRunner(root, boundary=boundary, state=state)
     git = GitManager(
         root,
         state,
