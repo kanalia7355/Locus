@@ -16,6 +16,10 @@ export async function runLuna(opts: {
   model: string;
   timeoutMs?: number;
 }): Promise<LunaResult> {
+  // 注意: codex exec に --full-auto は無い (対話モード側のフラグ)。
+  // exec は非対話で承認を求めず、触れる範囲は --sandbox で決まる。
+  // プロンプトは引数で渡さない: Windows の npm シム経由だと空白・改行で割れて
+  // 化ける (実証済み)。`codex exec -` で stdin から全文を読むのが公式の形。
   const result = await runProcess(
     [
       "codex",
@@ -24,13 +28,14 @@ export async function runLuna(opts: {
       opts.model,
       "--sandbox",
       "workspace-write",
-      "--full-auto",
-      opts.prompt,
+      "-",
     ],
-    { cwd: opts.cwd, timeoutMs: opts.timeoutMs },
+    { cwd: opts.cwd, timeoutMs: opts.timeoutMs, input: opts.prompt },
   );
   return {
     ...result,
-    quota: isQuotaError(`${result.stdout}\n${result.stderr}`),
+    // 正常終了した実行の要約文に "usage limit" 等の語が混ざっても誤判定しないよう、
+    // quota 判定は異常終了のときに限る
+    quota: result.code !== 0 && isQuotaError(`${result.stdout}\n${result.stderr}`),
   };
 }

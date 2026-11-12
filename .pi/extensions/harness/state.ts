@@ -26,6 +26,8 @@ export interface HarnessState {
   freeCursor: number;
   /** 直近サイクルの要約 (人間と Luna が状況を掴むためのメモ) */
   lastCycleNote: string;
+  /** 直近のサイクル履歴 (新しい順、最大10件)。失敗の痕跡を上書きで消さないため */
+  cycleLog: Array<{ at: string; note: string }>;
 }
 
 export function defaultState(): HarnessState {
@@ -36,7 +38,17 @@ export function defaultState(): HarnessState {
     cooldowns: [],
     freeCursor: 0,
     lastCycleNote: "",
+    cycleLog: [],
   };
+}
+
+/** サイクル結果を記録する (lastCycleNote の更新と履歴への追加) */
+export function pushCycleNote(state: HarnessState, note: string): void {
+  state.lastCycleNote = note;
+  state.cycleLog = [
+    { at: new Date().toISOString(), note },
+    ...state.cycleLog,
+  ].slice(0, 10);
 }
 
 export function loadState(file: string): HarnessState {

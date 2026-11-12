@@ -13,7 +13,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { DEFAULT_CONFIG, type HarnessConfig } from "./config";
-import { loadState, saveState } from "./state";
+import { loadState, saveState, pushCycleNote } from "./state";
 import { detectDiff } from "./poll";
 import { runLuna } from "./runners/codex";
 
@@ -58,7 +58,7 @@ export async function runPollCycle(
   );
 
   if (changed.length === 0) {
-    state.lastCycleNote = "no changes";
+    pushCycleNote(state, "no changes");
     saveState(stateFile, state);
     return { changedCount: 0, lunaStarted: false, note: state.lastCycleNote };
   }
@@ -70,7 +70,10 @@ export async function runPollCycle(
   );
   if (!fs.existsSync(promptFile)) {
     // プロンプトが無い間はスナップショットを進めない (次サイクルで再試行する)
-    state.lastCycleNote = `changed ${changed.length} file(s) but orchestrator prompt is missing: ${promptFile}`;
+    pushCycleNote(
+      state,
+      `changed ${changed.length} file(s) but orchestrator prompt is missing: ${promptFile}`,
+    );
     saveState(stateFile, state);
     return { changedCount: changed.length, lunaStarted: false, note: state.lastCycleNote };
   }
@@ -99,15 +102,29 @@ export async function runPollCycle(
   });
 
   if (luna.quota) {
-    // Luna 側の枠切れ: スナップショットは進めず、次サイクルで再試行する
-    state.lastCycleNote = "Luna quota exhausted; will retry next cycle";
+    // Luna 側の枠切れ: スナップショットは進めず、次サイクルで再試行する。
+    // 判定根拠 (codex の出力末尾) を証跡として残す — 本物の枠切れか誤判定か切り分けるため
+    const tail = `${luna.stderr}\n${luna.stdout}`.trim().slice(-300);
+    pushCycleNote(state, `Luna quota exhausted; will retry next cycle: ${tail}`);
     saveState(stateFile, state);
     return { changedCount: changed.length, lunaStarted: true, note: state.lastCycleNote };
   }
 
-  // Luna が処理したのでスナップショットを進める
+  if (luna.code !== 0) {
+    // Luna の起動失敗 (モデル ID の誤り等): スナップショットは進めず、
+    // 出力の末尾を証跡として残す。失敗を「処理済み」として握りつぶさない
+    const tail = `${luna.stderr}\n${luna.stdout}`.trim().slice(-300);
+    pushCycleNote(
+      state,
+      `Luna failed (code=${luna.code}, timedOut=${luna.timedOut}): ${tail}`,
+    );
+    saveState(stateFile, state);
+    return { changedCount: changed.length, lunaStarted: true, note: state.lastCycleNote };
+  }
+
+  // Luna が正常終了したのでスナップショットを進める
   state.progressSnapshot = current;
-  state.lastCycleNote = `Luna processed ${changed.length} changed file(s)`;
+  pushCycleNote(state, `Luna processed ${changed.length} changed file(s)`);
   saveState(stateFile, state);
   return { changedCount: changed.length, lunaStarted: true, note: state.lastCycleNote };
 }
@@ -117,12 +134,18 @@ export default function harness(pi: PiExtensionApi): void {
   let timer: ReturnType<typeof setInterval> | null = null;
   let running = false;
 
-  const cycle = async (ctx: PiContext) => {
+  const cycle = async (ctx: PiContext, verbose: boolean) => {
     if (running) return; // サイクルの重なりを防ぐ
     running = true;
     try {
       const result = await runPollCycle(ctx.cwd, config);
-      if (result.changedCount > 0) {
+      // 手動実行時は結果を必ず表示する。タイマー実行時は差分ありと失敗だけ
+      const notable =
+        result.changedCount > 0 ||
+        result.note.includes("failed") ||
+        result.note.includes("quota") ||
+        result.note.includes("missing");
+      if (verbose || notable) {
         ctx.ui?.notify?.(`harness: ${result.note}`, "info");
       }
     } catch (err) {
@@ -138,7 +161,7 @@ export default function harness(pi: PiExtensionApi): void {
   pi.on("session_start", (_event, ctx) => {
     if (timer) clearInterval(timer);
     timer = setInterval(() => {
-      void cycle(ctx);
+      void cycle(ctx, false);
     }, config.pollIntervalMs);
   });
 
@@ -150,7 +173,7 @@ export default function harness(pi: PiExtensionApi): void {
   pi.registerCommand("harness-poll", {
     description: "Run one harness poll cycle now",
     handler: async (_args, ctx) => {
-      await cycle(ctx);
+      await cycle(ctx, true);
     },
   });
 }

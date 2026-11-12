@@ -17,6 +17,8 @@ export interface RunOptions {
   cwd: string;
   timeoutMs?: number;
   env?: NodeJS.ProcessEnv;
+  /** 子プロセスの stdin に流す文字列。undefined の場合は stdin を即閉じる (EOF) */
+  input?: string;
 }
 
 export function runProcess(
@@ -57,6 +59,17 @@ export function runProcess(
       if (timer) clearTimeout(timer);
       resolve({ code, stdout, stderr, timedOut });
     };
+
+    // stdin: プロンプトは引数ではなく stdin で渡すのが原則 (Windows のシム経由では
+    // 引数文字列が空白で割れて化けるため)。渡すものが無くても必ず EOF を送る —
+    // codex exec は引数プロンプト時でも stdin を読むため、開いたままにすると固まる。
+    if (child.stdin) {
+      child.stdin.on("error", () => {
+        // 子が即終了した場合の EPIPE は無視する (終了コード側で判定する)
+      });
+      if (opts.input !== undefined) child.stdin.write(opts.input, "utf-8");
+      child.stdin.end();
+    }
 
     child.stdout?.on("data", (d: Buffer) => {
       stdout += d.toString("utf-8");
