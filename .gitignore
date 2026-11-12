@@ -44,3 +44,8 @@ credentials.*.json
 # Generated local loop reports; authoritative runtime state remains local
 /.loop/progress.md
 /.loop/decisions.md
+
+# Locus pi harness runtime state and logs
+.pi/harness/state.json
+.pi/harness/state.json.tmp
+.pi/harness/logs/

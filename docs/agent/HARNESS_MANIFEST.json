@@ -1,0 +1,67 @@
+{
+  "pi": {
+    "provider": "zai",
+    "version": "1.5.2",
+    "inference": {
+      "light": "zai/glm-5.3",
+      "default": "zai/glm-5.3"
+    }
+  },
+  "codex": {
+    "cli": "codex-cli",
+    "model": "gpt-6-luna",
+    "version": "0.167.1",
+    "exec_template": "codex exec --model gpt-6-luna --sandbox workspace-write --full-auto \"<prompt>\""
+  },
+  "agy": {
+    "cli": "agy",
+    "version": "1.5.5",
+    "prompt": "<placeholder>",
+    "exec_template": "agy -p \"<prompt>\" --model \"<表示名>\" --dangerously-skip-permissions --print-timeout 30m",
+    "model_display_names": [
+      "Gemini 4 Argon",
+      "Gemini 4 Carbon",
+      "Gemini 3.8 Flash",
+      "Claude Opus 5.5",
+      "Claude Sonnet 5.5",
+      "GPT-OSS 120B"
+    ],
+    "dangerously_skip_permissions": true,
+    "print_timeout_minutes": 30,
+    "full_auto": true
+  },
+  "opencode": {
+    "cli": "opencode",
+    "version": "2.2.7",
+    "exec_template": "opencode run --model opencode/<slug> --auto \"<prompt>\"",
+    "free_models": [
+      "beam-free",
+      "big-pickle",
+      "deepseek-v4.1-flash-free",
+      "flint-40b-free",
+      "glm-5.3-flash-free",
+      "iceman-free",
+      "inkling-2-small-free",
+      "longcat-2.5-free",
+      "mimo-v2.6-flash-free",
+      "minimax-m3.1-flash-free",
+      "nemotron-3.5-lightning-free",
+      "nemotron-3.5-super-vl-free"
+    ],
+    "local_fallback": "ollama/gemma3:4b"
+  },
+  "superpowers": {
+    "enabled": true,
+    "framework": "obra/superpowers",
+    "note": "Applied to all harness extensions; Superpowers is a quality layer, not protocol override."
+  },
+  "workflow": {
+    "cycle": "implement -> review -> qa -> commit (green)",
+    "poll_interval_minutes": 30,
+    "cooldown_format": "absolute_timestamp",
+    "max_attempts_per_task": 3,
+    "max_review_cycles": 2,
+    "branch_policy": "main <- phase/<slug> <- worktree subbranch",
+    "merge_on_green_ci": true
+  }
+}
