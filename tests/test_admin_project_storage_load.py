@@ -38,6 +38,7 @@ def test_admin_project_creation_and_membership_are_atomic_and_metadata_audited(s
             "role": "researcher",
             "roles": ["researcher"],
             "denied_permissions": [],
+            "delegated_permissions": [],
             "effective_permissions": ["read", "retrieve", "upload"],
         }
     ]

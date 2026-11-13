@@ -257,6 +257,7 @@ def test_system_admin_can_manage_holdings_in_unassigned_project_with_non_admin_r
     state = admin.get("/api/projects/unassigned-project/members/alice/roles", headers=ORIGIN).json()
     assert state["roles"] == ["researcher"]
     assert state["denied_permissions"] == ["retrieve"]
+    assert state["delegated_permissions"] == []
     assert state["effective_permissions"] == ["read", "upload"]
     assert (
         admin.post(
@@ -265,6 +266,55 @@ def test_system_admin_can_manage_holdings_in_unassigned_project_with_non_admin_r
         ).status_code
         == 422
     )
+
+
+def test_effective_permissions_preview_exposes_delegation_and_respects_explicit_denials(
+    service: Service,
+) -> None:
+    admin, alice = client_for(service), client_for(service)
+    login(admin, "admin", "01")
+    login(alice)
+    service.assign("alice", "project-a", "organization_admin")
+    users = admin.get("/api/admin/users").json()
+    bob_id = next(item["id"] for item in users if item["username"] == "bob")
+    alice_token = alice.cookies.get("locus_session")
+    alice_actor = service.authenticate(alice_token)
+    service.create_delegation(alice_actor, alice_token, "project-a", bob_id, ["upload"])
+
+    roles_preview = admin.get("/api/projects/project-a/members/bob/roles").json()
+    assert roles_preview["roles"] == ["viewer"]
+    assert roles_preview["delegated_permissions"] == ["upload"]
+    assert roles_preview["denied_permissions"] == []
+    assert roles_preview["effective_permissions"] == ["read", "retrieve", "upload"]
+
+    project_a = next(
+        item for item in admin.get("/api/admin/projects").json() if item["id"] == "project-a"
+    )
+    bob_member = next(item for item in project_a["members"] if item["username"] == "bob")
+    assert bob_member["delegated_permissions"] == ["upload"]
+    assert bob_member["effective_permissions"] == ["read", "retrieve", "upload"]
+
+    denied = admin.put(
+        "/api/projects/project-a/members/bob/denials",
+        headers=ORIGIN,
+        json={"denied_permissions": ["upload"]},
+    )
+    assert denied.status_code == 200
+
+    roles_after_deny = admin.get("/api/projects/project-a/members/bob/roles").json()
+    assert roles_after_deny["delegated_permissions"] == ["upload"]
+    assert roles_after_deny["denied_permissions"] == ["upload"]
+    assert roles_after_deny["effective_permissions"] == ["read", "retrieve"]
+
+    project_after_deny = next(
+        item for item in admin.get("/api/admin/projects").json() if item["id"] == "project-a"
+    )
+    bob_after_deny = next(
+        item for item in project_after_deny["members"] if item["username"] == "bob"
+    )
+    assert bob_after_deny["delegated_permissions"] == ["upload"]
+    assert bob_after_deny["denied_permissions"] == ["upload"]
+    assert bob_after_deny["effective_permissions"] == ["read", "retrieve"]
 
 
 def test_role_update_denials_and_built_in_roles_remain_protected(service: Service) -> None:

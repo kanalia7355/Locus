@@ -2,7 +2,7 @@
 
 - **対象 Phase**: `phase-2-authz`（`PH-ROADMAP-2` / 旧 `P2` — Scoped authorization and delegated administration; `docs/plans/MASTER_IMPLEMENTATION_ROADMAP.md` 参照）
 - **対象ブランチ**: `phase/2-authz`（ベース: `main` / 現行統合ブランチ `loop/local-development`）
-- **最終更新日時**: `2026-11-13T11:36:00+09:00`
+- **最終更新日時**: `2026-11-13T18:24:53+09:00`
 - **更新責任者**: オーケストレーター (`gpt-6-luna`) ※ワーカーによる編集禁止
 
 ---
@@ -54,9 +54,9 @@
 
 | Task ID | タイトル / 要件 ID | Weight | Status | Assignee | Model | Reviewer | Attempts | Worktree / Branch | Updated |
 |---|---|---|---|---|---|---|---|---|---|
-| `T-PH2-001` | 委任受領側 UI の改善と非委任権限者の作成操作ガード・文言整合 (`IAM-011`, `UI-008`, `DP-071`) | `medium` | `todo` | | | | `0` | `task/T-PH2-001` | `2026-11-13T11:36:00+09:00` |
-| `T-PH2-002` | プロジェクトメンバー実効権限プレビューにおける委任権限の明示と表示整合 (`IAM-011`, `IAM-012`, `IAM-014`) | `medium` | `todo` | | | | `0` | `task/T-PH2-002` | `2026-11-13T11:36:00+09:00` |
-| `T-PH2-003` | Phase 2 認可・委任・監査境界の統合回帰テスト補強 (`IAM-006`〜`IAM-015`, `DATA-008`, `DATA-010`) | `light` | `todo` | | | | `0` | `task/T-PH2-003` | `2026-11-13T11:36:00+09:00` |
+| `T-PH2-001` | Delegation recipient UI and unauthorized creation guard (`IAM-011`, `UI-008`, `DP-071`) | `medium` | `blocked` | `agy` | `Gemini 4 Argon` | `agy/Claude Sonnet 5.5` | `3` | `task/T-PH2-001` | `2026-11-13T15:02:02+09:00` |
+| `T-PH2-002` | プロジェクトメンバー実効権限プレビューにおける委任権限の明示と表示整合 (`IAM-011`, `IAM-012`, `IAM-014`) | `medium` | `done` | `agy` | `Gemini 4 Argon` | `agy/Claude Sonnet 5.5` | `1` | `task/T-PH2-002` | `2026-11-13T13:13:15+09:00` |
+| `T-PH2-003` | Phase 2 認可・委任・監査境界の統合回帰テスト補強 (`IAM-006`〜`IAM-015`, `DATA-008`, `DATA-010`) | `medium` | `doing` | `agy` | `Gemini 3.8 Flash` | `agy/Gemini 4 Argon (Medium)` | `1` | `task/T-PH2-003` | `2026-11-13T13:18:00+09:00` |
 
 ---
 
@@ -66,10 +66,10 @@
 
 | Runner | Model | 割当回数 | QA 通過 (`done`) | レビュー/QA 差し戻し | 枠切れ切替 (Quota) | QA 通過率 |
 |---|---|---|---|---|---|---|
-| `agy` | `Gemini 4 Argon` | 0 | 0 | 0 | 0 | - |
+| `agy` | `Gemini 4 Argon` | 2 | 1 | 1 | 0 | 50% |
 | `agy` | `Claude Opus 5.5` | 0 | 0 | 0 | 0 | - |
 | `agy` | `Claude Sonnet 5.5` | 0 | 0 | 0 | 0 | - |
-| `agy` | `Gemini 3.8 Flash` | 0 | 0 | 0 | 0 | - |
+| `agy` | `Gemini 3.8 Flash` | 1 | 0 | 1 | 0 | 0% |
 | `agy` | `GPT-OSS 120B` | 0 | 0 | 0 | 0 | - |
 | `opencode` | `opencode/beam-free` | 0 | 0 | 0 | 0 | - |
 | `opencode` | `opencode/big-pickle` | 0 | 0 | 0 | 0 | - |
@@ -96,3 +96,21 @@
   2. `docs/plans/REQUIREMENTS_TRACEABILITY_MATRIX.md`（32行目 `IAM-015`）では `PH2-2AF`（AgentRegistry の未認証 flood 制限と監査順序修正）が「未検証」と記載されているが、実コードの `backend/app/agents/registry.py`・`backend/app/main.py`・`tests/test_agents_registry.py`（`12 passed`）にて実装・検証済みである。
   3. `docs/plans/PHASE_STATUS.md`（327〜341行目）では `loop/rstorage1-manual-upload` / `loop/rstorage2-scanner-status-fix` が未マージの進行中ブランチとして記載されているが、現行チェックアウトの `backend/app/scanner.py`・`backend/app/service.py`・`frontend/src/AdminSettings.tsx` には両コミットの変更（`ScanResult` の `clean`/`rejected`/`unavailable` 分離と `scanner_last_outcome` 表示）が既に反映されている。
   4. `main` ブランチ（`ab3db19` 時点）には `loop/local-development` 上の最新コミット群がまだ統合されていないため、Phase 2 完了後に CI グリーンを確認したうえで `main` への統合が必要である。
+
+### QA 更新 (T-PH2-002, 2026-11-13T13:13:15+09:00)
+- QA 合格。受入条件・TEST 証跡（backend 15 passed、frontend 11 passed）・別モデルの APPROVED レビューを確認し、許可パス外のタスク差分および指定禁止パスの変更がないことを照合して done に更新。
+- exact-branch CI は未実行のため統合ゲートは未完了。CI green を確認するまで統合対象として扱わない。
+
+### Poll reconciliation (2026-11-13T13:21:47+09:00)
+- Poll reported T-PH2-002: qa -> missing-or-unreadable; the readable task file is already done with a recorded QA PASS at 2026-11-13T13:13:15+09:00. Left its terminal state unchanged.
+- Poll reported T-PH2-003: review -> missing-or-unreadable; the readable task file is doing after Review Cycle 1 CHANGES_REQUESTED at 2026-11-13T13:18:00+09:00. Summary reflects that state and the one review return. High findings remain for the implementer; no QA transition was made.
+
+### Poll reconciliation (2026-11-13T18:24:53+09:00)
+- This poll again reports T-PH2-002 as new/done and T-PH2-003 as new/doing. The readable task files and task table already match these terminal/current states; no task frontmatter transition was needed.
+- T-PH2-002 remains QA-passed with exact-branch CI pending. T-PH2-003 remains doing after Review Cycle 1 CHANGES_REQUESTED; its implementation worker still needs to address the recorded findings. No Quota/429 stop is recorded.
+- Updated model metrics from task history: Gemini 4 Argon has two assigned tasks, one QA pass and one recorded return (50%); Gemini 3.8 Flash has one assigned task, zero QA passes and one recorded return (0%).
+### T-PH2-001 — 試行上限による Blocked (2026-11-13T15:12:07+09:00)
+- `status: blocked` を維持。受入条件1〜4に対応する実装記録、関連 Vitest 2ファイル・17件 PASS、実装モデルとは別の `agy/Claude Sonnet 5.5` による Cycle 2 `APPROVED`、禁止パスの変更なしがタスク記録にある。
+- タスク専用4ファイル差分は識別できると記録されている。現在の作業チェックアウトには他タスク等の変更も混在し、タスクは未コミット。タスク固有ブランチの CI は未実行であり、成功扱いにはできない。CI は統合ゲートの未完了項目として扱う。
+- `attempts: 3` およびレビュー周回上限2回に達したため、これ以上の自動差し戻し・再割当はしない。失敗原因はテストや受入条件の不合格ではなく、タスクブランチと CI 成功証跡が未提示のまま上限に達したこと。
+- **人間への確認事項**: 次のいずれかを指示してください。(1) タスク専用ブランチ/コミットを提示し CI 成功を確認する、(2) タスク差分を安全に分離する手順を決めてから CI を実行する、(3) タスクスコープまたは納品方法を見直す。確認までは `blocked` のままとする。

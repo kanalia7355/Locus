@@ -7,6 +7,7 @@ interface ProjectMember {
   role: string;
   roles?: string[];
   denied_permissions?: string[];
+  delegated_permissions?: string[];
   effective_permissions?: string[];
 }
 interface ProjectRole {
@@ -282,6 +283,14 @@ export function AdminProjects() {
                         .map((permission) => permissionLabels[permission] ?? permission)
                         .join("・") || "なし"}
                     </p>
+                    {member.delegated_permissions?.length ? (
+                      <p>
+                        委任中の権限:{" "}
+                        {member.delegated_permissions
+                          .map((permission) => permissionLabels[permission] ?? permission)
+                          .join("・")}
+                      </p>
+                    ) : null}
                     <p>
                       明示的な拒否: {(member.denied_permissions ?? [])
                         .map((permission) => permissionLabels[permission] ?? permission)

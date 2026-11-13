@@ -668,6 +668,13 @@ class Service:
                         **dict(row),
                         "roles": self._held_roles(db, row["user_id"], project["id"]),
                         "denied_permissions": json.loads(row["denied_permissions"]),
+                        "delegated_permissions": sorted(
+                            self._delegated_permissions(
+                                db,
+                                Principal(row["user_id"], row["username"], False, False),
+                                project["id"],
+                            )
+                        ),
                         "effective_permissions": sorted(
                             self._permissions(
                                 db,
@@ -1800,6 +1807,13 @@ class Service:
                 "project_id": project,
                 "roles": self._held_roles(db, target["id"], project),
                 "denied_permissions": json.loads(membership["denied_permissions"]),
+                "delegated_permissions": sorted(
+                    self._delegated_permissions(
+                        db,
+                        Principal(target["id"], username, False, False),
+                        project,
+                    )
+                ),
                 "effective_permissions": sorted(
                     self._permissions(
                         db,
