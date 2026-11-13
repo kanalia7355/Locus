@@ -5,7 +5,7 @@
 // ホストに依存しない純粋なモジュールなので、単体で検証できる。
 //
 // サイクル:
-//   30分ごとに progress/ をポーリング → 差分があれば Luna (Codex) を起動し、
+//   ポーリング間隔ごとに progress/ をポーリング → 差分があれば Luna (Codex) を起動し、
 //   orchestrator.md の指示に従って割当・状態遷移・QA をファイル経由で行わせる。
 //   Luna の割当結果を受けて、未起動のワーカーを最大1つ自動起動する (dispatch)。
 //   タスクが done に遷移したら、そのサイクルの成果物をコミットする。
@@ -23,11 +23,20 @@ import {
   runDispatch,
 } from "./dispatch";
 import { commitPaths, hasUncommitted } from "./git";
+import { formatStatus, formatElapsed } from "./status";
 
 /** pi の ExtensionAPI のうち、このハーネスが使う最小限の形 */
 interface PiContext {
   cwd: string;
-  ui?: { notify?: (message: string, level?: string) => void };
+  ui?: {
+    notify?: (message: string, level?: string) => void;
+    setStatus?: (key: string, text?: string) => void;
+  };
+}
+
+/** サイクル内の段階変化をホスト (フッター表示) へ伝えるためのフック */
+export interface CycleHooks {
+  onStage?: (label: string | null) => void;
 }
 
 interface PiExtensionApi {
@@ -54,6 +63,7 @@ export interface PollCycleResult {
 export async function runPollCycle(
   repoRoot: string,
   config: HarnessConfig = DEFAULT_CONFIG,
+  hooks: CycleHooks = {},
 ): Promise<PollCycleResult> {
   const stateFile = path.join(repoRoot, config.stateFile);
   const progressDir = path.join(repoRoot, config.progressDir);
@@ -106,6 +116,7 @@ export async function runPollCycle(
       "上記の変化に対して、PROTOCOL に従い割当・状態遷移・QA をファイル経由で行うこと。",
     ].join("\n");
 
+    hooks.onStage?.(`Luna 処理中 (差分 ${changed.length} 件)`);
     const luna = await runLuna({
       prompt,
       cwd: repoRoot,
@@ -225,6 +236,10 @@ export async function runPollCycle(
         at: new Date().toISOString(),
       };
       try {
+        const taskLabel = path.basename(target.file).replace(/\.md$/i, "");
+        hooks.onStage?.(
+          `${target.stage === "implement" ? "実装中" : "レビュー中"} ${taskLabel} (${target.runner}/${target.model})`,
+        );
         const outcome = await runDispatch(target, {
           repoRoot,
           progressDir: config.progressDir,
@@ -258,11 +273,43 @@ export default function harness(pi: PiExtensionApi): void {
   let timer: ReturnType<typeof setInterval> | null = null;
   let running = false;
 
+  // ---- 可視化: フッターに「今何が起きているか」を常時表示する ----
+  let activity: { label: string; since: number } | null = null;
+  let nextPollAt: number | null = null;
+  let footerTimer: ReturnType<typeof setInterval> | null = null;
+  let lastCtx: PiContext | null = null;
+
+  const renderFooter = () => {
+    const ctx = lastCtx;
+    if (!ctx?.ui?.setStatus) return;
+    if (activity) {
+      const elapsed = formatElapsed(Date.now() - activity.since);
+      ctx.ui.setStatus("harness", `⏳ harness: ${activity.label} · 経過 ${elapsed}`);
+    } else if (nextPollAt) {
+      const d = new Date(nextPollAt);
+      const p = (n: number) => String(n).padStart(2, "0");
+      ctx.ui.setStatus(
+        "harness",
+        `harness: 待機中 · 次回ポーリング ${p(d.getHours())}:${p(d.getMinutes())}頃`,
+      );
+    } else {
+      ctx.ui.setStatus("harness", "harness: 待機中");
+    }
+  };
+
+  const setActivity = (label: string | null) => {
+    activity = label ? { label, since: Date.now() } : null;
+    renderFooter();
+  };
+
   const cycle = async (ctx: PiContext, verbose: boolean) => {
     if (running) return; // サイクルの重なりを防ぐ
     running = true;
+    lastCtx = ctx;
     try {
-      const result = await runPollCycle(ctx.cwd, config);
+      const result = await runPollCycle(ctx.cwd, config, {
+        onStage: (label) => setActivity(label),
+      });
       // 手動実行時は結果を必ず表示する。タイマー実行時は差分・dispatch・失敗だけ
       const notable =
         result.changedCount > 0 ||
@@ -281,25 +328,53 @@ export default function harness(pi: PiExtensionApi): void {
       );
     } finally {
       running = false;
+      nextPollAt = Date.now() + config.pollIntervalMs;
+      setActivity(null);
     }
   };
 
   pi.on("session_start", (_event, ctx) => {
+    lastCtx = ctx;
     if (timer) clearInterval(timer);
+    nextPollAt = Date.now() + config.pollIntervalMs;
     timer = setInterval(() => {
       void cycle(ctx, false);
     }, config.pollIntervalMs);
+    if (footerTimer) clearInterval(footerTimer);
+    footerTimer = setInterval(renderFooter, 30 * 1000);
+    renderFooter();
   });
 
-  pi.on("session_shutdown", () => {
+  pi.on("session_shutdown", (_event, ctx) => {
     if (timer) clearInterval(timer);
     timer = null;
+    if (footerTimer) clearInterval(footerTimer);
+    footerTimer = null;
+    ctx.ui?.setStatus?.("harness", undefined);
   });
 
   pi.registerCommand("harness-poll", {
     description: "Run one harness poll cycle now",
     handler: async (_args, ctx) => {
       await cycle(ctx, true);
+    },
+  });
+
+  pi.registerCommand("harness-status", {
+    description: "Show the harness loop status (tasks, activity, cooldowns)",
+    handler: async (_args, ctx) => {
+      lastCtx = ctx;
+      const state = loadState(path.join(ctx.cwd, config.stateFile));
+      const text = formatStatus(
+        path.join(ctx.cwd, config.progressDir),
+        state,
+        {
+          activity: activity?.label ?? null,
+          activitySince: activity ? new Date(activity.since) : null,
+          nextPollAt: nextPollAt ? new Date(nextPollAt) : null,
+        },
+      );
+      ctx.ui?.notify?.(text, "info");
     },
   });
 }
