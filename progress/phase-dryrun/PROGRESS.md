@@ -2,7 +2,7 @@
 
 - **対象 Phase**: `phase-dryrun`（`docs/plans/MASTER_IMPLEMENTATION_ROADMAP.md` 参照）
 - **対象ブランチ**: `phase/dryrun`（ベース: `main`）
-- **最終更新日時**: `2026-11-12T16:22:16+09:00`
+- **最終更新日時**: `2026-11-13T10:56:32+09:00`
 - **更新責任者**: オーケストレーター (`gpt-6-luna`) ※ワーカーによる編集禁止
 
 ---
@@ -18,9 +18,10 @@
 
 ## 2. タスク一覧と現在状態
 
-| Task ID | タイトル / 要件 ID | Weight | Status | Assignee | Model | Attempts | Worktree / Branch | Updated |
-|---|---|---|---|---|---|---|---|---|
-| `T-DRY-001` | ドライラン用ダミータスク | `light` | `done` | `agy` | `Gemini 3.8 Flash` | `1` | `task/T-DRY-001` | `2026-11-12T16:22:16+09:00` |
+| Task ID | タイトル / 要件 ID | Weight | Status | Assignee | Model | Reviewer | Attempts | Worktree / Branch | Updated |
+|---|---|---|---|---|---|---|---|---|---|
+| `T-DRY-001` | ドライラン用ダミータスク | `light` | `done` | `agy` | `Gemini 3.8 Flash` | - | `1` | `task/T-DRY-001` | `2026-11-12T16:22:16+09:00` |
+| `T-DRY-002` | 全自動リハーサル用ダミータスク | `light` | `done` | `agy` | `Gemini 3.8 Flash` | `agy / GPT-OSS 120B` | `2` | 未設定 | `2026-11-13T10:56:32+09:00` |
 
 ---
 
@@ -33,7 +34,7 @@
 | `agy` | `Gemini 4 Argon` | 0 | 0 | 0 | 0 | - |
 | `agy` | `Claude Opus 5.5` | 0 | 0 | 0 | 0 | - |
 | `agy` | `Claude Sonnet 5.5` | 0 | 0 | 0 | 0 | - |
-| `agy` | `Gemini 3.8 Flash` | 1 | 1 | 0 | 0 | 100% |
+| `agy` | `Gemini 3.8 Flash` | 2 | 2 | 1 | 0 | 100% |
 | `agy` | `Gemini 4 Carbon` | 0 | 0 | 0 | 0 | - |
 | `agy` | `GPT-OSS 120B` | 0 | 0 | 0 | 0 | - |
 | `opencode` | `opencode/beam-free` | 0 | 0 | 0 | 0 | - |
@@ -57,4 +58,9 @@
 仕様解釈の曖昧さ、設計トレードオフ、試行上限（最大3回 / レビュー最大2周）到達、または全モデル枠枯渇により停止した項目を記録する。
 
 - CI状態は未確認。`T-DRY-001` のQAは完了したが、`docs/agent/PROTOCOL.md` §5.3 のサブブランチ統合条件（GitHub Actions CI success）は別途確認が必要。REPORTの実行セッションモデルは Gemini 4 Argon、frontmatterの割当モデルは Gemini 3.8 Flash。統計は割当モデル基準で計上。
+- T-DRY-002 QA (2026-11-13T10:56:32+09:00): PASS; attempt-2 revision meets its acceptance criteria, targeted test PASS evidence is recorded, and fresh independent GPT-OSS 120B review is APPROVED. Task is `done`. Branch CI remains unverified, so integration readiness is not established.
 
+
+
+
+- T-DRY-002 QA history (2026-11-13T09:31:47+09:00): initial QA FAIL; returned to `doing` (attempts 1 -> 2) because scope ownership for prohibited-path changes was unclear and frontmatter had a BOM. Attempt 2 clarified scope, removed the BOM, passed fresh independent review, and passed QA at 10:56:32+09:00. CI remains unverified.
