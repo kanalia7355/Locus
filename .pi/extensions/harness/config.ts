@@ -24,7 +24,7 @@ export interface HarnessConfig {
 }
 
 export const DEFAULT_CONFIG: HarnessConfig = {
-  pollIntervalMs: 30 * 60 * 1000,
+  pollIntervalMs: 10 * 60 * 1000,
   lunaModel: "gpt-6-luna",
   agyPrintTimeout: "30m",
   processTimeoutMs: 35 * 60 * 1000,
