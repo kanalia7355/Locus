@@ -68,7 +68,10 @@ export function parseFrontmatter(raw: string): Record<string, string> {
   if (end === -1) return {};
   const result: Record<string, string> = {};
   for (const line of lines.slice(start + 1, end)) {
-    const m = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
+    // CRLF の行末 \r は JS の正規表現で "." にマッチしないため、先に落とす。
+    // これを落とすと key: value 行が丸ごとマッチせず、ファイルが読めなくなる
+    const clean = line.replace(/\r$/, "");
+    const m = clean.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
     if (m) result[m[1]] = m[2].trim().replace(/^["']|["']$/g, "");
   }
   return result;
@@ -97,6 +100,15 @@ export function scanProgress(progressDir: string): PollState {
       state[rel] = {
         status: fm.status ?? "",
         updated: fm.updated ?? "",
+        hash: createHash("sha256").update(raw).digest("hex").slice(0, 16),
+      };
+    } else if (rel.split(/[\\/]/).includes("tasks")) {
+      // tasks/ 配下のファイルは frontmatter を持つのが前提。読めない場合は
+      // 黙って除外せず、(missing-or-unreadable) として差分に上げる
+      // (PROGRESS.md や README は tasks/ の外なので対象にならない)
+      state[rel] = {
+        status: "(missing-or-unreadable)",
+        updated: "",
         hash: createHash("sha256").update(raw).digest("hex").slice(0, 16),
       };
     }
