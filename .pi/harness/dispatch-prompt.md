@@ -1,0 +1,1 @@
+.pi/harness/prompts/reviewer.md の指示に従い、タスク progress/phase-dryrun/tasks/T-DRY-002.md をレビューせよ。対象の変更ファイルはタスクファイルの REPORT 欄に記載されている。完了したら PROTOCOL 通りにタスクファイルの REVIEW 欄と status を更新すること。

@@ -60,7 +60,8 @@ export function candidatesFor(weight: Weight): Candidate[] {
     case "light":
       return [
         { runner: "agy", model: "Gemini 3.8 Flash", pool: "gemini" },
-        { runner: "agy", model: "Gemini 4 Carbon", pool: "gemini" },
+        // Gemini 4 Carbon は対話画面専用で headless 指定不可のため候補外
+        // (docs/agent/MODEL_ROTATION.md と一致させること)
         { runner: "agy", model: "GPT-OSS 120B", pool: "claude-gpt" },
         { runner: "opencode", model: FREE_MARKER, pool: "free" },
         { runner: "ollama", model: "gemma3:4b", pool: "local" },

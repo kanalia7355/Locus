@@ -35,7 +35,7 @@
 
 ## 3. 各 `status` に対する処理手順（出力はファイル更新のみ）
 
-タスク進捗ファイルの frontmatter は必ず `docs/agent/PROTOCOL.md` §4 の単純スカラー形式（`id`, `phase`, `status`, `assignee`, `model`, `weight`, `updated`, `attempts`）を維持し、更新時は必ず `updated` を現在の ISO 8601 時刻に書き換えること。
+タスク進捗ファイルの frontmatter は必ず `docs/agent/PROTOCOL.md` §4 の単純スカラー形式（`id`, `phase`, `status`, `assignee`, `model`, `reviewer`, `weight`, `updated`, `attempts`）を維持し、更新時は必ず `updated` を現在の ISO 8601 時刻に書き換えること。
 
 ### A. `status: todo`（未割当タスク）の場合
 1. タスクの複雑度と影響範囲に応じて `weight`（`heavy` / `medium` / `light`）を確認・設定する。
@@ -48,7 +48,10 @@
 
 ### C. `status: review`（実装完了・レビュー待ち）の場合
 1. `REPORT` 欄と `TEST` 欄が記入されていることを確認する。
-2. **そのタスクを実装したモデルとは必ず別のモデル**を `docs/agent/MODEL_ROTATION.md` の候補列から選び、レビュー担当として指定する（本文の `REVIEW` セクション冒頭または割当メモにレビュー担当モデルを明記し、`updated` を更新する）。
+2. **そのタスクを実装したモデルとは必ず別のモデル**を `docs/agent/MODEL_ROTATION.md` の候補列から選び、レビュー担当として割り当てる。
+3. **レビュアー割当の記述形式（frontmatter を正とする）**:
+   - **第一形式（正本）**: タスクファイルの frontmatter に `reviewer: <runner>/<model>` と書くこと（例: `reviewer: agy/Claude Sonnet 5.5`、`reviewer: opencode/glm-5.3-flash-free`）。あわせて `updated` を現在時刻に更新する。
+   - **補助表記**: 本文の `REVIEW` 欄への割当記入は人間可読用の補助として併記してよい。ただし、本文の表記ゆれでハーネスが割当を読み落とした実績があるため、**機械判定の正本として必ず frontmatter に `reviewer: <runner>/<model>` を記載すること**。
 
 ### D. `status: qa`（レビュー承認済み・QA 照合待ち）の場合
 以下の項目を**機械的・厳格に**照合する：

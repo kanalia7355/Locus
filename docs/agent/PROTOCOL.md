@@ -27,7 +27,7 @@ Superpowers 等の外部スキルフレームワークの手順が本書と衝�
 | パス / 対象 | オーケストレーター (`Luna`) | 実装ワーカー | レビューワーカー | ハーネス (`pi`) | 人間 |
 |---|---|---|---|---|---|
 | `progress/<phase>/PROGRESS.md` | **書込可（専任）** | 読取のみ | 読取のみ | 読取のみ | 読取 / 指示 |
-| `progress/<phase>/tasks/<TASK-ID>.md` (frontmatter: `id`, `phase`, `weight`, 初期割当, `qa`/`done`/`blocked` 遷移) | **書込可** | 読取のみ | 読取のみ | 読取のみ | 読取 / 指示 |
+| `progress/<phase>/tasks/<TASK-ID>.md` (frontmatter: `id`, `phase`, `weight`, 初期割当, `reviewer` 割当, `qa`/`done`/`blocked` 遷移) | **書込可** | 読取のみ | 読取のみ | 読取のみ | 読取 / 指示 |
 | `progress/<phase>/tasks/<TASK-ID>.md` (`REPORT` / `TEST` 欄、frontmatter の `status: review`, `updated`, `attempts`) | 読取のみ | **書込可（担当タスクのみ）** | 読取のみ | 読取のみ | 読取 |
 | `progress/<phase>/tasks/<TASK-ID>.md` (`REVIEW` 欄、frontmatter の `status: qa` または `doing`, `updated`) | 読取のみ | 読取のみ | **書込可（担当タスクのみ）** | 読取のみ | 読取 |
 | プロダクトコード・テスト（担当 worktree 内の許可パス） | **書込禁止** | **書込可（担当範囲のみ）** | **書込禁止** | 書込禁止 | 任意 |
@@ -54,7 +54,7 @@ todo → doing → review → qa → done
 |---|---|---|---|
 | `todo` | 未着手（タスク分解・重み付け済み、ワーカー割当待ち） | オーケストレーター (`Luna`) | オーケストレーターが担当モデルを決定し `doing` へ遷移させる |
 | `doing` | 実装ワーカーによる実装・修正および関連テスト実行中 | オーケストレーター（初回割当時）またはレビューワーカー / QA（差し戻し時） | 実装と関連テストが完了したら実装ワーカーが `review` へ遷移させる |
-| `review` | 実装モデルとは**別のモデル**によるコードレビュー待ち・実施中 | 実装ワーカー | 指摘なし（承認）ならレビューワーカーが `qa` へ、要修正なら `doing` へ戻す（レビュー周回上限2周） |
+| `review` | 実装モデルとは**別のモデル**によるコードレビュー待ち・実施中 | 実装ワーカー（`review` への遷移）/ オーケストレーター（frontmatter `reviewer: <runner>/<model>` の割当） | 指摘なし（承認）ならレビューワーカーが `qa` へ、要修正なら `doing` へ戻す（レビュー周回上限2周） |
 | `qa` | オーケストレーター (`Luna`) による受入条件・テスト結果の機械的照合待ち | レビューワーカー | 受入条件とテスト証跡がすべて揃っていれば `Luna` が `done` へ、不足があれば `doing` へ戻す |
 | `done` | 1サイクル（実装 → レビュー → QA）完了 | オーケストレーター (`Luna`) | サイクル完了コミットおよび CI グリーン確認後のマージ対象となる |
 | `blocked` | 試行上限到達、全モデル枠枯渇、仕様上の未決事項・判断境界への到達により停止 | オーケストレーター (`Luna`)（または上限到達を検知した主体） | タスク進捗ファイルおよび `PROGRESS.md` に理由を記録し、heavy レビューまたは人間の判断を待つ |
@@ -72,21 +72,24 @@ phase: phase-<slug>
 status: doing
 assignee: agy
 model: Gemini 4 Argon
+reviewer: agy/Claude Sonnet 5.5
 weight: medium
 updated: 2026-11-12T13:00:00+09:00
 attempts: 1
 ---
 ```
+（※ `reviewer` は `status: review` でオーケストレーターがレビュアーを割り当てる際に記入する）
 
 ### フィールド規定
 1. **ファイル先頭**: 必ず1行目が `---` で始まり、フィールド定義の直後に単独行の `---` で閉じること（先頭に空行やコメントを置かない）。
 2. **スカラー値のみ**: 値はすべて単純な1行スカラーのみとする。YAML のネスト（オブジェクト）や配列（`- item`、`[...]`）は一切使用しない。
-3. **必須キー**:
+3. **必須キーおよびレビュアー割当キー**:
    - `id`: タスク識別子（例: `T-001`）
    - `phase`: 対象 Phase スラッグ（例: `phase-3-ingestion`）
    - `status`: `todo` | `doing` | `review` | `qa` | `done` | `blocked` のいずれか
-   - `assignee`: 実行ハーネス種別（`agy` | `opencode` | `ollama` | `codex` | `unassigned`）
-   - `model`: 担当モデルの表示名または slug（例: `Gemini 4 Argon`, `Claude Sonnet 5.5`, `opencode/big-pickle`, `gemma3:4b`）
+   - `assignee`: 実装担当の実行ハーネス種別（`agy` | `opencode` | `ollama` | `codex` | `unassigned`）
+   - `model`: 実装担当モデルの表示名または slug（例: `Gemini 4 Argon`, `Claude Sonnet 5.5`, `opencode/big-pickle`, `gemma3:4b`）
+   - `reviewer`: **レビュアー割当の第一形式（正本）**。オーケストレーターがレビュアーを割り当てる際、frontmatter に `reviewer: <runner>/<model>` の形式で記述する（例: `reviewer: agy/Claude Sonnet 5.5`、`reviewer: opencode/glm-5.3-flash-free`）。本文の `REVIEW` 欄への割当記入は人間可読用の補助として併記してよいが、本文の表記ゆれでハーネスが割当を読み落とした実績があるため、**必ず frontmatter の `reviewer` を正とすること**。
    - `weight`: タスクの重み（`heavy` | `medium` | `light`）
    - `updated`: 最終更新日時（ISO 8601 形式、例: `2026-11-12T13:00:00+09:00`）。**ファイルを更新するたびに必ず現在時刻へ書き換えること**（`poll.ts` は `status` または `updated` の変化で差分を検出する）。
    - `attempts`: 実装試行回数（整数スカラー `0`, `1`, `2`, `3`）。上限は `3`。

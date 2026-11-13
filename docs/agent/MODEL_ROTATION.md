@@ -13,7 +13,9 @@
 |---|---|---|
 | **heavy** | 1. `agy`: `Gemini 4 Argon` (High)<br>2. `agy`: `Claude Opus 5.5`<br>3. `agy`: `Claude Sonnet 5.5` | 複雑なアーキテクチャ変更、セキュリティ・認可境界、難度の高いバグ修正、判断境界のエスカレーションレビュー |
 | **medium** | 1. `agy`: `Gemini 4 Argon` (Medium)<br>2. `agy`: `Claude Sonnet 5.5`<br>3. `opencode`: OpenCode 無料プール（12種・カーソル巡回） | 標準的なバックエンド / フロントエンド機能実装、単体・結合テスト作成、通常コードレビュー |
-| **light** | 1. `agy`: `Gemini 3.8 Flash` → `Gemini 4 Carbon`<br>2. `agy`: `GPT-OSS 120B`<br>3. `opencode`: OpenCode 無料プール（12種・カーソル巡回）<br>4. `ollama`: `ollama/gemma3:4b` | 定型的な修正、軽微な UI/文言調整、ボイラープレート生成、軽量な差分確認 |
+| **light** | 1. `agy`: `Gemini 3.8 Flash`<br>2. `agy`: `GPT-OSS 120B`<br>3. `opencode`: OpenCode 無料プール（12種・カーソル巡回）<br>4. `ollama`: `ollama/gemma3:4b` | 定型的な修正、軽微な UI/文言調整、ボイラープレート生成、軽量な差分確認 |
+
+> **注意（`Gemini 4 Carbon` の除外について）**: `Gemini 4 Carbon` は **対話画面専用・headless（`agy -p --model`）指定不可** である。headless 実行時の Available models に存在せず、指定するとエラーで失敗することが実機で確認済み（2026-11-12/13）のため、自動 dispatch の候補列（特に `light`）からは除外している。
 
 ### オーケストレーター（別枠）
 - **オーケストレーター + QA**: Codex CLI (`gpt-6-luna`)
@@ -29,16 +31,16 @@
   ```bash
   agy -p "<prompt>" --model "<表示名>" --dangerously-skip-permissions --print-timeout 30m
   ```
-- **モデル指定（表示名）**:
+- **モデル指定（headless 指定可能な表示名）**:
   - `Gemini 4 Argon`（effort 目安: heavy は `high`、medium は `medium`）
-  - `Gemini 4 Carbon`
   - `Gemini 3.8 Flash`
   - `Claude Opus 5.5`
   - `Claude Sonnet 5.5`
   - `GPT-OSS 120B`
+  - ※ **`Gemini 4 Carbon` は対話画面専用・headless 指定不可**: `agy -p --model "Gemini 4 Carbon"` を実行すると Available models に存在せずエラー終了することが実機確認済み（2026-11-12/13）のため、自動 dispatch では使用しない。
 - **成否判定の原則**: **`agy` の終了コードは信用しない。** 実行の成否は必ず成果物ファイル（進捗報告 md の更新や期待された差分）とテスト結果で判定する。
 - **枠プール構造（2プール制）**:
-  - `gemini` プール（`Gemini 4 Argon`, `Gemini 4 Carbon`, `Gemini 3.8 Flash`）
+  - `gemini` プール（headless 対象: `Gemini 4 Argon`, `Gemini 3.8 Flash` ※対話画面専用の `Gemini 4 Carbon` も同プール）
   - `claude-gpt` プール（`Claude Opus 5.5`, `Claude Sonnet 5.5`, `GPT-OSS 120B`）
   - それぞれ独立した **5時間枠＋週間枠** を持つ。
 
