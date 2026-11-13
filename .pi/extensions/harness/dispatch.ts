@@ -98,7 +98,16 @@ export function parseFrontmatterReviewer(
 /** REVIEW 欄に判定 (承認 / 差し戻し) が既に記入されているか */
 export function reviewVerdictPresent(content: string): boolean {
   const review = sectionBody(content, "REVIEW");
-  return /APPROVED|CHANGES\s+REQUESTED/i.test(review);
+  // QA 差し戻し (## QA Return) が記録されるたびに、それ以前のレビュー判定は
+  // 「旧リビジョンへの判定」として失効する (Luna の再 QA 要件: 変更分への
+  // 新規レビューが必要)。判定の件数が差し戻し回数を上回る場合のみ、
+  // 現リビジョンへの判定があるとみなす
+  const qaReturns = (content.match(/^##\s*QA Return/gm) ?? []).length;
+  if (qaReturns === 0) return /APPROVED|CHANGES\s+REQUESTED/i.test(review);
+  const verdicts = (
+    review.match(/Verdict\*\*:?\s*(APPROVED|CHANGES\s+REQUESTED)/gi) ?? []
+  ).length;
+  return verdicts > qaReturns;
 }
 
 /** REPORT 欄の Changed Files から変更ファイルのパス一覧を読む (コミット用) */
