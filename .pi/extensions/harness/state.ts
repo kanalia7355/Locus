@@ -17,11 +17,21 @@ export interface Cooldown {
   reason: string;
 }
 
+export interface DispatchRecord {
+  /** "implement" | "review" */
+  stage: string;
+  /** 起動時点のタスクファイル内容ハッシュ (二重起動防止のキー) */
+  hash: string;
+  at: string;
+}
+
 export interface HarnessState {
   version: 1;
   lastPollAt: string | null;
   progressSnapshot: PollState;
   cooldowns: Cooldown[];
+  /** ワーカー起動の記録。キー = progress/ からの相対パス */
+  dispatchLog: Record<string, DispatchRecord>;
   /** OpenCode 無料プールのローテーションカーソル */
   freeCursor: number;
   /** 直近サイクルの要約 (人間と Luna が状況を掴むためのメモ) */
@@ -36,6 +46,7 @@ export function defaultState(): HarnessState {
     lastPollAt: null,
     progressSnapshot: {},
     cooldowns: [],
+    dispatchLog: {},
     freeCursor: 0,
     lastCycleNote: "",
     cycleLog: [],

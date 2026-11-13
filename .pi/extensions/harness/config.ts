@@ -17,6 +17,10 @@ export interface HarnessConfig {
   progressDir: string;
   /** repo ルートからの相対パス: プロンプト置き場 */
   promptsDir: string;
+  /** Luna の割当を受けてワーカーを自動起動するか (TODO-02 の dispatch) */
+  dispatchEnabled: boolean;
+  /** タスクが done に遷移したサイクルで、その成果物をコミットするか */
+  commitOnDone: boolean;
 }
 
 export const DEFAULT_CONFIG: HarnessConfig = {
@@ -27,4 +31,6 @@ export const DEFAULT_CONFIG: HarnessConfig = {
   stateFile: ".pi/harness/state.json",
   progressDir: "progress",
   promptsDir: ".pi/harness/prompts",
+  dispatchEnabled: true,
+  commitOnDone: true,
 };

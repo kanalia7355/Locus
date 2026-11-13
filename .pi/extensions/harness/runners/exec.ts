@@ -19,6 +19,12 @@ export interface RunOptions {
   env?: NodeJS.ProcessEnv;
   /** 子プロセスの stdin に流す文字列。undefined の場合は stdin を即閉じる (EOF) */
   input?: string;
+  /**
+   * シェル経由で起動するか。未指定時は win32 で true (npm の .cmd シム対策)。
+   * ネイティブ exe (agy 等) は false にすること: cmd.exe を経由すると
+   * 日本語や空白を含む引数が化ける (実証済み)。
+   */
+  shell?: boolean;
 }
 
 export function runProcess(
@@ -30,7 +36,7 @@ export function runProcess(
     const child = spawn(argv[0], argv.slice(1), {
       cwd: opts.cwd,
       env: opts.env ?? process.env,
-      shell: isWin,
+      shell: opts.shell ?? isWin,
       windowsHide: true,
     });
 

@@ -14,25 +14,37 @@ export interface AgyResult extends RunResult {
 }
 
 export async function runAgy(opts: {
-  /** 表示名で指定する ("Gemini 4 Argon" 等) */
+  /** モデルの基本名で指定する ("Gemini 4 Argon" 等) */
   model: string;
+  /** effort。--model の正式名は "Name (Medium)" 形式で effort 込み (実機確認済み) */
+  effort?: "low" | "medium" | "high";
   prompt: string;
   cwd: string;
   printTimeout: string;
   timeoutMs?: number;
 }): Promise<AgyResult> {
+  // agy headless の --model は effort サフィックス込みの表示名でないと認識されない
+  // (例: "Claude Sonnet 5.5 (Medium)")。effort 未指定時は Medium を補う。
+  // 注意: Gemini 4 Carbon は headless の Available models 一覧に無い (2026-11-12 実機確認)。
+  // 候補に含める場合は、実行時エラーを「そのモデルは使えない」として次候補へ進むこと。
+  const cap = (e: string) => e.charAt(0).toUpperCase() + e.slice(1);
+  const display = opts.model.includes("(")
+    ? opts.model
+    : `${opts.model} (${cap(opts.effort ?? "medium")})`;
   const result = await runProcess(
     [
       "agy",
       "-p",
       opts.prompt,
       "--model",
-      opts.model,
+      display,
       "--dangerously-skip-permissions",
       "--print-timeout",
       opts.printTimeout,
     ],
-    { cwd: opts.cwd, timeoutMs: opts.timeoutMs },
+    // agy はネイティブ exe なのでシェルを経由しない (cmd.exe 越しだと
+    // 日本語プロンプトが化けてワーカーが無言で終わる。手動実行との差分で実証済み)
+    { cwd: opts.cwd, timeoutMs: opts.timeoutMs, shell: false },
   );
   const text = `${result.stdout}\n${result.stderr}`;
   const quota = isQuotaError(text);

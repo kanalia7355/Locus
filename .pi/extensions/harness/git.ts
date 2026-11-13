@@ -86,6 +86,26 @@ export async function commitAll(
   return true;
 }
 
+/** 指定パスだけをステージしてコミットする。変更が無ければ false */
+export async function commitPaths(
+  worktree: string,
+  paths: string[],
+  message: string,
+): Promise<boolean> {
+  if (paths.length === 0) return false;
+  const add = await git(worktree, ["add", "--", ...paths]);
+  if (add.code !== 0) {
+    throw new Error(`git add failed: ${add.stderr || add.stdout}`);
+  }
+  const staged = await git(worktree, ["diff", "--cached", "--quiet"]);
+  if (staged.code === 0) return false; // 差分なし
+  const r = await git(worktree, ["commit", "-m", message]);
+  if (r.code !== 0) {
+    throw new Error(`git commit failed: ${r.stderr || r.stdout}`);
+  }
+  return true;
+}
+
 export type CiConclusion =
   | "success"
   | "failure"

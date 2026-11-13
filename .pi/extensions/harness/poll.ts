@@ -31,7 +31,7 @@ export interface ChangedFile {
 }
 
 /** 先頭の --- ... --- ブロックから key: value を拾う (YAML の単純なスカラーのみ) */
-function parseFrontmatter(raw: string): Record<string, string> {
+export function parseFrontmatter(raw: string): Record<string, string> {
   // BOM が付いていても読めるようにする (Windows のエディタ/コマンドが付けがち)
   const content = raw.replace(/^\uFEFF/, "");
   if (!content.startsWith("---")) return {};
@@ -45,7 +45,7 @@ function parseFrontmatter(raw: string): Record<string, string> {
   return result;
 }
 
-function listMarkdownFiles(dir: string, base: string): string[] {
+export function listMarkdownFiles(dir: string, base: string): string[] {
   if (!fs.existsSync(dir)) return [];
   const out: string[] = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
