@@ -22,7 +22,13 @@ import {
   parseChangedFiles,
   runDispatch,
 } from "./dispatch";
-import { commitPaths, hasUncommitted } from "./git";
+import {
+  commitPaths,
+  hasUncommitted,
+  currentBranch,
+  unpushedCount,
+  pushCurrentBranch,
+} from "./git";
 import { formatStatus, formatElapsed } from "./status";
 
 /** pi の ExtensionAPI のうち、このハーネスが使う最小限の形 */
@@ -195,6 +201,7 @@ export async function runPollCycle(
         // 読めないファイルは対象外
       }
     }
+    let anyCommitted = false;
     for (const file of candidateFiles) {
       try {
         const content = readTextSmart(path.join(progressDir, file));
@@ -215,6 +222,7 @@ export async function runPollCycle(
         const skippedNote = result.skipped.length
           ? ` (skipped missing: ${result.skipped.join(", ")})`
           : "";
+        if (result.committed) anyCommitted = true;
         notes.push(
           result.committed
             ? `committed cycle for ${label}${skippedNote}`
@@ -223,6 +231,27 @@ export async function runPollCycle(
       } catch (err) {
         notes.push(
           `commit failed for ${file}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
+    // ---- push: コミットを GitHub (origin) へ同期する ----
+    // このサイクルで新規コミットが無くても、未 push 分が残っていれば送る
+    // (push 失敗や配線前のコミットを取りこぼさないための自己回復)
+    if (config.pushOnCommit) {
+      try {
+        const branch = await currentBranch(repoRoot);
+        const ahead =
+          branch && branch !== "HEAD"
+            ? await unpushedCount(repoRoot, branch)
+            : 0;
+        if (anyCommitted || ahead !== 0) {
+          const res = await pushCurrentBranch(repoRoot);
+          if (res.pushed) notes.push(`pushed to origin/${res.branch}`);
+        }
+      } catch (err) {
+        notes.push(
+          `push failed: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
     }
@@ -323,7 +352,8 @@ export default function harness(pi: PiExtensionApi): void {
         result.note.includes("failed") ||
         result.note.includes("quota") ||
         result.note.includes("missing") ||
-        result.note.includes("committed");
+        result.note.includes("committed") ||
+        result.note.includes("pushed");
       if (verbose || notable) {
         ctx.ui?.notify?.(`harness: ${result.note}`, "info");
       }

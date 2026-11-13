@@ -91,7 +91,38 @@ export async function commitAll(
   return true;
 }
 
-/** 指定パスだけをステージしてコミットする。変更が無ければ false */
+/** origin/<branch> へ未 push のコミット数。不明 (リモート側ブランチ無し等) は -1 */
+export async function unpushedCount(
+  worktree: string,
+  branch: string,
+): Promise<number> {
+  const r = await git(worktree, [
+    "rev-list",
+    "--count",
+    `origin/${branch}..HEAD`,
+  ]);
+  if (r.code !== 0) return -1;
+  const n = Number.parseInt(r.stdout.trim(), 10);
+  return Number.isNaN(n) ? -1 : n;
+}
+
+/** 現在のブランチを origin へ push する (upstream 未設定なら設定する) */
+export async function pushCurrentBranch(
+  worktree: string,
+): Promise<{ pushed: boolean; branch: string; detail: string }> {
+  const branch = await currentBranch(worktree);
+  if (!branch || branch === "HEAD") {
+    return { pushed: false, branch, detail: "detached HEAD" };
+  }
+  const r = await git(worktree, ["push", "-u", "origin", branch]);
+  if (r.code !== 0) {
+    throw new Error(
+      `git push failed: ${(r.stderr || r.stdout).trim().slice(-300)}`,
+    );
+  }
+  return { pushed: true, branch, detail: (r.stderr || r.stdout).trim() };
+}
+
 /** 指定パスに未コミットの変更 (未追跡ファイル含む) が残っているか */
 export async function hasUncommitted(
   worktree: string,
@@ -102,6 +133,7 @@ export async function hasUncommitted(
   return r.stdout.trim().length > 0;
 }
 
+/** 指定パスだけをステージしてコミットする。変更が無ければ committed: false */
 export async function commitPaths(
   worktree: string,
   paths: string[],

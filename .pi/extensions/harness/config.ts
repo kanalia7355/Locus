@@ -3,7 +3,7 @@
 // 値を変えたいときはこのファイルだけを直す。秘密情報はここに書かない。
 
 export interface HarnessConfig {
-  /** progress/ のポーリング間隔 (ms)。決定事項: 30分 */
+  /** progress/ のポーリング間隔 (ms) */
   pollIntervalMs: number;
   /** オーケストレーター (Codex) のモデル ID。実在しない場合は BOOTSTRAP_TODO へ */
   lunaModel: string;
@@ -21,6 +21,8 @@ export interface HarnessConfig {
   dispatchEnabled: boolean;
   /** タスクが done に遷移したサイクルで、その成果物をコミットするか */
   commitOnDone: boolean;
+  /** コミット後、現在のブランチを origin へ push して GitHub に同期するか */
+  pushOnCommit: boolean;
 }
 
 export const DEFAULT_CONFIG: HarnessConfig = {
@@ -33,4 +35,5 @@ export const DEFAULT_CONFIG: HarnessConfig = {
   promptsDir: ".pi/harness/prompts",
   dispatchEnabled: true,
   commitOnDone: true,
+  pushOnCommit: true,
 };
