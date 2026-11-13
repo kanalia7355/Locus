@@ -114,10 +114,19 @@ export function reviewVerdictPresent(content: string): boolean {
 export function parseChangedFiles(content: string): string[] {
   const report = sectionBody(content, "REPORT");
   if (!report) return [];
-  const marker = report.match(/Changed Files\*\*:\s*\n([\s\S]*?)(?:\n\s*-\s*\*\*|$)/);
-  const block = marker ? marker[1] : report;
+  // 「Changed Files」を含む見出し行から、次の同格の箇条書き見出しまでの
+  // ブロックだけを対象にする (見出しへの括弧書き等の表記ゆれは許容する)。
+  // ブロックが見つからない場合は空を返す: REPORT 全文から拾うと、
+  // スコープ説明などで列挙された無関係なパスまで巻き込んでしまう
+  const marker = report.match(
+    /Changed Files[^\n]*?:\s*\n([\s\S]*?)(?=\n\s*-\s*\*\*|$)/,
+  );
+  if (!marker) return [];
   const paths = new Set<string>();
-  for (const mm of block.matchAll(/`([^`]+)`/g)) {
+  for (const line of marker[1].split("\n")) {
+    // 箇条書き行の先頭の backtick トークンだけをパスとみなす
+    const mm = line.match(/^\s*-\s*`([^`]+)`/);
+    if (!mm) continue;
     const p = mm[1].trim().replace(/\\/g, "/");
     if (p.includes("/") && !p.includes(" ") && !p.startsWith("http")) {
       paths.add(p);

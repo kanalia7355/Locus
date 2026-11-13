@@ -22,7 +22,7 @@ import {
   parseChangedFiles,
   runDispatch,
 } from "./dispatch";
-import { commitPaths } from "./git";
+import { commitPaths, hasUncommitted } from "./git";
 
 /** pi の ExtensionAPI のうち、このハーネスが使う最小限の形 */
 interface PiContext {
@@ -149,41 +149,65 @@ export async function runPollCycle(
     state.progressSnapshot = current;
     notes.push(`Luna processed ${changed.length} changed file(s)`);
 
-    // ---- コミットフェーズ: このサイクルで done に遷移したタスクの成果物をコミットする ----
-    if (config.commitOnDone) {
-      const doneNow = changed.filter(
-        (c) => c.after.status === "done" && c.before?.status !== "done",
-      );
-      for (const c of doneNow) {
-        try {
-          const content = fs.readFileSync(
-            path.join(progressDir, c.file),
-            "utf-8",
-          );
-          const fm = parseFrontmatter(content);
-          const label = fm.id ?? c.file;
-          const paths = new Set<string>(parseChangedFiles(content));
-          // タスクファイル自身と、フェーズの PROGRESS.md も一緒にコミットする
-          paths.add(`${config.progressDir}/${c.file.replace(/\\/g, "/")}`);
-          const parts = c.file.replace(/\\/g, "/").split("/");
-          if (parts.length >= 2) {
-            paths.add(`${config.progressDir}/${parts[0]}/PROGRESS.md`);
-          }
-          const committed = await commitPaths(
-            repoRoot,
-            [...paths],
-            `feat: complete ${label} (implementation, review, QA)`,
-          );
-          notes.push(
-            committed
-              ? `committed cycle for ${label}`
-              : `nothing to commit for ${label}`,
-          );
-        } catch (err) {
-          notes.push(
-            `commit failed for ${c.file}: ${err instanceof Error ? err.message : String(err)}`,
-          );
+  }
+
+  // ---- コミットフェーズ: done になったタスクの成果物をコミットする ----
+  // このサイクルで done に遷移したタスクに加え、done なのに成果物が
+  // 未コミットのまま残っているタスクも拾う (自己回復): コミット失敗で
+  // スナップショットだけが進んだ場合や、コミット配線が無かった頃に
+  // done になったタスクを取りこぼさないため。差分ゼロのサイクルでも実行する
+  if (config.commitOnDone) {
+    const candidateFiles = new Set<string>(
+      changed
+        .filter((c) => c.after.status === "done" && c.before?.status !== "done")
+        .map((c) => c.file),
+    );
+    for (const rel of Object.keys(current)) {
+      if (current[rel]?.status !== "done" || candidateFiles.has(rel)) continue;
+      if (!rel.replace(/\\/g, "/").includes("/tasks/")) continue;
+      try {
+        const content = fs.readFileSync(path.join(progressDir, rel), "utf-8");
+        const deliverables = parseChangedFiles(content);
+        const taskPath = `${config.progressDir}/${rel.replace(/\\/g, "/")}`;
+        if (await hasUncommitted(repoRoot, [...deliverables, taskPath])) {
+          candidateFiles.add(rel);
         }
+      } catch {
+        // 読めないファイルは対象外
+      }
+    }
+    for (const file of candidateFiles) {
+      try {
+        const content = fs.readFileSync(
+          path.join(progressDir, file),
+          "utf-8",
+        );
+        const fm = parseFrontmatter(content);
+        const label = fm.id ?? file;
+        const paths = new Set<string>(parseChangedFiles(content));
+        // タスクファイル自身と、フェーズの PROGRESS.md も一緒にコミットする
+        paths.add(`${config.progressDir}/${file.replace(/\\/g, "/")}`);
+        const parts = file.replace(/\\/g, "/").split("/");
+        if (parts.length >= 2) {
+          paths.add(`${config.progressDir}/${parts[0]}/PROGRESS.md`);
+        }
+        const result = await commitPaths(
+          repoRoot,
+          [...paths],
+          `feat: complete ${label} (implementation, review, QA)`,
+        );
+        const skippedNote = result.skipped.length
+          ? ` (skipped missing: ${result.skipped.join(", ")})`
+          : "";
+        notes.push(
+          result.committed
+            ? `committed cycle for ${label}${skippedNote}`
+            : `nothing to commit for ${label}${skippedNote}`,
+        );
+      } catch (err) {
+        notes.push(
+          `commit failed for ${file}: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
     }
   }

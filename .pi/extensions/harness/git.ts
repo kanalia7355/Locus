@@ -5,10 +5,15 @@
 // - コミットは 1 サイクル (実装 → レビュー → QA) の完了時に行う
 // - マージ条件は GitHub Actions の CI がグリーンであること
 
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { runProcess, type RunResult } from "./runners/exec";
 
 async function git(cwd: string, args: string[]): Promise<RunResult> {
-  return runProcess(["git", ...args], { cwd });
+  // git はネイティブ exe なのでシェルを介さない。シェル経由だと
+  // コミットメッセージのような空白を含む引数が分割されてしまう
+  // (Windows の npm シム対策で runProcess の既定はシェルありのため)
+  return runProcess(["git", ...args], { cwd, shell: false });
 }
 
 export async function currentBranch(cwd: string): Promise<string> {
@@ -87,23 +92,60 @@ export async function commitAll(
 }
 
 /** 指定パスだけをステージしてコミットする。変更が無ければ false */
+/** 指定パスに未コミットの変更 (未追跡ファイル含む) が残っているか */
+export async function hasUncommitted(
+  worktree: string,
+  paths: string[],
+): Promise<boolean> {
+  if (paths.length === 0) return false;
+  const r = await git(worktree, ["status", "--porcelain", "--", ...paths]);
+  return r.stdout.trim().length > 0;
+}
+
 export async function commitPaths(
   worktree: string,
   paths: string[],
   message: string,
-): Promise<boolean> {
-  if (paths.length === 0) return false;
-  const add = await git(worktree, ["add", "--", ...paths]);
+): Promise<{ committed: boolean; skipped: string[] }> {
+  if (paths.length === 0) return { committed: false, skipped: [] };
+  // 実在するファイルか、追跡済み (削除された) ファイルだけを add 対象にする。
+  // REPORT の記載ミス等で存在しないパスが混ざってもコミット全体を
+  // 失敗させず、skipped として呼び出し側に返す
+  const tracked = new Set(
+    (await git(worktree, ["ls-files"])).stdout
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
+  const valid: string[] = [];
+  const skipped: string[] = [];
+  for (const p of paths) {
+    if (fs.existsSync(path.join(worktree, p)) || tracked.has(p)) {
+      valid.push(p);
+    } else {
+      skipped.push(p);
+    }
+  }
+  if (valid.length === 0) return { committed: false, skipped };
+  const add = await git(worktree, ["add", "--", ...valid]);
   if (add.code !== 0) {
     throw new Error(`git add failed: ${add.stderr || add.stdout}`);
   }
-  const staged = await git(worktree, ["diff", "--cached", "--quiet"]);
-  if (staged.code === 0) return false; // 差分なし
-  const r = await git(worktree, ["commit", "-m", message]);
+  // 判定もコミットも対象パスに限定する。index 全体を見ると、他のタスクや
+  // 人間が stage した無関係な変更まで巻き込んでコミットしてしまう
+  const staged = await git(worktree, [
+    "diff",
+    "--cached",
+    "--quiet",
+    "--",
+    ...valid,
+  ]);
+  if (staged.code === 0) return { committed: false, skipped }; // 差分なし
+  const r = await git(worktree, ["commit", "-m", message, "--", ...valid]);
   if (r.code !== 0) {
     throw new Error(`git commit failed: ${r.stderr || r.stdout}`);
   }
-  return true;
+  return { committed: true, skipped };
 }
 
 export type CiConclusion =
