@@ -13,7 +13,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
-import { listMarkdownFiles, parseFrontmatter } from "./poll";
+import { listMarkdownFiles, parseFrontmatter, readTextSmart } from "./poll";
 import type { HarnessState } from "./state";
 import { runAgy } from "./runners/agy";
 import { runOpenCode } from "./runners/opencode";
@@ -98,14 +98,17 @@ export function parseFrontmatterReviewer(
 /** REVIEW 欄に判定 (承認 / 差し戻し) が既に記入されているか */
 export function reviewVerdictPresent(content: string): boolean {
   const review = sectionBody(content, "REVIEW");
-  // QA 差し戻し (## QA Return) が記録されるたびに、それ以前のレビュー判定は
+  // QA 差し戻しが記録されるたびに、それ以前のレビュー判定は
   // 「旧リビジョンへの判定」として失効する (Luna の再 QA 要件: 変更分への
   // 新規レビューが必要)。判定の件数が差し戻し回数を上回る場合のみ、
-  // 現リビジョンへの判定があるとみなす
-  const qaReturns = (content.match(/^##\s*QA Return/gm) ?? []).length;
-  if (qaReturns === 0) return /APPROVED|CHANGES\s+REQUESTED/i.test(review);
+  // 現リビジョンへの判定があるとみなす。
+  // 差し戻し見出しは Luna の表記ゆれを吸収する (QA Return / QA 戻し / QA 差し戻し)
+  const qaReturns = (
+    content.match(/^##\s*QA[^\n]*(?:戻し|差し戻し|Return|FAIL)/gim) ?? []
+  ).length;
+  if (qaReturns === 0) return /APPROVED|CHANGES[\s_]+REQUESTED/i.test(review);
   const verdicts = (
-    review.match(/Verdict\*\*:?\s*(APPROVED|CHANGES\s+REQUESTED)/gi) ?? []
+    review.match(/Verdict\*\*:?\s*`?(APPROVED|CHANGES[\s_]+REQUESTED)/gi) ?? []
   ).length;
   return verdicts > qaReturns;
 }
@@ -145,7 +148,7 @@ export function findDispatchTarget(
     if (rel.split(/[\\/]/).includes("_template")) continue;
     let raw: string;
     try {
-      raw = fs.readFileSync(path.join(progressDir, rel), "utf-8");
+      raw = readTextSmart(path.join(progressDir, rel));
     } catch {
       continue;
     }
@@ -262,10 +265,7 @@ export async function runDispatch(
   let newStatus: string | null = null;
   let fileChanged = false;
   try {
-    const rawAfter = fs.readFileSync(
-      path.join(opts.repoRoot, taskRel),
-      "utf-8",
-    );
+    const rawAfter = readTextSmart(path.join(opts.repoRoot, taskRel));
     fileChanged = hashContent(rawAfter) !== target.hash;
     newStatus = parseFrontmatter(rawAfter).status ?? null;
   } catch {

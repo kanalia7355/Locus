@@ -15,7 +15,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { DEFAULT_CONFIG, type HarnessConfig } from "./config";
 import { loadState, saveState, pushCycleNote } from "./state";
-import { detectDiff, parseFrontmatter } from "./poll";
+import { detectDiff, parseFrontmatter, readTextSmart } from "./poll";
 import { runLuna } from "./runners/codex";
 import {
   findDispatchTarget,
@@ -156,8 +156,16 @@ export async function runPollCycle(
       };
     }
 
-    // Luna が正常終了したのでスナップショットを進める
-    state.progressSnapshot = current;
+    // Luna が正常終了したのでスナップショットを進める。
+    // ただし「読めなくなった」ファイルの記録は前回のものを残す:
+    // 落としてしまうと、そのファイルは二度と差分として上がってこない
+    const nextSnapshot = { ...current };
+    for (const c of changed) {
+      if (c.after.status === "(missing-or-unreadable)" && c.before) {
+        nextSnapshot[c.file] = c.before;
+      }
+    }
+    state.progressSnapshot = nextSnapshot;
     notes.push(`Luna processed ${changed.length} changed file(s)`);
 
   }
@@ -177,7 +185,7 @@ export async function runPollCycle(
       if (current[rel]?.status !== "done" || candidateFiles.has(rel)) continue;
       if (!rel.replace(/\\/g, "/").includes("/tasks/")) continue;
       try {
-        const content = fs.readFileSync(path.join(progressDir, rel), "utf-8");
+        const content = readTextSmart(path.join(progressDir, rel));
         const deliverables = parseChangedFiles(content);
         const taskPath = `${config.progressDir}/${rel.replace(/\\/g, "/")}`;
         if (await hasUncommitted(repoRoot, [...deliverables, taskPath])) {
@@ -189,10 +197,7 @@ export async function runPollCycle(
     }
     for (const file of candidateFiles) {
       try {
-        const content = fs.readFileSync(
-          path.join(progressDir, file),
-          "utf-8",
-        );
+        const content = readTextSmart(path.join(progressDir, file));
         const fm = parseFrontmatter(content);
         const label = fm.id ?? file;
         const paths = new Set<string>(parseChangedFiles(content));
@@ -288,9 +293,10 @@ export default function harness(pi: PiExtensionApi): void {
     } else if (nextPollAt) {
       const d = new Date(nextPollAt);
       const p = (n: number) => String(n).padStart(2, "0");
+      const remain = formatElapsed(Math.max(0, nextPollAt - Date.now()));
       ctx.ui.setStatus(
         "harness",
-        `harness: 待機中 · 次回ポーリング ${p(d.getHours())}:${p(d.getMinutes())}頃`,
+        `harness: 待機中 · 次回ポーリングまで あと ${remain} (${p(d.getHours())}:${p(d.getMinutes())})`,
       );
     } else {
       ctx.ui.setStatus("harness", "harness: 待機中");
@@ -341,7 +347,7 @@ export default function harness(pi: PiExtensionApi): void {
       void cycle(ctx, false);
     }, config.pollIntervalMs);
     if (footerTimer) clearInterval(footerTimer);
-    footerTimer = setInterval(renderFooter, 30 * 1000);
+    footerTimer = setInterval(renderFooter, 10 * 1000);
     renderFooter();
   });
 

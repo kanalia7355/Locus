@@ -5,7 +5,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { listMarkdownFiles, parseFrontmatter } from "./poll";
+import { listMarkdownFiles, parseFrontmatter, readTextSmart } from "./poll";
 import { activeCooldowns, type HarnessState } from "./state";
 
 export interface TaskRow {
@@ -33,7 +33,7 @@ export function collectTasks(progressDir: string): TaskRow[] {
     if (!norm.includes("/tasks/")) continue;
     let fm: Record<string, string>;
     try {
-      fm = parseFrontmatter(fs.readFileSync(path.join(progressDir, rel), "utf-8"));
+      fm = parseFrontmatter(readTextSmart(path.join(progressDir, rel)));
     } catch {
       continue;
     }
@@ -96,7 +96,9 @@ export function formatStatus(
       : "";
     lines.push(`現在: ⏳ ${view.activity}${elapsed}`);
   } else {
-    const next = view.nextPollAt ? ` · 次回ポーリング ${hhmm(view.nextPollAt)}頃` : "";
+    const next = view.nextPollAt
+      ? ` · 次回ポーリング ${hhmm(view.nextPollAt)} (あと ${formatElapsed(Math.max(0, view.nextPollAt.getTime() - now.getTime()))})`
+      : "";
     lines.push(`現在: 待機中${next}`);
   }
   if (state.lastPollAt) {

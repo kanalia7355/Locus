@@ -30,15 +30,44 @@ export interface ChangedFile {
   after: TaskSnapshot;
 }
 
+/**
+ * テキストファイルをエンコーディング耐性つきで読む。
+ * Windows ではワーカーや CLI が UTF-16LE (PowerShell の既定出力等) で
+ * 書き出す事故が起こりうる。BOM を見て UTF-16LE なら正しくデコードする。
+ */
+export function readTextSmart(file: string): string {
+  const buf = fs.readFileSync(file);
+  if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe) {
+    return buf.toString("utf16le").replace(/^\uFEFF/, "");
+  }
+  return buf.toString("utf-8");
+}
+
 /** 先頭の --- ... --- ブロックから key: value を拾う (YAML の単純なスカラーのみ) */
 export function parseFrontmatter(raw: string): Record<string, string> {
   // BOM が付いていても読めるようにする (Windows のエディタ/コマンドが付けがち)
   const content = raw.replace(/^\uFEFF/, "");
-  if (!content.startsWith("---")) return {};
-  const end = content.indexOf("\n---", 3);
+  const lines = content.split("\n");
+  // 先頭の数行に紛れたゴミ (化けた BOM 等) があっても、最初に現れる
+  // "---" の行を frontmatter の開始として拾う (黙って読めなくなるのを防ぐ)
+  let start = -1;
+  for (let i = 0; i < Math.min(lines.length, 5); i++) {
+    if (lines[i].trim() === "---") {
+      start = i;
+      break;
+    }
+  }
+  if (start === -1) return {};
+  let end = -1;
+  for (let i = start + 1; i < lines.length; i++) {
+    if (lines[i].trim() === "---") {
+      end = i;
+      break;
+    }
+  }
   if (end === -1) return {};
   const result: Record<string, string> = {};
-  for (const line of content.slice(3, end).split("\n")) {
+  for (const line of lines.slice(start + 1, end)) {
     const m = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
     if (m) result[m[1]] = m[2].trim().replace(/^["']|["']$/g, "");
   }
@@ -62,7 +91,7 @@ export function listMarkdownFiles(dir: string, base: string): string[] {
 export function scanProgress(progressDir: string): PollState {
   const state: PollState = {};
   for (const rel of listMarkdownFiles(progressDir, progressDir)) {
-    const raw = fs.readFileSync(path.join(progressDir, rel), "utf-8");
+    const raw = readTextSmart(path.join(progressDir, rel));
     const fm = parseFrontmatter(raw);
     if (fm.status !== undefined || fm.updated !== undefined) {
       state[rel] = {
