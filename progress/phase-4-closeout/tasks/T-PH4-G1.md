@@ -1,11 +1,13 @@
 ---
 id: T-PH4-G1
 phase: phase-4-closeout
-status: review
+status: done
 assignee: deepai
 model: deepai/gemini-4-hydrogen
 weight: heavy
-updated: 2026-11-14T17:46:07+09:00
+updated: 2026-11-14T18:12:00+09:00
+qa_verdict: PASS
+reviewer: deepai/glm-5.3-flash
 attempts: 1
 allowed_paths: frontend/e2e/workspace.spec.ts, frontend/e2e/, frontend/src/App.tsx, frontend/src/App.test.tsx, tests/e2e_server.py, frontend/src/
 test_cmd: npm --prefix frontend test -- --run && npm --prefix frontend run test:e2e
@@ -77,5 +79,8 @@ test_cmd: npm --prefix frontend test -- --run && npm --prefix frontend run test:
 
 ## REVIEW
 
-- Reviewer:
-- Findings:
+- Reviewer: deepai/glm-5.3-flash (独立レビュー round 1, 実装モデル gemini-4-hydrogen と異なる)
+- Findings: **APPROVED**
+  - 検証: (1) `git show 89e71c4 -- frontend/src/App.tsx` で表記変更を確認 — 旧ロケータ `/調査 ·/` は現行 UI に全くマッチせず、回帰主張は正しい。(2) worktree 内で `npm --prefix frontend run test:e2e` → 13 passed (32.2s)。(3) 差分は workspace.spec.ts ロケータ 1 行 + 進捗ファイルのみ、待機アサーションの削除・緩和なし。(4) `grep -rn "調査 ·" frontend/ tests/` → 0 件。(5) REPORT/TEST 記録と実行結果が整合。
+  - 新ロケータ `/^成膜条件を比較 \d{4}\//` の固定依存性は問題なし（質問文字列は同テスト内で送信した値・preview 空経路は存在しない・旧ロケータと同等以上の specificity）。
+  - 指摘 low 1件（修正不要・参考記録）: テストの質問文を将来 80 文字超にすると preview truncation (`…`) でロケータが破綻し得る。現行 7 文字では影響なし。
