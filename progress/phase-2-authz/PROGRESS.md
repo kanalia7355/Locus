@@ -178,3 +178,7 @@
 - Reconciled the round-3 scope escalation using the controlling owner decision: Entry 6 (`DP-071`) explicitly approves recipient-side UI improvement, preserving project-scoped delegation and deferring organization-level expansion. `T-PH2-001` implements its listed recipient-side requirements and has recorded PASS/APPROVED evidence. Therefore, no unresolved implementation-direction decision remains and no additional task is warranted.
 - The roadmap/matrix statements that recipient-side refinement or delegation UI remains future/open work are stale relative to the owner decision and done task. This mismatch was already recorded in the discrepancy section; it is treated as a known documentation lag, not a reason for `NEEDS_HUMAN`. `docs/plans/**` remains read-only here. Organization-wide delegation, source connectors/storage ACL implementation, and production audit protection/retention remain explicitly deferred or outside this phase.
 - Phase task work is exhausted. Full-suite and branch CI checks remain integration gates and do not affect this decompose verdict.
+
+## Integration gate (2026-11-14T02:59:16.596Z)
+- integration gate: CI not green on loop/local-development — Loop engine checks: failure; Prototype quality: failure
+- main へのマージは行っていません。CI を green にして再起動すると、ゲートから再開します
