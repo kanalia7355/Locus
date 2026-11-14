@@ -2,7 +2,7 @@
 
 - **対象 Phase**: `PH-ROADMAP-3`（残部: ingestion 状態・再開性）＋ `PH-ROADMAP-4`（残部: streaming / queue priority・fairness / usability・accessibility audit）＋ 統合ゲート修復。`docs/plans/MASTER_IMPLEMENTATION_ROADMAP.md` §4「Parallelizable work」の isolated 並行条件に基づくバッチ。
 - **対象ブランチ**: `phase/4-closeout`（ベース: 現行統合ブランチ `loop/local-development`、タスクブランチ `task/<TASK-ID>`）
-- **最終更新日時**: `2026-11-14T20:00:00+09:00`
+- **最終更新日時**: `2026-11-14T19:55:00+09:00`
 - **更新責任者**: オーケストレーター (DeepAI Code thread d4a9ead3, owner 指示により 20 分間隔で担当)。※ワーカーによる編集禁止
 - **起動根拠**: Owner 指示 2026-11-14「サブエージェント5体同時起動・20分おきオーケストレーション」。
   `DEVELOPMENT_POLICY.md` の単一実装エージェント原則と本バッチは矛盾するため、
@@ -35,6 +35,16 @@
 - `T-PH3-101` 独立レビュー round 1 指摘 4 (Medium) を受けて `T-PH3-102` を起票
   (App.tsx/api.ts の indexing 表示・取消・ポーリング統合。許可パス: App.tsx, api.ts, App.test.tsx)。
   スロット空き時に T-PH4-101 と並行起動可 (ファイル競合なし)。
+  - 19:31 JST: `T-PH3-101` を no-ff マージ (`548cb55`)。マージ HEAD ローカル検証: pytest 4スイート 34 passed,
+    ruff format 142 files already formatted。セキュリティ審査合格 (per-page ACL 維持・シード緩和は権限昇格なし)。
+  - 19:32 JST: 私の docs コミット `c83a672` のタイトルが 100 文字制約超過で PR title convention が赤
+    (push レンジバリデーション)。履歴書き換えは禁止のため記録のみ、以後タイトル 100 文字以内を徹底。
+    Prototype quality も a11y.spec 未修復のため継続赤 (T-PH4-103 attempt 3 修復中)。
+  - 19:34 JST: `T-PH4-102` 引き継ぎ (kimi-k3.1-pro) も **theos_insufficient で失敗** — クォータは
+    モデル横断で共有 (回復 2026-11-15 17:26 JST)。実装・検証済み差分は worktree に残存。
+    **cross-provider fallback**: codex/gpt-6-astra に検証・記録・コミット完了を委譲 (task 上は
+    ローテーション、attempts 1 のまま)。`T-PH4-101` (kimi-k3.1-pro 予定) は deepai 側クォータ状況を
+    次回確認してから起動 (必要ならモデル変更)。
 
 ## 3. 統合 (マージ) 順序と衝突オーナー
 
