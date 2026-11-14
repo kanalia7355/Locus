@@ -2,7 +2,7 @@
 
 - **対象 Phase**: `PH-ROADMAP-3`（残部: ingestion 状態・再開性）＋ `PH-ROADMAP-4`（残部: streaming / queue priority・fairness / usability・accessibility audit）＋ 統合ゲート修復。`docs/plans/MASTER_IMPLEMENTATION_ROADMAP.md` §4「Parallelizable work」の isolated 並行条件に基づくバッチ。
 - **対象ブランチ**: `phase/4-closeout`（ベース: 現行統合ブランチ `loop/local-development`、タスクブランチ `task/<TASK-ID>`）
-- **最終更新日時**: `2026-11-14T18:32:00+09:00`
+- **最終更新日時**: `2026-11-14T19:08:00+09:00`
 - **更新責任者**: オーケストレーター (DeepAI Code thread d4a9ead3, owner 指示により 20 分間隔で担当)。※ワーカーによる編集禁止
 - **起動根拠**: Owner 指示 2026-11-14「サブエージェント5体同時起動・20分おきオーケストレーション」。
   `DEVELOPMENT_POLICY.md` の単一実装エージェント原則と本バッチは矛盾するため、
@@ -27,7 +27,7 @@
 | `T-PH4-101` | ローカル LLM ストリーミング応答 (`PH-ROADMAP-4` 残部) | `heavy` | `todo` | `unassigned` | `deepai/kimi-k3.1-pro` | `0` | `task/T-PH4-101` | `2026-11-14T17:35:00+09:00` |
 | `T-PH4-102` | 質問ジョブの優先度・公平性 (bounded queue, `PH-ROADMAP-4` 残部) | `medium` | `todo` | `unassigned` | `deepai/gpt-6.1-terra` | `0` | `task/T-PH4-102` | `2026-11-14T17:35:00+09:00` |
 | `T-PH3-101` | 取り込み状態の粒度・再開性強化 (`PH-ROADMAP-3` 残部) | `medium` | `review` | `deepai` | `deepai/deepseek-v4.1-flash` | `1` | `task/T-PH3-101` (commit 39fcd3a, レビュー中) | `2026-11-14T18:20:00+09:00` |
-| `T-PH4-103` | アクセシビリティ・キーボード・モバイル監査と修正 (`PH-ROADMAP-4` 残部) | `medium` | `doing` | `deepai` | `deepai/minimax-m3.1-flash` | `1` (レビュー差戻し1周) | `task/T-PH4-103` (F1 修正中, レビュー round 2 待ち) | `2026-11-14T18:32:00+09:00` |
+| `T-PH4-103` | アクセシビリティ・キーボード・モバイル監査と修正 (`PH-ROADMAP-4` 残部) | `medium` | `review` | `deepai` | `deepai/minimax-m3.1-flash` | `2` (レビュー round 2 中) | `task/T-PH4-103` (F1 修正 44569be) | `2026-11-14T19:08:00+09:00` |
 
 ## 3. 統合 (マージ) 順序と衝突オーナー
 
@@ -62,6 +62,10 @@
     発火しベースライン外の折りたたみ。修正はビューポートゲート1行)。REVIEW 欄に全文記録して `status: doing` に
     差戻しし、修正指示を送信 (review round 2)。F2/F3 は非阻塞。指摘に基づき F3 は G1 スコープと確認 (既に統合済み)。
   - 18:30 JST: 修正指示を `T-PH4-103` スレッドへ送信、再実装開始。
+  - 18:59 JST: `T-PH4-103` F1 修正完了 (`44569be`, attempts 2)。Escape ハンドラにビューポートゲート実装、
+    デスクトップ幅 Escape assert を a11y.spec.ts に追加、Vitest 83 passed・a11y 5/5・typecheck/lint green、
+    既存 E2E 12/13 (1件は base 未更新に起因する G1 スコープ既存課題、変更前後で同一)。→ `status: review`。
+  - 19:07 JST: `T-PH4-103` レビュー round 2 (2周目・上限) を委譲開始。
     レビュー完了後に統合順序 §3 (PH3-101 → PH4-102 → PH4-101 → PH4-103) でマージし、
     スロット空き時に `T-PH4-102` / `T-PH4-101` を起動する。
 - 委譲レビューもアクティブ枠を消費するため、`T-PH3-101` の起動は次サイクルへ繰り越し。
