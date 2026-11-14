@@ -164,7 +164,10 @@ function gitPush() {
 }
 
 // ---------- パス分類 ----------
-const FORBIDDEN = [".pi/extensions/", "docs/planning/", "docs/plans/", "loop_engine/", ".loop/"];
+// loop_engine/ は pi 時代に「現行コントローラ保護」で禁止だったが、実態は廃止済みエンジンで、
+// その CI チェック (Loop engine checks) がマージゲートを構成するため対象外にすると直せない。
+// 触ってはいけないのは計画文書と旧ハーネス拡張だけに絞る
+const FORBIDDEN = [".pi/extensions/", "docs/planning/", "docs/plans/", ".loop/"];
 function allowedMatch(p, allowed) {
   return (allowed ?? []).some((a) => p === a || (a.endsWith("/") && p.startsWith(a)));
 }
@@ -544,6 +547,7 @@ function runPlanner(mode) {
       allowed_paths: t.allowed_paths ?? "", test_cmd: t.test_cmd ?? "",
     })), null, 1),
     BLOCKED_DETAILS: blockedDetails,
+    DIRTY_PATHS: gitStatusPaths().join(", ") || "(なし)",
     VERDICT_FILE: planFile,
     PROGRESS_PATH: `${progressRel}/PROGRESS.md`,
     EXISTING_PHASES: existingPhases,
@@ -582,9 +586,12 @@ async function planningStep() {
   if (roundsOf(curPhase) >= MAX_PLAN_ROUNDS) return "unavailable";
   const round = bumpRound(curPhase);
   const beforeActive = scanTasks().filter((t) => ["todo", "doing", "review", "qa"].includes(t.status)).length;
+  const beforePaths = new Set(gitStatusPaths());
   note(`planner round ${round} for ${curPhase} (decompose)`);
   const res = runPlanner("decompose");
-  const outside = nonLedgerChanges();
+  // 越境判定は「プランナー実行前からあった変更」を除く。
+  // blocked タスクの未コミット WIP が残っているのが正常で、それを誤検知しないため
+  const outside = nonLedgerChanges().filter((p) => !beforePaths.has(p));
   if (outside.length > 0) {
     appendProgressAlert(`## 🚨 Planner overreach (round ${round})\n- プランナーが台帳外のパスを変更したため停止しました: ${outside.join(", ")}`);
     commitLedgerChanges(`chore(progress): planner round ${round} for ${curPhase}`);
@@ -731,8 +738,9 @@ async function advancePhase() {
     return "stopped";
   }
   note(`planner: bootstrapping next phase after ${completedPhase}`);
+  const beforePaths = new Set(gitStatusPaths());
   const res = runPlanner("bootstrap");
-  const outside = nonLedgerChanges();
+  const outside = nonLedgerChanges().filter((p) => !beforePaths.has(p));
   if (outside.length > 0) {
     appendProgressAlert(`## 🚨 Planner overreach (bootstrap)\n- プランナーが台帳外のパスを変更したため停止しました: ${outside.join(", ")}`);
     commitLedgerChanges(`chore(progress): planner bootstrap after ${completedPhase}`);
