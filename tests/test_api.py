@@ -507,6 +507,7 @@ def test_admin_web_provisioning_is_rate_limited(service: Service) -> None:
     assert limited.status_code == 429
     assert limited.json()["detail"] == "試行回数が多いため、1分後に再試行してください"
 
+
 def test_document_list_search_filters_by_name(service: Service) -> None:
     client = client_for(service)
     login(client)
@@ -534,9 +535,7 @@ def test_document_list_search_filters_by_name(service: Service) -> None:
     names = {d["name"] for d in all_docs}
     assert "alpha-notes.txt" in names and "beta-report.txt" in names
 
-    filtered = client.get(
-        "/api/documents", params={"project_id": "project-a", "q": "alpha"}
-    ).json()
+    filtered = client.get("/api/documents", params={"project_id": "project-a", "q": "alpha"}).json()
     assert [d["name"] for d in filtered] == ["alpha-notes.txt"]
 
     filtered_ci = client.get(
@@ -566,9 +565,7 @@ def test_document_list_search_respects_visibility(service: Service) -> None:
     ).json()
     assert {d["id"] for d in alice_hits} == {private, shared}
 
-    bob_hits = bob.get(
-        "/api/documents", params={"project_id": "project-a", "q": "alpha"}
-    ).json()
+    bob_hits = bob.get("/api/documents", params={"project_id": "project-a", "q": "alpha"}).json()
     assert [d["id"] for d in bob_hits] == [shared]
     assert all(d["name"] == "alpha-shared.txt" for d in bob_hits)
 
