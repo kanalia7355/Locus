@@ -461,7 +461,7 @@ class OpenCodeRunner:
                 category="model_tool_incompatible",
             )
 
-        models = [self.model] if self.model else [None]
+        models: list[str | None] = [self.model] if self.model else [None]
         for candidate in self.fallback_models:
             if candidate not in models:
                 models.append(candidate)

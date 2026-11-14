@@ -66,7 +66,7 @@ def doctor(root: Path, *, check_sandbox: bool = False) -> dict[str, Any]:
         binary = codex_binary(root) if tool == "codex" else shutil.which(tool)
         result[tool] = {"available": binary is not None}
         if binary:
-            probe = subprocess.run(  # noqa: S603 — resolved known executable, no shell
+            tool_probe = subprocess.run(  # noqa: S603 — resolved known executable, no shell
                 [binary, "--version"],
                 cwd=root,
                 capture_output=True,
@@ -77,7 +77,9 @@ def doctor(root: Path, *, check_sandbox: bool = False) -> dict[str, Any]:
                 errors="replace",
             )
             result[tool]["version"] = (
-                probe.stdout.splitlines()[0][:100] if probe.returncode == 0 else "unavailable"
+                tool_probe.stdout.splitlines()[0][:100]
+                if tool_probe.returncode == 0
+                else "unavailable"
             )
     config = load(root / ".loop/config.yaml")
     result["delivery"] = config["github"]["delivery"]
@@ -256,6 +258,10 @@ def build_controller(root: Path, state: StateStore) -> Any:
     config = load(root / ".loop/config.yaml")
     boundary: Boundary
     qa_boundary: Boundary
+    # CodexRunner and OpenCodeRunner share no base class, and OpenCodeRunner is imported
+    # only inside the branch below, so a Union here trips ruff F821. The CodexRunner-only
+    # consumers (GoalEvaluator, Reviewer) are annotated outside this task's allowed paths.
+    runner: Any
     queue_hash = __import__("loop_engine.security", fromlist=["fingerprint"]).fingerprint(config)
     if not config["security"]["allow_model_execution"]:
         from loop_engine.approval import ApprovalQueue
