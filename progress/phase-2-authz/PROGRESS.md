@@ -54,7 +54,7 @@
 
 | Task ID | タイトル / 要件 ID | Weight | Status | Assignee | Model | Reviewer | Attempts | Worktree / Branch | Updated |
 |---|---|---|---|---|---|---|---|---|---|
-| `T-PH2-001` | Delegation recipient UI and unauthorized creation guard (`IAM-011`, `UI-008`, `DP-071`) | `medium` | `todo` | `agy` | `Gemini 4 Argon` | `agy/Claude Sonnet 5.5` | `0` | 割当環境に従う | `2026-11-14` |
+| `T-PH2-001` | Delegation recipient UI and unauthorized creation guard (`IAM-011`, `UI-008`, `DP-071`) | `medium` | `done` | `opencode` | `opencode/minimax-m3.1-flash-free` | `agy/Claude Sonnet 5.5` | `1` | 割当環境に従う | `2026-11-14T11:37:12+09:00` |
 | `T-PH2-002` | プロジェクトメンバー実効権限プレビューにおける委任権限の明示と表示整合 (`IAM-011`, `IAM-012`, `IAM-014`) | `medium` | `done` | `agy` | `Gemini 4 Argon` | `agy/Claude Sonnet 5.5` | `1` | `task/T-PH2-002` | `2026-11-13T13:13:15+09:00` |
 | `T-PH2-003` | Phase 2 認可・委任・監査境界の統合回帰テスト補強 (`IAM-006`〜`IAM-015`, `DATA-008`, `DATA-010`) | `medium` | `done` | `opencode` | `opencode/deepseek-v4.1-flash-free` | `opencode/opencode/mimo-v2.6-flash-free` | `2` | `task/T-PH2-003` | `2026-11-14T10:25:01+09:00` |
 
@@ -145,3 +145,9 @@
 - log: committed: docs(progress): mark T-PH2-003 done
 - log: pushed to origin/loop/local-development
 - log: T-PH2-003: done, committed and pushed
+
+### Planner reconciliation (2026-11-14, decompose round 3)
+- Current task scan: `T-PH2-001`, `T-PH2-002`, and `T-PH2-003` are all `done`; no task is `blocked`. The task table above is reconciled for `T-PH2-001`. Earlier blocked/stop records and the 2026-11-13 task table are historical records, not current state.
+- No new task was created: the remaining phase items are described as owner-approved deferrals (including source connectors/storage ACL and production audit protection/retention), or are wider later-phase requirements. None is an unassigned Phase-2 implementation item in this ledger.
+- **Human scope reconciliation required before declaring Phase 2 plan complete:** completed `T-PH2-001` records the recipient-side UI refinement as accepted, but read-only `docs/plans/MASTER_IMPLEMENTATION_ROADMAP.md` still lists that refinement as future work, and `docs/plans/REQUIREMENTS_TRACEABILITY_MATRIX.md` still says delegation UI screens remain open under `IAM-011`. The owner/planning source of truth must determine whether T-PH2-001 closes that residual and authorize updating those plan documents, or whether more Phase-2 work is intended. Planner cannot edit `docs/plans/**`; no speculative task is opened against this unresolved scope.
+- The phase integration gates (full-suite evidence and exact phase-branch CI) remain unchecked above. They are integration gates rather than unassigned task work; do not treat this decompose reconciliation as phase integration or merge approval.
