@@ -9,6 +9,11 @@
 //
 // 使い方:
 //   node scripts/autoloop.mjs <phase-slug> [--max-cycles 50] [--max-hours 6] [--once]
+//     [--no-plan] [--plan-rounds 6] [--max-phases 3]
+//
+// 駆動できるタスクが尽きたら、プランナー (Luna) が台帳を審査する:
+// blocked の再評価・解除、残作業のタスク分解、フェーズ完了判定と次フェーズの起票。
+// プランナーが編集できるのは progress/ 配下 (台帳) のみで、コードには触れない。
 //
 // 環境変数: CODEX_BIN / AGY_BIN / OPENCODE_BIN (テスト用に実行系を差し替え可能)、
 //           AUTOLOOP_LUNA_MODEL (既定 gpt-6-luna)
@@ -33,10 +38,21 @@ const MAX_CYCLES = Number.parseInt(opt("max-cycles", "50"), 10);
 const MAX_HOURS = Number.parseFloat(opt("max-hours", "6"));
 const ONCE = process.argv.includes("--once");
 const LUNA_MODEL = process.env.AUTOLOOP_LUNA_MODEL || "gpt-6-luna";
+const PLAN_ENABLED = !process.argv.includes("--no-plan");
+const MAX_PLAN_ROUNDS = Number.parseInt(opt("plan-rounds", "6"), 10);
+const MAX_PHASES = Number.parseInt(opt("max-phases", "3"), 10);
 
-const progressDir = path.join(REPO, "progress", phaseSlug);
-const progressRel = `progress/${phaseSlug}`;
-const PROGRESS_FILE = path.join(progressDir, "PROGRESS.md");
+// フェーズはプランナーの次フェーズ起票で切り替わるため可変にする
+let curPhase = phaseSlug;
+let progressDir = path.join(REPO, "progress", curPhase);
+let progressRel = `progress/${curPhase}`;
+let PROGRESS_FILE = path.join(progressDir, "PROGRESS.md");
+function setPhase(slug) {
+  curPhase = slug;
+  progressDir = path.join(REPO, "progress", slug);
+  progressRel = `progress/${slug}`;
+  PROGRESS_FILE = path.join(progressDir, "PROGRESS.md");
+}
 const harnessDir = path.join(REPO, ".pi", "harness");
 const stateFile = path.join(harnessDir, "state.json");
 const STOP_FILE = path.join(harnessDir, "STOP");
@@ -60,9 +76,14 @@ function loadState() {
     if (!Array.isArray(s.autoloop.cooldowns)) s.autoloop.cooldowns = [];
     if (typeof s.autoloop.freeCursor !== "number") s.autoloop.freeCursor = 0;
     if (typeof s.autoloop.pushFailures !== "number") s.autoloop.pushFailures = 0;
+    if (!s.autoloop.planner || typeof s.autoloop.planner !== "object") {
+      s.autoloop.planner = { rounds: {}, phases: [], invalid: 0, noProgress: 0 };
+    }
+    if (!s.autoloop.planner.rounds || typeof s.autoloop.planner.rounds !== "object") s.autoloop.planner.rounds = {};
+    if (!Array.isArray(s.autoloop.planner.phases)) s.autoloop.planner.phases = [];
     return s;
   } catch {
-    return { autoloop: { cooldowns: [], freeCursor: 0, pushFailures: 0 } };
+    return { autoloop: { cooldowns: [], freeCursor: 0, pushFailures: 0, planner: { rounds: {}, phases: [], invalid: 0, noProgress: 0 } } };
   }
 }
 const state = loadState();
@@ -449,13 +470,190 @@ function commitFlow(task) {
     return { worked: true };
   }
   taskCtl(["transition", task.file, "--to", "done"]);
-  commitPaths(b.allowed, `feat(${phaseSlug}): complete ${task.id}`);
+  commitPaths(b.allowed, `feat(${curPhase}): complete ${task.id}`);
   const ledgerFiles = [`${progressRel}/tasks/${task.id}.md`, `${progressRel}/PROGRESS.md`]
     .filter((p) => gitStatusPaths().includes(p));
   commitPaths(ledgerFiles, `docs(progress): mark ${task.id} done`);
   gitPush();
   note(`${task.id}: done, committed and pushed`);
   return { worked: true };
+}
+
+// ---------- プランナー (Luna: 分解・blocked 審査・次フェーズ起票) ----------
+function roundsOf(phase) { return state.autoloop.planner.rounds[phase] ?? 0; }
+function bumpRound(phase) {
+  state.autoloop.planner.rounds[phase] = roundsOf(phase) + 1;
+  saveState();
+  return state.autoloop.planner.rounds[phase];
+}
+function appendProgressAlert(text) {
+  if (fs.existsSync(PROGRESS_FILE)) fs.appendFileSync(PROGRESS_FILE, `\n${text}\n`, "utf-8");
+}
+function commitLedgerChanges(message) {
+  const changed = gitStatusPaths().filter((p) => p.startsWith("progress/"));
+  if (changed.length === 0) return false;
+  if (!commitPaths(changed, message)) return false;
+  gitPush();
+  return true;
+}
+function nonLedgerChanges() {
+  return gitStatusPaths().filter(
+    (p) => !p.startsWith("progress/") && !p.startsWith(".pi/") && !p.startsWith("scripts/"),
+  );
+}
+function quarantineInvalidTasks() {
+  let n = 0;
+  for (const t of scanTasks()) {
+    if (t.status !== "todo") continue;
+    const missing = [];
+    if (parseAllowed(t).length === 0) missing.push("allowed_paths");
+    if (!t.test_cmd) missing.push("test_cmd");
+    if (missing.length > 0) {
+      taskCtl(["set", t.file, "--set", "status=blocked"]);
+      appendNote(t, "REPORT", `- **[Planner Gate]** runner quarantined this task: frontmatter is missing ${missing.join(", ")}. Fix the fields and set status back to todo to resume.`);
+      note(`quarantine: ${t.id} -> blocked (missing ${missing.join(", ")})`);
+      n++;
+    }
+  }
+  return n;
+}
+
+function runPlanner(mode) {
+  const planFile = path.join(harnessDir, "tmp", "plan-verdict.txt");
+  if (fs.existsSync(planFile)) fs.unlinkSync(planFile);
+  const tasksNow = scanTasks();
+  const blockedDetails = tasksNow.filter((t) => t.status === "blocked")
+    .map((t) => `\n----- ${t.id} -----\n${fs.readFileSync(t.file, "utf-8")}`).join("\n") || "(なし)";
+  let existingPhases = "(なし)";
+  try {
+    existingPhases = fs.readdirSync(path.join(REPO, "progress"), { withFileTypes: true })
+      .filter((d) => d.isDirectory()).map((d) => d.name).join(", ") || "(なし)";
+  } catch { /* progress/ 自体がない場合はそのまま */ }
+  const prompt = fillTemplate("planner.md", {
+    PHASE: curPhase, MODE: mode, ROUND: String(roundsOf(curPhase) + 1),
+    SCAN_JSON: JSON.stringify(tasksNow.map((t) => ({
+      id: t.id, status: t.status, weight: t.weight, attempts: t.attempts,
+      allowed_paths: t.allowed_paths ?? "", test_cmd: t.test_cmd ?? "",
+    })), null, 1),
+    BLOCKED_DETAILS: blockedDetails,
+    VERDICT_FILE: planFile,
+    PROGRESS_PATH: `${progressRel}/PROGRESS.md`,
+    EXISTING_PHASES: existingPhases,
+  });
+  const binParts = (process.env.CODEX_BIN || "codex").split(/\s+/);
+  const r = sh(binParts[0], [...binParts.slice(1), "exec", "--model", LUNA_MODEL, "--sandbox", "workspace-write", "-"], {
+    input: prompt,
+    shell: process.platform === "win32" && !process.env.CODEX_BIN,
+    timeout: 1800000,
+  });
+  if (!fs.existsSync(planFile)) {
+    note(`planner (${mode}) produced no verdict file (codex code=${r.code})`);
+    return { verdict: null, arg: "", reason: "" };
+  }
+  const lines = fs.readFileSync(planFile, "utf-8").split("\n").map((s) => s.trim()).filter(Boolean);
+  const m = /^PLAN:\s*(MORE|COMPLETE|NEEDS_HUMAN|ALL_DONE|NEXT)\b\s*(\S+)?/.exec(lines[0] ?? "");
+  if (!m) {
+    note(`planner (${mode}) verdict unparsable: ${(lines[0] ?? "").slice(0, 80)}`);
+    return { verdict: null, arg: "", reason: "" };
+  }
+  return { verdict: m[1], arg: m[2] ?? "", reason: lines.slice(1).join(" ").slice(0, 300) };
+}
+
+function plannerInvalid() {
+  state.autoloop.planner.invalid = (state.autoloop.planner.invalid ?? 0) + 1;
+  saveState();
+  if (state.autoloop.planner.invalid >= 2) { finalize("planner verdict invalid twice"); return "stopped"; }
+  return "continue";
+}
+
+// 駆動可能なタスクが尽きたときに呼ばれる。戻り値:
+//   'continue'    … 駆動対象ができた (または再試行する) のでループ継続
+//   'stopped'     … finalize 済み
+//   'unavailable' … プランナー予算切れ。従来の停止理由にフォールバックする
+function planningStep() {
+  if (roundsOf(curPhase) >= MAX_PLAN_ROUNDS) return "unavailable";
+  const round = bumpRound(curPhase);
+  const beforeActive = scanTasks().filter((t) => ["todo", "doing", "review", "qa"].includes(t.status)).length;
+  note(`planner round ${round} for ${curPhase} (decompose)`);
+  const res = runPlanner("decompose");
+  const outside = nonLedgerChanges();
+  if (outside.length > 0) {
+    appendProgressAlert(`## 🚨 Planner overreach (round ${round})\n- プランナーが台帳外のパスを変更したため停止しました: ${outside.join(", ")}`);
+    commitLedgerChanges(`chore(progress): planner round ${round} for ${curPhase}`);
+    finalize(`planner touched non-ledger paths: ${outside.slice(0, 3).join(", ")}`);
+    return "stopped";
+  }
+  if (!res.verdict) return plannerInvalid();
+  state.autoloop.planner.invalid = 0;
+  saveState();
+  if (res.verdict === "NEEDS_HUMAN") {
+    commitLedgerChanges(`chore(progress): planner round ${round} for ${curPhase} (needs human)`);
+    finalize(`planner: needs human — ${res.reason || "see PROGRESS"}`);
+    return "stopped";
+  }
+  if (res.verdict === "COMPLETE") {
+    commitLedgerChanges(`chore(progress): planner round ${round} for ${curPhase} (phase complete)`);
+    return advancePhase();
+  }
+  if (res.verdict === "MORE") {
+    quarantineInvalidTasks();
+    commitLedgerChanges(`chore(progress): planner round ${round} for ${curPhase}`);
+    const afterActive = scanTasks().filter((t) => ["todo", "doing", "review", "qa"].includes(t.status)).length;
+    if (afterActive > beforeActive) {
+      state.autoloop.planner.noProgress = 0;
+      saveState();
+      return "continue";
+    }
+    state.autoloop.planner.noProgress = (state.autoloop.planner.noProgress ?? 0) + 1;
+    saveState();
+    if (state.autoloop.planner.noProgress >= 2) {
+      finalize("planner produced no actionable tasks in 2 rounds");
+      return "stopped";
+    }
+    return "continue";
+  }
+  note(`planner: unexpected verdict ${res.verdict} in decompose mode`);
+  return plannerInvalid();
+}
+
+function advancePhase() {
+  if (state.autoloop.planner.phases.length >= MAX_PHASES) {
+    finalize(`phase complete (${curPhase}); max phases per run reached (${MAX_PHASES})`);
+    return "stopped";
+  }
+  note(`planner: bootstrapping next phase after ${curPhase}`);
+  const res = runPlanner("bootstrap");
+  const outside = nonLedgerChanges();
+  if (outside.length > 0) {
+    appendProgressAlert(`## 🚨 Planner overreach (bootstrap)\n- プランナーが台帳外のパスを変更したため停止しました: ${outside.join(", ")}`);
+    commitLedgerChanges(`chore(progress): planner bootstrap after ${curPhase}`);
+    finalize(`planner touched non-ledger paths: ${outside.slice(0, 3).join(", ")}`);
+    return "stopped";
+  }
+  if (res.verdict === "ALL_DONE") {
+    commitLedgerChanges(`chore(progress): planner bootstrap after ${curPhase} (all phases done)`);
+    finalize("all phases complete (planner: ALL_DONE)");
+    return "stopped";
+  }
+  if (res.verdict === "NEXT" && /^phase-[a-z0-9][a-z0-9-]*$/.test(res.arg)) {
+    if (fs.existsSync(path.join(REPO, "progress", res.arg, "tasks"))) {
+      commitLedgerChanges(`chore(progress): bootstrap ${res.arg} (planner)`);
+      setPhase(res.arg);
+      state.autoloop.planner.phases.push(res.arg);
+      saveState();
+      note(`planner: advanced to phase ${res.arg}`);
+      if (quarantineInvalidTasks() > 0) {
+        commitLedgerChanges(`chore(progress): quarantine invalid tasks in ${res.arg}`);
+      }
+      return "continue";
+    }
+    note(`planner: NEXT ${res.arg} but progress/${res.arg}/tasks does not exist`);
+  } else if (!res.verdict) {
+    note("planner: bootstrap produced no valid verdict");
+  }
+  commitLedgerChanges(`chore(progress): planner bootstrap after ${curPhase}`);
+  finalize(`phase complete (${curPhase}); next phase was not started (planner verdict: ${res.verdict ?? "none"})`);
+  return "stopped";
 }
 
 // ---------- 起動時スイープと終了処理 ----------
@@ -465,7 +663,7 @@ function startupSweep(tasks) {
     const b = classify(t, gitStatusPaths());
     if (b.allowed.length > 0 && b.forbidden.length === 0 && b.unmapped.length === 0) {
       note(`sweep: ${t.id} is done but has uncommitted deliverables; committing`);
-      commitPaths(b.allowed, `feat(${phaseSlug}): complete ${t.id}`);
+      commitPaths(b.allowed, `feat(${curPhase}): complete ${t.id}`);
       const ledgerFiles = [`${progressRel}/tasks/${t.id}.md`, `${progressRel}/PROGRESS.md`]
         .filter((p) => gitStatusPaths().includes(p));
       commitPaths(ledgerFiles, `docs(progress): mark ${t.id} done`);
@@ -522,7 +720,11 @@ function corruptGate(tasks) {
 async function sleep(ms) { return new Promise((res) => setTimeout(res, ms)); }
 
 async function main() {
-  note(`start: phase=${phaseSlug} maxCycles=${MAX_CYCLES} maxHours=${MAX_HOURS}`);
+  note(`start: phase=${phaseSlug} maxCycles=${MAX_CYCLES} maxHours=${MAX_HOURS} plan=${PLAN_ENABLED ? `on (rounds<=${MAX_PLAN_ROUNDS}, phases<=${MAX_PHASES})` : "off"}`);
+  if (!state.autoloop.planner.phases.includes(curPhase)) {
+    state.autoloop.planner.phases.push(curPhase);
+    saveState();
+  }
   let tasks = scanTasks();
   corruptGate(tasks);
   tasks = scanTasks();
@@ -540,6 +742,12 @@ async function main() {
     const active = tasks.filter((t) => ["todo", "doing", "review", "qa"].includes(t.status));
     const blocked = tasks.filter((t) => t.status === "blocked");
     if (active.length === 0) {
+      if (PLAN_ENABLED && !ONCE) {
+        const ps = planningStep();
+        if (ps === "continue") continue;
+        if (ps === "stopped") return;
+        // 'unavailable' (プランナー予算切れ) のときは従来の停止理由へ
+      }
       if (blocked.length > 0) { finalize(`all remaining tasks blocked (${blocked.map((b) => b.id).join(", ")})`); return; }
       const ci = sh("gh", ["run", "list", "--limit", "1"], { timeout: 60000 });
       note(`phase complete. latest CI: ${ci.code === 0 ? ci.out.trim().split("\n")[0] : "unavailable"}`);
