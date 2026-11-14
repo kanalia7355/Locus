@@ -74,7 +74,14 @@ if (logFile) fs.mkdirSync(path.dirname(logFile), { recursive: true });
 const logStream = logFile ? fs.createWriteStream(logFile, { flags: "a" }) : null;
 logStream?.write(`\n===== ${new Date().toISOString()} ${runner} ${model} (${stage}) =====\n`);
 
-const child = spawn(bin, args, {
+function quoteShellArg(s) {
+  return /[\s"&|<>^]/.test(s) ? `"${String(s).replace(/"/g, '\\"')}"` : s;
+}
+
+const spawnBin = useShell ? quoteShellArg(bin) : bin;
+const spawnArgs = useShell ? args.map(quoteShellArg) : args;
+
+const child = spawn(spawnBin, spawnArgs, {
   cwd: workdir,
   shell: useShell,
   env: { ...process.env, CI: "true" },
@@ -99,6 +106,7 @@ const timer = setTimeout(() => {
 }, timeoutMs);
 
 const QUOTA_RE = /quota|rate[\s_-]?limit|\b429\b|resource_exhausted|insufficient|usage limit/i;
+const QUOTA_STRICT_RE = /individual quota reached|quota\s+(?:reached|exceeded|exhausted)|usage limit|rate[\s_-]?limit|insufficient\s+(?:balance|quota|credit)|no resource package|\b429\b/i;
 
 function extractVerdict() {
   // 1) agy の構造化 JSON 出力
@@ -128,7 +136,7 @@ child.on("close", (code) => {
   logStream?.end();
   let outcome;
   if (timedOut) outcome = "timeout";
-  else if (code !== 0 && QUOTA_RE.test(captured)) outcome = "quota";
+  else if (QUOTA_STRICT_RE.test(captured) || (code !== 0 && QUOTA_RE.test(captured))) outcome = "quota";
   else if (code !== 0) outcome = "error";
   else outcome = "ok";
   const verdict = stage === "review" ? extractVerdict() : null;

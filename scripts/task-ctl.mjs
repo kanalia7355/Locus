@@ -38,7 +38,8 @@ export function readSmart(file) {
   if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe) {
     text = buf.toString("utf16le");
   } else if (buf.length >= 2 && buf[0] === 0xfe && buf[1] === 0xff) {
-    const swapped = Buffer.alloc(buf.length - (buf.length % 2));
+    const usable = Math.max(0, buf.length - 2 - ((buf.length - 2) % 2));
+    const swapped = Buffer.alloc(usable);
     for (let i = 2; i + 1 < buf.length; i += 2) {
       swapped[i - 2] = buf[i + 1];
       swapped[i - 1] = buf[i];
@@ -98,15 +99,23 @@ export function parseTaskText(text) {
   return { fields, extraOrder, warnings, body };
 }
 
+function formatScalar(v) {
+  const s = String(v);
+  if (/(?:^\s|\s$|\s#|^['"`])/.test(s)) {
+    return `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+  }
+  return s;
+}
+
 export function serializeTask(fields, extraOrder, body) {
   const out = ["---"];
   const written = new Set();
   for (const key of KEY_ORDER) {
-    if (fields[key] !== undefined) { out.push(`${key}: ${fields[key]}`); written.add(key); }
+    if (fields[key] !== undefined) { out.push(`${key}: ${formatScalar(fields[key])}`); written.add(key); }
   }
   for (const key of extraOrder ?? []) {
     if (fields[key] !== undefined && !written.has(key)) {
-      out.push(`${key}: ${fields[key]}`);
+      out.push(`${key}: ${formatScalar(fields[key])}`);
       written.add(key);
     }
   }
@@ -114,7 +123,7 @@ export function serializeTask(fields, extraOrder, body) {
   // ここで拾わないと保存時に黙って落ちる
   for (const key of Object.keys(fields)) {
     if (fields[key] !== undefined && !written.has(key)) {
-      out.push(`${key}: ${fields[key]}`);
+      out.push(`${key}: ${formatScalar(fields[key])}`);
       written.add(key);
     }
   }
@@ -138,11 +147,17 @@ export function loadTask(file) {
   const parsed = parseTaskText(text);
   if (parsed.corrupt) return { file, status: "corrupt", error: parsed.error };
   const f = parsed.fields;
+  if (f.attempts !== undefined && f.attempts !== "" && !/^\d+$/.test(f.attempts.trim())) {
+    return { file, status: "corrupt", error: `invalid_attempts: ${f.attempts}` };
+  }
+  if (f.review_round !== undefined && f.review_round !== "" && !/^\d+$/.test(f.review_round.trim())) {
+    return { file, status: "corrupt", error: `invalid_review_round: ${f.review_round}` };
+  }
   return {
     file,
     ...f,
-    attempts: f.attempts !== undefined ? Number.parseInt(f.attempts, 10) || 0 : 0,
-    review_round: f.review_round !== undefined ? Number.parseInt(f.review_round, 10) || 0 : 0,
+    attempts: f.attempts !== undefined && f.attempts !== "" ? Number.parseInt(f.attempts, 10) : 0,
+    review_round: f.review_round !== undefined && f.review_round !== "" ? Number.parseInt(f.review_round, 10) : 0,
     verdict: f.verdict ?? "NONE",
     verdict_for: f.verdict_for ?? "-",
     warnings: parsed.warnings,
@@ -322,14 +337,15 @@ function cmdSetReport(file, args) {
   }
   const content = readSmart(from).replace(/\s*$/, "");
   const body = t._parsed.body;
-  const headingRe = new RegExp(`^##\\s+${section}\\b.*$`, "m");
+  const escaped = section.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const headingRe = new RegExp(`^##\\s+${escaped}(?:\\s+\\([^)]*\\))?\\s*$`, "m");
   const m = headingRe.exec(body);
   if (m) {
     const afterStart = m.index + m[0].length;
     const rest = body.slice(afterStart);
     // 節の終端は「次の予約節見出し」まで。QA レポート等が本文中に書く
     // `## 照合結果` のような小見出しで節が切れると、旧レポートの断片が残り続けるため
-    const nextHeading = rest.search(/^##\s+(TASK DEFINITION|REPORT|TEST|REVIEW|QA|Planner Note)\b/m);
+    const nextHeading = rest.search(/^##\s+(TASK DEFINITION|REPORT|TEST|REVIEW|QA|QA Result|QA Return|Planner Note|目的|実装内容|受入条件|備考|autoloop run|🚨)\b/m);
     const tail = nextHeading >= 0 ? rest.slice(nextHeading) : "";
     t._parsed.body = body.slice(0, m.index) + m[0] + "\n\n" + content + "\n\n" + tail.replace(/^\n+/, "");
   } else {

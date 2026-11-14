@@ -136,12 +136,12 @@ function git(args, opts = {}) {
   return sh("git", args, opts);
 }
 function gitStatusPaths() {
-  const r = git(["status", "--porcelain", "-uall"]);
+  const r = git(["-c", "core.quotePath=false", "status", "--porcelain", "-uall"]);
   if (r.code !== 0) return [];
-  return r.out.split("\n").filter(Boolean).map((line) => {
-    let p = line.slice(3);
-    if (p.includes(" -> ")) p = p.split(" -> ")[1];
-    return p.replace(/^"|"$/g, "").split(path.sep).join("/");
+  return r.out.split("\n").filter(Boolean).flatMap((line) => {
+    const raw = line.slice(3);
+    const parts = raw.includes(" -> ") ? raw.split(" -> ") : [raw];
+    return parts.map((p) => p.replace(/^"|"$/g, "").split(path.sep).join("/"));
   });
 }
 function gitHead() {
@@ -185,8 +185,8 @@ function classify(task, changedPaths) {
   for (const p of changedPaths) {
     if (FORBIDDEN.some((f) => p.startsWith(f))) buckets.forbidden.push(p);
     else if (p === taskRel || p === `${progressRel}/PROGRESS.md` || p.startsWith(`${progressRel}/`)) buckets.ledger.push(p);
-    else if (p.startsWith(".pi/") || p.startsWith("scripts/")) { /* infra: 無視 */ }
     else if (allowedMatch(p, allowed)) buckets.allowed.push(p);
+    else if (p.startsWith(".pi/harness/")) { /* infra: 無視 */ }
     else if (allowedMatch(p, ALL_ALLOWED)) { /* 他タスクの変更: このタスクでは触らない */ }
     else buckets.unmapped.push(p);
   }
@@ -327,7 +327,7 @@ function appendNote(task, section, text) {
   fs.writeFileSync(tmp, text, "utf-8");
   // set-report は節を置換するため、既存内容に追記する形で合成する
   const current = fs.readFileSync(task.file, "utf-8");
-  const re = new RegExp(`##\\s+${section}\\b[^\\n]*\\n([\\s\\S]*?)(?=\\n##\\s+(TASK DEFINITION|REPORT|TEST|REVIEW|QA|Planner Note)\\b|$)`);
+  const re = new RegExp(`##\\s+${section}\\b[^\\n]*\\n([\\s\\S]*?)(?=\\n##\\s+(?:TASK DEFINITION|REPORT|TEST|REVIEW|QA|QA Result|QA Return|Planner Note|目的|実装内容|受入条件|備考|autoloop run|🚨)|$)`);
   const m = re.exec(current);
   const merged = (m ? m[1].trim() + "\n\n" : "") + text;
   fs.writeFileSync(tmp, merged, "utf-8");
@@ -485,13 +485,16 @@ function commitFlow(task) {
     note(`${task.id}: commit gate refused (forbidden=${b.forbidden.length}, unmapped=${b.unmapped.length})`);
     return { worked: true };
   }
+  if (!commitPaths(b.allowed, `feat(${curPhase}): complete ${task.id}`)) {
+    note(`${task.id}: commit of deliverables failed; leaving status as ${task.status}`);
+    return { worked: false };
+  }
   taskCtl(["transition", task.file, "--to", "done"]);
-  commitPaths(b.allowed, `feat(${curPhase}): complete ${task.id}`);
   const ledgerFiles = [`${progressRel}/tasks/${task.id}.md`, `${progressRel}/PROGRESS.md`]
     .filter((p) => gitStatusPaths().includes(p));
   commitPaths(ledgerFiles, `docs(progress): mark ${task.id} done`);
-  gitPush();
-  note(`${task.id}: done, committed and pushed`);
+  const pushed = gitPush();
+  note(`${task.id}: done, committed${pushed ? " and pushed" : " (push failed)"}`);
   return { worked: true };
 }
 
@@ -514,7 +517,7 @@ function commitLedgerChanges(message) {
 }
 function nonLedgerChanges() {
   return gitStatusPaths().filter(
-    (p) => !p.startsWith("progress/") && !p.startsWith(".pi/") && !p.startsWith("scripts/"),
+    (p) => !p.startsWith("progress/") && !p.startsWith(".pi/harness/"),
   );
 }
 function quarantineInvalidTasks() {
@@ -568,7 +571,8 @@ function runPlanner(mode) {
     return { verdict: null, arg: "", reason: "" };
   }
   const lines = fs.readFileSync(planFile, "utf-8").split("\n").map((s) => s.trim()).filter(Boolean);
-  const m = /^PLAN:\s*(MORE|COMPLETE|NEEDS_HUMAN|ALL_DONE|NEXT)\b\s*(\S+)?/.exec(lines[0] ?? "");
+  const verdictRe = /^PLAN:\s*(MORE|COMPLETE|NEEDS_HUMAN|ALL_DONE|NEXT)\b\s*(\S+)?/;
+  const m = lines.slice(0, 5).map((l) => verdictRe.exec(l)).find(Boolean) ?? null;
   if (!m) {
     note(`planner (${mode}) verdict unparsable: ${(lines[0] ?? "").slice(0, 80)}`);
     return { verdict: null, arg: "", reason: "" };
@@ -612,6 +616,12 @@ async function planningStep() {
     return "stopped";
   }
   if (res.verdict === "COMPLETE") {
+    const check = scanTasks();
+    const unfinished = check.filter((t) => ["todo", "doing", "review", "qa", "blocked", "corrupt"].includes(t.status));
+    if (unfinished.length > 0) {
+      note(`planner round ${round}: COMPLETE rejected (${unfinished.map((t) => `${t.id}:${t.status}`).join(", ")})`);
+      return await plannerInvalid();
+    }
     commitLedgerChanges(`chore(progress): planner round ${round} for ${curPhase} (phase complete)`);
     return await advancePhase();
   }
@@ -651,6 +661,10 @@ function ciStatusForHead() {
   const wanted = CI_WORKFLOWS ? CI_WORKFLOWS.split(",").map((s) => s.trim()).filter(Boolean) : null;
   const mine = runs.filter((x) => x.headSha === sha && (!wanted || wanted.includes(x.name)));
   if (mine.length === 0) return { state: "none", sha };
+  if (wanted && wanted.length > 0) {
+    const missing = wanted.filter((w) => !mine.some((x) => x.name === w));
+    if (missing.length > 0) return { state: "pending", sha, missing };
+  }
   if (mine.some((x) => x.status !== "completed")) return { state: "pending", sha };
   const failed = mine.filter((x) => x.conclusion !== "success")
     .map((x) => ({ id: x.databaseId, name: x.name, conclusion: x.conclusion, url: x.url }));
@@ -660,10 +674,17 @@ function ciStatusForHead() {
 
 async function waitForCI() {
   const deadline = Date.now() + CI_TIMEOUT_MS;
+  let unavailableCount = 0;
   for (;;) {
     if (fs.existsSync(STOP_FILE)) return { state: "stopped" };
     const s = ciStatusForHead();
-    if (s.state === "green" || s.state === "red" || s.state === "unavailable") return s;
+    if (s.state === "green" || s.state === "red") return s;
+    if (s.state === "unavailable") {
+      unavailableCount += 1;
+      if (unavailableCount >= 3) return s;
+    } else {
+      unavailableCount = 0;
+    }
     if (Date.now() > deadline) return { state: "timeout", sha: s.sha };
     await sleep(CI_POLL_MS);
   }
@@ -674,10 +695,16 @@ function mergeToMain(sourceBranch, phase) {
   let r = git(["checkout", "main"], { timeout: 60000 });
   if (r.code !== 0) {
     r = git(["checkout", "-b", "main", "origin/main"], { timeout: 60000 });
-    if (r.code !== 0) return { ok: false, detail: `checkout main failed: ${r.out.trim().slice(-200)}` };
+    if (r.code !== 0) {
+      git(["checkout", sourceBranch], { timeout: 60000 });
+      return { ok: false, detail: `checkout main failed: ${r.out.trim().slice(-200)}` };
+    }
   } else {
     const ff = git(["merge", "--ff-only", "origin/main"], { timeout: 60000 });
-    if (ff.code !== 0) return { ok: false, detail: "local main has diverged from origin/main; resolve manually" };
+    if (ff.code !== 0) {
+      git(["checkout", sourceBranch], { timeout: 60000 });
+      return { ok: false, detail: "local main has diverged from origin/main; resolve manually" };
+    }
   }
   const m = git(["merge", "--no-ff", sourceBranch, "-m", `chore: integrate ${phase} into main (autoloop phase completion)`], { timeout: 120000 });
   if (m.code !== 0) {
@@ -688,6 +715,7 @@ function mergeToMain(sourceBranch, phase) {
   const sha = gitHead();
   const p = git(["push", "origin", "main"], { timeout: 180000 });
   if (p.code !== 0) {
+    git(["checkout", sourceBranch], { timeout: 60000 });
     return { ok: false, detail: `merge commit ${sha.slice(0, 8)} exists on local main but push failed: ${p.out.trim().slice(-200)}` };
   }
   return { ok: true, sha };
@@ -696,7 +724,10 @@ function mergeToMain(sourceBranch, phase) {
 async function integrationGate(phase) {
   const branch = currentBranch();
   if (branch === "main") { note("integration gate: already on main; nothing to merge"); return "skipped"; }
-  gitPush();
+  if (!gitPush()) {
+    await stopWithAlert("integration-push-failed", `git push of ${branch} failed before CI check in ${phase}`);
+    return "failed";
+  }
   note(`integration gate: waiting for CI on ${branch} @ ${gitHead().slice(0, 8)}`);
   const ci = await waitForCI();
   if (ci.state === "stopped") { finalize("kill switch (STOP file)"); return "stopped"; }
@@ -793,13 +824,16 @@ function startupSweep(tasks) {
   for (const t of tasks) {
     if (t.status !== "done") continue;
     const b = classify(t, gitStatusPaths());
-    if (b.allowed.length > 0 && b.forbidden.length === 0 && b.unmapped.length === 0) {
-      note(`sweep: ${t.id} is done but has uncommitted deliverables; committing`);
-      commitPaths(b.allowed, `feat(${curPhase}): complete ${t.id}`);
+    if ((b.allowed.length > 0 || b.ledger.length > 0) && b.forbidden.length === 0 && b.unmapped.length === 0) {
+      note(`sweep: ${t.id} is done but has uncommitted deliverables/ledger; committing`);
+      if (b.allowed.length > 0 && !commitPaths(b.allowed, `feat(${curPhase}): complete ${t.id}`)) {
+        note(`sweep: ${t.id} deliverable commit failed; skipping`);
+        continue;
+      }
       const ledgerFiles = [`${progressRel}/tasks/${t.id}.md`, `${progressRel}/PROGRESS.md`]
         .filter((p) => gitStatusPaths().includes(p));
-      commitPaths(ledgerFiles, `docs(progress): mark ${t.id} done`);
-      gitPush();
+      if (ledgerFiles.length > 0) commitPaths(ledgerFiles, `docs(progress): mark ${t.id} done`);
+      if (!gitPush()) note(`sweep: ${t.id} push failed`);
     }
   }
 }
@@ -873,6 +907,7 @@ async function main() {
     tasks = scanTasks();
     if (tasks.some((t) => t.status === "corrupt")) { corruptGate(tasks); tasks = scanTasks(); }
     refreshAllAllowed(tasks);
+    if (quarantineInvalidTasks() > 0) { tasks = scanTasks(); refreshAllAllowed(tasks); }
     const active = tasks.filter((t) => ["todo", "doing", "review", "qa"].includes(t.status));
     const blocked = tasks.filter((t) => t.status === "blocked");
     if (active.length === 0) {
