@@ -403,6 +403,26 @@ it("hides the creation form for a recipient-only user while allowing inspection 
   ).toBeVisible();
 });
 
+it("does not present a granting capability to a recipient-only user", async () => {
+  mockApi({ projects: [], initialGrants: [received] });
+  render(<AdminDelegations />);
+  await screen.findByRole("article", {
+    name: "管理委任 grant-received-456",
+  });
+  expect(
+    screen.queryByRole("heading", { name: "管理委任を作成" }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.getByRole("heading", { name: "管理委任の作成権限" }),
+  ).toBeVisible();
+  expect(
+    screen.queryByText(/選択した受領者へ15分〜7日間付与します/),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.getByText(/自分に関係する委任の付与元・権限範囲・有効期限・状態を確認し/),
+  ).toBeVisible();
+});
+
 it("clearly distinguishes granted delegations from received delegations in the list", async () => {
   mockApi();
   render(<AdminDelegations />);

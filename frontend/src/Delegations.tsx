@@ -204,7 +204,9 @@ export function AdminDelegations() {
   return (
     <section className="admin-delegations" aria-label="管理委任">
       <p className="muted">
-        プロジェクトの委任可能な権限を、選択した受領者へ15分〜7日間付与します。最終的な権限と有効期間はサーバーで確認されます。
+        {options && options.projects.length === 0
+          ? "自分に関係する委任の付与元・権限範囲・有効期限・状態を確認し、不要な委任は自分で取り消せます。"
+          : "プロジェクトの委任可能な権限を、選択した受領者へ15分〜7日間付与します。最終的な権限と有効期間はサーバーで確認されます。"}
       </p>
       {error && <p role="alert">{error}</p>}
       {notice && <p role="status">{notice}</p>}
@@ -213,7 +215,7 @@ export function AdminDelegations() {
           className="admin-delegation-form"
           aria-label="管理委任の作成権限"
         >
-          <h2>管理委任を作成</h2>
+          <h2>管理委任の作成権限</h2>
           <p className="muted">
             現在、他の利用者へ委任できるプロジェクト権限はありません。受領した委任の確認と取り消しのみ行えます。
           </p>
