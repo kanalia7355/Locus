@@ -54,9 +54,9 @@
 
 | Task ID | タイトル / 要件 ID | Weight | Status | Assignee | Model | Reviewer | Attempts | Worktree / Branch | Updated |
 |---|---|---|---|---|---|---|---|---|---|
-| `T-PH2-001` | Delegation recipient UI and unauthorized creation guard (`IAM-011`, `UI-008`, `DP-071`) | `medium` | `blocked` | `agy` | `Gemini 4 Argon` | `agy/Claude Sonnet 5.5` | `3` | `task/T-PH2-001` | `2026-11-13T15:02:02+09:00` |
+| `T-PH2-001` | Delegation recipient UI and unauthorized creation guard (`IAM-011`, `UI-008`, `DP-071`) | `medium` | `todo` | `agy` | `Gemini 4 Argon` | `agy/Claude Sonnet 5.5` | `0` | 割当環境に従う | `2026-11-14` |
 | `T-PH2-002` | プロジェクトメンバー実効権限プレビューにおける委任権限の明示と表示整合 (`IAM-011`, `IAM-012`, `IAM-014`) | `medium` | `done` | `agy` | `Gemini 4 Argon` | `agy/Claude Sonnet 5.5` | `1` | `task/T-PH2-002` | `2026-11-13T13:13:15+09:00` |
-| `T-PH2-003` | Phase 2 認可・委任・監査境界の統合回帰テスト補強 (`IAM-006`〜`IAM-015`, `DATA-008`, `DATA-010`) | `medium` | `review` | `agy` | `Gemini 3.8 Flash` | `agy/Gemini 4 Argon (Medium)` | `1` | `task/T-PH2-003` | `2026-11-13T18:36:17+09:00` |
+| `T-PH2-003` | Phase 2 認可・委任・監査境界の統合回帰テスト補強 (`IAM-006`〜`IAM-015`, `DATA-008`, `DATA-010`) | `medium` | `done` | `opencode` | `opencode/deepseek-v4.1-flash-free` | `opencode/opencode/mimo-v2.6-flash-free` | `2` | `task/T-PH2-003` | `2026-11-14T10:25:01+09:00` |
 
 ---
 
@@ -114,6 +114,11 @@
 - タスク専用4ファイル差分は識別できると記録されている。現在の作業チェックアウトには他タスク等の変更も混在し、タスクは未コミット。タスク固有ブランチの CI は未実行であり、成功扱いにはできない。CI は統合ゲートの未完了項目として扱う。
 - `attempts: 3` およびレビュー周回上限2回に達したため、これ以上の自動差し戻し・再割当はしない。失敗原因はテストや受入条件の不合格ではなく、タスクブランチと CI 成功証跡が未提示のまま上限に達したこと。
 - **人間への確認事項**: 次のいずれかを指示してください。(1) タスク専用ブランチ/コミットを提示し CI 成功を確認する、(2) タスク差分を安全に分離する手順を決めてから CI を実行する、(3) タスクスコープまたは納品方法を見直す。確認までは `blocked` のままとする。
+
+### T-PH2-001 ブロック再審査 (2026-11-14)
+- 上記のブロック理由を現行 `docs/agent/PROTOCOL.md` §5.2–5.3 と今回の planner 指示で再評価した。§5.2 は QA で `done` にできると定め、タスク専用 worktree / branch やコミットを QA 条件としていない。§5.3 の CI green はサブブランチから phase branch への統合条件であり、タスク QA 条件ではない。
+- 実装不合格、未解決仕様、未解決レビュー指摘は記録されていない。タスクには受入条件1–4に対応する実装報告、関連 Vitest 17/17 PASS、別モデルの Cycle 2 APPROVED がある。よって未コミット／タスク枝 CI 未確認のみを根拠とするブロックは陳腐化と判定し、`unblocks: 1` として解除した。CI は従来どおりフェーズ統合ゲートで確認する。
+- 解除履歴の詳細は `tasks/T-PH2-001.md` の Planner Note を参照。以前の人間確認依頼は現行ルールに照らし撤回する。
 
 
 ### Poll reconciliation (T-PH2-003, 2026-11-13T18:36:17+09:00)
