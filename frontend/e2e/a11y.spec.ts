@@ -1,33 +1,142 @@
+import { spawn } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { test as base, expect } from "@playwright/test";
 import type { BrowserContext, Page } from "@playwright/test";
 
-// Synthetic fixture credentials created by tests/e2e_server.py.
-const ORIGINAL_PASSWORD = "Synthetic-test-password-01!";
-const ROTATED_PASSWORD = "Changed-synthetic-password-01!";
+// This spec owns its backend instance and its own account, so it never depends
+// on the accounts, the password state or the numbering of the ambient e2e
+// fixture that workspace.spec.ts uses.
+const repoRoot = findRepoRoot();
+const python = resolve(
+  repoRoot,
+  ".venv",
+  process.platform === "win32" ? "Scripts/python.exe" : "bin/python",
+);
+// 4173 is one of the hosts the local-only backend accepts.
+const apiPort = 4173;
+const apiBase = `http://127.0.0.1:${apiPort}`;
+const uniqueUser = `a11y-${Date.now().toString(36)}-${Math.random()
+  .toString(36)
+  .slice(2, 8)}`;
+const uniquePassword = "Synthetic-a11y-password-01!";
+const rotatedPassword = "Synthetic-a11y-rotated-01!";
 
-// test-researcher-5 is the only fixture account that workspace.spec.ts leaves
-// unused, so both suites can sign in without sharing credentials.
-const KEYBOARD_USER = "test-researcher-5";
+// Reuses the reviewed e2e fixture and only adds this spec's own account.
+const serverRunner = `
+import os
+import runpy
 
-// The signed in session is reused between the tests of this file because the
-// backend rate limits repeated sign-ins per account and per client address.
-const storageStatePath = join(tmpdir(), "locus-a11y-storage-state.json");
-const rotatedUsers = new Set<string>();
+import uvicorn
 
-const test = base.extend<{ signedInPage: Page }>({
-  signedInPage: async ({ browser }, provide) => {
-    const context: BrowserContext = await browser.newContext(
-      existsSync(storageStatePath) ? { storageState: storageStatePath } : {},
+import app.main as main_module
+
+port = int(os.environ["A11Y_PORT"])
+username = os.environ["A11Y_USERNAME"]
+password = os.environ["A11Y_PASSWORD"]
+fixture = os.environ["A11Y_FIXTURE"]
+
+original_create = main_module.create_app
+
+
+def create_app(**kwargs):
+    service = kwargs.get("service")
+    if service is not None:
+        service.provision(username, password)
+        service.assign(username, "synthetic-project", "researcher")
+        service.seed_synthetic(username, "synthetic-project")
+    return original_create(**kwargs)
+
+
+main_module.create_app = create_app
+original_run = uvicorn.run
+
+
+def run(app, **kwargs):
+    kwargs["port"] = port
+    kwargs["host"] = "127.0.0.1"
+    return original_run(app, **kwargs)
+
+
+uvicorn.run = run
+runpy.run_path(fixture, run_name="__main__")
+`;
+
+function findRepoRoot(): string {
+  let current = process.cwd();
+  for (let depth = 0; depth < 6; depth++) {
+    if (existsSync(join(current, "tests", "e2e_server.py"))) return current;
+    const parent = resolve(current, "..");
+    if (parent === current) break;
+    current = parent;
+  }
+  throw new Error("リポジトリのルートが見つかりません");
+}
+
+async function waitForApi(): Promise<void> {
+  const deadline = Date.now() + 60000;
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(`${apiBase}/api/health`);
+      if (response.ok) return;
+    } catch {
+      // The dedicated backend is still starting.
+    }
+    await new Promise((resolveWait) => setTimeout(resolveWait, 250));
+  }
+  throw new Error("専用のバックエンドが起動しませんでした");
+}
+
+let backend: ChildProcess | null = null;
+let backendLog = "";
+let sessionState: Awaited<ReturnType<BrowserContext["storageState"]>> | null =
+  null;
+
+const test = base.extend<{ a11yPage: Page }>({
+  a11yPage: async ({ browser }, provide) => {
+    const context = await browser.newContext(
+      sessionState ? { storageState: sessionState } : {},
     );
+    await context.route("**/api/**", async (route) => {
+      const request = route.request();
+      const url = new URL(request.url());
+      url.protocol = "http:";
+      url.host = `127.0.0.1:${apiPort}`;
+      const response = await route.fetch({ url: url.toString() });
+      await route.fulfill({ response });
+    });
     const page = await context.newPage();
-    await ensureSignedIn(page);
-    await context.storageState({ path: storageStatePath });
     await provide(page);
     await context.close();
   },
+});
+
+test.beforeAll(async () => {
+  backend = spawn(python, ["-c", serverRunner], {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      PYTHONPATH: join(repoRoot, "backend"),
+      LOCUS_E2E: "1",
+      A11Y_PORT: String(apiPort),
+      A11Y_USERNAME: uniqueUser,
+      A11Y_PASSWORD: uniquePassword,
+      A11Y_FIXTURE: join(repoRoot, "tests", "e2e_server.py"),
+    },
+    stdio: ["ignore", "ignore", "pipe"],
+  });
+  backend.stderr?.on("data", (chunk: Buffer) => {
+    backendLog = `${backendLog}${chunk.toString()}`.slice(-4000);
+  });
+  await waitForApi().catch((error: Error) => {
+    throw new Error(`${error.message}\n${backendLog}`);
+  });
+});
+
+test.afterAll(async () => {
+  backend?.kill();
+  backend = null;
 });
 
 async function activeName(page: Page): Promise<string> {
@@ -59,35 +168,35 @@ async function tabUntil(
   throw new Error(`キーボードで到達できませんでした: ${pattern}`);
 }
 
-async function signIn(page: Page, username: string): Promise<void> {
-  const candidate = rotatedUsers.has(username)
-    ? ROTATED_PASSWORD
-    : ORIGINAL_PASSWORD;
+async function signIn(page: Page): Promise<void> {
   const rotate = page.getByRole("heading", { name: "仮パスワードの変更" });
   const workspace = page.getByRole("heading", {
     name: "資料を調べる",
     exact: true,
   });
-  await page.goto("/");
-  await page.getByLabel("利用者ID").fill(username);
-  await page.getByLabel("パスワード", { exact: true }).fill(candidate);
-  await page.getByRole("button", { name: "ログイン", exact: true }).click();
-  await expect(
-    rotate.or(workspace).or(page.getByRole("alert")).first(),
-  ).toBeVisible({ timeout: 10000 });
-  if (await workspace.isVisible()) return;
-  if (!(await rotate.isVisible()))
-    throw new Error(`ログインに失敗しました: ${username}`);
-  await page.getByLabel("仮パスワード", { exact: true }).fill(candidate);
-  await page
-    .getByLabel("新しいパスワード", { exact: true })
-    .fill(ROTATED_PASSWORD);
-  await page
-    .getByLabel("新しいパスワード（確認）", { exact: true })
-    .fill(ROTATED_PASSWORD);
-  await page.getByRole("button", { name: "変更して続ける" }).click();
-  await expect(workspace).toBeVisible({ timeout: 15000 });
-  rotatedUsers.add(username);
+  for (const candidate of [rotatedPassword, uniquePassword]) {
+    await page.goto("/");
+    await page.getByLabel("利用者ID").fill(uniqueUser);
+    await page.getByLabel("パスワード", { exact: true }).fill(candidate);
+    await page.getByRole("button", { name: "ログイン", exact: true }).click();
+    await expect(
+      rotate.or(workspace).or(page.getByRole("alert")).first(),
+    ).toBeVisible({ timeout: 15000 });
+    if (await workspace.isVisible()) return;
+    if (await rotate.isVisible()) {
+      await page.getByLabel("仮パスワード", { exact: true }).fill(candidate);
+      await page
+        .getByLabel("新しいパスワード", { exact: true })
+        .fill(rotatedPassword);
+      await page
+        .getByLabel("新しいパスワード（確認）", { exact: true })
+        .fill(rotatedPassword);
+      await page.getByRole("button", { name: "変更して続ける" }).click();
+      await expect(workspace).toBeVisible({ timeout: 15000 });
+      return;
+    }
+  }
+  throw new Error(`ログインできませんでした: ${uniqueUser}`);
 }
 
 async function ensureSignedIn(page: Page): Promise<void> {
@@ -98,9 +207,9 @@ async function ensureSignedIn(page: Page): Promise<void> {
   await page.goto("/");
   await expect(
     workspace.or(page.getByRole("heading", { name: "ログイン", exact: true })).first(),
-  ).toBeVisible({ timeout: 10000 });
+  ).toBeVisible({ timeout: 15000 });
   if (await workspace.isVisible()) return;
-  await signIn(page, KEYBOARD_USER);
+  await signIn(page);
 }
 
 function focusIndicatorScript(): () => {
@@ -163,15 +272,16 @@ function focusIndicatorScript(): () => {
 }
 
 test("keyboard only flow covers login, chat, sources, history and logout", async ({
-  page,
+  a11yPage: page,
 }) => {
   await page.goto("/");
+  await expect(page.getByLabel("利用者ID")).toBeVisible();
   await page.keyboard.press("Tab");
   await expect(page.getByLabel("利用者ID")).toBeFocused();
-  await page.keyboard.type(KEYBOARD_USER);
+  await page.keyboard.type(uniqueUser);
   await page.keyboard.press("Tab");
   await expect(page.getByLabel("パスワード", { exact: true })).toBeFocused();
-  await page.keyboard.type(ORIGINAL_PASSWORD);
+  await page.keyboard.type(uniquePassword);
   await page.keyboard.press("Tab");
   await expect(
     page.getByRole("button", { name: "ログイン", exact: true }),
@@ -182,17 +292,16 @@ test("keyboard only flow covers login, chat, sources, history and logout", async
   ).toBeVisible();
 
   await tabUntil(page, /^仮パスワード$/);
-  await page.keyboard.type(ORIGINAL_PASSWORD);
+  await page.keyboard.type(uniquePassword);
   await tabUntil(page, /^新しいパスワード$/);
-  await page.keyboard.type(ROTATED_PASSWORD);
+  await page.keyboard.type(rotatedPassword);
   await tabUntil(page, /^新しいパスワード（確認）$/);
-  await page.keyboard.type(ROTATED_PASSWORD);
+  await page.keyboard.type(rotatedPassword);
   await tabUntil(page, /^変更して続ける$/);
   await page.keyboard.press("Enter");
   await expect(
     page.getByRole("heading", { name: "資料を調べる", exact: true }),
   ).toBeVisible();
-  rotatedUsers.add(KEYBOARD_USER);
 
   const topbarOrder: string[] = [];
   for (let index = 0; index < 3; index++) {
@@ -267,22 +376,15 @@ test("keyboard only flow covers login, chat, sources, history and logout", async
     page.getByRole("heading", { name: "ログイン", exact: true }),
   ).toBeVisible();
 
-  // The session is restored so that the remaining tests reuse it.
-  await tabUntil(page, /^利用者ID$/);
-  await page.keyboard.type(KEYBOARD_USER);
-  await tabUntil(page, /^パスワード$/);
-  await page.keyboard.type(ROTATED_PASSWORD);
-  await tabUntil(page, /^ログイン$/);
-  await page.keyboard.press("Enter");
-  await expect(
-    page.getByRole("heading", { name: "資料を調べる", exact: true }),
-  ).toBeVisible();
-  await page.context().storageState({ path: storageStatePath });
+  // A fresh session is prepared for the remaining checks of this file.
+  await signIn(page);
+  sessionState = await page.context().storageState();
 });
 
 test("keyboard focus stays inside the source dialog and returns to its trigger", async ({
-  signedInPage: page,
+  a11yPage: page,
 }) => {
+  await ensureSignedIn(page);
   await page
     .getByRole("textbox", { name: "メッセージ", exact: true })
     .fill("成膜条件を比較");
@@ -316,8 +418,9 @@ test("keyboard focus stays inside the source dialog and returns to its trigger",
 });
 
 test("every keyboard control shows a focus indicator with enough contrast", async ({
-  signedInPage: page,
+  a11yPage: page,
 }) => {
+  await ensureSignedIn(page);
   const indicators: { name: string; visible: boolean; ratio: number }[] = [];
   for (let index = 0; index < 40; index++) {
     await page.keyboard.press("Tab");
@@ -334,13 +437,9 @@ test("every keyboard control shows a focus indicator with enough contrast", asyn
 });
 
 test("the workspace stays operable at a 375px viewport and the desktop layout ignores Escape", async ({
-  signedInPage: page,
+  a11yPage: page,
 }) => {
   await page.setViewportSize({ width: 375, height: 812 });
-  await page.goto("/");
-  expect(
-    await page.evaluate(() => document.documentElement.scrollWidth),
-  ).toBeLessThanOrEqual(375);
   await ensureSignedIn(page);
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth),
@@ -382,8 +481,9 @@ test("the workspace stays operable at a 375px viewport and the desktop layout ig
 });
 
 test("live regions and accessible names cover the dynamic workspace", async ({
-  signedInPage: page,
+  a11yPage: page,
 }) => {
+  await ensureSignedIn(page);
   const live = page.locator(".messages[aria-live='polite']");
   await expect(live).toHaveCount(1);
   await expect(page.locator(".send-state[role='status']")).toHaveCount(1);
