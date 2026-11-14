@@ -18,14 +18,14 @@ const storageStatePath = join(tmpdir(), "locus-a11y-storage-state.json");
 const rotatedUsers = new Set<string>();
 
 const test = base.extend<{ signedInPage: Page }>({
-  signedInPage: async ({ browser }, use) => {
+  signedInPage: async ({ browser }, provide) => {
     const context: BrowserContext = await browser.newContext(
       existsSync(storageStatePath) ? { storageState: storageStatePath } : {},
     );
     const page = await context.newPage();
     await ensureSignedIn(page);
     await context.storageState({ path: storageStatePath });
-    await use(page);
+    await provide(page);
     await context.close();
   },
 });
