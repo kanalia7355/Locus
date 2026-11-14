@@ -2,7 +2,7 @@
 
 - **対象 Phase**: `PH-ROADMAP-3`（残部: ingestion 状態・再開性）＋ `PH-ROADMAP-4`（残部: streaming / queue priority・fairness / usability・accessibility audit）＋ 統合ゲート修復。`docs/plans/MASTER_IMPLEMENTATION_ROADMAP.md` §4「Parallelizable work」の isolated 並行条件に基づくバッチ。
 - **対象ブランチ**: `phase/4-closeout`（ベース: 現行統合ブランチ `loop/local-development`、タスクブランチ `task/<TASK-ID>`）
-- **最終更新日時**: `2026-11-14T17:43:00+09:00`
+- **最終更新日時**: `2026-11-14T17:59:00+09:00`
 - **更新責任者**: オーケストレーター (DeepAI Code thread d4a9ead3, owner 指示により 20 分間隔で担当)。※ワーカーによる編集禁止
 - **起動根拠**: Owner 指示 2026-11-14「サブエージェント5体同時起動・20分おきオーケストレーション」。
   `DEVELOPMENT_POLICY.md` の単一実装エージェント原則と本バッチは矛盾するため、
@@ -23,10 +23,10 @@
 
 | Task ID | タイトル / 要件 ID | Weight | Status | Assignee | Model | Attempts | Worktree / Branch | Updated |
 |---|---|---|---|---|---|---|---|---|
-| `T-PH4-G1` | Prototype quality E2E timeout 修復 (統合ゲート解消) | `heavy` | `doing` | `deepai` | `deepai/gemini-4-hydrogen` | `1` | `task/T-PH4-G1` (thread mcp:65246349) | `2026-11-14T17:43:00+09:00` |
+| `T-PH4-G1` | Prototype quality E2E timeout 修復 (統合ゲート解消) | `heavy` | `review` | `deepai` | `deepai/gemini-4-hydrogen` | `1` | `task/T-PH4-G1` (再起動 thread mcp:a42245ae, commit a163805) | `2026-11-14T17:59:00+09:00` |
 | `T-PH4-101` | ローカル LLM ストリーミング応答 (`PH-ROADMAP-4` 残部) | `heavy` | `todo` | `unassigned` | `deepai/kimi-k3.1-pro` | `0` | `task/T-PH4-101` | `2026-11-14T17:35:00+09:00` |
 | `T-PH4-102` | 質問ジョブの優先度・公平性 (bounded queue, `PH-ROADMAP-4` 残部) | `medium` | `todo` | `unassigned` | `deepai/gpt-6.1-terra` | `0` | `task/T-PH4-102` | `2026-11-14T17:35:00+09:00` |
-| `T-PH3-101` | 取り込み状態の粒度・再開性強化 (`PH-ROADMAP-3` 残部) | `medium` | `todo` | `unassigned` | `deepai/deepseek-v4.1-flash` | `0` | `task/T-PH3-101` | `2026-11-14T17:35:00+09:00` |
+| `T-PH3-101` | 取り込み状態の粒度・再開性強化 (`PH-ROADMAP-3` 残部) | `medium` | `todo` | `unassigned` | `deepai/deepseek-v4.1-flash` | `0` | `task/T-PH3-101` | `2026-11-14T17:59:00+09:00` |
 | `T-PH4-103` | アクセシビリティ・キーボード・モバイル監査と修正 (`PH-ROADMAP-4` 残部) | `medium` | `doing` | `deepai` | `deepai/minimax-m3.1-flash` | `1` | `task/T-PH4-103` (thread mcp:7ab0f9e1) | `2026-11-14T17:43:00+09:00` |
 
 ## 3. 統合 (マージ) 順序と衝突オーナー
@@ -44,6 +44,13 @@
 `loop/local-development` にマージしない。
 
 ## 4. 進行管理
+
+- **進捗ログ**:
+  - 17:46 JST: `T-PH4-G1` 実装完了 → `status: review`。原因は回帰 (commit `89e71c4` の履歴ボタン表記変更に
+    E2E ロケータが未追従)。修正は `frontend/e2e/workspace.spec.ts` ロケータ 1 行の最小変更。
+    実装者証跡: 修正前 E2E 3/3 再現 FAIL、修正後 E2E 3/3 PASS・Vitest 79 green・lint/typecheck green。
+  - 17:58 JST: `T-PH4-G1` の独立レビューを別モデル (deepai/glm-5.3-flash) で委譲開始 (round 1)。
+  - 委譲レビューもアクティブ枠を消費するため、`T-PH3-101` の起動は次サイクルへ繰り越し。
 
 - **起動キュー** (2026-11-14 17:43 JST): プラットフォームの同時実行上限 (アクティブ DeepAI スレッド 2) により、
   `T-PH4-G1` と `T-PH4-103` のみ起動済み。`T-PH3-101` → `T-PH4-102` → `T-PH4-101` はローリング起動
