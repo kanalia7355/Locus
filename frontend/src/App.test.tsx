@@ -2,10 +2,21 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 
+const initialViewportWidth = window.innerWidth;
+
+function setViewportWidth(width: number) {
+  Object.defineProperty(window, "innerWidth", {
+    value: width,
+    configurable: true,
+    writable: true,
+  });
+}
+
 const requests: { path: string; options?: RequestInit }[] = [];
 beforeEach(() => {
   requests.length = 0;
   localStorage.clear();
+  setViewportWidth(initialViewportWidth);
   vi.stubGlobal(
     "fetch",
     vi.fn(async (path: string, options?: RequestInit) => {
@@ -353,5 +364,90 @@ describe("approved chat interaction baseline", () => {
     expect(
       screen.queryByText(/管理権限の委任は無効です/),
     ).not.toBeInTheDocument();
+  });
+
+  it("moves focus to the page heading when the keyboard user changes pages", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "資料を調べる" });
+    fireEvent.click(screen.getByRole("button", { name: "共有資料" }));
+    const heading = await screen.findByRole("heading", { name: "共有資料" });
+    await waitFor(() => expect(heading).toHaveFocus());
+  });
+
+  it("names the target of repeated row actions with the document or conversation", async () => {
+    vi.mocked(fetch).mockImplementation(async (input, options) => {
+      const path = String(input);
+      requests.push({ path, options });
+      if (path.endsWith("/auth/me"))
+        return new Response(
+          JSON.stringify({
+            id: "alice",
+            username: "alice",
+            system_admin: false,
+            must_rotate: false,
+          }),
+        );
+      if (path.endsWith("/projects"))
+        return new Response(
+          JSON.stringify([
+            {
+              id: "project",
+              org_id: "org",
+              name: "検証",
+              role: "researcher",
+              permissions: ["read", "retrieve", "upload"],
+            },
+          ]),
+        );
+      if (path.includes("/documents?"))
+        return new Response(
+          JSON.stringify([
+            {
+              id: "document-1",
+              name: "合成サンプル.txt",
+              kind: "shared",
+              status: "ready",
+              owned: true,
+            },
+          ]),
+        );
+      return new Response(JSON.stringify([]));
+    });
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "共有資料" }));
+    const remove = await screen.findByRole("button", { name: "削除" });
+    const described = remove.getAttribute("aria-describedby");
+    expect(described).toBeTruthy();
+    expect(document.getElementById(described!)).toHaveTextContent(
+      "合成サンプル.txt",
+    );
+  });
+
+  it("closes the overlay sidebar with Escape and returns focus to its control", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "資料を調べる" });
+    const toggle = screen.getByRole("button", { name: "サイドバーを閉じる" });
+    setViewportWidth(375);
+    const sidebar = document.querySelector("#workspace-sidebar")!;
+    fireEvent.keyDown(sidebar, { key: "Escape" });
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "サイドバーを開く" }),
+      ).toHaveAttribute("aria-expanded", "false"),
+    );
+    expect(toggle).toHaveFocus();
+  });
+
+  it("keeps the desktop sidebar open when Escape is pressed inside it", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "資料を調べる" });
+    setViewportWidth(1280);
+    const sidebar = document.querySelector("#workspace-sidebar")!;
+    fireEvent.keyDown(sidebar, { key: "Escape" });
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "サイドバーを閉じる" }),
+      ).toHaveAttribute("aria-expanded", "true"),
+    );
   });
 });
