@@ -409,14 +409,14 @@ def test_delegated_recipient_cannot_redelegate_or_revoke_and_options_empty(servi
     assert "委任する権限または管理権限がありません" in redelegate.text
 
     # Bob attempting to revoke another user's delegation must be rejected
-    # (404/403 to prevent enumeration)
+    # (_end_delegation returns 404 for non-grantors to prevent grant ID enumeration)
     del_other = bob_client.delete(f"/api/admin/delegations/{grant_eve['id']}", headers=ORIGIN)
-    assert del_other.status_code in (403, 404)
+    assert del_other.status_code == 404
 
     # Bob attempting to revoke his own delegation via admin revoke endpoint
-    # (instead of cancel) must be rejected
+    # (instead of cancel) must be rejected with 404 (not grantor)
     del_self_admin = bob_client.delete(f"/api/admin/delegations/{grant_bob['id']}", headers=ORIGIN)
-    assert del_self_admin.status_code in (403, 404)
+    assert del_self_admin.status_code == 404
 
     # Verify no revoke event was recorded and both delegations remain active
     with service.db() as db:

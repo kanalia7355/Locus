@@ -126,9 +126,14 @@ def test_delegation_and_authz_audit_records_metadata_without_payloads_or_credent
     # Owner sets membership denials
     service.set_membership_denials(actor, "project-a", "bob", ["retrieve"])
 
-    # Query all audit events
+    # Query all audit events and verify individual target IDs + operations
     audit_events = events(service)
     assert len(audit_events) > 0
+    op_targets = [(e["operation"], e["target_id"], e["actor_id"]) for e in audit_events]
+    assert ("delegation.grant", grant["id"], actor.id) in op_targets
+    assert ("delegation.cancel", grant["id"], bob.id) in op_targets
+    assert ("membership.deny.update", f"project-a:{bob.id}", actor.id) in op_targets
+
     raw_audit = json.dumps(audit_events, ensure_ascii=False)
 
     # IAM-015: Assert metadata only, no payloads or credentials leak into audit
