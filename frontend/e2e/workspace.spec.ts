@@ -84,7 +84,7 @@ test("first login, source retrieval, history and logout use actual API", async (
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).not.toBeVisible();
   await page.getByRole("button", { name: "調査履歴", exact: true }).click();
-  await page.getByRole("button", { name: /調査 ·/ }).click();
+  await page.getByRole("button", { name: /^成膜条件を比較 \d{4}\// }).click();
   await expect(
     page.getByRole("heading", { name: "資料に見つかった記述" }),
   ).toBeVisible();

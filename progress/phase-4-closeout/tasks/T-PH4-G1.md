@@ -1,12 +1,12 @@
 ---
 id: T-PH4-G1
 phase: phase-4-closeout
-status: todo
+status: review
 assignee: deepai
 model: deepai/gemini-4-hydrogen
 weight: heavy
-updated: 2026-11-14T17:35:00+09:00
-attempts: 0
+updated: 2026-11-14T17:46:07+09:00
+attempts: 1
 allowed_paths: frontend/e2e/workspace.spec.ts, frontend/e2e/, frontend/src/App.tsx, frontend/src/App.test.tsx, tests/e2e_server.py, frontend/src/
 test_cmd: npm --prefix frontend test -- --run && npm --prefix frontend run test:e2e
 ---
@@ -50,14 +50,30 @@ test_cmd: npm --prefix frontend test -- --run && npm --prefix frontend run test:
 
 ## REPORT
 
-- Implemented by:
+- Implemented by: deepai/gemini-4-hydrogen
 - Changed Files:
+  - `frontend/e2e/workspace.spec.ts`
+  - `progress/phase-4-closeout/tasks/T-PH4-G1.md`
 - Summary:
+  - **原因区分**: **回帰（100% 再現）** — フレークではない。
+  - **再現結果（修正前）**: `npm --prefix frontend run test:e2e` を 3 回単独実行し、3/3 回とも `workspace.spec.ts:87`（`getByRole("button", { name: /調査 ·/ })`）で 30s タイムアウト失敗（12/13 pass, 1/13 fail）。※並列起動した 1 回は port 8000 競合のため除外し、独立 3 回で確認。
+  - **原因特定**: コミット `89e71c4`（`feat(app): show conversation preview in history list`）で `frontend/src/App.tsx` の調査履歴ボタン表記が `調査 · <日時>` から `{conv.preview?.trim() || "調査"} <日時>` に変更された。同コミットで `frontend/src/ProjectContext.test.tsx` は更新されたが、`frontend/e2e/workspace.spec.ts:87` のロケータが旧表記 `/調査 ·/` のまま残存していた。
+  - **修復方針と変更内容**: `App.tsx` のプレビュー表示が意図された仕様であるため、`frontend/e2e/workspace.spec.ts:87` のロケータを当該会話で送信した質問プレビューと日時形式に一致する `/^成膜条件を比較 \d{4}\//` へ最小修正した（`App.tsx` 変更なし、既存テストの削除・緩和なし）。
 
 ## TEST
 
 - Commands run:
+  - 修正前再現 1回目: `npm --prefix frontend run test:e2e` → **FAIL** (12 passed, 1 failed: `workspace.spec.ts:87` 30000ms timeout waiting for `getByRole('button', { name: /調査 ·/ })`)
+  - 修正前再現 2回目: `npm --prefix frontend run test:e2e` → **FAIL** (12 passed, 1 failed: `workspace.spec.ts:87` 30000ms timeout)
+  - 修正前再現 3回目: `npm --prefix frontend run test:e2e` → **FAIL** (12 passed, 1 failed: `workspace.spec.ts:87` 30000ms timeout)
+  - 修正後 1回目: `npm --prefix frontend run test:e2e` → **PASS** (13 passed in 33.9s; `workspace.spec.ts:29` 1.6s)
+  - 修正後 2回目: `npm --prefix frontend run test:e2e` → **PASS** (13 passed in 33.8s; `workspace.spec.ts:29` 1.6s)
+  - 修正後 3回目: `npm --prefix frontend run test:e2e` → **PASS** (13 passed in 34.6s; `workspace.spec.ts:29` 1.8s)
+  - Vitest: `npm --prefix frontend test -- --run` → **PASS** (Test Files: 15 passed, Tests: 79 passed)
+  - Lint: `npm --prefix frontend run lint` → **PASS** (`eslint . --max-warnings 0`)
+  - Typecheck: `npm --prefix frontend run typecheck` → **PASS** (`tsc -b`)
 - Results:
+  - 全 13 E2E テストが 3 連続成功（3/3 PASS）、全 79 Vitest・lint・typecheck すべて PASS。
 
 ## REVIEW
 
