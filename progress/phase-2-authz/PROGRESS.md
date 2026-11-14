@@ -172,3 +172,9 @@
 - log: planner round 2 for phase-2-authz (decompose)
 - log: committed: chore(progress): planner round 2 for phase-2-authz (needs human)
 - log: pushed to origin/loop/local-development
+
+### Planner reconciliation (2026-11-14, decompose round 4)
+- Current scan: `T-PH2-001`, `T-PH2-002`, `T-PH2-003` are all `done`; no blocked task remains. Existing per-task acceptance and QA records cover the current phase work, including `IAM-011`/`UI-008` recipient-side delegation UI, permission guarding, project-level scope, effective-access display, and authorization/audit regressions.
+- Reconciled the round-3 scope escalation using the controlling owner decision: Entry 6 (`DP-071`) explicitly approves recipient-side UI improvement, preserving project-scoped delegation and deferring organization-level expansion. `T-PH2-001` implements its listed recipient-side requirements and has recorded PASS/APPROVED evidence. Therefore, no unresolved implementation-direction decision remains and no additional task is warranted.
+- The roadmap/matrix statements that recipient-side refinement or delegation UI remains future/open work are stale relative to the owner decision and done task. This mismatch was already recorded in the discrepancy section; it is treated as a known documentation lag, not a reason for `NEEDS_HUMAN`. `docs/plans/**` remains read-only here. Organization-wide delegation, source connectors/storage ACL implementation, and production audit protection/retention remain explicitly deferred or outside this phase.
+- Phase task work is exhausted. Full-suite and branch CI checks remain integration gates and do not affect this decompose verdict.
