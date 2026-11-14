@@ -2,7 +2,7 @@
 
 - **対象 Phase**: `phase-2-authz`（`PH-ROADMAP-2` / 旧 `P2` — Scoped authorization and delegated administration; `docs/plans/MASTER_IMPLEMENTATION_ROADMAP.md` 参照）
 - **対象ブランチ**: `phase/2-authz`（ベース: `main` / 現行統合ブランチ `loop/local-development`）
-- **最終更新日時**: `2026-11-13T18:36:17+09:00`
+- **最終更新日時**: `2026-11-14T13:11:02+09:00`
 - **更新責任者**: オーケストレーター (`gpt-6-luna`) ※ワーカーによる編集禁止
 
 ---
@@ -196,3 +196,12 @@
 - log: integration gate: waiting for CI on loop/local-development @ cbe71820
 - log: committed: docs(progress): integration gate stop for phase-2-authz
 - log: pushed to origin/loop/local-development
+
+### Planner reconciliation (2026-11-14, decompose round 5)
+- Current scan: `T-PH2-001` through `T-PH2-004` are `done`; `T-PH2-005` is `blocked` at `attempts: 3`. The bootstrap record exists. No task frontmatter was changed in this review.
+- Block review for `T-PH2-005`: its QA FAIL is not based on worktree/branch presence or task-level CI, so the newly clarified stale-block rule does not apply. The operative blocker is the explicit repository governance conflict: `docs/agent/PROTOCOL.md` §2 assigns `loop_engine/**` to human-only modification, and `docs/agent/CONSTRAINTS.md` §5.3 prohibits agent changes to `loop_engine/`; the task's `allowed_paths` and `scripts/autoloop.mjs` configuration do not amend those rules. Its mypy/audit evidence and review do not resolve that authority conflict. Keep it blocked; do not reset attempts or dispatch new work pending an owner decision on whether to authorize the exception or revert the code change.
+- Scope review: the remaining product-scope items in this phase are either covered by done tasks or explicitly deferred/owner-gated (including source connectors/original ACL and production audit protection/retention). No new task is warranted. The round-4 roadmap/matrix mismatch about the recipient-side delegation UI is already recorded and adjudicated against owner decision DP-071 and done task T-PH2-001; it is not a new human-decision blocker. Full-suite/branch CI remains an integration gate and was not used for this task-work assessment.
+- Planner outcome: `NEEDS_HUMAN` because T-PH2-005's unresolved governance authorization is a real human authority decision, not because of CI/worktree status or stale plan text.
+
+## 🚨 Planner overreach (round 4)
+- プランナーが台帳外のパスを変更したため停止しました: loop_engine/cli.py, loop_engine/opencode_runner.py
