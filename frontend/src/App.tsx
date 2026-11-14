@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { FormEvent, ReactNode } from "react";
+import type { FormEvent, ReactNode, Ref } from "react";
 import {
   ArrowUp,
   ChevronDown,
@@ -81,12 +81,14 @@ function IconButton({
   onClick,
   children,
   disabled = false,
+  buttonRef,
   ...rest
 }: {
   label: string;
   onClick?: () => void;
   children: ReactNode;
   disabled?: boolean;
+  buttonRef?: Ref<HTMLButtonElement>;
   type?: "button" | "submit";
   "aria-expanded"?: boolean;
   "aria-controls"?: string;
@@ -99,6 +101,7 @@ function IconButton({
       title={label}
       onClick={onClick}
       disabled={disabled}
+      ref={buttonRef}
       {...rest}
     >
       {children}
@@ -309,6 +312,9 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
   const fileInput = useRef<HTMLInputElement>(null);
   const personalInput = useRef<HTMLInputElement>(null);
   const sourceClose = useRef<HTMLButtonElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const sidebarToggle = useRef<HTMLButtonElement>(null);
+  const lastPage = useRef(page);
   const sourceTarget = useRef<HTMLDivElement>(null);
   const sourceTrigger = useRef<HTMLElement | null>(null);
   const sourceRequest = useRef(0);
@@ -545,6 +551,14 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
       controller.abort();
     };
   }, [pendingJobId, pendingConversation, pendingText]);
+
+  useEffect(() => {
+    if (lastPage.current === page) return;
+    lastPage.current = page;
+    // The heading is the first element of the new page, so keyboard and
+    // screen reader users continue from the content that replaced it.
+    headingRef.current?.focus();
+  }, [page]);
 
   useEffect(() => {
     if (source?.selectedChunk && sourceTarget.current) {
@@ -832,6 +846,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
         <IconButton
           label={sidebar ? "サイドバーを閉じる" : "サイドバーを開く"}
           onClick={toggleSidebar}
+          buttonRef={sidebarToggle}
           aria-expanded={sidebar}
           aria-controls="workspace-sidebar"
         >
@@ -877,6 +892,12 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
         className="sidebar"
         inert={!sidebar}
         aria-hidden={!sidebar}
+        onKeyDown={(event) => {
+          if (event.key !== "Escape" || !sidebar) return;
+          event.stopPropagation();
+          setSidebar(false);
+          sidebarToggle.current?.focus();
+        }}
       >
         <nav aria-label="メインメニュー">
           <p className="nav-heading">資料・調査</p>
@@ -925,7 +946,9 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
       )}
       <main className="main">
         <div className="page-heading">
-          <h1>{labels[page]}</h1>
+          <h1 ref={headingRef} tabIndex={-1}>
+            {labels[page]}
+          </h1>
           {page === "chat" && (
             <IconButton label="新規会話" disabled={busy} onClick={newChat}>
               <SquarePen size={20} />
@@ -1247,6 +1270,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
                 <div className="list-row" key={conv.id}>
                   <button
                     className="text-link"
+                    id={`conversation-${conv.id}`}
                     disabled={busy}
                     onClick={() => {
                       void openConversation(conv.id);
@@ -1261,6 +1285,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
                     </span>
                   </button>
                   <button
+                    aria-describedby={`conversation-${conv.id}`}
                     onClick={() => {
                       void api(`/conversations/${conv.id}`, json("DELETE"))
                         .then(() => {
@@ -1329,13 +1354,14 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
             onKeyDown={(event) => {
               if (event.key === "Escape") closeSource();
               if (event.key === "Tab") {
-                const controls =
-                  event.currentTarget.querySelectorAll<HTMLButtonElement>(
-                    "button:not(:disabled)",
-                  );
+                const controls = Array.from(
+                  event.currentTarget.querySelectorAll<HTMLElement>(
+                    'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+                  ),
+                ).filter((control) => control.getClientRects().length > 0);
                 const first = controls[0];
                 const last = controls[controls.length - 1];
-                const inside = Array.from(controls).some(
+                const inside = controls.some(
                   (control) => control === document.activeElement,
                 );
                 if (!inside) {
@@ -1478,6 +1504,7 @@ function DocumentList({
             <div>
               <button
                 className="text-link file-name"
+                id={`document-name-${doc.id}`}
                 disabled={doc.status !== "ready"}
                 onClick={() => {
                   void onSource(doc.id);
@@ -1495,6 +1522,7 @@ function DocumentList({
             {doc.owned && ["queued", "scanning"].includes(doc.status) && (
               <button
                 disabled={pending}
+                aria-describedby={`document-name-${doc.id}`}
                 onClick={() => {
                   void act(() =>
                     api(`/documents/${doc.id}/cancel`, json("POST")),
@@ -1507,6 +1535,7 @@ function DocumentList({
             {doc.owned && canPublish && doc.kind !== "attachment" && (
               <button
                 disabled={pending}
+                aria-describedby={`document-name-${doc.id}`}
                 onClick={() => {
                   setPublication(publication === doc.id ? null : doc.id);
                   setRole("researcher");
@@ -1519,6 +1548,7 @@ function DocumentList({
             {doc.owned && (
               <button
                 disabled={pending}
+                aria-describedby={`document-name-${doc.id}`}
                 onClick={() => {
                   void act(() => api(`/documents/${doc.id}`, json("DELETE")));
                 }}
