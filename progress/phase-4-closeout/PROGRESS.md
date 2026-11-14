@@ -27,7 +27,7 @@
 | `T-PH4-101` | ローカル LLM ストリーミング応答 (`PH-ROADMAP-4` 残部) | `heavy` | `todo` | `unassigned` | `deepai/kimi-k3.1-pro` | `0` | `task/T-PH4-101` | `2026-11-14T17:35:00+09:00` |
 | `T-PH4-102` | 質問ジョブの優先度・公平性 (bounded queue, `PH-ROADMAP-4` 残部) | `medium` | `doing` | `deepai` | `deepai/gpt-6.1-terra` → 引継ぎ (枠切れ) | `1` | `task/T-PH4-102` (実装完了・未コミット, モデル交代待ち) | `2026-11-14T19:45:00+09:00` |
 | `T-PH3-101` | 取り込み状態の粒度・再開性強化 (`PH-ROADMAP-3` 残部) | `medium` | `done` | `deepai` | `deepai/deepseek-v4.1-flash` | `2` | 統合済み: `548cb55` (loop/local-development) | `2026-11-14T20:00:00+09:00` |
-| `T-PH4-103` | アクセシビリティ・キーボード・モバイル監査と修正 (`PH-ROADMAP-4` 残部) | `medium` | `doing` | `deepai` | `deepai/minimax-m3.1-flash` | `3` (CI 修復中・最終) | `task/T-PH4-103` (統合 `ea6b508` の CI で a11y 5件失敗 → 修復) | `2026-11-14T19:35:00+09:00` |
+| `T-PH4-103` | アクセシビリティ・キーボード・モバイル監査と修正 (`PH-ROADMAP-4` 残部) | `medium` | `blocked` | `deepai` | `deepai/minimax-m3.1-flash` | `3` (試行上限) | 統合 `7b2b3d9`; secret scan (a11y.spec L23-24) で CI 赤 → owner 判断待ち | `2026-11-14T20:15:00+09:00` |
 | `T-PH3-102` | live フローでの indexing 段の観測・取消 (T-PH3-101 フォローアップ) | `light` | `todo` | `unassigned` | `-` | `0` | 未起動 (キュー) | `2026-11-14T20:00:00+09:00` |
 
 ## 2b. レビュー指揗に基づくフォローアップ起票
@@ -35,6 +35,14 @@
 - `T-PH3-101` 独立レビュー round 1 指摘 4 (Medium) を受けて `T-PH3-102` を起票
   (App.tsx/api.ts の indexing 表示・取消・ポーリング統合。許可パス: App.tsx, api.ts, App.test.tsx)。
   スロット空き時に T-PH4-101 と並行起動可 (ファイル競合なし)。
+  - 19:52 JST: `T-PH4-103` attempt 3 (a11y.spec 自己完結化 `0d274fc`) を no-ff マージ (`7b2b3d9`)。
+    ローカル: Vitest 15 files / 84 passed。push 後 hosted CI で Prototype quality / Loop engine checks の
+    両方が **offline secret scan 2 findings** (`a11y.spec.ts` L23-24 のパスワード定数リテラル) で失敗。
+    Python 1068 passed / engine 907 passed / ローカル a11y E2E 5/5 は全 green。
+  - 20:15 JST: `T-PH4-103` は attempt 上限 3/3 到達のため **`blocked`** (owner 判断待ち)。
+    機械的 1 行修正 (静的リテラル排除) の許可を owner に依頼。scan 設定・テスト弱体化は提案しない。
+  - 20:12 JST: `T-PH4-102` 引き継ぎを **gemini-4-carbon** (未使用モデル) で再試行 (既存 worktree 束縛)。
+    codex は owner 指示により使用禁止。
   - 19:31 JST: `T-PH3-101` を no-ff マージ (`548cb55`)。マージ HEAD ローカル検証: pytest 4スイート 34 passed,
     ruff format 142 files already formatted。セキュリティ審査合格 (per-page ACL 維持・シード緩和は権限昇格なし)。
   - 19:32 JST: 私の docs コミット `c83a672` のタイトルが 100 文字制約超過で PR title convention が赤
