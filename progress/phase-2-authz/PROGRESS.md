@@ -2,7 +2,7 @@
 
 - **対象 Phase**: `phase-2-authz`（`PH-ROADMAP-2` / 旧 `P2` — Scoped authorization and delegated administration; `docs/plans/MASTER_IMPLEMENTATION_ROADMAP.md` 参照）
 - **対象ブランチ**: `phase/2-authz`（ベース: `main` / 現行統合ブランチ `loop/local-development`）
-- **最終更新日時**: `2026-11-13T18:24:53+09:00`
+- **最終更新日時**: `2026-11-13T18:36:17+09:00`
 - **更新責任者**: オーケストレーター (`gpt-6-luna`) ※ワーカーによる編集禁止
 
 ---
@@ -56,7 +56,7 @@
 |---|---|---|---|---|---|---|---|---|---|
 | `T-PH2-001` | Delegation recipient UI and unauthorized creation guard (`IAM-011`, `UI-008`, `DP-071`) | `medium` | `blocked` | `agy` | `Gemini 4 Argon` | `agy/Claude Sonnet 5.5` | `3` | `task/T-PH2-001` | `2026-11-13T15:02:02+09:00` |
 | `T-PH2-002` | プロジェクトメンバー実効権限プレビューにおける委任権限の明示と表示整合 (`IAM-011`, `IAM-012`, `IAM-014`) | `medium` | `done` | `agy` | `Gemini 4 Argon` | `agy/Claude Sonnet 5.5` | `1` | `task/T-PH2-002` | `2026-11-13T13:13:15+09:00` |
-| `T-PH2-003` | Phase 2 認可・委任・監査境界の統合回帰テスト補強 (`IAM-006`〜`IAM-015`, `DATA-008`, `DATA-010`) | `medium` | `doing` | `agy` | `Gemini 3.8 Flash` | `agy/Gemini 4 Argon (Medium)` | `1` | `task/T-PH2-003` | `2026-11-13T13:18:00+09:00` |
+| `T-PH2-003` | Phase 2 認可・委任・監査境界の統合回帰テスト補強 (`IAM-006`〜`IAM-015`, `DATA-008`, `DATA-010`) | `medium` | `review` | `agy` | `Gemini 3.8 Flash` | `agy/Gemini 4 Argon (Medium)` | `1` | `task/T-PH2-003` | `2026-11-13T18:36:17+09:00` |
 
 ---
 
@@ -114,3 +114,8 @@
 - タスク専用4ファイル差分は識別できると記録されている。現在の作業チェックアウトには他タスク等の変更も混在し、タスクは未コミット。タスク固有ブランチの CI は未実行であり、成功扱いにはできない。CI は統合ゲートの未完了項目として扱う。
 - `attempts: 3` およびレビュー周回上限2回に達したため、これ以上の自動差し戻し・再割当はしない。失敗原因はテストや受入条件の不合格ではなく、タスクブランチと CI 成功証跡が未提示のまま上限に達したこと。
 - **人間への確認事項**: 次のいずれかを指示してください。(1) タスク専用ブランチ/コミットを提示し CI 成功を確認する、(2) タスク差分を安全に分離する手順を決めてから CI を実行する、(3) タスクスコープまたは納品方法を見直す。確認までは `blocked` のままとする。
+
+
+### Poll reconciliation (T-PH2-003, 2026-11-13T18:36:17+09:00)
+- Reconciled task status to `review`. REPORT / TEST include the implementation summary and scoped pytest/lint evidence; the Cycle 1 findings are documented as addressed. `agy/Gemini 4 Argon (Medium)` remains assigned as reviewer, distinct from implementer `agy/Gemini 3.8 Flash`; `cooldowns` is empty.
+- Re-review is pending, so QA was not performed. Keep the model metrics unchanged: one recorded review return and zero QA passes for Gemini 3.8 Flash.

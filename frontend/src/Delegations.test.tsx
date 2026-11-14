@@ -66,11 +66,13 @@ function mockApi({
   failCreate = false,
   failCreateStatus = 422,
   failOptions = false,
+  projects = [project],
   initialGrants = [grant, received],
 }: {
   failCreate?: boolean;
   failCreateStatus?: number;
   failOptions?: boolean;
+  projects?: (typeof project)[];
   initialGrants?: MockGrant[];
 } = {}) {
   let grants: MockGrant[] = initialGrants;
@@ -83,7 +85,7 @@ function mockApi({
       if (path.endsWith("/admin/delegations/options"))
         return failOptions
           ? respond({ detail: "委任管理の権限がありません（403）" }, 403)
-          : respond({ projects: [project] });
+          : respond({ projects });
       if (path.endsWith("/admin/delegations") && options?.method === "POST") {
         if (failCreate)
           return failCreateStatus === 403
@@ -330,4 +332,90 @@ it("surfaces forbidden options as an accessible error", async () => {
   mockApi({ failOptions: true });
   render(<AdminDelegations />);
   expect(await screen.findByRole("alert")).toHaveTextContent("（403）");
+});
+
+it("hides the creation form for a recipient-only user while allowing inspection and self-cancellation of received delegations", async () => {
+  mockApi({
+    projects: [],
+    initialGrants: [
+      received,
+      {
+        ...received,
+        id: "grant-invalidated-999",
+        status: "ended",
+        events: [{ type: "invalidate", at: 1_800_000_050, actor_id: "system" }],
+      },
+    ],
+  });
+  render(<AdminDelegations />);
+  const activeReceived = await screen.findByRole("article", {
+    name: "管理委任 grant-received-456",
+  });
+  expect(
+    screen.getByText(
+      "現在、他の利用者へ委任できるプロジェクト権限はありません。受領した委任の確認と取り消しのみ行えます。",
+    ),
+  ).toBeVisible();
+  expect(screen.queryByLabelText("委任するプロジェクト")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("委任の受領者")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("委任の有効期間")).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: "管理委任を作成" }),
+  ).not.toBeInTheDocument();
+
+  expect(within(activeReceived).getAllByText(/受領した委任/).length).toBeGreaterThan(0);
+  expect(within(activeReceived).getAllByText(/carol/).length).toBeGreaterThan(0);
+  expect(within(activeReceived).getByText("閲覧")).toBeVisible();
+  expect(within(activeReceived).getByText("有効")).toBeVisible();
+
+  const invalidated = screen.getByRole("article", {
+    name: "管理委任 grant-invalidated-999",
+  });
+  expect(within(invalidated).getByText("権限変更により無効")).toBeVisible();
+  expect(
+    within(invalidated).queryByRole("button", { name: /取り消/ }),
+  ).not.toBeInTheDocument();
+
+  fireEvent.click(
+    within(activeReceived).getByRole("button", {
+      name: "carolへの委任 grant-received-456 を受領した委任を取り消す",
+    }),
+  );
+  const confirmation = within(activeReceived).getByRole("group", {
+    name: "grant-received-456の受領委任の取り消し確認",
+  });
+  fireEvent.click(
+    within(confirmation).getByRole("button", {
+      name: "grant-received-456の受領委任の取り消しを確認",
+    }),
+  );
+  await waitFor(() =>
+    expect(
+      requests.some(
+        ({ path, options }) =>
+          path.endsWith("/grant-received-456/cancel") &&
+          options?.method === "DELETE",
+      ),
+    ).toBe(true),
+  );
+  expect(
+    await within(activeReceived).findByText("受領者が取り消し"),
+  ).toBeVisible();
+});
+
+it("clearly distinguishes granted delegations from received delegations in the list", async () => {
+  mockApi();
+  render(<AdminDelegations />);
+  const grantedArticle = await screen.findByRole("article", {
+    name: "管理委任 grant-exact-123",
+  });
+  const receivedArticle = screen.getByRole("article", {
+    name: "管理委任 grant-received-456",
+  });
+  expect(within(grantedArticle).getByRole("heading")).toHaveTextContent(
+    "付与した委任 · 研究プロジェクト · 受領者 bob",
+  );
+  expect(within(receivedArticle).getByRole("heading")).toHaveTextContent(
+    "受領した委任 · 研究プロジェクト · 付与元 carol",
+  );
 });

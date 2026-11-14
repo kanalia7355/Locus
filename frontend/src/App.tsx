@@ -1308,7 +1308,9 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
               取り込みは1件ずつ処理し、全体32件・一人4件まで受付します。安全のための開発上限であり、性能保証ではありません。
             </p>
             <h2>本番運用</h2>
-            <p>LAN公開、回復、管理委任、保存期間は承認待ちです。</p>
+            <p>
+              LAN公開、回復、組織単位の委任拡張、保存期間は承認待ちです。プロジェクト単位の権限委任は「管理委任」から設定できます。
+            </p>
           </div>
         )}
       </main>
@@ -1693,7 +1695,7 @@ function RoleEditor({
   return (
     <div className="role-editor">
       <p className="muted">
-        ロールは現在のプロジェクト内で有効です。管理権限の委任は無効です。
+        ロールは現在のプロジェクト内で有効です。管理操作の権限は委任できません。
       </p>
       {notice && <p role="status">{notice}</p>}
       <label>

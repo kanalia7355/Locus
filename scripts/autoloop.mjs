@@ -1,0 +1,597 @@
+#!/usr/bin/env node
+// autoloop.mjs — 自律開発ループの薄型ランナー (直列・イベント駆動)。
+//
+// 原則:
+// - 状態遷移の書き手はランナーだけ。ワーカーはコードとレポートだけを書く
+// - 完了判定はプロセス終了 + git status で行い、Markdown 本文のパースで制御しない
+// - 読めないタスクファイル (corrupt) は黙って飛ばさず、修復を試み、無理なら
+//   PROGRESS.md にアラートを書いて停止する
+//
+// 使い方:
+//   node scripts/autoloop.mjs <phase-slug> [--max-cycles 50] [--max-hours 6] [--once]
+//
+// 環境変数: CODEX_BIN / AGY_BIN / OPENCODE_BIN (テスト用に実行系を差し替え可能)、
+//           AUTOLOOP_LUNA_MODEL (既定 gpt-6-luna)
+
+import fs from "node:fs";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
+const REPO = process.cwd();
+const phaseSlug = process.argv[2];
+if (!phaseSlug || phaseSlug.startsWith("--")) {
+  console.error("usage: autoloop.mjs <phase-slug> [--max-cycles N] [--max-hours H] [--once]");
+  process.exit(2);
+}
+const opt = (name, def) => {
+  const i = process.argv.indexOf(`--${name}`);
+  return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : def;
+};
+const MAX_CYCLES = Number.parseInt(opt("max-cycles", "50"), 10);
+const MAX_HOURS = Number.parseFloat(opt("max-hours", "6"));
+const ONCE = process.argv.includes("--once");
+const LUNA_MODEL = process.env.AUTOLOOP_LUNA_MODEL || "gpt-6-luna";
+
+const progressDir = path.join(REPO, "progress", phaseSlug);
+const progressRel = `progress/${phaseSlug}`;
+const PROGRESS_FILE = path.join(progressDir, "PROGRESS.md");
+const harnessDir = path.join(REPO, ".pi", "harness");
+const stateFile = path.join(harnessDir, "state.json");
+const STOP_FILE = path.join(harnessDir, "STOP");
+for (const d of ["tmp", "verdicts", "dispatch", "logs"]) {
+  fs.mkdirSync(path.join(harnessDir, d), { recursive: true });
+}
+
+const startedAt = Date.now();
+const runLog = [];
+function note(msg) {
+  const line = `[autoloop ${new Date().toISOString()}] ${msg}`;
+  console.log(line);
+  runLog.push(msg);
+}
+
+// ---------- 状態 (cooldown 等) ----------
+function loadState() {
+  try {
+    const s = JSON.parse(fs.readFileSync(stateFile, "utf-8"));
+    if (!s.autoloop) s.autoloop = {};
+    if (!Array.isArray(s.autoloop.cooldowns)) s.autoloop.cooldowns = [];
+    if (typeof s.autoloop.freeCursor !== "number") s.autoloop.freeCursor = 0;
+    if (typeof s.autoloop.pushFailures !== "number") s.autoloop.pushFailures = 0;
+    return s;
+  } catch {
+    return { autoloop: { cooldowns: [], freeCursor: 0, pushFailures: 0 } };
+  }
+}
+const state = loadState();
+function saveState() {
+  fs.mkdirSync(harnessDir, { recursive: true });
+  fs.writeFileSync(stateFile, JSON.stringify(state, null, 1), "utf-8");
+}
+function setCooldown(key, untilMs, reason) {
+  state.autoloop.cooldowns = state.autoloop.cooldowns.filter((c) => c.key !== key);
+  state.autoloop.cooldowns.push({ key, until: new Date(untilMs).toISOString(), reason });
+  saveState();
+  note(`cooldown: ${key} until ${new Date(untilMs).toISOString()} (${reason})`);
+}
+function coolingUntil(key) {
+  const now = Date.now();
+  const c = state.autoloop.cooldowns.find((x) => x.key === key && Date.parse(x.until) > now);
+  return c ? Date.parse(c.until) : 0;
+}
+
+// ---------- 外部コマンド ----------
+function sh(cmd, args, opts = {}) {
+  const r = spawnSync(cmd, args, {
+    cwd: REPO,
+    encoding: "utf-8",
+    timeout: opts.timeout ?? 120000,
+    input: opts.input,
+    shell: opts.shell ?? false,
+    env: { ...process.env, CI: "true" },
+  });
+  return { code: r.status ?? -1, out: `${r.stdout ?? ""}${r.stderr ?? ""}`, error: r.error };
+}
+function taskCtl(args) {
+  const r = sh(process.execPath, [path.join(SCRIPTS_DIR, "task-ctl.mjs"), ...args], { timeout: 60000 });
+  return r;
+}
+function scanTasks() {
+  const r = taskCtl(["scan", progressDir]);
+  if (r.code !== 0) throw new Error(`task-ctl scan failed: ${r.out}`);
+  return JSON.parse(r.out);
+}
+function git(args, opts = {}) {
+  return sh("git", args, opts);
+}
+function gitStatusPaths() {
+  const r = git(["status", "--porcelain", "-uall"]);
+  if (r.code !== 0) return [];
+  return r.out.split("\n").filter(Boolean).map((line) => {
+    let p = line.slice(3);
+    if (p.includes(" -> ")) p = p.split(" -> ")[1];
+    return p.replace(/^"|"$/g, "").split(path.sep).join("/");
+  });
+}
+function gitHead() {
+  const r = git(["rev-parse", "HEAD"]);
+  return r.code === 0 ? r.out.trim() : "";
+}
+function gitPush() {
+  const branch = git(["rev-parse", "--abbrev-ref", "HEAD"]).out.trim();
+  const r = git(["push", "-u", "origin", branch], { timeout: 180000 });
+  if (r.code === 0) {
+    state.autoloop.pushFailures = 0;
+    saveState();
+    note(`pushed to origin/${branch}`);
+    return true;
+  }
+  state.autoloop.pushFailures += 1;
+  saveState();
+  note(`push failed (${state.autoloop.pushFailures}/3): ${r.out.trim().slice(-200)}`);
+  return false;
+}
+
+// ---------- パス分類 ----------
+const FORBIDDEN = [".pi/extensions/", "docs/planning/", "docs/plans/", "loop_engine/", ".loop/"];
+function allowedMatch(p, allowed) {
+  return (allowed ?? []).some((a) => p === a || (a.endsWith("/") && p.startsWith(a)));
+}
+const parseAllowed = (t) => (t.allowed_paths ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+// 同一ツリーに複数タスクの未コミット変更が同居する前提 (MVP は worktree なし)。
+// 他タスクの allowed_paths に属する変更は「所属が判明している」ので unmapped にしない
+let ALL_ALLOWED = [];
+function refreshAllAllowed(tasks) {
+  ALL_ALLOWED = tasks.flatMap((t) => parseAllowed(t));
+}
+function classify(task, changedPaths) {
+  const allowed = parseAllowed(task);
+  const taskRel = `${progressRel}/tasks/${task.id}.md`;
+  const buckets = { allowed: [], forbidden: [], unmapped: [], ledger: [] };
+  for (const p of changedPaths) {
+    if (FORBIDDEN.some((f) => p.startsWith(f))) buckets.forbidden.push(p);
+    else if (p === taskRel || p === `${progressRel}/PROGRESS.md` || p.startsWith(`${progressRel}/`)) buckets.ledger.push(p);
+    else if (p.startsWith(".pi/") || p.startsWith("scripts/")) { /* infra: 無視 */ }
+    else if (allowedMatch(p, allowed)) buckets.allowed.push(p);
+    else if (allowedMatch(p, ALL_ALLOWED)) { /* 他タスクの変更: このタスクでは触らない */ }
+    else buckets.unmapped.push(p);
+  }
+  return buckets;
+}
+
+// ---------- モデル選択 (Free-First) ----------
+const TIER_A = ["glm-5.3-flash-free", "deepseek-v4.1-flash-free", "mimo-v2.6-flash-free", "minimax-m3.1-flash-free", "big-pickle"];
+const FREE_POOL = [...TIER_A, "nemotron-3.5-lightning-free"];
+const oc = (slug) => ({ runner: "opencode", model: `opencode/${slug}`, family: "opencode", key: `model:opencode/${slug}` });
+const agy = (display, effort = "Medium") => ({
+  runner: "agy", model: display, effort, family: display.startsWith("Gemini") ? "gemini" : display.startsWith("Claude") ? "claude" : "gptoss",
+  key: display.startsWith("Gemini") ? "pool:agy:gemini" : "pool:agy:claude-gpt",
+});
+function freePoolRotated(slugs) {
+  const start = state.autoloop.freeCursor % slugs.length;
+  const rotated = [...slugs.slice(start), ...slugs.slice(0, start)];
+  state.autoloop.freeCursor = (start + 1) % slugs.length;
+  saveState();
+  return rotated.map(oc);
+}
+function familyOf(task) {
+  const m = task.model ?? "";
+  if (m.startsWith("opencode/") || m === "opencode") return "opencode";
+  if (m.includes("Gemini")) return "gemini";
+  if (m.includes("Claude")) return "claude";
+  if (m.includes("GPT")) return "gptoss";
+  return "";
+}
+function implementerCandidates(task) {
+  const w = task.weight ?? "medium";
+  if (w === "light") return [...freePoolRotated(FREE_POOL), agy("Gemini 3.8 Flash"), agy("GPT-OSS 120B")];
+  if (w === "heavy") return [agy("Gemini 4 Argon", "High"), agy("Claude Opus 5.5", "High"), agy("Claude Sonnet 5.5", "High")];
+  if ((task.attempts ?? 1) >= 2) return [agy("Gemini 4 Argon"), agy("Claude Sonnet 5.5"), ...freePoolRotated(TIER_A)];
+  return [...freePoolRotated(TIER_A), agy("Gemini 4 Argon"), agy("Claude Sonnet 5.5")];
+}
+function reviewerCandidates(task) {
+  const w = task.weight ?? "medium";
+  const implFam = familyOf(task);
+  let list;
+  if (w === "light") list = [...freePoolRotated(FREE_POOL), agy("GPT-OSS 120B"), agy("Gemini 3.8 Flash")];
+  else if (w === "heavy") list = [agy("Claude Opus 5.5", "High"), agy("Claude Sonnet 5.5", "High"), agy("Gemini 4 Argon", "High")];
+  else list = [agy("Claude Sonnet 5.5"), agy("Gemini 3.8 Flash"), ...freePoolRotated(TIER_A)];
+  const diff = list.filter((c) => c.family !== implFam);
+  const same = list.filter((c) => c.family === implFam);
+  return [...diff, ...same];
+}
+function available(candidates) {
+  return candidates.filter((c) => coolingUntil(c.key) === 0);
+}
+function earliestCooling(candidates) {
+  let min = Infinity;
+  for (const c of candidates) {
+    const u = coolingUntil(c.key);
+    if (u > 0 && u < min) min = u;
+  }
+  return min === Infinity ? 0 : min;
+}
+
+// ---------- タイムアウト ----------
+const TIMEOUTS = {
+  implement: { light: 15, medium: 30, heavy: 45 },
+  review: { light: 10, medium: 15, heavy: 20 },
+};
+const timeoutMsFor = (stage, weight) => (TIMEOUTS[stage][weight ?? "medium"] ?? 30) * 60000;
+
+// ---------- プロンプト生成 ----------
+function fillTemplate(name, vars) {
+  let text = fs.readFileSync(path.join(SCRIPTS_DIR, "prompts", name), "utf-8");
+  for (const [k, v] of Object.entries(vars)) text = text.split(`{{${k}}}`).join(v ?? "");
+  return text;
+}
+function buildDispatch(stage, task, cand) {
+  const taskText = fs.readFileSync(task.file, "utf-8");
+  const allowed = (task.allowed_paths ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  const changed = gitStatusPaths();
+  const buckets = classify(task, changed);
+  const wip = buckets.allowed.length > 0
+    ? `\n\n## WIP (前任者の未完了変更)\n許可パス内に未コミットの変更があります: ${buckets.allowed.join(", ")}\nまず git diff で確認し、残りを仕上げてください。`
+    : "";
+  const vars = {
+    ID: task.id,
+    TASK_CONTENT: taskText,
+    WORKDIR: REPO,
+    ALLOWED_PATHS: allowed.join(", ") || "(未設定)",
+    TEST_CMD: task.test_cmd || "(タスク定義の scoped test を実行すること)",
+    MODEL: cand ? `${cand.runner}/${cand.model}` : "",
+    REPORT_FILE: path.join(harnessDir, "tmp", `${task.id}-${stage === "review" ? "review" : "report"}.md`),
+    VERDICT_FILE: path.join(harnessDir, "verdicts", `${task.id}.txt`),
+    WIP_NOTE: wip,
+  };
+  const name = stage === "review" ? "reviewer.md" : "implementer.md";
+  const out = path.join(harnessDir, "dispatch", `${task.id}-${stage}.md`);
+  fs.writeFileSync(out, fillTemplate(name, vars), "utf-8");
+  return { promptFile: out, reportFile: vars.REPORT_FILE, verdictFile: vars.VERDICT_FILE };
+}
+
+function runWorker(stage, task, cand) {
+  const { promptFile, reportFile, verdictFile } = buildDispatch(stage, task, cand);
+  if (fs.existsSync(reportFile)) fs.unlinkSync(reportFile);
+  const log = path.join(harnessDir, "logs", `${task.id}.log`);
+  const args = [
+    path.join(SCRIPTS_DIR, "run-worker.mjs"),
+    "--runner", cand.runner, "--model", cand.model,
+    "--stage", stage, "--prompt-file", promptFile,
+    "--workdir", REPO, "--log", log,
+    "--timeout-ms", String(timeoutMsFor(stage, task.weight)),
+  ];
+  if (cand.effort) args.push("--effort", cand.effort);
+  if (stage === "review") args.push("--verdict-file", verdictFile);
+  note(`dispatch ${stage}: ${task.id} -> ${cand.runner}/${cand.model}`);
+  const r = sh(process.execPath, args, { timeout: timeoutMsFor(stage, task.weight) + 120000 });
+  const lastLine = r.out.trim().split("\n").filter(Boolean).pop() ?? "{}";
+  let result;
+  try { result = JSON.parse(lastLine); } catch { result = { outcome: "error", code: r.code }; }
+  return { ...result, reportFile, verdictFile };
+}
+
+function quotaCooldown(cand, logTail) {
+  if (cand.runner === "agy") {
+    const m = /Resets in\s+(?:(\d+)h)?\s*(?:(\d+)m)?/i.exec(logTail ?? "");
+    const ms = m ? ((Number(m[1] ?? 0) * 60 + Number(m[2] ?? 0)) * 60000 || 5 * 3600000) : 5 * 3600000;
+    setCooldown(cand.key, Date.now() + ms, "quota_exhausted");
+  } else {
+    setCooldown(cand.key, Date.now() + 20 * 60000, "rate_limit_429");
+  }
+}
+function logTail(taskId, n = 4000) {
+  const f = path.join(harnessDir, "logs", `${taskId}.log`);
+  if (!fs.existsSync(f)) return "";
+  const text = fs.readFileSync(f, "utf-8");
+  return text.slice(-n);
+}
+
+// ---------- ステージ処理 ----------
+function appendNote(task, section, text) {
+  const tmp = path.join(harnessDir, "tmp", `${task.id}-note.md`);
+  fs.writeFileSync(tmp, text, "utf-8");
+  // set-report は節を置換するため、既存内容に追記する形で合成する
+  const current = fs.readFileSync(task.file, "utf-8");
+  const re = new RegExp(`##\\s+${section}\\b[^\\n]*\\n([\\s\\S]*?)(?=\\n##\\s|$)`);
+  const m = re.exec(current);
+  const merged = (m ? m[1].trim() + "\n\n" : "") + text;
+  fs.writeFileSync(tmp, merged, "utf-8");
+  taskCtl(["set-report", task.file, "--section", section, "--from", tmp]);
+}
+
+function handleImplement(task) {
+  if (task.status === "todo") {
+    taskCtl(["transition", task.file, "--to", "doing"]);
+    task = scanTasks().find((t) => t.id === task.id) ?? task;
+  }
+  const candidates = implementerCandidates(task);
+  const usable = available(candidates);
+  if (usable.length === 0) return { worked: false, coolingUntil: earliestCooling(candidates) };
+  for (const cand of usable.slice(0, 4)) {
+    taskCtl(["set", task.file, "--set", `assignee=${cand.runner}`, "--set", `model=${cand.model}`]);
+    const res = runWorker("implement", task, cand);
+    if (res.outcome === "quota") { quotaCooldown(cand, logTail(task.id)); continue; }
+    if (res.outcome === "timeout") {
+      const changed = classify(task, gitStatusPaths());
+      if (changed.allowed.length === 0) {
+        setCooldown(cand.key, Date.now() + 60 * 60000, "timeout_stalled");
+        continue;
+      }
+      appendNote(task, "REPORT", `- **[Runner Note]** ${cand.runner}/${cand.model} timed out with WIP in: ${changed.allowed.join(", ")}. Next worker: inspect git diff and finish.`);
+      if ((task.attempts ?? 1) >= 3) taskCtl(["transition", task.file, "--to", "blocked"]);
+      else taskCtl(["transition", task.file, "--to", "doing", "--bump-attempts"]);
+      return { worked: true };
+    }
+    if (res.outcome === "error") { setCooldown(cand.key, Date.now() + 10 * 60000, "worker_error"); continue; }
+    // ok
+    if (fs.existsSync(res.reportFile)) taskCtl(["set-report", task.file, "--section", "REPORT", "--from", res.reportFile]);
+    taskCtl(["transition", task.file, "--to", "review"]);
+    note(`${task.id}: implement done by ${cand.runner}/${cand.model} -> review`);
+    return { worked: true };
+  }
+  return { worked: false, coolingUntil: earliestCooling(candidates) };
+}
+
+function handleReview(task) {
+  const token = `${task.attempts}.${task.review_round}`;
+  if (task.verdict && task.verdict !== "NONE" && task.verdict_for === token) {
+    if (task.verdict === "APPROVED") {
+      taskCtl(["transition", task.file, "--to", "qa"]);
+      note(`${task.id}: verdict APPROVED (${token}) -> qa`);
+    } else if (task.verdict === "BLOCKED") {
+      taskCtl(["transition", task.file, "--to", "blocked"]);
+      note(`${task.id}: verdict BLOCKED (${token}) -> blocked`);
+    } else {
+      // CHANGES_REQUESTED
+      if ((task.review_round ?? 0) >= 2) {
+        if ((task.attempts ?? 1) >= 3) taskCtl(["transition", task.file, "--to", "blocked"]);
+        else taskCtl(["transition", task.file, "--to", "doing", "--bump-attempts"]);
+      } else {
+        taskCtl(["transition", task.file, "--to", "doing"]);
+      }
+      note(`${task.id}: verdict CHANGES_REQUESTED (${token}) -> doing`);
+    }
+    return { worked: true };
+  }
+  // レビュアーを呼ぶ前にテストのプリチェック
+  if (task.test_cmd) {
+    const r = sh(task.test_cmd, [], { shell: true, timeout: 600000 });
+    if (r.code !== 0) {
+      appendNote(task, "REPORT", `- **[Runner Pre-check]** scoped tests FAILED before review:\n\n\`\`\`\n${r.out.trim().slice(-1500)}\n\`\`\``);
+      taskCtl(["transition", task.file, "--to", "doing"]);
+      note(`${task.id}: pre-check tests failed -> doing (review not spent)`);
+      return { worked: true };
+    }
+  }
+  const candidates = reviewerCandidates(task);
+  const usable = available(candidates);
+  if (usable.length === 0) return { worked: false, coolingUntil: earliestCooling(candidates) };
+  let dispatches = 0;
+  for (const cand of usable.slice(0, 4)) {
+    if (dispatches >= 2) break;
+    taskCtl(["set", task.file, "--set", `reviewer=${cand.runner}/${cand.model}`]);
+    const res = runWorker("review", task, cand);
+    dispatches++;
+    if (res.outcome === "quota") { quotaCooldown(cand, logTail(task.id)); continue; }
+    if (res.outcome === "timeout" || res.outcome === "error") {
+      setCooldown(cand.key, Date.now() + 30 * 60000, `review_${res.outcome}`);
+      continue;
+    }
+    if (res.verdict) {
+      if (fs.existsSync(res.reportFile)) taskCtl(["set-report", task.file, "--section", "REVIEW", "--from", res.reportFile]);
+      taskCtl(["verdict", task.file, "--verdict", res.verdict]);
+      note(`${task.id}: review verdict ${res.verdict} by ${cand.runner}/${cand.model}`);
+      return { worked: true };
+    }
+    note(`${task.id}: reviewer ${cand.runner}/${cand.model} returned no verdict; re-dispatching`);
+    setCooldown(cand.key, Date.now() + 30 * 60000, "no_verdict");
+  }
+  return { worked: dispatches > 0, noVerdict: true };
+}
+
+function handleQA(task) {
+  const taskText = fs.readFileSync(task.file, "utf-8");
+  const qaFile = path.join(harnessDir, "tmp", `${task.id}-qa.md`);
+  if (fs.existsSync(qaFile)) fs.unlinkSync(qaFile);
+  const allowed = (task.allowed_paths ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  const prompt = fillTemplate("qa.md", {
+    ID: task.id, TASK_CONTENT: taskText,
+    ALLOWED_PATHS: allowed.join(", ") || "(未設定)", QA_FILE: qaFile,
+  });
+  const binParts = (process.env.CODEX_BIN || "codex").split(/\s+/);
+  const r = sh(binParts[0], [...binParts.slice(1), "exec", "--model", LUNA_MODEL, "--sandbox", "workspace-write", "-"], {
+    input: prompt,
+    shell: process.platform === "win32" && !process.env.CODEX_BIN,
+    timeout: 600000,
+  });
+  if (!fs.existsSync(qaFile)) {
+    note(`${task.id}: QA produced no result file (codex code=${r.code})`);
+    return { worked: false, qaError: true };
+  }
+  const qaText = fs.readFileSync(qaFile, "utf-8");
+  taskCtl(["set-report", task.file, "--section", "QA", "--from", qaFile]);
+  const matches = [...qaText.matchAll(/QA-VERDICT:\s*(PASS|FAIL)/g)];
+  const verdict = matches.length > 0 ? matches[matches.length - 1][1] : null;
+  if (verdict === "PASS") {
+    return commitFlow(task);
+  }
+  if (verdict === "FAIL") {
+    if ((task.attempts ?? 1) >= 3) taskCtl(["transition", task.file, "--to", "blocked"]);
+    else taskCtl(["transition", task.file, "--to", "doing", "--bump-attempts"]);
+    note(`${task.id}: QA FAIL -> ${((task.attempts ?? 1) >= 3) ? "blocked" : "doing (attempts+1)"}`);
+    return { worked: true };
+  }
+  note(`${task.id}: QA result file has no QA-VERDICT line`);
+  return { worked: false, qaError: true };
+}
+
+function commitPaths(paths, message) {
+  if (paths.length === 0) return true;
+  const add = git(["add", "--", ...paths]);
+  if (add.code !== 0) { note(`git add failed: ${add.out.trim().slice(-200)}`); return false; }
+  const c = git(["commit", "-m", message, "--", ...paths]);
+  if (c.code !== 0) { note(`git commit failed: ${c.out.trim().slice(-200)}`); return false; }
+  note(`committed: ${message}`);
+  return true;
+}
+
+function commitFlow(task) {
+  const changed = gitStatusPaths();
+  const b = classify(task, changed);
+  if (b.forbidden.length > 0 || b.unmapped.length > 0) {
+    appendNote(task, "QA", `- **[Runner Gate]** commit refused. forbidden: [${b.forbidden.join(", ")}] unmapped: [${b.unmapped.join(", ")}]`);
+    if ((task.attempts ?? 1) >= 3) taskCtl(["transition", task.file, "--to", "blocked"]);
+    else taskCtl(["transition", task.file, "--to", "doing", "--bump-attempts"]);
+    note(`${task.id}: commit gate refused (forbidden=${b.forbidden.length}, unmapped=${b.unmapped.length})`);
+    return { worked: true };
+  }
+  taskCtl(["transition", task.file, "--to", "done"]);
+  commitPaths(b.allowed, `feat(${phaseSlug}): complete ${task.id}`);
+  const ledgerFiles = [`${progressRel}/tasks/${task.id}.md`, `${progressRel}/PROGRESS.md`]
+    .filter((p) => gitStatusPaths().includes(p));
+  commitPaths(ledgerFiles, `docs(progress): mark ${task.id} done`);
+  gitPush();
+  note(`${task.id}: done, committed and pushed`);
+  return { worked: true };
+}
+
+// ---------- 起動時スイープと終了処理 ----------
+function startupSweep(tasks) {
+  for (const t of tasks) {
+    if (t.status !== "done") continue;
+    const b = classify(t, gitStatusPaths());
+    if (b.allowed.length > 0 && b.forbidden.length === 0 && b.unmapped.length === 0) {
+      note(`sweep: ${t.id} is done but has uncommitted deliverables; committing`);
+      commitPaths(b.allowed, `feat(${phaseSlug}): complete ${t.id}`);
+      const ledgerFiles = [`${progressRel}/tasks/${t.id}.md`, `${progressRel}/PROGRESS.md`]
+        .filter((p) => gitStatusPaths().includes(p));
+      commitPaths(ledgerFiles, `docs(progress): mark ${t.id} done`);
+      gitPush();
+    }
+  }
+}
+
+function finalize(reason) {
+  const tasks = scanTasks();
+  const lines = [
+    ``,
+    `## autoloop run (${new Date().toISOString()})`,
+    `- stop reason: ${reason}`,
+    ...tasks.map((t) => `- ${t.id ?? "?"}: ${t.status}`),
+    ...runLog.slice(-15).map((l) => `- log: ${l}`),
+  ];
+  if (fs.existsSync(PROGRESS_FILE)) {
+    fs.appendFileSync(PROGRESS_FILE, lines.join("\n") + "\n", "utf-8");
+  }
+  const changed = gitStatusPaths().filter((p) => p.startsWith(`${progressRel}/`));
+  if (changed.length > 0) {
+    commitPaths(changed, `docs(progress): autoloop run summary (${reason})`);
+    gitPush();
+  }
+  note(`stopped: ${reason}`);
+}
+
+function corruptGate(tasks) {
+  const corrupt = tasks.filter((t) => t.status === "corrupt");
+  if (corrupt.length === 0) return false;
+  for (const t of corrupt) {
+    note(`corrupt task file: ${t.file} (${t.error}); trying heal`);
+    const r = taskCtl(["heal", t.file]);
+    note(`heal result: ${r.out.trim()}`);
+  }
+  const after = scanTasks();
+  const still = after.filter((t) => t.status === "corrupt");
+  if (still.length > 0) {
+    const names = still.map((t) => `${t.file} (${t.error})`).join("; ");
+    if (fs.existsSync(PROGRESS_FILE)) {
+      fs.appendFileSync(PROGRESS_FILE, `\n## 🚨 CORRUPT (要確認)\n- ${names}\n`, "utf-8");
+    }
+    const changed = gitStatusPaths().filter((p) => p.startsWith(`${progressRel}/`));
+    if (changed.length > 0) commitPaths(changed, "docs(progress): corrupt task file alert");
+    gitPush();
+    console.error(`autoloop: unhealable corrupt task file(s): ${names}`);
+    process.exit(2);
+  }
+  return true;
+}
+
+// ---------- メインループ ----------
+async function sleep(ms) { return new Promise((res) => setTimeout(res, ms)); }
+
+async function main() {
+  note(`start: phase=${phaseSlug} maxCycles=${MAX_CYCLES} maxHours=${MAX_HOURS}`);
+  let tasks = scanTasks();
+  corruptGate(tasks);
+  tasks = scanTasks();
+  refreshAllAllowed(tasks);
+  startupSweep(tasks);
+
+  let stagnation = 0;
+  let qaErrors = 0;
+  for (let cycle = 1; cycle <= MAX_CYCLES; cycle++) {
+    if (fs.existsSync(STOP_FILE)) { finalize("kill switch (STOP file)"); return; }
+    if (Date.now() - startedAt > MAX_HOURS * 3600000) { finalize("budget: max hours"); return; }
+    tasks = scanTasks();
+    if (tasks.some((t) => t.status === "corrupt")) { corruptGate(tasks); tasks = scanTasks(); }
+    refreshAllAllowed(tasks);
+    const active = tasks.filter((t) => ["todo", "doing", "review", "qa"].includes(t.status));
+    const blocked = tasks.filter((t) => t.status === "blocked");
+    if (active.length === 0) {
+      if (blocked.length > 0) { finalize(`all remaining tasks blocked (${blocked.map((b) => b.id).join(", ")})`); return; }
+      const ci = sh("gh", ["run", "list", "--limit", "1"], { timeout: 60000 });
+      note(`phase complete. latest CI: ${ci.code === 0 ? ci.out.trim().split("\n")[0] : "unavailable"}`);
+      finalize("phase complete (all tasks done; main merge is a separate gate)");
+      return;
+    }
+    const sigBefore = tasks.map((t) => `${t.id}:${t.status}:${t.verdict ?? ""}:${t.verdict_for ?? ""}`).join("|") + "@" + gitHead();
+    const pick = active.find((t) => t.status === "qa")
+      ?? active.find((t) => t.status === "review")
+      ?? active.find((t) => t.status === "doing")
+      ?? active.find((t) => t.status === "todo");
+    let result;
+    if (pick.status === "qa") result = handleQA(pick);
+    else if (pick.status === "review") result = handleReview(pick);
+    else result = handleImplement(pick);
+
+    if (result.qaError) {
+      qaErrors++;
+      if (qaErrors >= 2) { finalize(`QA orchestrator failed twice for ${pick.id}`); return; }
+    } else qaErrors = 0;
+
+    if (result.noVerdict) { finalize(`review verdict could not be obtained for ${pick.id}`); return; }
+
+    if (!result.worked && result.coolingUntil) {
+      const waitMs = result.coolingUntil - Date.now();
+      if (waitMs > 30 * 60000 || Date.now() + waitMs > startedAt + MAX_HOURS * 3600000) {
+        finalize(`all candidate models cooling until ${new Date(result.coolingUntil).toISOString()}`);
+        return;
+      }
+      note(`all candidates cooling; sleeping ${Math.round(waitMs / 1000)}s`);
+      const step = 15000;
+      for (let slept = 0; slept < waitMs; slept += step) {
+        if (fs.existsSync(STOP_FILE)) { finalize("kill switch (STOP file)"); return; }
+        await sleep(Math.min(step, waitMs - slept));
+      }
+      continue;
+    }
+    const sigAfter = scanTasks().map((t) => `${t.id}:${t.status}:${t.verdict ?? ""}:${t.verdict_for ?? ""}`).join("|") + "@" + gitHead();
+    if (result.worked && sigAfter === sigBefore) {
+      stagnation++;
+      note(`no progress despite work (stagnation ${stagnation}/3)`);
+      if (stagnation >= 3) { finalize("stagnation breaker (3 worked cycles, no progress)"); return; }
+    } else if (sigAfter !== sigBefore) {
+      stagnation = 0;
+    }
+    if (state.autoloop.pushFailures >= 3) { finalize("push failed 3 times (unsynced)"); return; }
+    if (ONCE) { finalize("--once"); return; }
+  }
+  finalize("budget: max cycles");
+}
+
+main().catch((err) => {
+  console.error(`autoloop fatal: ${err.stack ?? err}`);
+  process.exit(1);
+});

@@ -1,1 +1,1 @@
-.pi/harness/prompts/reviewer.md の指示に従い、タスク progress/phase-dryrun/tasks/T-DRY-002.md をレビューせよ。対象の変更ファイルはタスクファイルの REPORT 欄に記載されている。完了したら PROTOCOL 通りにタスクファイルの REVIEW 欄と status を更新すること。
+.pi/harness/prompts/implementer.md の指示に従い、タスク progress/phase-2-authz/tasks/T-PH2-003.md を実装せよ。完了したら PROTOCOL 通りにタスクファイルの REPORT と status を更新すること。

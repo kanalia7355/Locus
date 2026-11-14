@@ -208,100 +208,109 @@ export function AdminDelegations() {
       </p>
       {error && <p role="alert">{error}</p>}
       {notice && <p role="status">{notice}</p>}
-      <form
-        className="admin-delegation-form"
-        onSubmit={(event) => void createGrant(event)}
-      >
-        <h2>管理委任を作成</h2>
-        <label>
-          プロジェクト
-          <select
-            aria-label="委任するプロジェクト"
-            value={projectId}
-            disabled={busy || !options?.projects.length}
-            onChange={(event) => {
-              setProjectId(event.target.value);
-              setRecipientId("");
-              setPermissions([]);
-            }}
+      {options && options.projects.length === 0 ? (
+        <section
+          className="admin-delegation-form"
+          aria-label="管理委任の作成権限"
+        >
+          <h2>管理委任を作成</h2>
+          <p className="muted">
+            現在、他の利用者へ委任できるプロジェクト権限はありません。受領した委任の確認と取り消しのみ行えます。
+          </p>
+        </section>
+      ) : options ? (
+        <form
+          className="admin-delegation-form"
+          onSubmit={(event) => void createGrant(event)}
+        >
+          <h2>管理委任を作成</h2>
+          <label>
+            プロジェクト
+            <select
+              aria-label="委任するプロジェクト"
+              value={projectId}
+              disabled={busy || !options.projects.length}
+              onChange={(event) => {
+                setProjectId(event.target.value);
+                setRecipientId("");
+                setPermissions([]);
+              }}
+            >
+              {options.projects.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            受領者
+            <select
+              aria-label="委任の受領者"
+              required
+              value={recipientId}
+              disabled={busy || !selectedProject?.recipients.length}
+              onChange={(event) => setRecipientId(event.target.value)}
+            >
+              <option value="">受領者を選択</option>
+              {selectedProject?.recipients.map((recipient) => (
+                <option key={recipient.id} value={recipient.id}>
+                  {recipient.username}
+                </option>
+              ))}
+            </select>
+          </label>
+          <fieldset
+            className="delegation-permissions"
+            disabled={busy || !selectedProject}
           >
-            {options?.projects.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.name}
-              </option>
-            ))}
-            {!options?.projects.length && (
-              <option value="">委任可能なプロジェクトはありません</option>
+            <legend>委任する権限（本人の委任上限内）</legend>
+            {Object.entries(permissionNames)
+              .filter(([permission]) =>
+                selectedProject?.permission_ceiling.includes(permission),
+              )
+              .map(([permission, label]) => (
+                <button
+                  key={permission}
+                  type="button"
+                  aria-pressed={permissions.includes(permission)}
+                  onClick={() => togglePermission(permission)}
+                >
+                  {label}
+                </button>
+              ))}
+            {!selectedProject?.permission_ceiling.length && (
+              <p>委任できる権限はありません。</p>
             )}
-          </select>
-        </label>
-        <label>
-          受領者
-          <select
-            aria-label="委任の受領者"
-            required
-            value={recipientId}
-            disabled={busy || !selectedProject?.recipients.length}
-            onChange={(event) => setRecipientId(event.target.value)}
+          </fieldset>
+          <label>
+            有効期間
+            <select
+              aria-label="委任の有効期間"
+              value={ttl}
+              disabled={busy}
+              onChange={(event) => setTtl(event.target.value)}
+            >
+              {ttlChoices.map((choice) => (
+                <option key={choice.seconds} value={choice.seconds}>
+                  {choice.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="muted">
+            最短15分、最長7日です。チャット参照には閲覧権限も必要です。
+          </p>
+          <button
+            type="submit"
+            disabled={
+              busy || !selectedProject || !selectedProject.recipients.length
+            }
           >
-            <option value="">受領者を選択</option>
-            {selectedProject?.recipients.map((recipient) => (
-              <option key={recipient.id} value={recipient.id}>
-                {recipient.username}
-              </option>
-            ))}
-          </select>
-        </label>
-        <fieldset
-          className="delegation-permissions"
-          disabled={busy || !selectedProject}
-        >
-          <legend>委任する権限（本人の委任上限内）</legend>
-          {Object.entries(permissionNames)
-            .filter(([permission]) =>
-              selectedProject?.permission_ceiling.includes(permission),
-            )
-            .map(([permission, label]) => (
-              <button
-                key={permission}
-                type="button"
-                aria-pressed={permissions.includes(permission)}
-                onClick={() => togglePermission(permission)}
-              >
-                {label}
-              </button>
-            ))}
-          {!selectedProject?.permission_ceiling.length && (
-            <p>委任できる権限はありません。</p>
-          )}
-        </fieldset>
-        <label>
-          有効期間
-          <select
-            aria-label="委任の有効期間"
-            value={ttl}
-            disabled={busy}
-            onChange={(event) => setTtl(event.target.value)}
-          >
-            {ttlChoices.map((choice) => (
-              <option key={choice.seconds} value={choice.seconds}>
-                {choice.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <p className="muted">
-          最短15分、最長7日です。チャット参照には閲覧権限も必要です。
-        </p>
-        <button
-          type="submit"
-          disabled={
-            busy || !selectedProject || !selectedProject.recipients.length
-          }
-        >
-          管理委任を作成
-        </button>
-      </form>
+            管理委任を作成
+          </button>
+        </form>
+      ) : null}
 
       <div className="section-toolbar">
         <h2>自分に関係する委任</h2>
@@ -339,10 +348,11 @@ export function AdminDelegations() {
               <li key={grant.id} className="admin-delegation-row">
                 <article aria-label={`管理委任 ${grant.id}`}>
                   <h3>
+                    {asGrantor ? "付与した委任" : "受領した委任"} ·{" "}
                     {options?.projects.find(
                       (project) => project.id === grant.project_id,
                     )?.name ?? grant.project_id}{" "}
-                    · {asGrantor ? `受領者 ${target}` : `付与者 ${target}`}
+                    · {asGrantor ? `受領者 ${target}` : `付与元 ${target}`}
                   </h3>
                   <dl>
                     <dt>状態</dt>
@@ -364,6 +374,10 @@ export function AdminDelegations() {
                     <dd>{grant.id}</dd>
                     <dt>プロジェクトID</dt>
                     <dd>{grant.project_id}</dd>
+                    <dt>区分</dt>
+                    <dd>{asGrantor ? "付与した委任" : "受領した委任"}</dd>
+                    <dt>{asGrantor ? "受領者" : "付与元"}</dt>
+                    <dd>{target}</dd>
                   </dl>
                   {grant.status === "active" && (
                     <button

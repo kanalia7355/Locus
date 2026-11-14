@@ -90,3 +90,53 @@ def test_cli_unassign_revokes_existing_conversation_and_document_access(service,
     assert alice.get(f"/api/documents/{doc}/chunks").status_code == 404
     assert alice.get(f"/api/conversations/{conv}").status_code == 404
     assert events(service)[-1]["operation"] == "membership.remove"
+
+
+def test_delegation_and_authz_audit_records_metadata_without_payloads_or_credentials(
+    service,
+) -> None:
+    owner_client, bob_client = client_for(service), client_for(service)
+    login(owner_client, "alice", "02")
+    service.assign("alice", "project-a", "project_lead")
+    actor = service.authenticate(owner_client.cookies.get("locus_session"))
+    with service.db() as db:
+        db.execute(
+            "INSERT INTO project_owners (project_id,user_id) VALUES (?,?)",
+            ("project-a", actor.id),
+        )
+
+    login(bob_client, "bob", "03")
+    bob = service.authenticate(bob_client.cookies.get("locus_session"))
+
+    # Grant delegation
+    grant = owner_client.post(
+        "/api/admin/delegations",
+        headers=ORIGIN,
+        json={
+            "project_id": "project-a",
+            "recipient_id": bob.id,
+            "permissions": ["read", "retrieve"],
+        },
+    ).json()
+
+    # Bob self-cancels delegation
+    cancelled = bob_client.delete(f"/api/admin/delegations/{grant['id']}/cancel", headers=ORIGIN)
+    assert cancelled.status_code == 200
+
+    # Owner sets membership denials
+    service.set_membership_denials(actor, "project-a", "bob", ["retrieve"])
+
+    # Query all audit events
+    audit_events = events(service)
+    assert len(audit_events) > 0
+    raw_audit = json.dumps(audit_events, ensure_ascii=False)
+
+    # IAM-015: Assert metadata only, no payloads or credentials leak into audit
+    assert "Temporary-password" not in raw_audit
+    assert bob_client.cookies.get("locus_session") not in raw_audit
+    assert owner_client.cookies.get("locus_session") not in raw_audit
+    assert "成膜条件" not in raw_audit
+
+    for event in audit_events:
+        assert set(event.keys()) == {"id", "at", "actor_id", "operation", "target_id", "outcome"}
+        assert event["outcome"] in ("ok", "already_ended", "failed")

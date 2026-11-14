@@ -295,4 +295,63 @@ describe("approved chat interaction baseline", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("rejected.exe");
     expect(uploads).toBe(1);
   });
+
+  it("displays accurate delegation guidance on settings and role editor pages", async () => {
+    vi.mocked(fetch).mockImplementation(async (input, options) => {
+      const path = String(input);
+      requests.push({ path, options });
+      if (path.endsWith("/auth/me"))
+        return new Response(
+          JSON.stringify({
+            id: "alice",
+            username: "alice",
+            system_admin: false,
+            must_rotate: false,
+          }),
+        );
+      if (path.endsWith("/projects"))
+        return new Response(
+          JSON.stringify([
+            {
+              id: "project",
+              org_id: "org",
+              name: "検証",
+              role: "project_lead",
+              permissions: ["read", "retrieve", "upload", "manage_roles"],
+            },
+          ]),
+        );
+      if (path.endsWith("/projects/project/roles"))
+        return new Response(
+          JSON.stringify({
+            templates: [],
+            custom: [],
+            allowed_permissions: ["read", "retrieve"],
+          }),
+        );
+      return new Response(JSON.stringify([]));
+    });
+    render(<App />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "モデル・同時利用" }),
+    );
+    expect(
+      await screen.findByText(
+        "LAN公開、回復、組織単位の委任拡張、保存期間は承認待ちです。プロジェクト単位の権限委任は「管理委任」から設定できます。",
+      ),
+    ).toBeVisible();
+    expect(
+      screen.queryByText("LAN公開、回復、管理委任、保存期間は承認待ちです。"),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "役割・管理権限" }));
+    expect(
+      await screen.findByText(
+        "ロールは現在のプロジェクト内で有効です。管理操作の権限は委任できません。",
+      ),
+    ).toBeVisible();
+    expect(
+      screen.queryByText(/管理権限の委任は無効です/),
+    ).not.toBeInTheDocument();
+  });
 });

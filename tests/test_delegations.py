@@ -375,3 +375,185 @@ def test_non_authorized_org_role_and_project_scope_denied(service) -> None:
         ).status_code
         == 404
     )
+
+
+def test_delegated_recipient_cannot_redelegate_or_revoke_and_options_empty(service) -> None:
+    owner_client, bob_client = client_for(service), client_for(service)
+    _owner(service, owner_client)
+    login(bob_client, "bob", "03")
+    bob = service.authenticate(bob_client.cookies.get("locus_session"))
+    eve_client = client_for(service)
+    login(eve_client, "eve", "04")
+    eve = service.authenticate(eve_client.cookies.get("locus_session"))
+
+    # Alice grants delegations to Eve and Bob
+    grant_eve = _grant(owner_client, eve.id, ("read",)).json()
+    grant_bob = _grant(owner_client, bob.id, ("read", "retrieve")).json()
+
+    # Recipient Bob (without manage_roles or ownership) sees empty delegation options
+    options = bob_client.get("/api/admin/delegations/options", headers=ORIGIN)
+    assert options.status_code == 200
+    assert options.json() == {"projects": []}
+
+    # Bob attempting redelegation to Eve must be denied with 403
+    redelegate = bob_client.post(
+        "/api/admin/delegations",
+        headers=ORIGIN,
+        json={
+            "project_id": "project-a",
+            "recipient_id": eve.id,
+            "permissions": ["read"],
+        },
+    )
+    assert redelegate.status_code == 403
+    assert "委任する権限または管理権限がありません" in redelegate.text
+
+    # Bob attempting to revoke another user's delegation must be rejected
+    # (404/403 to prevent enumeration)
+    del_other = bob_client.delete(f"/api/admin/delegations/{grant_eve['id']}", headers=ORIGIN)
+    assert del_other.status_code in (403, 404)
+
+    # Bob attempting to revoke his own delegation via admin revoke endpoint
+    # (instead of cancel) must be rejected
+    del_self_admin = bob_client.delete(f"/api/admin/delegations/{grant_bob['id']}", headers=ORIGIN)
+    assert del_self_admin.status_code in (403, 404)
+
+    # Verify no revoke event was recorded and both delegations remain active
+    with service.db() as db:
+        eve_events = db.execute(
+            "SELECT event_type FROM delegation_events WHERE grant_id=?", (grant_eve["id"],)
+        ).fetchall()
+        assert not any(row["event_type"] == "revoke" for row in eve_events)
+        bob_events = db.execute(
+            "SELECT event_type FROM delegation_events WHERE grant_id=?", (grant_bob["id"],)
+        ).fetchall()
+        assert not any(row["event_type"] == "revoke" for row in bob_events)
+
+    # Verify audit contains no leakage of unauthorized grant creation
+    admin_client = client_for(service)
+    login(admin_client, "admin", "01")
+    audit_records = admin_client.get("/api/admin/audit", headers=ORIGIN).json()
+    # No delegation.grant event with actor_id == bob.id
+    assert not any(
+        a.get("actor_id") == bob.id and a.get("operation") == "delegation.grant"
+        for a in audit_records
+    )
+
+
+def test_delegation_self_cancellation_and_explicit_deny_immediately_mask_citations_and_answers(
+    service,
+) -> None:
+    admin_client, owner_client, bob_client = (
+        client_for(service),
+        client_for(service),
+        client_for(service),
+    )
+    login(admin_client, "admin", "01")
+    admin = service.authenticate(admin_client.cookies.get("locus_session"))
+    owner = _owner(service, owner_client)
+    login(bob_client, "bob", "03")
+    bob = service.authenticate(bob_client.cookies.get("locus_session"))
+
+    # Bob starts with an empty role with no read/retrieve permissions
+    empty = service.create_role(admin, "project-a", "delegated-chatter-role", [])
+    service.assign("bob", "project-a", empty["id"])
+    doc = service.seed_synthetic("alice", "project-a", "shared")
+    service.publish(owner, doc, [{"role": empty["id"], "operations": ["read", "retrieve"]}])
+
+    # Owner grants Bob read + retrieve
+    grant = _grant(owner_client, bob.id, ("read", "retrieve")).json()
+
+    # Bob creates a conversation and posts a message that generates citations
+    conv = bob_client.post(
+        "/api/conversations", headers=ORIGIN, json={"project_id": "project-a"}
+    ).json()["id"]
+    sent = bob_client.post(
+        f"/api/conversations/{conv}/messages",
+        headers=ORIGIN,
+        json={"text": "180", "scope": "all", "attachment_ids": []},
+    )
+    assert sent.status_code == 200, sent.text
+    msg = sent.json()
+    assert len(msg["citations"]) > 0
+
+    # Attach generated answer representing synthetic model response
+    with service.db() as db:
+        db.execute(
+            "INSERT INTO generated_answers VALUES (?,?,?)",
+            (msg["id"], "成膜条件Aに関する派生回答テキスト", "fixture-model"),
+        )
+
+    # Ensure conversation and message with generated answer are visible before revocation
+    conv_before = bob_client.get(f"/api/conversations/{conv}")
+    assert conv_before.status_code == 200
+    first_msg = conv_before.json()["messages"][0]
+    assert len(first_msg["citations"]) > 0
+    assert first_msg["answer"] == "成膜条件Aに関する派生回答テキスト"
+    assert first_msg.get("answer_hidden") is not True
+
+    # Case 1: Bob self-cancels delegation
+    cancel_res = bob_client.delete(f"/api/admin/delegations/{grant['id']}/cancel", headers=ORIGIN)
+    assert cancel_res.status_code == 200
+    assert cancel_res.json()["changed"] is True
+
+    # Immediate access denial upon self-cancellation:
+    # 1) Conversation history retrieval endpoint immediately returns 403
+    conv_after_cancel = bob_client.get(f"/api/conversations/{conv}")
+    assert conv_after_cancel.status_code == 403
+
+    # 2) Document and chunk endpoints immediately return 404
+    assert bob_client.get(f"/api/documents/{doc}").status_code == 404
+    assert bob_client.get(f"/api/documents/{doc}/chunks").status_code == 404
+
+    # 3) Service-level evaluation immediately masks citations and derived answer
+    with service.db() as db:
+        live_bob = service._authenticate(db, bob_client.cookies.get("locus_session"))
+        msg_row = db.execute("SELECT * FROM messages WHERE id=?", (msg["id"],)).fetchone()
+        citations = service._citations(db, live_bob, json.loads(msg_row["citation_ids"]), conv)
+        assert citations == []
+        generated = service._generated(db, live_bob, msg_row, conv)
+        assert generated["answer"] is None
+        assert generated["answer_hidden"] is True
+
+    # Case 2: Explicit denial (denied_permissions: ["retrieve"]) overrides delegation
+    # Grant new delegation to Bob
+    grant2 = _grant(owner_client, bob.id, ("read", "retrieve")).json()
+    assert grant2["id"] != grant["id"]
+
+    # Re-verify conversation retrieval is restored with active grant
+    conv_restored = bob_client.get(f"/api/conversations/{conv}")
+    assert conv_restored.status_code == 200
+    assert len(conv_restored.json()["messages"][0]["citations"]) > 0
+
+    # Owner applies explicit denial for "retrieve" to Bob's project membership
+    service.set_membership_denials(owner, "project-a", "bob", ["retrieve"])
+
+    # Immediate access denial upon explicit deny:
+    # 1) Conversation history retrieval immediately returns 403
+    conv_after_deny = bob_client.get(f"/api/conversations/{conv}")
+    assert conv_after_deny.status_code == 403
+
+    # 2) Service-level citation retrieval is immediately masked
+    with service.db() as db:
+        live_bob = service._authenticate(db, bob_client.cookies.get("locus_session"))
+        citations_denied = service._citations(
+            db, live_bob, json.loads(msg_row["citation_ids"]), conv
+        )
+        assert citations_denied == []
+        generated_denied = service._generated(db, live_bob, msg_row, conv)
+        assert generated_denied["answer"] is None
+        assert generated_denied["answer_hidden"] is True
+
+    # Verify Audit trail (IAM-015):
+    # Audit records for self-cancel and administrative denial must be metadata-only
+    audit_data = admin_client.get("/api/admin/audit", headers=ORIGIN).json()
+    audit_json = json.dumps(audit_data, ensure_ascii=False)
+
+    # Document contents or prompt texts must not leak into audit
+    assert "成膜条件Aは処理温度180°C" not in audit_json
+    assert "Temporary-password" not in audit_json
+    assert bob_client.cookies.get("locus_session") not in audit_json
+
+    # Audit records contain only expected metadata fields
+    for entry in audit_data:
+        assert set(entry.keys()) <= {"id", "at", "actor_id", "operation", "target_id", "outcome"}
