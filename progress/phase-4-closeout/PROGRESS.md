@@ -2,7 +2,7 @@
 
 - **対象 Phase**: `PH-ROADMAP-3`（残部: ingestion 状態・再開性）＋ `PH-ROADMAP-4`（残部: streaming / queue priority・fairness / usability・accessibility audit）＋ 統合ゲート修復。`docs/plans/MASTER_IMPLEMENTATION_ROADMAP.md` §4「Parallelizable work」の isolated 並行条件に基づくバッチ。
 - **対象ブランチ**: `phase/4-closeout`（ベース: 現行統合ブランチ `loop/local-development`、タスクブランチ `task/<TASK-ID>`）
-- **最終更新日時**: `2026-11-14T19:45:00+09:00`
+- **最終更新日時**: `2026-11-14T20:00:00+09:00`
 - **更新責任者**: オーケストレーター (DeepAI Code thread d4a9ead3, owner 指示により 20 分間隔で担当)。※ワーカーによる編集禁止
 - **起動根拠**: Owner 指示 2026-11-14「サブエージェント5体同時起動・20分おきオーケストレーション」。
   `DEVELOPMENT_POLICY.md` の単一実装エージェント原則と本バッチは矛盾するため、
@@ -26,8 +26,15 @@
 | `T-PH4-G1` | Prototype quality E2E timeout 修復 (統合ゲート解消) | `heavy` | `done` | `deepai` | `deepai/gemini-4-hydrogen` | `1` | 統合済み: `4fc9b48` (loop/local-development) | `2026-11-14T18:15:00+09:00` |
 | `T-PH4-101` | ローカル LLM ストリーミング応答 (`PH-ROADMAP-4` 残部) | `heavy` | `todo` | `unassigned` | `deepai/kimi-k3.1-pro` | `0` | `task/T-PH4-101` | `2026-11-14T17:35:00+09:00` |
 | `T-PH4-102` | 質問ジョブの優先度・公平性 (bounded queue, `PH-ROADMAP-4` 残部) | `medium` | `doing` | `deepai` | `deepai/gpt-6.1-terra` → 引継ぎ (枠切れ) | `1` | `task/T-PH4-102` (実装完了・未コミット, モデル交代待ち) | `2026-11-14T19:45:00+09:00` |
-| `T-PH3-101` | 取り込み状態の粒度・再開性強化 (`PH-ROADMAP-3` 残部) | `medium` | `review` | `deepai` | `deepai/deepseek-v4.1-flash` | `2` (レビュー round 2 中・最終) | `task/T-PH3-101` (修正 a4fae87) | `2026-11-14T19:45:00+09:00` |
+| `T-PH3-101` | 取り込み状態の粒度・再開性強化 (`PH-ROADMAP-3` 残部) | `medium` | `done` | `deepai` | `deepai/deepseek-v4.1-flash` | `2` | 統合済み: `548cb55` (loop/local-development) | `2026-11-14T20:00:00+09:00` |
 | `T-PH4-103` | アクセシビリティ・キーボード・モバイル監査と修正 (`PH-ROADMAP-4` 残部) | `medium` | `doing` | `deepai` | `deepai/minimax-m3.1-flash` | `3` (CI 修復中・最終) | `task/T-PH4-103` (統合 `ea6b508` の CI で a11y 5件失敗 → 修復) | `2026-11-14T19:35:00+09:00` |
+| `T-PH3-102` | live フローでの indexing 段の観測・取消 (T-PH3-101 フォローアップ) | `light` | `todo` | `unassigned` | `-` | `0` | 未起動 (キュー) | `2026-11-14T20:00:00+09:00` |
+
+## 2b. レビュー指揗に基づくフォローアップ起票
+
+- `T-PH3-101` 独立レビュー round 1 指摘 4 (Medium) を受けて `T-PH3-102` を起票
+  (App.tsx/api.ts の indexing 表示・取消・ポーリング統合。許可パス: App.tsx, api.ts, App.test.tsx)。
+  スロット空き時に T-PH4-101 と並行起動可 (ファイル競合なし)。
 
 ## 3. 統合 (マージ) 順序と衝突オーナー
 
