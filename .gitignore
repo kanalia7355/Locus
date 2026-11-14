@@ -22,6 +22,10 @@ frontend/tsconfig.tsbuildinfo
 .loop/runtime/
 *.egg-info/
 build/
+.pi
+.loop
+.bootstrap
+
 
 # Local credentials, alternate environments and database sidecars
 .venv*/
