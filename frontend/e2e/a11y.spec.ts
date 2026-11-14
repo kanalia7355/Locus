@@ -24,6 +24,7 @@ const test = base.extend<{ signedInPage: Page }>({
     );
     const page = await context.newPage();
     await ensureSignedIn(page);
+    await context.storageState({ path: storageStatePath });
     await use(page);
     await context.close();
   },
