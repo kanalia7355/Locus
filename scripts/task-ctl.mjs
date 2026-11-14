@@ -100,12 +100,22 @@ export function parseTaskText(text) {
 
 export function serializeTask(fields, extraOrder, body) {
   const out = ["---"];
+  const written = new Set();
   for (const key of KEY_ORDER) {
-    if (fields[key] !== undefined) out.push(`${key}: ${fields[key]}`);
+    if (fields[key] !== undefined) { out.push(`${key}: ${fields[key]}`); written.add(key); }
   }
   for (const key of extraOrder ?? []) {
-    if (fields[key] !== undefined && !KEY_ORDER.includes(key)) {
+    if (fields[key] !== undefined && !written.has(key)) {
       out.push(`${key}: ${fields[key]}`);
+      written.add(key);
+    }
+  }
+  // set で新規追加されたキー (qa_verdict, unblocks 等) は extraOrder に無いため、
+  // ここで拾わないと保存時に黙って落ちる
+  for (const key of Object.keys(fields)) {
+    if (fields[key] !== undefined && !written.has(key)) {
+      out.push(`${key}: ${fields[key]}`);
+      written.add(key);
     }
   }
   out.push("---");
@@ -143,8 +153,13 @@ export function loadTask(file) {
 export function saveTask(file, task) {
   const parsed = task._parsed;
   const fields = { ...parsed.fields };
-  for (const key of KEY_ORDER) {
-    if (task[key] !== undefined) fields[key] = String(task[key]);
+  // KEY_ORDER 外のキー (qa_verdict, unblocks 等) も保存対象にする。
+  // ここで KEY_ORDER だけを写すと、set で足したカスタムキーが黙って落ちる
+  for (const key of Object.keys(task)) {
+    if (key === "file" || key === "warnings" || key === "_parsed") continue;
+    const v = task[key];
+    if (v === undefined || v === null || typeof v === "object") continue;
+    fields[key] = String(v);
   }
   fields.updated = isoNow();
   fs.writeFileSync(file, serializeTask(fields, parsed.extraOrder, parsed.body), "utf-8");
@@ -312,7 +327,9 @@ function cmdSetReport(file, args) {
   if (m) {
     const afterStart = m.index + m[0].length;
     const rest = body.slice(afterStart);
-    const nextHeading = rest.search(/^##\s/m);
+    // 節の終端は「次の予約節見出し」まで。QA レポート等が本文中に書く
+    // `## 照合結果` のような小見出しで節が切れると、旧レポートの断片が残り続けるため
+    const nextHeading = rest.search(/^##\s+(TASK DEFINITION|REPORT|TEST|REVIEW|QA|Planner Note)\b/m);
     const tail = nextHeading >= 0 ? rest.slice(nextHeading) : "";
     t._parsed.body = body.slice(0, m.index) + m[0] + "\n\n" + content + "\n\n" + tail.replace(/^\n+/, "");
   } else {

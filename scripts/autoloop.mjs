@@ -327,7 +327,7 @@ function appendNote(task, section, text) {
   fs.writeFileSync(tmp, text, "utf-8");
   // set-report は節を置換するため、既存内容に追記する形で合成する
   const current = fs.readFileSync(task.file, "utf-8");
-  const re = new RegExp(`##\\s+${section}\\b[^\\n]*\\n([\\s\\S]*?)(?=\\n##\\s|$)`);
+  const re = new RegExp(`##\\s+${section}\\b[^\\n]*\\n([\\s\\S]*?)(?=\\n##\\s+(TASK DEFINITION|REPORT|TEST|REVIEW|QA|Planner Note)\\b|$)`);
   const m = re.exec(current);
   const merged = (m ? m[1].trim() + "\n\n" : "") + text;
   fs.writeFileSync(tmp, merged, "utf-8");
@@ -447,6 +447,11 @@ function handleQA(task) {
   taskCtl(["set-report", task.file, "--section", "QA", "--from", qaFile]);
   const matches = [...qaText.matchAll(/QA-VERDICT:\s*(PASS|FAIL)/g)];
   const verdict = matches.length > 0 ? matches[matches.length - 1][1] : null;
+  if (verdict) {
+    // 現在の QA 判定は frontmatter を正本として刻印する。本文の QA 節には過去分の
+    // 断片が残り得て、出現順序も時系列を保証しないため、プランナーはこちらを見る
+    taskCtl(["set", task.file, "--set", `qa_verdict=${verdict}`, "--set", `qa_at=${new Date().toISOString()}`]);
+  }
   if (verdict === "PASS") {
     return commitFlow(task);
   }
