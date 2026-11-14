@@ -25,7 +25,7 @@
 |---|---|---|---|---|---|---|---|---|
 | `T-PH4-G1` | Prototype quality E2E timeout 修復 (統合ゲート解消) | `heavy` | `done` | `deepai` | `deepai/gemini-4-hydrogen` | `1` | 統合済み: `4fc9b48` (loop/local-development) | `2026-11-14T18:15:00+09:00` |
 | `T-PH4-101` | ローカル LLM ストリーミング応答 (`PH-ROADMAP-4` 残部) | `heavy` | `todo` | `unassigned` | `deepai/kimi-k3.1-pro` | `0` | `task/T-PH4-101` | `2026-11-14T17:35:00+09:00` |
-| `T-PH4-102` | 質問ジョブの優先度・公平性 (bounded queue, `PH-ROADMAP-4` 残部) | `medium` | `doing` | `deepai` | `deepai/gpt-6.1-terra` → 引継ぎ (枠切れ) | `1` | `task/T-PH4-102` (実装完了・未コミット, モデル交代待ち) | `2026-11-14T19:45:00+09:00` |
+| `T-PH4-102` | 質問ジョブの優先度・公平性 (bounded queue, `PH-ROADMAP-4` 残部) | `medium` | `doing` | `deepai` | `deepai/gpt-6.1-terra` → 引継ぎ (枠切れ) | `1` | `task/T-PH4-102` (実装完了・未コミット, クォータ回復後 17:26 JST に記録引き継ぎ) | `2026-11-14T20:25:00+09:00` |
 | `T-PH3-101` | 取り込み状態の粒度・再開性強化 (`PH-ROADMAP-3` 残部) | `medium` | `done` | `deepai` | `deepai/deepseek-v4.1-flash` | `2` | 統合済み: `548cb55` (loop/local-development) | `2026-11-14T20:00:00+09:00` |
 | `T-PH4-103` | アクセシビリティ・キーボード・モバイル監査と修正 (`PH-ROADMAP-4` 残部) | `medium` | `blocked` | `deepai` | `deepai/minimax-m3.1-flash` | `3` (試行上限) | 統合 `7b2b3d9`; secret scan (a11y.spec L23-24) で CI 赤 → owner 判断待ち | `2026-11-14T20:15:00+09:00` |
 | `T-PH3-102` | live フローでの indexing 段の観測・取消 (T-PH3-101 フォローアップ) | `light` | `todo` | `unassigned` | `-` | `0` | 未起動 (キュー) | `2026-11-14T20:00:00+09:00` |
@@ -41,6 +41,10 @@
     Python 1068 passed / engine 907 passed / ローカル a11y E2E 5/5 は全 green。
   - 20:15 JST: `T-PH4-103` は attempt 上限 3/3 到達のため **`blocked`** (owner 判断待ち)。
     機械的 1 行修正 (静的リテラル排除) の許可を owner に依頼。scan 設定・テスト弱体化は提案しない。
+  - 20:25 JST: `T-PH4-102` 引き継ぎ (gemini-4-carbon) も **theos_insufficient で失敗** — DeepAI クォータは
+    全モデル共通 (回復 2026-11-15 17:26 JST)。ワーカー新規起動は本日中に不可能。
+    codex は owner 指示により使用禁止。T-PH4-102 は実装・検証済み (worktree 未コミット差分) で
+    記録・コミットのみ残存。次回スケジュール起動ではクォータ回復を確認してから再委譲する。
   - 20:12 JST: `T-PH4-102` 引き継ぎを **gemini-4-carbon** (未使用モデル) で再試行 (既存 worktree 束縛)。
     codex は owner 指示により使用禁止。
   - 19:31 JST: `T-PH3-101` を no-ff マージ (`548cb55`)。マージ HEAD ローカル検証: pytest 4スイート 34 passed,
