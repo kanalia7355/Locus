@@ -96,9 +96,7 @@ def test_upload_reports_queued_scanning_indexing_and_done_stages(
 
         def scan(self, content: str) -> ScanResult:
             with self.service.db() as db:
-                seen_status.append(
-                    db.execute("SELECT status FROM documents").fetchone()["status"]
-                )
+                seen_status.append(db.execute("SELECT status FROM documents").fetchone()["status"])
             return CLEAN
 
     original_insert = Service._insert_page
@@ -107,9 +105,7 @@ def test_upload_reports_queued_scanning_indexing_and_done_stages(
         self: Service, db: sqlite3.Connection, document: str, page: int, text: str
     ) -> None:
         seen_status.append(
-            db.execute("SELECT status FROM documents WHERE id=?", (document,)).fetchone()[
-                "status"
-            ]
+            db.execute("SELECT status FROM documents WHERE id=?", (document,)).fetchone()["status"]
         )
         original_insert(db, document, page, text)
 
@@ -191,8 +187,7 @@ def test_restart_resumes_from_checkpoint_without_duplicate_chunks(tmp_path: Path
             assert row["status"] == "ready"
             assert row["index_checkpoint"] == 2
             chunks = db.execute(
-                "SELECT id,page,ordinal,text FROM chunks WHERE document_id=? "
-                "ORDER BY page,ordinal",
+                "SELECT id,page,ordinal,text FROM chunks WHERE document_id=? ORDER BY page,ordinal",
                 (created["id"],),
             ).fetchall()
         assert [(chunk["page"], chunk["ordinal"]) for chunk in chunks] == [
@@ -282,9 +277,7 @@ def test_cancel_during_indexing_drops_completed_chunks(tmp_path: Path) -> None:
             )
         svc.cancel(actor, created["id"])
         with svc.db() as db:
-            row = db.execute(
-                "SELECT * FROM documents WHERE id=?", (created["id"],)
-            ).fetchone()
+            row = db.execute("SELECT * FROM documents WHERE id=?", (created["id"],)).fetchone()
             chunks = db.execute(
                 "SELECT COUNT(*) FROM chunks WHERE document_id=?", (created["id"],)
             ).fetchone()[0]
