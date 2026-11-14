@@ -2,10 +2,21 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 
+const initialViewportWidth = window.innerWidth;
+
+function setViewportWidth(width: number) {
+  Object.defineProperty(window, "innerWidth", {
+    value: width,
+    configurable: true,
+    writable: true,
+  });
+}
+
 const requests: { path: string; options?: RequestInit }[] = [];
 beforeEach(() => {
   requests.length = 0;
   localStorage.clear();
+  setViewportWidth(initialViewportWidth);
   vi.stubGlobal(
     "fetch",
     vi.fn(async (path: string, options?: RequestInit) => {
@@ -412,11 +423,11 @@ describe("approved chat interaction baseline", () => {
     );
   });
 
-  it("closes the sidebar with Escape and returns focus to its control", async () => {
+  it("closes the overlay sidebar with Escape and returns focus to its control", async () => {
     render(<App />);
-    const toggle = await screen.findByRole("button", {
-      name: "サイドバーを閉じる",
-    });
+    await screen.findByRole("heading", { name: "資料を調べる" });
+    const toggle = screen.getByRole("button", { name: "サイドバーを閉じる" });
+    setViewportWidth(375);
     const sidebar = document.querySelector("#workspace-sidebar")!;
     fireEvent.keyDown(sidebar, { key: "Escape" });
     await waitFor(() =>
@@ -425,5 +436,18 @@ describe("approved chat interaction baseline", () => {
       ).toHaveAttribute("aria-expanded", "false"),
     );
     expect(toggle).toHaveFocus();
+  });
+
+  it("keeps the desktop sidebar open when Escape is pressed inside it", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "資料を調べる" });
+    setViewportWidth(1280);
+    const sidebar = document.querySelector("#workspace-sidebar")!;
+    fireEvent.keyDown(sidebar, { key: "Escape" });
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "サイドバーを閉じる" }),
+      ).toHaveAttribute("aria-expanded", "true"),
+    );
   });
 });

@@ -893,7 +893,11 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
         inert={!sidebar}
         aria-hidden={!sidebar}
         onKeyDown={(event) => {
-          if (event.key !== "Escape" || !sidebar) return;
+          // The overlay navigation is the mobile-only layout (the CSS
+          // breakpoint is 768px). On wide viewports the sidebar belongs to
+          // the page and must not collapse.
+          if (event.key !== "Escape" || !sidebar || window.innerWidth >= 768)
+            return;
           event.stopPropagation();
           setSidebar(false);
           sidebarToggle.current?.focus();

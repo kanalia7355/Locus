@@ -333,7 +333,7 @@ test("every keyboard control shows a focus indicator with enough contrast", asyn
   ).toEqual([]);
 });
 
-test("the workspace stays operable at a 375px viewport", async ({
+test("the workspace stays operable at a 375px viewport and the desktop layout ignores Escape", async ({
   signedInPage: page,
 }) => {
   await page.setViewportSize({ width: 375, height: 812 });
@@ -366,6 +366,19 @@ test("the workspace stays operable at a 375px viewport", async ({
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth),
   ).toBeLessThanOrEqual(375);
+
+  // The wide layout belongs to the page: Escape inside the sidebar must not
+  // collapse it, because that interaction does not exist in the baseline.
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto("/");
+  await expect(
+    page.getByRole("button", { name: "サイドバーを閉じる", exact: true }),
+  ).toHaveAttribute("aria-expanded", "true");
+  await page.getByRole("button", { name: "共有資料", exact: true }).focus();
+  await page.keyboard.press("Escape");
+  await expect(
+    page.getByRole("button", { name: "サイドバーを閉じる", exact: true }),
+  ).toHaveAttribute("aria-expanded", "true");
 });
 
 test("live regions and accessible names cover the dynamic workspace", async ({
