@@ -57,6 +57,8 @@
 | `T-PH2-001` | Delegation recipient UI and unauthorized creation guard (`IAM-011`, `UI-008`, `DP-071`) | `medium` | `done` | `opencode` | `opencode/minimax-m3.1-flash-free` | `agy/Claude Sonnet 5.5` | `1` | 割当環境に従う | `2026-11-14T11:37:12+09:00` |
 | `T-PH2-002` | プロジェクトメンバー実効権限プレビューにおける委任権限の明示と表示整合 (`IAM-011`, `IAM-012`, `IAM-014`) | `medium` | `done` | `agy` | `Gemini 4 Argon` | `agy/Claude Sonnet 5.5` | `1` | `task/T-PH2-002` | `2026-11-13T13:13:15+09:00` |
 | `T-PH2-003` | Phase 2 認可・委任・監査境界の統合回帰テスト補強 (`IAM-006`〜`IAM-015`, `DATA-008`, `DATA-010`) | `medium` | `done` | `opencode` | `opencode/deepseek-v4.1-flash-free` | `opencode/opencode/mimo-v2.6-flash-free` | `2` | `task/T-PH2-003` | `2026-11-14T10:25:01+09:00` |
+| `T-PH2-004` | Prototype quality の format チェックを通す (統合ゲート解消) | `light` | `done` | `opencode` | `opencode/glm-5.3-flash-free` | `agy/GPT-OSS 120B` | `1` | 割当環境に従う | `2026-11-14T12:27:53+09:00` |
+| `T-PH2-005` | Loop engine checks の mypy エラー3件を直す (統合ゲート解消) | `medium` | `done` | `opencode` | `opencode/minimax-m3.1-flash-free` | `agy/Claude Sonnet 5.5` | `1` | 割当環境に従う | `2026-11-14T14:45:11+09:00` |
 
 ---
 
@@ -209,6 +211,12 @@
 - **Unresolved terminal-state / QA / governance conflict — T-PH2-005:** the current scan says `done`, but its task file still contains a latest QA `QA-VERDICT: FAIL` and states that `loop_engine/**` modification conflicts with `docs/agent/PROTOCOL.md` §2 and `docs/agent/CONSTRAINTS.md` §5.3. Its frontmatter records `attempts: 1`, `review_round: 1`, `verdict: APPROVED`; the QA failure record and prohibition have not been reconciled in the task body. Because done tasks are immutable for this planner and no human authorization changing the governing prohibition is recorded in the reviewed sources, the scan status alone cannot resolve the conflict. Human owner must determine whether the prohibition was validly changed/waived or whether the recorded QA failure remains operative, then have the authorized controller reconcile the task state/evidence. This is a substantive governance authorization issue, not a worktree, task-branch, or task-level-CI requirement.
 - The already recorded roadmap/traceability mismatch about delegation UI remains adjudicated against DP-071 and T-PH2-001; it is not a new escalation. Full-suite and phase-branch CI remain integration gates and were not used as task acceptance criteria.
 - Planner outcome: `NEEDS_HUMAN` due solely to the unresolved T-PH2-005 QA/governance conflict. No task frontmatter or done task definition was edited.
+
+### Planner reconciliation (2026-11-14, decompose round 7)
+- Current scan reports T-PH2-001 through T-PH2-005 as `done`; no blocked tasks were supplied. The stale round-6 governance concern for T-PH2-005 is resolved by current `docs/agent/CONSTRAINTS.md` §5.3 and `docs/agent/PROTOCOL.md` §2: the bounded CI-maintenance change is allowed within the task's declared paths. This is not a current governance blocker.
+- The latest QA section physically recorded in `tasks/T-PH2-005.md` is nevertheless `QA-VERDICT: FAIL`; a prior QA section records PASS, but a later FAIL follows it. Since the task is `done`, this planner cannot edit its body or status. The current status scan and latest QA record therefore conflict. This is not a historical FAIL followed by a latest PASS, so the done+latest-PASS rule does not settle it.
+- No new implementation task was opened. Other recorded residuals (connectors/source ACL, production audit protection/retention, and organization-level delegation) are explicitly owner-gated/deferred or assigned to later phases. The recipient-side delegation refinement is covered by T-PH2-001 / DP-071; stale plan text is already recorded as a known discrepancy and is not a new scope question. Integration CI/full-suite gates are outside task decomposition.
+- Planner outcome: `NEEDS_HUMAN` solely to reconcile T-PH2-005's terminal `done` status against its latest QA FAIL through the authorized task controller; no product-scope decision is newly requested. No task file was changed.
 
 ## 🚨 Planner overreach (round 4)
 - プランナーが台帳外のパスを変更したため停止しました: loop_engine/cli.py, loop_engine/opencode_runner.py
