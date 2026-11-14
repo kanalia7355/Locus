@@ -2,7 +2,7 @@
 
 - **対象 Phase**: `PH-ROADMAP-3`（残部: ingestion 状態・再開性）＋ `PH-ROADMAP-4`（残部: streaming / queue priority・fairness / usability・accessibility audit）＋ 統合ゲート修復。`docs/plans/MASTER_IMPLEMENTATION_ROADMAP.md` §4「Parallelizable work」の isolated 並行条件に基づくバッチ。
 - **対象ブランチ**: `phase/4-closeout`（ベース: 現行統合ブランチ `loop/local-development`、タスクブランチ `task/<TASK-ID>`）
-- **最終更新日時**: `2026-11-14T19:08:00+09:00`
+- **最終更新日時**: `2026-11-14T19:35:00+09:00`
 - **更新責任者**: オーケストレーター (DeepAI Code thread d4a9ead3, owner 指示により 20 分間隔で担当)。※ワーカーによる編集禁止
 - **起動根拠**: Owner 指示 2026-11-14「サブエージェント5体同時起動・20分おきオーケストレーション」。
   `DEVELOPMENT_POLICY.md` の単一実装エージェント原則と本バッチは矛盾するため、
@@ -25,9 +25,9 @@
 |---|---|---|---|---|---|---|---|---|
 | `T-PH4-G1` | Prototype quality E2E timeout 修復 (統合ゲート解消) | `heavy` | `done` | `deepai` | `deepai/gemini-4-hydrogen` | `1` | 統合済み: `4fc9b48` (loop/local-development) | `2026-11-14T18:15:00+09:00` |
 | `T-PH4-101` | ローカル LLM ストリーミング応答 (`PH-ROADMAP-4` 残部) | `heavy` | `todo` | `unassigned` | `deepai/kimi-k3.1-pro` | `0` | `task/T-PH4-101` | `2026-11-14T17:35:00+09:00` |
-| `T-PH4-102` | 質問ジョブの優先度・公平性 (bounded queue, `PH-ROADMAP-4` 残部) | `medium` | `todo` | `unassigned` | `deepai/gpt-6.1-terra` | `0` | `task/T-PH4-102` | `2026-11-14T17:35:00+09:00` |
-| `T-PH3-101` | 取り込み状態の粒度・再開性強化 (`PH-ROADMAP-3` 残部) | `medium` | `review` | `deepai` | `deepai/deepseek-v4.1-flash` | `1` | `task/T-PH3-101` (commit 39fcd3a, レビュー中) | `2026-11-14T18:20:00+09:00` |
-| `T-PH4-103` | アクセシビリティ・キーボード・モバイル監査と修正 (`PH-ROADMAP-4` 残部) | `medium` | `review` | `deepai` | `deepai/minimax-m3.1-flash` | `2` (レビュー round 2 中) | `task/T-PH4-103` (F1 修正 44569be) | `2026-11-14T19:08:00+09:00` |
+| `T-PH4-102` | 質問ジョブの優先度・公平性 (bounded queue, `PH-ROADMAP-4` 残部) | `medium` | `doing` | `deepai` | `deepai/gpt-6.1-terra` | `1` | `task/T-PH4-102` (裁定後に再開) | `2026-11-14T19:35:00+09:00` |
+| `T-PH3-101` | 取り込み状態の粒度・再開性強化 (`PH-ROADMAP-3` 残部) | `medium` | `doing` | `deepai` | `deepai/deepseek-v4.1-flash` | `2` (修正 round 2 中) | `task/T-PH3-101` | `2026-11-14T19:35:00+09:00` |
+| `T-PH4-103` | アクセシビリティ・キーボード・モバイル監査と修正 (`PH-ROADMAP-4` 残部) | `medium` | `doing` | `deepai` | `deepai/minimax-m3.1-flash` | `3` (CI 修復中・最終) | `task/T-PH4-103` (統合 `ea6b508` の CI で a11y 5件失敗 → 修復) | `2026-11-14T19:35:00+09:00` |
 
 ## 3. 統合 (マージ) 順序と衝突オーナー
 
@@ -66,6 +66,21 @@
     デスクトップ幅 Escape assert を a11y.spec.ts に追加、Vitest 83 passed・a11y 5/5・typecheck/lint green、
     既存 E2E 12/13 (1件は base 未更新に起因する G1 スコープ既存課題、変更前後で同一)。→ `status: review`。
   - 19:07 JST: `T-PH4-103` レビュー round 2 (2周目・上限) を委譲開始。
+  - 19:07 JST: `T-PH3-101` レビュー round 1 = **CHANGES_REQUIRED** (既存 8 テスト破壊: seed_synthetic が
+    `cancelled` 化 [High]、`related()` IndexError [High]、ruff format ゲート落ち [Medium]。
+    セキュリティ/ACL 審査は合格・新規設計は高評価)。REVIEW 欄に全文記録して `status: doing` へ差戻し、
+    修正指示を送信 (round 2・最終周回)。範囲外指摘 (App.tsx/api.ts の indexing 表示) は別タスク起票予定。
+  - 19:09 JST: `T-PH4-103` レビュー round 2 = **APPROVED** (F1 解消確認、reviewer が REVIEW 記録をブランチへ
+    コミット済み 1fcb0e2)。QA PASS → `status: done`。
+  - 19:11 JST: `T-PH4-102` が判断待ちで停止 (推測実装を回避: ChatQueue.tsx 未存在・Load API 完全一致テストが
+    許可パス外)。オーケストレーター裁定: ChatQueue.tsx を allowed_paths から除外し App.tsx (待機表示) を許可、
+    Load 分布追加と test_admin_project_storage_load.py の**追記形式の拡張**を許可 (緩和禁止)。
+    裁定をタスクファイルに記録して実装再開。
+  - 19:13 JST: `T-PH4-103` を no-ff マージ (`ea6b508`)。マージ HEAD ローカル: Vitest 15 files / 83 passed,
+    typecheck green。push 後 hosted CI で **Prototype quality FAIL**: 新規 a11y.spec.ts 5件全て
+    `ログインに失敗しました: test-researcher-5` — spec が ambient DB 状態 (採番済ユーザー) に依存し,
+    CI fresh DB で存在しないことが原因。attempt 3 (最終) で a11y.spec.ts 自己完結化の修復指示を送信。
+    workspace.spec.ts 13/13 は引き緑 (G1 修正が有効)。
     レビュー完了後に統合順序 §3 (PH3-101 → PH4-102 → PH4-101 → PH4-103) でマージし、
     スロット空き時に `T-PH4-102` / `T-PH4-101` を起動する。
 - 委譲レビューもアクティブ枠を消費するため、`T-PH3-101` の起動は次サイクルへ繰り越し。
