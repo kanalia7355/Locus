@@ -10,10 +10,14 @@
 // 使い方:
 //   node scripts/autoloop.mjs <phase-slug> [--max-cycles 50] [--max-hours 6] [--once]
 //     [--no-plan] [--plan-rounds 6] [--max-phases 3]
+//     [--no-merge] [--ci-workflows "Prototype quality"]
 //
 // 駆動できるタスクが尽きたら、プランナー (Luna) が台帳を審査する:
 // blocked の再評価・解除、残作業のタスク分解、フェーズ完了判定と次フェーズの起票。
 // プランナーが編集できるのは progress/ 配下 (台帳) のみで、コードには触れない。
+// フェーズ完了時は統合ゲートを通す: 現在のブランチの CI green を確認してから
+// main へマージし、次フェーズの台帳を main 上で起票して loop/<次フェーズ> ブランチを切る。
+// CI が green でなければマージせず、理由を台帳に残して停止する。
 //
 // 環境変数: CODEX_BIN / AGY_BIN / OPENCODE_BIN (テスト用に実行系を差し替え可能)、
 //           AUTOLOOP_LUNA_MODEL (既定 gpt-6-luna)
@@ -41,6 +45,10 @@ const LUNA_MODEL = process.env.AUTOLOOP_LUNA_MODEL || "gpt-6-luna";
 const PLAN_ENABLED = !process.argv.includes("--no-plan");
 const MAX_PLAN_ROUNDS = Number.parseInt(opt("plan-rounds", "6"), 10);
 const MAX_PHASES = Number.parseInt(opt("max-phases", "3"), 10);
+const MERGE_ENABLED = !process.argv.includes("--no-merge");
+const CI_WORKFLOWS = opt("ci-workflows", ""); // カンマ区切り。空 = そのブランチで走った全ワークフロー
+const CI_POLL_MS = Number.parseInt(process.env.AUTOLOOP_CI_POLL_MS || "60000", 10);
+const CI_TIMEOUT_MS = Number.parseInt(process.env.AUTOLOOP_CI_TIMEOUT_MS || String(20 * 60000), 10);
 
 // フェーズはプランナーの次フェーズ起票で切り替わるため可変にする
 let curPhase = phaseSlug;
@@ -570,7 +578,7 @@ function plannerInvalid() {
 //   'continue'    … 駆動対象ができた (または再試行する) のでループ継続
 //   'stopped'     … finalize 済み
 //   'unavailable' … プランナー予算切れ。従来の停止理由にフォールバックする
-function planningStep() {
+async function planningStep() {
   if (roundsOf(curPhase) >= MAX_PLAN_ROUNDS) return "unavailable";
   const round = bumpRound(curPhase);
   const beforeActive = scanTasks().filter((t) => ["todo", "doing", "review", "qa"].includes(t.status)).length;
@@ -593,7 +601,7 @@ function planningStep() {
   }
   if (res.verdict === "COMPLETE") {
     commitLedgerChanges(`chore(progress): planner round ${round} for ${curPhase} (phase complete)`);
-    return advancePhase();
+    return await advancePhase();
   }
   if (res.verdict === "MORE") {
     quarantineInvalidTasks();
@@ -616,22 +624,123 @@ function planningStep() {
   return plannerInvalid();
 }
 
-function advancePhase() {
-  if (state.autoloop.planner.phases.length >= MAX_PHASES) {
-    finalize(`phase complete (${curPhase}); max phases per run reached (${MAX_PHASES})`);
+// ---------- 統合ゲート (CI green → main マージ) ----------
+function currentBranch() {
+  return git(["rev-parse", "--abbrev-ref", "HEAD"]).out.trim();
+}
+
+function ciStatusForHead() {
+  const sha = gitHead();
+  const branch = currentBranch();
+  const r = sh("gh", ["run", "list", "--branch", branch, "--limit", "15", "--json", "databaseId,headSha,status,conclusion,name,url"], { timeout: 60000 });
+  if (r.code !== 0) return { state: "unavailable", detail: `${r.out ?? ""}`.trim().slice(-200) || "gh failed" };
+  let runs;
+  try { runs = JSON.parse(r.out); } catch { return { state: "unavailable", detail: "gh output unparsable" }; }
+  const wanted = CI_WORKFLOWS ? CI_WORKFLOWS.split(",").map((s) => s.trim()).filter(Boolean) : null;
+  const mine = runs.filter((x) => x.headSha === sha && (!wanted || wanted.includes(x.name)));
+  if (mine.length === 0) return { state: "none", sha };
+  if (mine.some((x) => x.status !== "completed")) return { state: "pending", sha };
+  const failed = mine.filter((x) => x.conclusion !== "success")
+    .map((x) => ({ id: x.databaseId, name: x.name, conclusion: x.conclusion, url: x.url }));
+  if (failed.length > 0) return { state: "red", sha, failed };
+  return { state: "green", sha, count: mine.length };
+}
+
+async function waitForCI() {
+  const deadline = Date.now() + CI_TIMEOUT_MS;
+  for (;;) {
+    if (fs.existsSync(STOP_FILE)) return { state: "stopped" };
+    const s = ciStatusForHead();
+    if (s.state === "green" || s.state === "red" || s.state === "unavailable") return s;
+    if (Date.now() > deadline) return { state: "timeout", sha: s.sha };
+    await sleep(CI_POLL_MS);
+  }
+}
+
+function mergeToMain(sourceBranch, phase) {
+  git(["fetch", "origin"], { timeout: 120000 });
+  let r = git(["checkout", "main"], { timeout: 60000 });
+  if (r.code !== 0) {
+    r = git(["checkout", "-b", "main", "origin/main"], { timeout: 60000 });
+    if (r.code !== 0) return { ok: false, detail: `checkout main failed: ${r.out.trim().slice(-200)}` };
+  } else {
+    const ff = git(["merge", "--ff-only", "origin/main"], { timeout: 60000 });
+    if (ff.code !== 0) return { ok: false, detail: "local main has diverged from origin/main; resolve manually" };
+  }
+  const m = git(["merge", "--no-ff", sourceBranch, "-m", `chore: integrate ${phase} into main (autoloop phase completion)`], { timeout: 120000 });
+  if (m.code !== 0) {
+    git(["merge", "--abort"], { timeout: 60000 });
+    git(["checkout", sourceBranch], { timeout: 60000 });
+    return { ok: false, detail: `merge of ${sourceBranch} into main failed (conflict?): ${m.out.trim().slice(-200)}` };
+  }
+  const sha = gitHead();
+  const p = git(["push", "origin", "main"], { timeout: 180000 });
+  if (p.code !== 0) {
+    return { ok: false, detail: `merge commit ${sha.slice(0, 8)} exists on local main but push failed: ${p.out.trim().slice(-200)}` };
+  }
+  return { ok: true, sha };
+}
+
+async function integrationGate(phase) {
+  const branch = currentBranch();
+  if (branch === "main") { note("integration gate: already on main; nothing to merge"); return "skipped"; }
+  gitPush();
+  note(`integration gate: waiting for CI on ${branch} @ ${gitHead().slice(0, 8)}`);
+  const ci = await waitForCI();
+  if (ci.state === "stopped") { finalize("kill switch (STOP file)"); return "stopped"; }
+  if (ci.state !== "green") {
+    let reason;
+    if (ci.state === "red") {
+      let quotaHint = "";
+      const first = ci.failed[0];
+      if (first && first.id) {
+        const log = sh("gh", ["run", "view", String(first.id), "--log-failed"], { timeout: 120000 });
+        if (/spending limit|billing|payment|usage limit|quota/i.test(log.out)) {
+          quotaHint = " (failed log mentions Actions billing/quota)";
+        }
+      }
+      reason = `integration gate: CI not green on ${branch} — ${ci.failed.map((f) => `${f.name}: ${f.conclusion}`).join("; ")}${quotaHint}`;
+    } else if (ci.state === "unavailable") {
+      reason = `integration gate: CI status unavailable (${ci.detail})`;
+    } else {
+      reason = `integration gate: CI did not reach green (${ci.state})`;
+    }
+    appendProgressAlert(`## Integration gate (${new Date().toISOString()})\n- ${reason}\n- main へのマージは行っていません。CI を green にして再起動すると、ゲートから再開します`);
+    commitLedgerChanges(`docs(progress): integration gate stop for ${phase}`);
+    finalize(reason);
     return "stopped";
   }
-  note(`planner: bootstrapping next phase after ${curPhase}`);
+  note(`integration gate: CI green (${ci.count} workflow(s)) on ${branch} @ ${ci.sha.slice(0, 8)}`);
+  const m = mergeToMain(branch, phase);
+  if (!m.ok) { finalize(`integration gate: merge failed — ${m.detail}`); return "stopped"; }
+  if (!Array.isArray(state.autoloop.merges)) state.autoloop.merges = [];
+  state.autoloop.merges.push({ phase, sha: m.sha, at: new Date().toISOString() });
+  saveState();
+  note(`integration gate: merged ${phase} into main at ${m.sha.slice(0, 8)}`);
+  return "merged";
+}
+
+async function advancePhase() {
+  const completedPhase = curPhase;
+  if (MERGE_ENABLED) {
+    const gate = await integrationGate(completedPhase);
+    if (gate === "stopped") return "stopped";
+  }
+  if (state.autoloop.planner.phases.length >= MAX_PHASES) {
+    finalize(`phase complete (${completedPhase}); max phases per run reached (${MAX_PHASES})`);
+    return "stopped";
+  }
+  note(`planner: bootstrapping next phase after ${completedPhase}`);
   const res = runPlanner("bootstrap");
   const outside = nonLedgerChanges();
   if (outside.length > 0) {
     appendProgressAlert(`## 🚨 Planner overreach (bootstrap)\n- プランナーが台帳外のパスを変更したため停止しました: ${outside.join(", ")}`);
-    commitLedgerChanges(`chore(progress): planner bootstrap after ${curPhase}`);
+    commitLedgerChanges(`chore(progress): planner bootstrap after ${completedPhase}`);
     finalize(`planner touched non-ledger paths: ${outside.slice(0, 3).join(", ")}`);
     return "stopped";
   }
   if (res.verdict === "ALL_DONE") {
-    commitLedgerChanges(`chore(progress): planner bootstrap after ${curPhase} (all phases done)`);
+    commitLedgerChanges(`chore(progress): planner bootstrap after ${completedPhase} (all phases done)`);
     finalize("all phases complete (planner: ALL_DONE)");
     return "stopped";
   }
@@ -642,6 +751,16 @@ function advancePhase() {
       state.autoloop.planner.phases.push(res.arg);
       saveState();
       note(`planner: advanced to phase ${res.arg}`);
+      // 次フェーズの作業ブランチを現在のブランチ (通常はマージ済み main) から切る
+      const wb = `loop/${res.arg}`;
+      const br = git(["checkout", "-b", wb], { timeout: 60000 });
+      if (br.code === 0) {
+        note(`created branch ${wb}`);
+      } else {
+        const co = git(["checkout", wb], { timeout: 60000 });
+        note(co.code === 0 ? `checked out existing branch ${wb}` : `could not switch to branch ${wb}; staying on ${currentBranch()}`);
+      }
+      gitPush();
       if (quarantineInvalidTasks() > 0) {
         commitLedgerChanges(`chore(progress): quarantine invalid tasks in ${res.arg}`);
       }
@@ -651,8 +770,8 @@ function advancePhase() {
   } else if (!res.verdict) {
     note("planner: bootstrap produced no valid verdict");
   }
-  commitLedgerChanges(`chore(progress): planner bootstrap after ${curPhase}`);
-  finalize(`phase complete (${curPhase}); next phase was not started (planner verdict: ${res.verdict ?? "none"})`);
+  commitLedgerChanges(`chore(progress): planner bootstrap after ${completedPhase}`);
+  finalize(`phase complete (${completedPhase}); next phase was not started (planner verdict: ${res.verdict ?? "none"})`);
   return "stopped";
 }
 
@@ -686,7 +805,9 @@ function finalize(reason) {
   }
   const changed = gitStatusPaths().filter((p) => p.startsWith(`${progressRel}/`));
   if (changed.length > 0) {
-    commitPaths(changed, `docs(progress): autoloop run summary (${reason})`);
+    // 理由文をそのまま件名に入れると長大になり、コミット規約チェックを落とすため短く切る
+    const shortReason = reason.replace(/\s+/g, " ").slice(0, 60);
+    commitPaths(changed, `docs(progress): autoloop run summary (${shortReason})`);
     gitPush();
   }
   note(`stopped: ${reason}`);
@@ -720,7 +841,7 @@ function corruptGate(tasks) {
 async function sleep(ms) { return new Promise((res) => setTimeout(res, ms)); }
 
 async function main() {
-  note(`start: phase=${phaseSlug} maxCycles=${MAX_CYCLES} maxHours=${MAX_HOURS} plan=${PLAN_ENABLED ? `on (rounds<=${MAX_PLAN_ROUNDS}, phases<=${MAX_PHASES})` : "off"}`);
+  note(`start: phase=${phaseSlug} maxCycles=${MAX_CYCLES} maxHours=${MAX_HOURS} plan=${PLAN_ENABLED ? `on (rounds<=${MAX_PLAN_ROUNDS}, phases<=${MAX_PHASES})` : "off"} merge=${MERGE_ENABLED ? `on${CI_WORKFLOWS ? ` (workflows: ${CI_WORKFLOWS})` : ""}` : "off"}`);
   if (!state.autoloop.planner.phases.includes(curPhase)) {
     state.autoloop.planner.phases.push(curPhase);
     saveState();
@@ -743,7 +864,7 @@ async function main() {
     const blocked = tasks.filter((t) => t.status === "blocked");
     if (active.length === 0) {
       if (PLAN_ENABLED && !ONCE) {
-        const ps = planningStep();
+        const ps = await planningStep();
         if (ps === "continue") continue;
         if (ps === "stopped") return;
         // 'unavailable' (プランナー予算切れ) のときは従来の停止理由へ
