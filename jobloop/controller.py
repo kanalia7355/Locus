@@ -152,7 +152,36 @@ class Controller:
             str(path),
             self.settings.integration_branch,
         )
+        self.share_installed_dependencies(path)
         return path
+
+    def share_installed_dependencies(self, worktree: Path) -> None:
+        """Link the installed, ignored dependency trees into a fresh worktree.
+
+        A worktree is a clean checkout, so `node_modules` is absent and every
+        frontend check would fail for a reason that has nothing to do with the
+        job. Linking the already-installed tree keeps the gates meaningful
+        without a network install. A failure here is not fatal: the affected
+        gate then reports its own real failure.
+        """
+        for relative in ("frontend/node_modules",):
+            source = self.settings.repository / relative
+            target = worktree / relative
+            if not source.is_dir() or target.exists():
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                target.symlink_to(source, target_is_directory=True)
+            except OSError:
+                # Windows without developer mode refuses symlinks; a junction
+                # needs no privilege and behaves the same for reads.
+                shell = shutil.which("cmd") or "cmd"
+                subprocess.run(  # noqa: S603 — resolved shell path, mklink is a builtin
+                    [shell, "/c", "mklink", "/J", str(target), str(source)],
+                    capture_output=True,
+                    timeout=120,
+                    check=False,
+                )
 
     @staticmethod
     def fingerprint(worktree: Path) -> str:
