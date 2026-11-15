@@ -20,7 +20,14 @@ from app.agents.registry import AgentRegistry
 from app.local_model import LocalModel
 from app.model_catalog import ModelCatalog
 from app.scanner import scanner_from_environment
-from app.service import ChatCancelled, ModelBusy, Principal, Service, fail
+from app.service import (
+    MAX_NAME_LENGTH,
+    ChatCancelled,
+    ModelBusy,
+    Principal,
+    Service,
+    fail,
+)
 
 COOKIE = "locus_session"
 ALLOWED_ORIGINS = frozenset(
@@ -88,6 +95,16 @@ class Upload(ProjectInput):
     content: str = Field(min_length=1, max_length=262144)
     kind: str = "personal"
     conversation_id: str | None = Field(default=None, max_length=64)
+
+
+class InventoryCandidate(Input):
+    name: str = Field(min_length=1, max_length=MAX_NAME_LENGTH)
+    size: int = Field(ge=0, strict=True)
+
+
+class InventoryInput(Input):
+    project_id: str = Field(min_length=1, max_length=64)
+    candidates: list[InventoryCandidate] = Field(max_length=200)
 
 
 class Message(Input):
@@ -347,6 +364,13 @@ def create_app(
         return svc.upload(
             user, data.project_id, data.name, data.content, data.kind, data.conversation_id
         )
+
+    @app.post("/api/inventory")
+    def inventory(data: InventoryInput, user: Actor) -> dict[str, Any]:
+        # Names and byte counts only: the bodies stay in the browser until the
+        # owner decides to upload.
+        candidates = [candidate.model_dump() for candidate in data.candidates]
+        return svc.inventory(user, data.project_id, candidates)
 
     @app.get("/api/documents/{document}")
     def document(document: str, user: Actor, conversation_id: str | None = None) -> dict[str, Any]:

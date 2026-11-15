@@ -52,6 +52,34 @@ DOCUMENT_STAGES = {
 }
 CHUNK_CHARS = 700
 
+# Ingestion bounds. `upload` enforces them and `inventory` reports against them,
+# so both must read the same values: a format or limit change that reached only
+# one of them would make the pre-ingestion report disagree with the write path.
+MAX_NAME_LENGTH = 160
+MAX_CONTENT_BYTES = 262144  # 256 KiB
+ACCEPTED_EXTENSIONS = {".txt", ".md", ".csv"}
+IN_FLIGHT_LIMIT = 32
+OWNER_IN_FLIGHT_LIMIT = 4
+DOCUMENT_LIMIT = 1000
+OWNER_DOCUMENT_LIMIT = 100
+
+
+def unsafe_document_name(name: str) -> bool:
+    """True when the name itself is rejected, regardless of its extension."""
+    return (
+        not name
+        or len(name) > MAX_NAME_LENGTH
+        or any(character in name for character in "/\\:\x00")
+        or name.startswith(".")
+        or any(ord(character) < 32 for character in name)
+    )
+
+
+def unsupported_extension(name: str) -> bool:
+    """True when the extension is outside the accepted text formats."""
+    return Path(name).suffix.lower() not in ACCEPTED_EXTENSIONS
+
+
 SYNTHETIC_TEXT = (
     "【合成サンプル・実研究データではありません】\n"
     "成膜条件Aは処理温度180°C、処理時間30分。\n"
@@ -1048,6 +1076,97 @@ class Service:
             )
             db.execute("DELETE FROM sessions WHERE user_id=?", (user["id"],))
             self._audit(db, "recovery", "credential.recover", user["id"])
+
+    def inventory(
+        self, actor: Principal, project: str, candidates: list[dict[str, int | str]]
+    ) -> Json:
+        """Report, before anything is uploaded, what each candidate would do.
+
+        Each candidate is ``{"name": str, "size": int}`` — a name and a byte
+        count. The body is never sent, so nothing here can read, store or index
+        a document's content.
+
+        Every verdict comes from the same rules and the same bounds `upload`
+        enforces, so the report cannot drift from the write path:
+
+        - ``accepted`` — would be queued
+        - ``invalid_name`` — unsafe, empty, over-long or dot-leading name
+        - ``unsupported_format`` — extension outside the accepted text formats
+        - ``too_large`` — byte count over the per-document bound
+        - ``queue_full`` — the global or the owner's in-flight bound is reached
+        - ``limit_reached`` — the global or the owner's document count is reached
+
+        An actor without `upload` permission for the project is refused outright
+        rather than receiving a per-candidate verdict: the project is the unit the
+        permission applies to (acceptance criterion 3). The task definition also
+        lists a ``not_permitted`` candidate status, which cannot occur under that
+        rule; the refusal is the behaviour and the status is not reported.
+
+        The inventory itself writes nothing: no document, chunk, message or audit
+        row is created for it. It deliberately authorizes through the shared
+        `require` path, which maintains its own delegation-expiry bookkeeping
+        exactly as it does for any other authorized read; bypassing that path to
+        keep this method write-free would duplicate authorization logic, which is
+        the more dangerous trade.
+        """
+        with self.db() as db:
+            # Deny by default, through the one authorization path.
+            self.require(db, actor, project, "upload")
+            # Snapshots only; the counts can move before an actual upload, which
+            # is why a verdict is a report and not a reservation.
+            queued = db.execute(
+                "SELECT COUNT(*) FROM documents WHERE status IN ('queued','scanning','indexing')"
+            ).fetchone()[0]
+            personal_queued = db.execute(
+                "SELECT COUNT(*) FROM documents WHERE owner_id=? AND status "
+                "IN ('queued','scanning','indexing')",
+                (actor.id,),
+            ).fetchone()[0]
+            total_docs = db.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+            personal_docs = db.execute(
+                "SELECT COUNT(*) FROM documents WHERE owner_id=?", (actor.id,)
+            ).fetchone()[0]
+
+            reasons = (
+                "accepted",
+                "invalid_name",
+                "unsupported_format",
+                "too_large",
+                "queue_full",
+                "limit_reached",
+            )
+            counted = dict.fromkeys(reasons, 0)
+            reported: list[Json] = []
+            total_bytes = 0
+            for candidate in candidates:
+                name = str(candidate["name"])
+                size = int(candidate["size"])
+                total_bytes += size
+                # The first failing rule is the reported reason, in the order
+                # `upload` applies them.
+                if unsafe_document_name(name):
+                    reason = "invalid_name"
+                elif unsupported_extension(name):
+                    reason = "unsupported_format"
+                elif size > MAX_CONTENT_BYTES:
+                    reason = "too_large"
+                elif queued >= IN_FLIGHT_LIMIT or personal_queued >= OWNER_IN_FLIGHT_LIMIT:
+                    reason = "queue_full"
+                elif total_docs >= DOCUMENT_LIMIT or personal_docs >= OWNER_DOCUMENT_LIMIT:
+                    reason = "limit_reached"
+                else:
+                    reason = "accepted"
+                counted[reason] += 1
+                reported.append({"name": name, "status": reason})
+
+            return {
+                "inventory": reported,
+                "summary": {
+                    "total": len(candidates),
+                    "total_bytes": total_bytes,
+                    "by_reason": counted,
+                },
+            }
 
     def logout(self, token: str | None) -> None:
         with self.db() as db:
@@ -2084,18 +2203,11 @@ class Service:
         kind: str,
         conversation: str | None = None,
     ) -> Json:
-        if (
-            not name
-            or len(name) > 160
-            or any(c in name for c in "/\\:\x00")
-            or name.startswith(".")
-            or Path(name).suffix.lower() not in {".txt", ".md", ".csv"}
-            or any(ord(c) < 32 for c in name)
-        ):
+        if unsafe_document_name(name) or unsupported_extension(name):
             fail(422, "対応形式はUTF-8のtxt・md・csvです。安全なファイル名を指定してください")
         if (
             not content.strip()
-            or len(content.encode("utf-8")) > 262144
+            or len(content.encode("utf-8")) > MAX_CONTENT_BYTES
             or any(ord(c) < 32 and c not in "\n\r\t\f" for c in content)
         ):
             fail(422, "本文は空でないUTF-8テキスト、256 KiB以内にしてください")
@@ -2117,13 +2229,13 @@ class Service:
                 "IN ('queued','scanning','indexing')",
                 (actor.id,),
             ).fetchone()[0]
-            if queued >= 32 or owned >= 4:
+            if queued >= IN_FLIGHT_LIMIT or owned >= OWNER_IN_FLIGHT_LIMIT:
                 fail(429, "取り込み待ちが上限です。完了後に再試行してください")
             total = db.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
             personal = db.execute(
                 "SELECT COUNT(*) FROM documents WHERE owner_id=?", (actor.id,)
             ).fetchone()[0]
-            if total >= 1000 or personal >= 100:
+            if total >= DOCUMENT_LIMIT or personal >= OWNER_DOCUMENT_LIMIT:
                 fail(429, "検証環境の資料数上限です。不要な資料を削除してください")
             document = uid()
             db.execute(
