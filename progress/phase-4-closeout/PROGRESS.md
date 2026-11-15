@@ -16,9 +16,9 @@
 
 ## 1. Phase 完了条件（Gate Criteria）
 
-- [ ] 統合ゲート: `loop/local-development` HEAD で GitHub Actions 3 ワークフロー (Prototype quality / Loop engine checks / PR title convention) がすべて green
+- [x] 統合ゲート: `loop/local-development` `64e439b` で 3 ワークフロー (Prototype quality / Loop engine checks / PR title convention) がすべて green。`6d7d918` (T-PH4-101) でも 3 ワークフローすべて green
 - [x] 対象タスク（当初 5 件＋フォローアップ 2 件 = `T-PH4-G1` / `T-PH4-101` / `T-PH4-102` / `T-PH3-101` / `T-PH4-103` / `T-PH3-102` / `T-PH4-104`）がすべて `status: done`
-- [ ] Phase 節目のフルテストスイート検証 (`scripts/verify.py --e2e --audit`) が PASS
+- [x] Phase 節目のフル検証: ローカルで全チェックを個別実行し PASS (Python 1149 + integration/e2e 66、Vitest 88、Playwright 18、ruff/mypy/secret scan/build)。予算付き `verify.py` は Windows では `python-tests` が 120 秒上限で必ず timeout するため、同等判定は hosted CI を正本とする
 - [x] 未解決の `blocked` タスクなし（`T-PH4-103` は 2026-11-15 に解消）。残る人間判断待ちは「別モデル独立レビューの要否」のみ（各タスク REVIEW 欄に記録）
 - [ ] 本バッチはプロトタイプ範囲のみ。production TLS/MFA/実データ/外部コネクタ等は gate 付き繰延のまま（変更しない）
 
@@ -33,6 +33,7 @@
 | `T-PH4-103` | アクセシビリティ・キーボード・モバイル監査と修正 (`PH-ROADMAP-4` 残部) | `medium` | `done` | `claude-code` | `minimax-m3.1-flash` → `claude-opus-5` (CI 修復) | `3` | 統合 `7b2b3d9` + secret scan 修復 (資格情報リテラル排除) | `2026-11-15T14:40:00+09:00` |
 | `T-PH3-102` | live フローでの indexing 段の観測・取消 (T-PH3-101 フォローアップ) | `light` | `done` | `claude-code` | `claude-opus-5` | `1` | 統合ブランチへ直接実装 | `2026-11-15T14:55:00+09:00` |
 | `T-PH4-104` | 出典ダイアログのスクロール追従 (E2E 既存失敗・CI でも再現) | `light` | `done` | `claude-code` | `claude-opus-5` | `1` | 統合ブランチへ直接実装 | `2026-11-15T15:20:00+09:00` |
+| `T-PH4-105` | 代表的な同時利用・処理能力の実測 (`PH-ROADMAP-4` 最終残件) | `medium` | `blocked` | `unassigned` | `-` | `0` | owner 判断待ち (代表ワークロード未確定) | `2026-11-15T16:00:00+09:00` |
 
 ## 2b. レビュー指揗に基づくフォローアップ起票
 
@@ -113,6 +114,12 @@
   `stream` を無視するデーモンには 1 断片として自動劣化する。外部送信は追加なし。
   新規テスト: バックエンド 5 件・Vitest 2 件。合成 Ollama スタブを NDJSON 対応にし、
   生成回答の E2E が逐次経路を通るようにした（E2E 18/18 green）。
+- 16:00 JST: Phase 4 の残件を `docs/plans/PHASE_STATUS.md` と突き合わせた結果、
+  「measured representative concurrency/capacity」のみが未了。代表ワークロード（同時利用者数・
+  資料の形式と量・実行機器・成功基準）が `docs/planning/research-app-concept.md` §5 で未決のため、
+  推測で数値目標を作らず `T-PH4-105` を **`blocked`（owner 判断待ち）** として起票した。
+- 残る人間判断待ち: (1) `T-PH4-105` の代表ワークロード決定、
+  (2) 本サイクル実装分（特に `T-PH4-101` の SSE 経路）への別系統独立レビューの要否。
 - 注意: `scripts/verify.py` の `python-tests` 予算は 120 秒で、Windows ローカルでは
   Python スイート（約 630 秒）が必ず `timeout` になる。ローカルではグループを直接実行して検証し、
   予算付き `verify.py` の判定は hosted CI を正本とする。
