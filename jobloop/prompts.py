@@ -9,11 +9,18 @@ from __future__ import annotations
 
 from jobloop.tasks import ATTEMPT_LIMIT, Task
 
+# Guidance a worker in a job workspace can actually act on. The operator-facing
+# skills (`job-isolation`, `requirement-triage`, `progress-records`) are not
+# listed here: a worker neither places workspaces, picks jobs, nor writes records.
 SKILLS = (
     ".agents/skills/systematic-debugging/SKILL.md",
     ".agents/skills/verification-before-completion/SKILL.md",
     ".agents/skills/local-ci-parity/SKILL.md",
+)
+REVIEW_SKILLS = (
     ".agents/skills/quality-review/SKILL.md",
+    ".agents/skills/security-audit/SKILL.md",
+    ".agents/skills/verification-before-completion/SKILL.md",
 )
 
 BOUNDARY = """Hard boundary, enforced by the controller after you stop:
@@ -100,7 +107,7 @@ The change under review:
 {diff}
 ```
 
-Review in this order and use these skills: {", ".join(SKILLS)}.
+Review in this order and use these skills: {", ".join(REVIEW_SKILLS)}.
 1. Security and boundaries: does the change weaken a permission check, an access
    rule, an audit record, a resource bound or the local-only rule?
 2. Correctness: give a concrete failing input or sequence, not a style opinion.

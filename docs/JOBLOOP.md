@@ -87,6 +87,21 @@ Each of these stops the job, sets `status: blocked`, and appends a question to
 
 The run keeps going with other jobs, and prints the pending decisions at the end.
 
+## Skills the loop depends on
+
+Registered in `.agents/skills/SKILLS_REGISTRY.md`:
+
+- `job-isolation` — how a worker is contained, and how an escape is detected.
+  Read it before changing where a workspace is placed or how a session starts.
+- `requirement-triage` — how a phase queue is chosen from the frozen requirement
+  states, and what must become an Owner decision instead of a job.
+- `progress-records` — how the task files and phase summaries stay true.
+- `local-ci-parity` — why a local green is not a hosted green in this checkout.
+
+The implementer brief hands workers `systematic-debugging`,
+`verification-before-completion` and `local-ci-parity`; the reviewer brief hands
+`quality-review`, `security-audit` and `verification-before-completion`.
+
 ## What it deliberately cannot do
 
 Approve its own escalation, push or merge `main`, open or merge a pull request,
