@@ -3,7 +3,7 @@ import time
 import pytest
 from app.main import create_app
 from app.scanner import CLEAN, REJECTED, UNAVAILABLE, ScanResult
-from app.service import Service
+from app.service import ModelBusy, Service
 from fastapi.testclient import TestClient
 
 ORIGIN = {"Origin": "http://127.0.0.1:5174"}
@@ -36,6 +36,156 @@ def client_for(service: Service) -> TestClient:
         base_url="http://127.0.0.1",
         client=("127.0.0.1", 50000),
     )
+
+
+def test_chat_queue_fairness_and_cancelled_jobs(service: Service) -> None:
+    clients = [client_for(service), client_for(service)]
+    login(clients[0])
+    login(clients[1], "bob", "03")
+    actors = []
+    for client in clients:
+        token = client.cookies.get("locus_session")
+        assert token
+        actors.append((service.authenticate(token), token))
+
+    def enqueue(index: int) -> str:
+        actor, token = actors[index]
+        conversation = service.new_conversation(actor, "project-a")["id"]
+        return service.enqueue_chat(
+            actor,
+            conversation,
+            "合成",
+            "all",
+            [],
+            token=token,
+            generate=lambda _text, _citations: ("合成", "fixture"),
+            validate=None,
+        )
+
+    # Distinct conversations allow two queued entries per user. A cancelled
+    # entry must not consume a turn or influence the remaining order.
+    first = enqueue(0)
+    cancelled = enqueue(1)
+    service.cancel_chat_job(actors[1][0], cancelled)
+    second = enqueue(0)
+    other = enqueue(1)
+    for expected in (first, other, second):
+        assert service.process_next_chat() is True
+        with service.db() as db:
+            assert (
+                db.execute("SELECT status FROM chat_jobs WHERE id=?", (expected,)).fetchone()[0]
+                == "done"
+            )
+    assert service.chat_job(actors[1][0], cancelled)["status"] == "cancelled"
+    assert service.process_next_chat() is False
+
+
+def test_chat_queue_alternates_with_continuously_waiting_users(service: Service) -> None:
+    alice, bob = client_for(service), client_for(service)
+    login(alice)
+    login(bob, "bob", "03")
+    clients = [alice, bob]
+    tokens = [client.cookies.get("locus_session") for client in clients]
+    principals = [service.authenticate(token) for token in tokens]
+
+    def enqueue(index: int) -> str:
+        conversation = service.new_conversation(principals[index], "project-a")["id"]
+        return service.enqueue_chat(
+            principals[index],
+            conversation,
+            "合成",
+            "all",
+            [],
+            token=tokens[index] or "",
+            generate=lambda _text, _citations: ("合成", "fixture"),
+            validate=None,
+        )
+
+    remaining = [[enqueue(0), enqueue(0)], [enqueue(1), enqueue(1)]]
+    for index in [0, 1, 0, 1, 0, 1]:
+        job = remaining[index].pop(0)
+        assert service.process_next_chat() is True
+        assert service.chat_job(principals[index], job)["status"] == "done"
+        remaining[index].append(enqueue(index))
+    for index in (0, 1):
+        for job in remaining[index]:
+            service.cancel_chat_job(principals[index], job)
+    assert service.process_next_chat() is False
+
+
+def test_chat_queue_busy_retry_does_not_consume_fair_turn(service: Service) -> None:
+    alice, bob = client_for(service), client_for(service)
+    login(alice)
+    login(bob, "bob", "03")
+    tokens = [alice.cookies.get("locus_session"), bob.cookies.get("locus_session")]
+    assert all(tokens)
+    principals = [service.authenticate(token) for token in tokens]
+    service.seed_synthetic("alice", "project-a", "shared")
+    calls = []
+    busy = True
+
+    def generate(text: str, _citations: list[dict]) -> tuple[str, str]:
+        calls.append(text)
+        if text == "成膜 alice" and busy:
+            raise ModelBusy()
+        return "合成", "fixture"
+
+    def enqueue(index: int) -> str:
+        conversation = service.new_conversation(principals[index], "project-a")["id"]
+        return service.enqueue_chat(
+            principals[index],
+            conversation,
+            f"成膜 {principals[index].username}",
+            "all",
+            [],
+            token=tokens[index] or "",
+            generate=generate,
+            validate=None,
+        )
+
+    a = enqueue(0)
+    b = enqueue(1)
+    assert service.process_next_chat() is False
+    assert service.chat_job(principals[0], a)["status"] == "queued"
+    busy = False
+    assert service.process_next_chat() is True
+    assert service.chat_job(principals[0], a)["status"] == "done"
+    assert service.chat_job(principals[1], b)["status"] == "queued"
+    assert calls == ["成膜 alice", "成膜 alice"]
+
+
+def test_chat_failed_turn_still_yields_to_another_waiting_user(service: Service) -> None:
+    alice, bob = client_for(service), client_for(service)
+    login(alice)
+    login(bob, "bob", "03")
+    tokens = [alice.cookies.get("locus_session"), bob.cookies.get("locus_session")]
+    principals = [service.authenticate(token) for token in tokens]
+
+    def fail_validation() -> None:
+        raise RuntimeError("synthetic failure")
+
+    def enqueue(index: int, *, fail: bool = False) -> str:
+        conversation = service.new_conversation(principals[index], "project-a")["id"]
+        return service.enqueue_chat(
+            principals[index],
+            conversation,
+            "合成",
+            "all",
+            [],
+            token=tokens[index] or "",
+            generate=lambda _text, _citations: ("合成", "fixture"),
+            validate=fail_validation if fail else None,
+        )
+
+    failed, next_alice, next_bob = enqueue(0, fail=True), enqueue(0), enqueue(1)
+    assert service.process_next_chat() is True
+    status = service.chat_job(principals[0], failed)
+    assert status["status"] == "failed" and "問題" in status["detail"]
+    assert service.process_next_chat() is True
+    assert service.chat_job(principals[1], next_bob)["status"] == "done"
+    assert service.chat_job(principals[0], next_alice)["status"] == "queued"
+    assert service.process_next_chat() is True
+    assert service.chat_job(principals[0], next_alice)["status"] == "done"
 
 
 def test_first_login_rotation_and_revocation(service: Service) -> None:

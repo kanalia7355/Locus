@@ -1075,7 +1075,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
                         ? "質問の取り消しを受け付けました。処理終了後に結果を破棄します。"
                         : pendingJob.status === "running"
                           ? "回答を作成中です。完成するとこの会話に表示されます。"
-                          : "回答の生成は順番待ちです。モデルが空くと自動的に処理されます。"}
+                          : "回答の生成は順番待ちです。モデルが空くと自動的に処理されます。待ち位置は混雑により変動します。"}
                     </p>
                     {!pendingJob.cancelRequested && (
                       <button

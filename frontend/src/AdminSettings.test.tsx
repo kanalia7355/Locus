@@ -478,6 +478,7 @@ it("displays only load metadata and reports refresh failures", async () => {
           queued: 2,
           limit: 16,
           per_user_limit: 2,
+          queued_per_user: [1, 1],
           running_job: { id: "job-1", username: "alice", started_at: 100 },
         },
       });
@@ -486,6 +487,7 @@ it("displays only load metadata and reports refresh failures", async () => {
   render(<AdminLoad />);
   expect(await screen.findByText(/alice · job-1/)).toBeVisible();
   expect(screen.getByText("2 / 16件")).toBeVisible();
+  expect(screen.getByText("待機中の利用者ごとの件数").nextElementSibling).toHaveTextContent("1件、1件");
   expect(
     screen.getByText("一人あたりの待ち上限").parentElement,
   ).not.toHaveTextContent("private question");

@@ -300,6 +300,7 @@ def test_load_display_reads_queue_limits_and_running_job_without_chat_content(se
             "queued": 1,
             "limit": CHAT_QUEUE_LIMIT,
             "per_user_limit": CHAT_USER_QUEUE_LIMIT,
+            "queued_per_user": [1],
             "running_job": {
                 "id": "synthetic-running-job",
                 "username": "alice",
@@ -308,6 +309,43 @@ def test_load_display_reads_queue_limits_and_running_job_without_chat_content(se
         },
     }
     assert "private question" not in result.text and "queued question" not in result.text
+    # Aggregate by user without exposing identities, terminal jobs or text.
+    login(client_for(service), "bob", "03")
+    with service.db() as db:
+        bob_id = db.execute("SELECT id FROM users WHERE username='bob'").fetchone()[0]
+        db.execute(
+            "INSERT INTO chat_jobs "
+            "(id,conversation_id,user_id,text,scope,attachments,status,created,updated) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (
+                "second-alice",
+                conversation,
+                principal.id,
+                "secret-a",
+                "all",
+                "[]",
+                "queued",
+                now,
+                now,
+            ),
+        )
+        db.execute(
+            "INSERT INTO chat_jobs "
+            "(id,conversation_id,user_id,text,scope,attachments,status,created,updated) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            ("bob-queued", conversation, bob_id, "secret-b", "all", "[]", "queued", now, now),
+        )
+        db.execute(
+            "INSERT INTO chat_jobs "
+            "(id,conversation_id,user_id,text,scope,attachments,status,created,updated) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            ("bob-cancelled", conversation, bob_id, "secret-c", "all", "[]", "cancelled", now, now),
+        )
+    distribution = admin.get("/api/admin/load").json()["chat_queue"]
+    assert distribution["queued"] == 3 and distribution["queued_per_user"] == [2, 1]
+    assert all(
+        secret not in str(distribution) for secret in ("secret-a", "secret-b", "secret-c", "bob")
+    )
     assert alice.get("/api/admin/load").status_code == 403
     runtime = LocalModel()
     app = create_app(service=service, start_worker=False, local_model=runtime)

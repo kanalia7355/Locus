@@ -2,8 +2,11 @@
 
 - **対象 Phase**: `PH-ROADMAP-3`（残部: ingestion 状態・再開性）＋ `PH-ROADMAP-4`（残部: streaming / queue priority・fairness / usability・accessibility audit）＋ 統合ゲート修復。`docs/plans/MASTER_IMPLEMENTATION_ROADMAP.md` §4「Parallelizable work」の isolated 並行条件に基づくバッチ。
 - **対象ブランチ**: `phase/4-closeout`（ベース: 現行統合ブランチ `loop/local-development`、タスクブランチ `task/<TASK-ID>`）
-- **最終更新日時**: `2026-11-14T19:55:00+09:00`
-- **更新責任者**: オーケストレーター (DeepAI Code thread d4a9ead3, owner 指示により 20 分間隔で担当)。※ワーカーによる編集禁止
+- **最終更新日時**: `2026-11-15T14:50:00+09:00`
+- **更新責任者**: 2026-11-15 より owner 直接指示に基づく単一エージェント運用 (Claude Code)。
+  DeepAI 全モデルのアカウント枠枯渇と codex 使用禁止により、サブエージェント方式のオーケストレーションは継続不能。
+  `CLAUDE.md` / `AGENTS.md` の単一実装エージェント原則へ復帰し、実装・検証・記録を同一エージェントが担当する
+  （別モデル独立レビューは実施不能のため、各タスクの REVIEW 欄に既知の逸脱として明記する）。
 - **起動根拠**: Owner 指示 2026-11-14「サブエージェント5体同時起動・20分おきオーケストレーション」。
   `DEVELOPMENT_POLICY.md` の単一実装エージェント原則と本バッチは矛盾するため、
   owner の明示指示により本バッチ限定で例外適用。安全策: 全タスク git worktree 分離、
@@ -25,10 +28,11 @@
 |---|---|---|---|---|---|---|---|---|
 | `T-PH4-G1` | Prototype quality E2E timeout 修復 (統合ゲート解消) | `heavy` | `done` | `deepai` | `deepai/gemini-4-hydrogen` | `1` | 統合済み: `4fc9b48` (loop/local-development) | `2026-11-14T18:15:00+09:00` |
 | `T-PH4-101` | ローカル LLM ストリーミング応答 (`PH-ROADMAP-4` 残部) | `heavy` | `todo` | `unassigned` | `deepai/kimi-k3.1-pro` | `0` | `task/T-PH4-101` | `2026-11-14T17:35:00+09:00` |
-| `T-PH4-102` | 質問ジョブの優先度・公平性 (bounded queue, `PH-ROADMAP-4` 残部) | `medium` | `doing` | `deepai` | `deepai/gpt-6.1-terra` → 引継ぎ (枠切れ) | `1` | `task/T-PH4-102` (実装完了・未コミット, クォータ回復後 17:26 JST に記録引き継ぎ) | `2026-11-14T20:25:00+09:00` |
+| `T-PH4-102` | 質問ジョブの優先度・公平性 (bounded queue, `PH-ROADMAP-4` 残部) | `medium` | `done` | `claude-code` | `gpt-6.1-terra` (実装) → `claude-opus-5` (検証・記録) | `1` | 統合済み: 統合ブランチへ 3-way 適用 | `2026-11-15T14:45:00+09:00` |
 | `T-PH3-101` | 取り込み状態の粒度・再開性強化 (`PH-ROADMAP-3` 残部) | `medium` | `done` | `deepai` | `deepai/deepseek-v4.1-flash` | `2` | 統合済み: `548cb55` (loop/local-development) | `2026-11-14T20:00:00+09:00` |
-| `T-PH4-103` | アクセシビリティ・キーボード・モバイル監査と修正 (`PH-ROADMAP-4` 残部) | `medium` | `blocked` | `deepai` | `deepai/minimax-m3.1-flash` | `3` (試行上限) | 統合 `7b2b3d9`; secret scan (a11y.spec L23-24) で CI 赤 → owner 判断待ち | `2026-11-14T20:15:00+09:00` |
+| `T-PH4-103` | アクセシビリティ・キーボード・モバイル監査と修正 (`PH-ROADMAP-4` 残部) | `medium` | `done` | `claude-code` | `minimax-m3.1-flash` → `claude-opus-5` (CI 修復) | `3` | 統合 `7b2b3d9` + secret scan 修復 (資格情報リテラル排除) | `2026-11-15T14:40:00+09:00` |
 | `T-PH3-102` | live フローでの indexing 段の観測・取消 (T-PH3-101 フォローアップ) | `light` | `todo` | `unassigned` | `-` | `0` | 未起動 (キュー) | `2026-11-14T20:00:00+09:00` |
+| `T-PH4-104` | 出典ダイアログのスクロール追従 (ローカル E2E で既存失敗) | `light` | `todo` | `unassigned` | `-` | `0` | 未起動 (キュー) | `2026-11-15T14:50:00+09:00` |
 
 ## 2b. レビュー指揗に基づくフォローアップ起票
 
@@ -57,6 +61,35 @@
     **cross-provider fallback**: codex/gpt-6-astra に検証・記録・コミット完了を委譲 (task 上は
     ローテーション、attempts 1 のまま)。`T-PH4-101` (kimi-k3.1-pro 予定) は deepai 側クォータ状況を
     次回確認してから起動 (必要ならモデル変更)。
+
+## 2c. 2026-11-15 owner 直接指示サイクル（単一エージェント復帰）
+
+- 14:00 JST: owner 指示により Claude Code 単独で再開。`docs/planning/**` を読み直し、
+  製品目的（機密性と閲覧権限を保った研究資料の根拠付き活用）と Phase 4 残件の整合を確認。
+  `docs/planning/**` は改変していない（`CONSTRAINTS.md` §5-2 遵守）。
+- 14:10 JST: **`T-PH4-103` の CI 赤を解消**。原因は a11y.spec の静的パスワード定数。
+  spec 内で生成済みの一意な利用者 ID から導出する最小修正で、スキャン設定・assertion は未変更。
+- 14:15 JST: **偽グリーンの根本原因を是正（恒久対策）**。`detect_secrets` が既定エンコーディングで
+  読めないファイルを無言で読み飛ばすため、Windows (cp932) では日本語を含む UTF-8 ファイルが
+  丸ごと未走査だった。`scripts/secret_scan.py` の子プロセスに `PYTHONUTF8=1` を付与し、
+  ローカルと hosted CI の走査対象を一致させた。対照実験で検知・非検知の両方を確認済み。
+- 14:20 JST: **ローカル検証環境を CI と一致させた**（自己改善）。`.venv` は Python 3.10 で
+  `_cffi_backend` / `pydantic_core` / `librt` が壊れており、backend テスト・mypy・Playwright E2E が
+  ローカルで一切実行できなかった（これが「ローカル実証は worktree 内のみ」という従来の制約の正体）。
+  CI と同じ Python 3.13 + `backend/requirements.lock` + `-e .[dev]` で再作成し、
+  旧環境は `.venv310-broken` として退避。以後ローカルでフル検証が可能。
+- 14:30 JST: **`T-PH4-102` を統合**。枠枯渇で worktree に未コミット残存していた実装差分を
+  3-way で統合ブランチへ適用し、受入条件照合とフル検証を実施して `done`。
+- 14:45 JST: フル検証結果（統合 HEAD、ローカル）:
+  Python 1144 passed / 3 skipped ＋ integration・e2e 66 passed / 6 skipped、
+  ruff check green / 142 files formatted / mypy 9 files clean、
+  Vitest 15 files 85 passed、typecheck・lint・build green、secret scan 0 findings、
+  Playwright E2E 18 件中 17 passed。
+  失敗 1 件（`workspace.spec.ts:180` の `dialog.scrollTop > 0`）は**本サイクルの変更前 HEAD でも同一に再現**する
+  既存不具合のため、`T-PH4-104` として起票（アサーション緩和は禁止と明記）。
+- 注意: `scripts/verify.py` の `python-tests` 予算は 120 秒で、Windows ローカルでは
+  Python スイート（約 630 秒）が必ず `timeout` になる。ローカルではグループを直接実行して検証し、
+  予算付き `verify.py` の判定は hosted CI を正本とする。
 
 ## 3. 統合 (マージ) 順序と衝突オーナー
 

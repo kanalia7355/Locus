@@ -126,6 +126,7 @@ class Service:
         self.limits: OrderedDict[str, list[float]] = OrderedDict()
         self.chat_dispatch: dict[str, ChatDispatch] = {}
         self.chat_dispatch_lock = threading.Lock()
+        self.last_chat_user: str | None = None
         self.dummy_hash = PASSWORDS.hash(secrets.token_urlsafe(32))
         self.conn.executescript("""
             CREATE TABLE IF NOT EXISTS users (
@@ -826,6 +827,13 @@ class Service:
             queued = db.execute("SELECT COUNT(*) FROM chat_jobs WHERE status='queued'").fetchone()[
                 0
             ]
+            queued_per_user = [
+                row[0]
+                for row in db.execute(
+                    "SELECT COUNT(*) FROM chat_jobs WHERE status='queued' "
+                    "GROUP BY user_id ORDER BY COUNT(*) DESC"
+                ).fetchall()
+            ]
             running = db.execute(
                 "SELECT j.id,u.username,j.updated FROM chat_jobs j "
                 "LEFT JOIN users u ON u.id=j.user_id WHERE j.status='running' "
@@ -840,6 +848,7 @@ class Service:
                     "queued": queued,
                     "limit": CHAT_QUEUE_LIMIT,
                     "per_user_limit": CHAT_USER_QUEUE_LIMIT,
+                    "queued_per_user": queued_per_user,
                     "running_job": (
                         {
                             "id": running["id"],
@@ -2624,7 +2633,7 @@ class Service:
                     self.chat_dispatch.pop(row["id"], None)
 
     # --- Dialogue waiting line -------------------------------------------------
-    # One bounded, arrival-ordered line in front of the single model slot. The
+    # One bounded, fair-share line in front of the single model slot. The
     # synchronous contract of send() is unchanged: submission stays inline while
     # the slot is free, and only an occupied slot produces a queued job (202).
 
@@ -2777,7 +2786,9 @@ class Service:
         """Run at most one queued dialogue; called by the background worker loop."""
         with self.db() as db:
             row = db.execute(
-                "SELECT * FROM chat_jobs WHERE status='queued' ORDER BY created,id LIMIT 1"
+                "SELECT * FROM chat_jobs WHERE status='queued' "
+                "ORDER BY CASE WHEN user_id=? THEN 1 ELSE 0 END, created, id LIMIT 1",
+                (self.last_chat_user,),
             ).fetchone()
             if row is None:
                 return False
@@ -2833,6 +2844,8 @@ class Service:
                 return True
             return False
         except HTTPException as exc:
+            with self.lock:
+                self.last_chat_user = row["user_id"]
             detail = (
                 "ログイン状態が変わりました。再度ログインして送信してください"
                 if exc.status_code in {401, 403}
@@ -2841,8 +2854,14 @@ class Service:
             self._finish_chat(job_id, "failed", detail)
             return True
         except Exception:
+            with self.lock:
+                self.last_chat_user = row["user_id"]
             self._finish_chat(job_id, "failed", "対話の処理中に問題が発生しました")
             return True
+        # A busy-slot retry has not consumed a turn. Other completed attempts,
+        # including cooperative cancellation, have occupied the worker turn.
+        with self.lock:
+            self.last_chat_user = row["user_id"]
         # send() commits completion with its answer atomically; a cancellation
         # winner commits no message. Drop the process-local dispatch either way.
         with self.chat_dispatch_lock:

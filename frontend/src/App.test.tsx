@@ -52,6 +52,23 @@ beforeEach(() => {
 });
 
 describe("approved chat interaction baseline", () => {
+  it("warns that a queued question's position may change", async () => {
+    const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (input, options) => {
+      if (String(input).endsWith("/messages") && options?.method === "POST")
+        return new Response(JSON.stringify({ job_id: "job-1", status: "queued", text: "成膜" }), {
+          status: 202,
+          headers: { "Content-Type": "application/json" },
+        });
+      return originalFetch(input, options);
+    });
+    render(<App />);
+    const field = await screen.findByRole("textbox", { name: "メッセージ" });
+    await waitFor(() => expect(field).toBeEnabled());
+    fireEvent.change(field, { target: { value: "成膜" } });
+    fireEvent.click(screen.getByRole("button", { name: "送信" }));
+    expect(await screen.findByText(/待ち位置は混雑により変動します/)).toBeVisible();
+  });
   it("preserves the sidebar control and excludes collapsed navigation from focus", async () => {
     render(<App />);
     await screen.findByRole("heading", { name: "資料を調べる" });
