@@ -43,8 +43,29 @@ BOUNDARY = """Hard boundary, enforced by the controller after you stop:
   question is a good outcome; a guess is not."""
 
 
-def implementer_brief(task: Task, *, attempt: int, repository: str) -> str:
-    """`repository` must be the job's own workspace, never the main checkout."""
+def elsewhere(text: str, outside: str, workspace: str) -> str:
+    """Rewrite any path to another checkout so the brief only names the workspace.
+
+    A job's own text can carry an absolute path — a recorded `test_cmd` naming the
+    interpreter in the main checkout, for example. A worker reads that as "the
+    project is over there" and edits it, which is how the fourth and fifth
+    containment failures happened on 2026-11-15. The controller still runs the
+    real command itself; what the worker sees must point at its own copy.
+    """
+    if not outside:
+        return text
+    for form in {outside, outside.replace("\\", "/"), outside.replace("/", "\\")}:
+        text = text.replace(form, workspace)
+    return text
+
+
+def implementer_brief(task: Task, *, attempt: int, repository: str, outside: str = "") -> str:
+    """`repository` must be the job's own workspace, never the main checkout.
+
+    `outside` is the main checkout, whose path is rewritten out of the brief.
+    """
+    body = elsewhere(task.body.strip()[:12000], outside, repository)
+    command = elsewhere(task.test_command, outside, repository)
     return f"""You are the single implementation worker for one Locus job.
 Your working copy is {repository} and nothing outside it is yours to change.
 This is attempt {attempt} of {ATTEMPT_LIMIT}.
@@ -59,7 +80,7 @@ Read these first, in this order:
 
 Job: {task.id} (weight {task.weight or "unspecified"})
 allowed_paths: {", ".join(task.allowed_paths)}
-Verification command the controller will run: {task.test_command}
+Verification command the controller will run: {command}
 
 Method:
 - Reproduce or express the requirement as a failing check first, then make it pass.
@@ -88,12 +109,15 @@ STATUS
 {BOUNDARY}
 
 --- job text ({task.path.name}, authoritative) ---
-{task.body.strip()[:12000]}
+{body}
 --- end of job text ---"""
 
 
-def reviewer_brief(task: Task, *, diff: str, evidence: str, repository: str) -> str:
+def reviewer_brief(
+    task: Task, *, diff: str, evidence: str, repository: str, outside: str = ""
+) -> str:
     """`repository` must be the job's own workspace, never the main checkout."""
+    evidence = elsewhere(evidence, outside, repository)
     return f"""You are an independent read-only reviewer for one Locus job.
 The working copy under review is {repository}; nothing outside it is in scope.
 A different model wrote this change. You did not write it, and you may not fix it.

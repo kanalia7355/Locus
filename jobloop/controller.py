@@ -32,7 +32,7 @@ class Settings:
     phase: str
     python: str
     integration_branch: str = "loop/local-development"
-    worker_timeout: float = 1800.0
+    worker_timeout: float = 900.0
     gate_timeout: float = 1800.0
     review_timeout: float = 1200.0
     push: bool = False
@@ -234,7 +234,12 @@ class Controller:
             return Outcome(task.id, "no-model", "every eligible free model is on cooldown")
         tree = self.workspace(task)
         attempt = task.attempts + 1
-        brief = prompts.implementer_brief(task, attempt=attempt, repository=str(tree))
+        brief = prompts.implementer_brief(
+            task,
+            attempt=attempt,
+            repository=str(tree),
+            outside=str(self.settings.repository),
+        )
         # Containment is verified, not assumed: a worker that edits the main
         # checkout has escaped, whatever its report says.
         outside = self.fingerprint(self.settings.repository)
@@ -346,7 +351,13 @@ class Controller:
         before = self.fingerprint(tree)
         verdict = self.dispatch(
             reviewer,
-            prompts.reviewer_brief(task, diff=diff, evidence=evidence, repository=str(tree)),
+            prompts.reviewer_brief(
+                task,
+                diff=diff,
+                evidence=evidence,
+                repository=str(tree),
+                outside=str(self.settings.repository),
+            ),
             cwd=tree,
             timeout=self.settings.review_timeout,
         )

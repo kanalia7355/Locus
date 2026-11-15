@@ -286,6 +286,31 @@ def test_a_worker_that_edits_the_main_checkout_is_escalated(tmp_path: Path) -> N
     assert "restore the checkout" in decisions
 
 
+def test_no_path_to_another_checkout_survives_in_a_brief(tmp_path: Path) -> None:
+    # A job's own test command names an interpreter in the main checkout. Left in
+    # the brief, a worker reads it as "the project is over there" and edits it.
+    outside = "D:\\team\\Locus"
+    text = TASK.replace(
+        "test_cmd: python -c \"print('ok')\"",
+        "test_cmd: " + outside + "\\.venv\\Scripts\\python.exe -m pytest tests/test_api.py -q",
+    )
+    task = tasks.load_phase(phase_with_task(tmp_path, text)).tasks[0]
+    brief = prompts.implementer_brief(
+        task, attempt=1, repository="/workspaces/T-JOB-1", outside=outside
+    )
+    assert outside not in brief
+    assert outside.replace("\\", "/") not in brief
+    assert "/workspaces/T-JOB-1" in brief
+    review = prompts.reviewer_brief(
+        task,
+        diff="d",
+        evidence="- ran " + outside + "/scripts/secret_scan.py",
+        repository="/workspaces/T-JOB-1",
+        outside=outside,
+    )
+    assert outside not in review and outside.replace("\\", "/") not in review
+
+
 def test_the_brief_names_the_workspace_not_the_main_checkout(tmp_path: Path) -> None:
     # A brief that names the main checkout invites the worker to edit it, which
     # is how three containment failures happened on 2026-11-15.

@@ -57,9 +57,11 @@ Both parts are load-bearing, and both were learned the hard way on 2026-11-15:
   left untouched. A local clone has its own `.git` and no link back.
 - `--standalone` stops the CLI reusing a shared background service whose
   directory is wherever it was first started.
-- **The brief must name the workspace, not the repository.** A prompt that names
-  the main checkout is an instruction the worker follows over its own working
-  directory — the fourth containment failure of the day.
+- **No path to another checkout may appear in the brief.** Naming the main
+  checkout is an instruction the worker follows over its own working directory.
+  The subtle case is the job's own `test_cmd`, which records an absolute
+  interpreter path; the controller rewrites those to the workspace before
+  sending, and still runs the real command itself.
 
 After every dispatch the controller fingerprints the main checkout and escalates
 if it changed, so an escape stops the job instead of reaching a commit.

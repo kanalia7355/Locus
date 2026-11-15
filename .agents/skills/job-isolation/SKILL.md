@@ -15,7 +15,7 @@ style problem — treat its output as unreviewed and discard it.
 
 ## The failure this prevents
 
-Observed three times on 2026-11-15 in this repository: a worker was started with
+Observed five times on 2026-11-15 in this repository: a worker was started with
 its working directory set to a git **worktree** under `<repo>/.jobloop/worktrees/<id>`,
 reported that it had implemented the job, and left the worktree byte-identical —
 because the edits landed in the **main checkout**. The controller's own gate
@@ -30,11 +30,13 @@ Three distinct causes, all load-bearing:
 2. **A shared background service ignores your working directory.** `opencode`
    reuses a background server rooted wherever it was first started unless
    `--standalone` is passed.
-3. **The brief itself can point the worker out of its workspace.** A prompt that
-   says "you are working in `C:/Users/hirot/Locus`" is an instruction, and a
-   worker with file tools will follow it over its process working directory.
-   Name the workspace, say that nothing outside it is theirs to change, and ask
-   for relative paths.
+3. **Any path to another checkout, anywhere in the brief, is an instruction.**
+   A prompt that says "you are working in `C:/Users/you/Repo`" is obvious; the
+   subtle version is a path the *job text* carries — a recorded `test_cmd` naming
+   the interpreter in the main checkout. A worker with file tools reads either as
+   "the project is over there" and edits it. Rewrite every such path to the
+   workspace before the brief is sent, name the workspace explicitly, say that
+   nothing outside it is theirs to change, and ask for relative paths.
 
 ## Procedure
 
