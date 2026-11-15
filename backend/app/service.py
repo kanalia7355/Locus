@@ -843,6 +843,9 @@ class Service:
                 "LEFT JOIN users u ON u.id=j.user_id WHERE j.status='running' "
                 "ORDER BY j.created,j.id LIMIT 1"
             ).fetchone()
+            oldest_queued = db.execute(
+                "SELECT MIN(created) FROM chat_jobs WHERE status='queued'"
+            ).fetchone()[0]
             return {
                 "model_slot": {
                     "enabled": model_enabled,
@@ -852,7 +855,11 @@ class Service:
                     "queued": queued,
                     "limit": CHAT_QUEUE_LIMIT,
                     "per_user_limit": CHAT_USER_QUEUE_LIMIT,
+                    "wait_deadline_seconds": CHAT_WAIT_SECONDS,
                     "queued_per_user": queued_per_user,
+                    "oldest_queued_wait_seconds": (
+                        time.time() - oldest_queued if oldest_queued is not None else 0
+                    ),
                     "running_job": (
                         {
                             "id": running["id"],
