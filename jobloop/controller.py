@@ -387,7 +387,7 @@ class Controller:
         )
         head = git(tree, "rev-parse", "HEAD").strip()
         self.set_fields(task, status="done", attempts=str(task.attempts + 1))
-        status = git(self.settings.repository, "status", "--porcelain=1", check=False).strip()
+        status = self.commit_progress_records(task)
         if status:
             return self.escalate(
                 task,
@@ -408,6 +408,38 @@ class Controller:
             reviewer=reviewer,
             gates=checks,
         )
+
+    def commit_progress_records(self, task: Task) -> str:
+        """Commit the controller's own records; report anything else still dirty.
+
+        The controller writes a job's status and evidence into the main checkout
+        as the cycle runs, so by delivery time that checkout is dirty with its own
+        bookkeeping. Those records are committed here; any other uncommitted path
+        belongs to a person and stops the merge instead of being swept up.
+        """
+        # Porcelain output is column-oriented: the first two characters are the
+        # status codes, so the lines must not be stripped before they are read.
+        status = git(self.settings.repository, "status", "--porcelain=1", check=False)
+        lines = [line for line in status.splitlines() if line.strip()]
+        if not lines:
+            return ""
+        records = f"progress/{self.settings.phase}/"
+        paths = [line[3:].strip().strip('"').replace("\\", "/") for line in lines]
+        foreign = [path for path in paths if not path.startswith(records)]
+        if foreign:
+            return "\n".join(lines)
+        git(self.settings.repository, "add", "--", records)
+        git(
+            self.settings.repository,
+            "-c",
+            "user.name=locus-jobloop",
+            "-c",
+            "user.email=jobloop@localhost",
+            "commit",
+            "-m",
+            f"docs(progress): record the {task.id} cycle"[:100],
+        )
+        return ""
 
     @staticmethod
     def commit_type(task: Task) -> str:

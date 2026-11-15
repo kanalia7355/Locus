@@ -328,6 +328,38 @@ def test_no_second_model_means_no_review_and_no_commit(tmp_path: Path) -> None:
     assert "5-5" in decisions, "the prohibition on self-review must be cited"
 
 
+def test_only_the_controllers_own_records_are_swept_into_a_commit(tmp_path: Path) -> None:
+    phase_with_task(tmp_path)
+    controller = controller_for(tmp_path, ["a-free", "b-free"])
+    commands: list[tuple[str, ...]] = []
+
+    def fake_git(repository: Path, *arguments: str, check: bool = True) -> str:
+        commands.append(arguments)
+        if arguments[0] == "status":
+            return status_text
+        return ""
+
+    import jobloop.controller as module
+
+    original = module.git
+    module.git = fake_git  # type: ignore[assignment]
+    try:
+        task = controller.select()
+        assert task is not None
+        status_text = (
+            " M progress/phase-test/tasks/T-JOB-1.md\n?? progress/phase-test/OWNER_DECISIONS.md"
+        )
+        assert controller.commit_progress_records(task) == ""
+        assert any("commit" in arguments for arguments in commands)
+        commands.clear()
+        # A person's uncommitted work is never swept into the loop's commit.
+        status_text = " M backend/app/service.py"
+        assert "backend/app/service.py" in controller.commit_progress_records(task)
+        assert not any("commit" in arguments for arguments in commands)
+    finally:
+        module.git = original  # type: ignore[assignment]
+
+
 def test_the_implementer_brief_states_the_boundary_and_the_skills(tmp_path: Path) -> None:
     task = tasks.load_phase(phase_with_task(tmp_path)).tasks[0]
     brief = prompts.implementer_brief(task, attempt=1, repository="repo")
