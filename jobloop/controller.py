@@ -375,16 +375,19 @@ class Controller:
             f"{self.commit_type(task)}({self.commit_scope(task)}): {self.commit_summary(task)}"
         )
         git(tree, "add", "-A")
-        git(
-            tree,
-            "-c",
-            "user.name=locus-jobloop",
-            "-c",
-            "user.email=jobloop@localhost",
-            "commit",
-            "-m",
-            subject[:100],
-        )
+        if git(tree, "status", "--porcelain=1", check=False).strip():
+            git(
+                tree,
+                "-c",
+                "user.name=locus-jobloop",
+                "-c",
+                "user.email=jobloop@localhost",
+                "commit",
+                "-m",
+                subject[:100],
+            )
+        # Nothing staged means a previous run already committed this reviewed
+        # work; its existing head is what gets merged.
         head = git(tree, "rev-parse", "HEAD").strip()
         self.set_fields(task, status="done", attempts=str(task.attempts + 1))
         status = self.commit_progress_records(task)
