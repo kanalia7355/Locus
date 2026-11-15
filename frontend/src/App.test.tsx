@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 
@@ -453,6 +453,52 @@ describe("approved chat interaction baseline", () => {
       ).toHaveAttribute("aria-expanded", "false"),
     );
     expect(toggle).toHaveFocus();
+  });
+
+  it("keeps watching and allows cancelling a document while it is indexing", async () => {
+    let reads = 0;
+    const indexingDocument = {
+      id: "doc-1",
+      status: "indexing",
+      name: "indexing.txt",
+      project_id: "project",
+      kind: "personal",
+      reason: "",
+      conversation_id: null,
+      created: 1,
+      owned: true,
+    };
+    const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (input, options) => {
+      const path = String(input);
+      if (path.includes("/documents?project_id=")) {
+        reads++;
+        requests.push({ path, options });
+        return new Response(JSON.stringify([indexingDocument]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return originalFetch(input, options);
+    });
+    render(<App />);
+    await screen.findByRole("button", { name: "取り込み状況" });
+    fireEvent.click(screen.getByRole("button", { name: "取り込み状況" }));
+    expect(await screen.findByText("索引中")).toBeVisible();
+    const cancel = screen.getByRole("button", { name: "取消" });
+    expect(cancel).toBeVisible();
+    // The indexing stage is still progressing, so the view keeps polling.
+    const before = reads;
+    vi.useFakeTimers();
+    await act(() => vi.advanceTimersByTimeAsync(2000));
+    expect(reads).toBeGreaterThan(before);
+    vi.useRealTimers();
+    fireEvent.click(cancel);
+    await waitFor(() =>
+      expect(
+        requests.some((request) => request.path.endsWith("/doc-1/cancel")),
+      ).toBe(true),
+    );
   });
 
   it("keeps the desktop sidebar open when Escape is pressed inside it", async () => {

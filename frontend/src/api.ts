@@ -154,8 +154,12 @@ export const statusName: Record<string, string> = {
   uploading: "送信中",
   queued: "解析待ち",
   scanning: "検査中",
+  indexing: "索引中",
   ready: "参照可能",
   quarantined: "隔離中",
   failed: "失敗",
   cancelled: "取消済み",
 };
+// The stages the ingestion worker can still advance or the owner can cancel.
+export const ingestionStages = ["queued", "scanning", "indexing"];
+export const ingesting = (status: string) => ingestionStages.includes(status);

@@ -12,7 +12,7 @@ import {
   UserX,
   X,
 } from "lucide-react";
-import { api, errorText, json, statusName } from "./api";
+import { api, errorText, ingesting, json, statusName } from "./api";
 import { RelatedDocuments } from "./RelatedDocuments";
 import { StructuredCitationText } from "./StructuredCitationText";
 import { IngestionProgress } from "./IngestionProgress";
@@ -395,7 +395,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
     if (
       page !== "ingestion" ||
       !projectId ||
-      !documents.some((doc) => ["queued", "scanning"].includes(doc.status))
+      !documents.some((doc) => ingesting(doc.status))
     )
       return;
     const controller = new AbortController();
@@ -454,14 +454,14 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
 
   useEffect(() => {
     if (
-      !attachments.some((item) => ["queued", "scanning"].includes(item.status))
+      !attachments.some((item) => ingesting(item.status))
     )
       return;
     const timer = setInterval(() => {
       void Promise.all(
         attachments
           .filter(
-            (item) => item.id && ["queued", "scanning"].includes(item.status),
+            (item) => item.id && ingesting(item.status),
           )
           .map(async (item) => {
             const doc = await api<Document>(
@@ -1523,7 +1523,7 @@ function DocumentList({
             </div>
           </div>
           <div className="document-actions">
-            {doc.owned && ["queued", "scanning"].includes(doc.status) && (
+            {doc.owned && ingesting(doc.status) && (
               <button
                 disabled={pending}
                 aria-describedby={`document-name-${doc.id}`}

@@ -31,7 +31,7 @@
 | `T-PH4-102` | 質問ジョブの優先度・公平性 (bounded queue, `PH-ROADMAP-4` 残部) | `medium` | `done` | `claude-code` | `gpt-6.1-terra` (実装) → `claude-opus-5` (検証・記録) | `1` | 統合済み: 統合ブランチへ 3-way 適用 | `2026-11-15T14:45:00+09:00` |
 | `T-PH3-101` | 取り込み状態の粒度・再開性強化 (`PH-ROADMAP-3` 残部) | `medium` | `done` | `deepai` | `deepai/deepseek-v4.1-flash` | `2` | 統合済み: `548cb55` (loop/local-development) | `2026-11-14T20:00:00+09:00` |
 | `T-PH4-103` | アクセシビリティ・キーボード・モバイル監査と修正 (`PH-ROADMAP-4` 残部) | `medium` | `done` | `claude-code` | `minimax-m3.1-flash` → `claude-opus-5` (CI 修復) | `3` | 統合 `7b2b3d9` + secret scan 修復 (資格情報リテラル排除) | `2026-11-15T14:40:00+09:00` |
-| `T-PH3-102` | live フローでの indexing 段の観測・取消 (T-PH3-101 フォローアップ) | `light` | `todo` | `unassigned` | `-` | `0` | 未起動 (キュー) | `2026-11-14T20:00:00+09:00` |
+| `T-PH3-102` | live フローでの indexing 段の観測・取消 (T-PH3-101 フォローアップ) | `light` | `done` | `claude-code` | `claude-opus-5` | `1` | 統合ブランチへ直接実装 | `2026-11-15T14:55:00+09:00` |
 | `T-PH4-104` | 出典ダイアログのスクロール追従 (ローカル E2E で既存失敗) | `light` | `todo` | `unassigned` | `-` | `0` | 未起動 (キュー) | `2026-11-15T14:50:00+09:00` |
 
 ## 2b. レビュー指揗に基づくフォローアップ起票
@@ -87,6 +87,14 @@
   Playwright E2E 18 件中 17 passed。
   失敗 1 件（`workspace.spec.ts:180` の `dialog.scrollTop > 0`）は**本サイクルの変更前 HEAD でも同一に再現**する
   既存不具合のため、`T-PH4-104` として起票（アサーション緩和は禁止と明記）。
+- 14:55 JST: **`T-PH3-102` 完了**。`indexing` 段のポーリング継続・取消ボタン表示・`statusName` を修正。
+  添付ファイルも同じ `documents` テーブルの `indexing` 段を通るため、指摘の 2 箇所に加えて
+  添付ポーリングの 2 箇所も同時に修正し、`api.ts` の `ingesting()` に判定を一本化した。
+  対照実験で新規テストの退行検知を確認（旧条件に戻すと失敗）。
+- 15:00 JST: **仕組みの追加**: `.agents/skills/local-ci-parity/SKILL.md` を新設し `SKILLS_REGISTRY.md` に登録。
+  本サイクルで判明した偽グリーンの原因（スキャナのエンコーディング依存、`.venv` の Python 版差、
+  `verify.py` の予算と「最初の失敗で後続チェックが走らない」挙動、CRLF/LF）を手順として固定化し、
+  以後のエージェントが同じ罠に落ちないようにする。
 - 注意: `scripts/verify.py` の `python-tests` 予算は 120 秒で、Windows ローカルでは
   Python スイート（約 630 秒）が必ず `timeout` になる。ローカルではグループを直接実行して検証し、
   予算付き `verify.py` の判定は hosted CI を正本とする。
