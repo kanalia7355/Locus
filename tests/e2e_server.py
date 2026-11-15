@@ -34,7 +34,12 @@ def main() -> None:
                     + "\f【合成資料の第2頁】\nuniqueanchor は出典移動の検証語です。"
                 )
                 with service.db() as db:
-                    db.execute("UPDATE documents SET content=? WHERE id=?", (content, document))
+                    # The seeded content was already indexed, so its checkpoint
+                    # has to be cleared for the replacement to be indexed whole.
+                    db.execute(
+                        "UPDATE documents SET content=?,index_checkpoint=0 WHERE id=?",
+                        (content, document),
+                    )
                     service._index(
                         db, db.execute("SELECT * FROM documents WHERE id=?", (document,)).fetchone()
                     )

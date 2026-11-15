@@ -32,7 +32,7 @@
 | `T-PH3-101` | 取り込み状態の粒度・再開性強化 (`PH-ROADMAP-3` 残部) | `medium` | `done` | `deepai` | `deepai/deepseek-v4.1-flash` | `2` | 統合済み: `548cb55` (loop/local-development) | `2026-11-14T20:00:00+09:00` |
 | `T-PH4-103` | アクセシビリティ・キーボード・モバイル監査と修正 (`PH-ROADMAP-4` 残部) | `medium` | `done` | `claude-code` | `minimax-m3.1-flash` → `claude-opus-5` (CI 修復) | `3` | 統合 `7b2b3d9` + secret scan 修復 (資格情報リテラル排除) | `2026-11-15T14:40:00+09:00` |
 | `T-PH3-102` | live フローでの indexing 段の観測・取消 (T-PH3-101 フォローアップ) | `light` | `done` | `claude-code` | `claude-opus-5` | `1` | 統合ブランチへ直接実装 | `2026-11-15T14:55:00+09:00` |
-| `T-PH4-104` | 出典ダイアログのスクロール追従 (ローカル E2E で既存失敗) | `light` | `todo` | `unassigned` | `-` | `0` | 未起動 (キュー) | `2026-11-15T14:50:00+09:00` |
+| `T-PH4-104` | 出典ダイアログのスクロール追従 (E2E 既存失敗・CI でも再現) | `light` | `done` | `claude-code` | `claude-opus-5` | `1` | 統合ブランチへ直接実装 | `2026-11-15T15:20:00+09:00` |
 
 ## 2b. レビュー指揗に基づくフォローアップ起票
 
@@ -95,6 +95,15 @@
   本サイクルで判明した偽グリーンの原因（スキャナのエンコーディング依存、`.venv` の Python 版差、
   `verify.py` の予算と「最初の失敗で後続チェックが走らない」挙動、CRLF/LF）を手順として固定化し、
   以後のエージェントが同じ罠に落ちないようにする。
+- 15:10 JST: push 後の hosted CI (`ec946b3`, run 43682050295) で **secret scan が 0 findings に回復**し、
+  Python 全テスト・frontend lint/tests/build も green。CI が初めて E2E 段まで到達し、
+  ローカルで見つけた `workspace.spec.ts:180` の失敗を**同一内容で再現**した（18 件中 17 passed）。
+  → `T-PH4-104` は Linux/Windows 共通の実不具合と確定。
+- 15:20 JST: **`T-PH4-104` 完了**。原因は `T-PH3-101` の再開可能インデックス化により `_index()` が
+  `index_checkpoint+1` 頁から処理するようになった一方、e2e fixture が本文差し替え後に
+  checkpoint を戻さず 1 頁目を再インデックスしていなかったこと（出典ダイアログの本文が短くなり
+  スクロールが発生しない）。fixture の UPDATE に `index_checkpoint=0` を追加して解消。
+  ローカル E2E 18/18 green。プロダクトコードとアサーションは未変更。
 - 注意: `scripts/verify.py` の `python-tests` 予算は 120 秒で、Windows ローカルでは
   Python スイート（約 630 秒）が必ず `timeout` になる。ローカルではグループを直接実行して検証し、
   予算付き `verify.py` の判定は hosted CI を正本とする。
