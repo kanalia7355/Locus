@@ -21,7 +21,7 @@ reported that it had implemented the job, and left the worktree byte-identical �
 because the edits landed in the **main checkout**. The controller's own gate
 (`the worker changed nothing`) was the only reason it was caught.
 
-Two distinct causes, both load-bearing:
+Three distinct causes, all load-bearing:
 
 1. **A linked git worktree is not isolation.** Its `.git` is a *file* containing
    `gitdir: <main repo>/.git/worktrees/<id>`. A tool that resolves "the project
@@ -30,6 +30,11 @@ Two distinct causes, both load-bearing:
 2. **A shared background service ignores your working directory.** `opencode`
    reuses a background server rooted wherever it was first started unless
    `--standalone` is passed.
+3. **The brief itself can point the worker out of its workspace.** A prompt that
+   says "you are working in `C:/Users/hirot/Locus`" is an instruction, and a
+   worker with file tools will follow it over its process working directory.
+   Name the workspace, say that nothing outside it is theirs to change, and ask
+   for relative paths.
 
 ## Procedure
 
@@ -43,9 +48,10 @@ Two distinct causes, both load-bearing:
    (`opencode run --standalone`), and pass `cwd` explicitly.
 4. Re-link whatever the clone needs but git ignores — here `frontend/node_modules`
    via a symlink or junction — or gates fail for reasons unrelated to the job.
-5. **Verify containment after every run**, do not assume it: check that the
-   workspace changed and that the main checkout did not. Keep the "the worker
-   changed nothing" gate; it is what detects an escape.
+5. **Verify containment after every run**, do not assume it: fingerprint the
+   main checkout before and after the dispatch and escalate on any difference,
+   and keep the "the worker changed nothing" gate. An unverifiable fingerprint
+   (the path is not a repository) is "unverified", never "unchanged".
 6. Deliver by `git fetch <workspace> <branch>` then merge. A clone is a separate
    repository; its branch is not visible to the parent until fetched.
 

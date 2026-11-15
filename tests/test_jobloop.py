@@ -263,6 +263,41 @@ def test_job_workspaces_live_outside_the_repository(tmp_path: Path) -> None:
     assert root != settings.repository.resolve()
 
 
+def test_a_worker_that_edits_the_main_checkout_is_escalated(tmp_path: Path) -> None:
+    phase_with_task(tmp_path)
+    controller = controller_for(tmp_path, ["a-free", "b-free"])
+    controller.workspace = lambda task: tmp_path  # type: ignore[assignment]
+    controller.dispatch = lambda model, prompt, **_: worker.Result(  # type: ignore[assignment]
+        worker.Ending.COMPLETED, "REPORT\n- done", model
+    )
+    seen: list[str] = []
+
+    def fingerprint(path: Path) -> str:
+        # The main checkout looks different after the worker ran.
+        seen.append(str(path))
+        return f"state-{len(seen)}"
+
+    controller.fingerprint = fingerprint  # type: ignore[assignment]
+    outcome = controller.run_job(controller.select())
+    assert outcome.state == "escalated" and "outside its workspace" in outcome.detail
+    decisions = (controller.settings.phase_directory / "OWNER_DECISIONS.md").read_text(
+        encoding="utf-8"
+    )
+    assert "restore the checkout" in decisions
+
+
+def test_the_brief_names_the_workspace_not_the_main_checkout(tmp_path: Path) -> None:
+    # A brief that names the main checkout invites the worker to edit it, which
+    # is how three containment failures happened on 2026-11-15.
+    task = tasks.load_phase(phase_with_task(tmp_path)).tasks[0]
+    brief = prompts.implementer_brief(task, attempt=1, repository="/workspaces/T-JOB-1")
+    assert "/workspaces/T-JOB-1" in brief
+    assert "nothing outside it is yours to change" in brief
+    assert "containment failure" in brief
+    review = prompts.reviewer_brief(task, diff="d", evidence="e", repository="/workspaces/T-JOB-1")
+    assert "/workspaces/T-JOB-1" in review
+
+
 def test_usage_exhaustion_rotates_without_spending_an_attempt(tmp_path: Path) -> None:
     phase_with_task(tmp_path)
     controller = controller_for(tmp_path, ["a-free", "b-free"])

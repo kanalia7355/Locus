@@ -214,8 +214,14 @@ class Controller:
 
     @staticmethod
     def fingerprint(worktree: Path) -> str:
-        """Hash the working state so a read-only reviewer can be held to it."""
-        head = git(worktree, "rev-parse", "HEAD").strip()
+        """Hash the working state so a read-only reviewer can be held to it.
+
+        An empty string means there is no signal to compare (the path is not a
+        repository); callers must treat that as unverified, never as unchanged.
+        """
+        head = git(worktree, "rev-parse", "HEAD", check=False).strip()
+        if not head:
+            return ""
         diff = git(worktree, "diff", "HEAD", check=False)
         untracked = git(worktree, "status", "--porcelain=1", "--untracked-files=all", check=False)
         return hashlib.sha256((head + diff + untracked).encode("utf-8")).hexdigest()
@@ -228,10 +234,19 @@ class Controller:
             return Outcome(task.id, "no-model", "every eligible free model is on cooldown")
         tree = self.workspace(task)
         attempt = task.attempts + 1
-        brief = prompts.implementer_brief(
-            task, attempt=attempt, repository=str(self.settings.repository)
-        )
+        brief = prompts.implementer_brief(task, attempt=attempt, repository=str(tree))
+        # Containment is verified, not assumed: a worker that edits the main
+        # checkout has escaped, whatever its report says.
+        outside = self.fingerprint(self.settings.repository)
         result = self.dispatch(model, brief, cwd=tree, timeout=self.settings.worker_timeout)
+        if outside and self.fingerprint(self.settings.repository) != outside:
+            return self.escalate(
+                task,
+                "worker wrote outside its workspace",
+                "The main checkout changed while the job ran, so this work is unreviewable. "
+                "Inspect and restore the checkout before the job is retried.",
+                f"model={model}\nworkspace={tree}",
+            )
         if result.rotate:
             # Usage exhaustion is not a failed attempt (PROTOCOL §5.4).
             self.roster.mark_exhausted(model)
@@ -331,9 +346,7 @@ class Controller:
         before = self.fingerprint(tree)
         verdict = self.dispatch(
             reviewer,
-            prompts.reviewer_brief(
-                task, diff=diff, evidence=evidence, repository=str(self.settings.repository)
-            ),
+            prompts.reviewer_brief(task, diff=diff, evidence=evidence, repository=str(tree)),
             cwd=tree,
             timeout=self.settings.review_timeout,
         )

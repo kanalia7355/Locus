@@ -57,6 +57,12 @@ Both parts are load-bearing, and both were learned the hard way on 2026-11-15:
   left untouched. A local clone has its own `.git` and no link back.
 - `--standalone` stops the CLI reusing a shared background service whose
   directory is wherever it was first started.
+- **The brief must name the workspace, not the repository.** A prompt that names
+  the main checkout is an instruction the worker follows over its own working
+  directory — the fourth containment failure of the day.
+
+After every dispatch the controller fingerprints the main checkout and escalates
+if it changed, so an escape stops the job instead of reaching a commit.
 
 A fresh clone has no `node_modules`, so the installed tree is linked in before the
 job starts; frontend gates would otherwise fail for a reason unrelated to the job.

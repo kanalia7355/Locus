@@ -24,6 +24,10 @@ REVIEW_SKILLS = (
 )
 
 BOUNDARY = """Hard boundary, enforced by the controller after you stop:
+- Work only inside the directory named above. It is your own clone of the
+  repository. Other checkouts of the same repository may exist elsewhere on this
+  machine; writing to one of them is a containment failure, your work is
+  discarded, and the job goes to the owner. Use relative paths.
 - Change only the paths listed under `allowed_paths`. Every other path, and in
   particular `.pi/`, `.loop/`, `loop_engine/`, `docs/plans/`, `docs/planning/`,
   `docs/governance/`, `docs/agent/`, `.github/` and `pyproject.toml`, is rejected
@@ -40,7 +44,9 @@ BOUNDARY = """Hard boundary, enforced by the controller after you stop:
 
 
 def implementer_brief(task: Task, *, attempt: int, repository: str) -> str:
-    return f"""You are the single implementation worker for one Locus job in {repository}.
+    """`repository` must be the job's own workspace, never the main checkout."""
+    return f"""You are the single implementation worker for one Locus job.
+Your working copy is {repository} and nothing outside it is yours to change.
 This is attempt {attempt} of {ATTEMPT_LIMIT}.
 
 Read these first, in this order:
@@ -87,7 +93,9 @@ STATUS
 
 
 def reviewer_brief(task: Task, *, diff: str, evidence: str, repository: str) -> str:
-    return f"""You are an independent read-only reviewer for one Locus job in {repository}.
+    """`repository` must be the job's own workspace, never the main checkout."""
+    return f"""You are an independent read-only reviewer for one Locus job.
+The working copy under review is {repository}; nothing outside it is in scope.
 A different model wrote this change. You did not write it, and you may not fix it.
 
 Hard rules: do not create, modify or delete any file; do not run git commands
