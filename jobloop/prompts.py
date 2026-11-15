@@ -65,7 +65,10 @@ TEST
 - the commands you ran, with their real results (including failures)
 
 STATUS
-- one line: `ready-for-review`, or `needs-owner-decision: <the question>`
+- exactly one line, and nothing else on it. Either the literal text
+  `ready-for-review`, or `needs-owner-decision:` followed by the real question you
+  need answered, written out in full. Never copy this instruction's wording as
+  your question, and never report a question you have not actually got.
 
 {BOUNDARY}"""
 

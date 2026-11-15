@@ -59,7 +59,7 @@ class Outcome:
 
     @property
     def line(self) -> str:
-        return f"{self.task_id}: {self.state} — {self.detail}"
+        return f"{self.task_id}: {self.state} - {self.detail}"
 
 
 def git(repository: Path, *arguments: str, check: bool = True) -> str:
@@ -76,6 +76,17 @@ def git(repository: Path, *arguments: str, check: bool = True) -> str:
     if check and result.returncode:
         raise RuntimeError(f"git {' '.join(arguments)} failed: {result.stderr.strip()}")
     return result.stdout
+
+
+def placeholder(text: str) -> str | bool:
+    """True when a reported question is the brief's own placeholder, not a question."""
+    stripped = text.strip()
+    return (
+        len(stripped) < 12
+        or (stripped.startswith("<") and stripped.endswith(">"))
+        or "<the question>" in stripped
+        or stripped in {"the question", "<question>"}
+    )
 
 
 def slug(text: str) -> str:
@@ -212,13 +223,20 @@ class Controller:
             return self.failed_attempt(
                 task, model, f"{result.ending.value}: {'; '.join(result.errors[:3])}"
             )
-        needs_owner = re.search(r"needs-owner-decision:\s*(.+)", result.text)
-        if needs_owner:
+        asked = re.search(r"needs-owner-decision:\s*(.+)", result.text)
+        question = asked.group(1).strip() if asked else ""
+        if question and not placeholder(question):
             return self.escalate(
                 task,
                 "worker stopped for a decision",
-                needs_owner.group(1).strip()[:400],
+                question[:400],
                 result.text[-2000:],
+            )
+        if question:
+            # The brief was echoed instead of answered: that is a failed attempt,
+            # not a decision for the owner.
+            return self.failed_attempt(
+                task, model, f"the worker echoed the status template: {question[:120]}"
             )
         names = gates.changed_files(tree)
         if not names:

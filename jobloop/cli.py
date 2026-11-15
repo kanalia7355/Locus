@@ -106,6 +106,10 @@ def doctor(controller: Controller) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # The repository is full of Japanese text; a cp932 console must not turn a
+    # report into a crash.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(prog="jobloop", description=__doc__)
     parser.add_argument("--phase", default="phase-4-closeout")
     parser.add_argument("--branch", default="loop/local-development")

@@ -265,6 +265,22 @@ def test_a_worker_asking_for_a_decision_escalates_instead_of_guessing(tmp_path: 
     assert "which format wins?" in decisions and "T-JOB-1" in decisions
 
 
+def test_an_echoed_status_template_is_a_failed_attempt_not_a_decision(tmp_path: Path) -> None:
+    phase_with_task(tmp_path)
+    controller = controller_for(tmp_path, ["a-free", "b-free"])
+    controller.worktree = lambda task: tmp_path  # type: ignore[assignment]
+    controller.dispatch = lambda model, prompt, **_: worker.Result(  # type: ignore[assignment]
+        worker.Ending.COMPLETED,
+        "REPORT\n- nothing\n\nSTATUS\n- needs-owner-decision: <the question>",
+        model,
+    )
+    outcome = controller.run_job(controller.select())
+    assert outcome.state == "attempt-failed" and "echoed" in outcome.detail
+    task = tasks.load_phase(controller.settings.phase_directory).tasks[0]
+    assert task.status == "doing" and task.attempts == 1
+    assert not (controller.settings.phase_directory / "OWNER_DECISIONS.md").exists()
+
+
 def test_three_failed_attempts_stop_and_ask_the_owner(tmp_path: Path) -> None:
     phase_with_task(tmp_path)
     controller = controller_for(tmp_path, ["a-free", "b-free"])
