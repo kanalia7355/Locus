@@ -38,6 +38,20 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     "auditor": frozenset({"read"}),
 }
 ALL_PERMISSIONS = frozenset().union(*ROLE_PERMISSIONS.values()) | NON_ADMIN
+# Coarse ingestion stages exposed to the UI. Persisted statuses stay backward
+# compatible (`ready` remains the usable state); `indexing` is the new resumable
+# stage between scanning and publication.
+DOCUMENT_STAGES = {
+    "queued": "queued",
+    "scanning": "scanning",
+    "indexing": "indexing",
+    "ready": "done",
+    "quarantined": "failed",
+    "failed": "failed",
+    "cancelled": "failed",
+}
+CHUNK_CHARS = 700
+
 SYNTHETIC_TEXT = (
     "【合成サンプル・実研究データではありません】\n"
     "成膜条件Aは処理温度180°C、処理時間30分。\n"
@@ -60,6 +74,10 @@ def fail(status: int, detail: str) -> NoReturn:
 
 class ModelBusy(Exception):
     """Raised when the single model slot is occupied; the caller may enqueue instead."""
+
+
+class ChatCancelled(Exception):
+    """Raised inside a streamed dialogue once its owner asked to cancel it."""
 
 
 # Bounded development-safety limits for the dialogue waiting line, mirroring the
@@ -112,6 +130,7 @@ class Service:
         self.limits: OrderedDict[str, list[float]] = OrderedDict()
         self.chat_dispatch: dict[str, ChatDispatch] = {}
         self.chat_dispatch_lock = threading.Lock()
+        self.last_chat_user: str | None = None
         self.dummy_hash = PASSWORDS.hash(secrets.token_urlsafe(32))
         self.conn.executescript("""
             CREATE TABLE IF NOT EXISTS users (
@@ -438,6 +457,11 @@ class Service:
         # Additive migrations preserve databases created before concurrent role holdings.
         self._ensure_column("memberships", "denied_permissions", "TEXT NOT NULL DEFAULT '[]'")
         self._ensure_column("roles", "denied_permissions", "TEXT NOT NULL DEFAULT '[]'")
+        # Ingestion resume checkpoint (last fully indexed page) and a short,
+        # non-sensitive failure category for the UI. Additive: old databases
+        # keep working with a fresh checkpoint and no failure code.
+        self._ensure_column("documents", "index_checkpoint", "INTEGER NOT NULL DEFAULT 0")
+        self._ensure_column("documents", "failure_code", "TEXT NOT NULL DEFAULT ''")
         self.conn.execute(
             "INSERT OR IGNORE INTO membership_roles (user_id,project_id,role) "
             "SELECT user_id,project_id,role FROM memberships"
@@ -465,7 +489,17 @@ class Service:
     def recover_jobs(self) -> None:
         """Called only at application-worker startup, never by provisioning CLI connections."""
         with self.db() as db:
-            db.execute("UPDATE documents SET status='queued' WHERE status='scanning'")
+            # Both scanning and indexing are resumable: chunks completed before
+            # the restart stay in place and the checkpoint lets indexing skip
+            # them instead of inserting duplicates.
+            db.execute(
+                "UPDATE documents SET status='queued' WHERE status IN ('scanning','indexing')"
+            )
+            # An indexing failure is retried after a restart from its checkpoint.
+            db.execute(
+                "UPDATE documents SET status='queued',reason='',failure_code='' "
+                "WHERE status='failed' AND failure_code='index_failed'"
+            )
             # Queued dialogues were held only in this process; their dispatch closures
             # no longer exist after a restart, so they fail visibly instead of hanging.
             db.execute(
@@ -668,6 +702,13 @@ class Service:
                         **dict(row),
                         "roles": self._held_roles(db, row["user_id"], project["id"]),
                         "denied_permissions": json.loads(row["denied_permissions"]),
+                        "delegated_permissions": sorted(
+                            self._delegated_permissions(
+                                db,
+                                Principal(row["user_id"], row["username"], False, False),
+                                project["id"],
+                            )
+                        ),
                         "effective_permissions": sorted(
                             self._permissions(
                                 db,
@@ -790,6 +831,13 @@ class Service:
             queued = db.execute("SELECT COUNT(*) FROM chat_jobs WHERE status='queued'").fetchone()[
                 0
             ]
+            queued_per_user = [
+                row[0]
+                for row in db.execute(
+                    "SELECT COUNT(*) FROM chat_jobs WHERE status='queued' "
+                    "GROUP BY user_id ORDER BY COUNT(*) DESC"
+                ).fetchall()
+            ]
             running = db.execute(
                 "SELECT j.id,u.username,j.updated FROM chat_jobs j "
                 "LEFT JOIN users u ON u.id=j.user_id WHERE j.status='running' "
@@ -804,6 +852,7 @@ class Service:
                     "queued": queued,
                     "limit": CHAT_QUEUE_LIMIT,
                     "per_user_limit": CHAT_USER_QUEUE_LIMIT,
+                    "queued_per_user": queued_per_user,
                     "running_job": (
                         {
                             "id": running["id"],
@@ -1800,6 +1849,13 @@ class Service:
                 "project_id": project,
                 "roles": self._held_roles(db, target["id"], project),
                 "denied_permissions": json.loads(membership["denied_permissions"]),
+                "delegated_permissions": sorted(
+                    self._delegated_permissions(
+                        db,
+                        Principal(target["id"], username, False, False),
+                        project,
+                    )
+                ),
                 "effective_permissions": sorted(
                     self._permissions(
                         db,
@@ -1875,7 +1931,8 @@ class Service:
 
     @staticmethod
     def _metadata(row: sqlite3.Row, actor_id: str) -> Json:
-        data = {
+        available = set(row.keys())
+        data: Json = {
             key: row[key]
             for key in (
                 "id",
@@ -1886,26 +1943,40 @@ class Service:
                 "reason",
                 "created",
                 "conversation_id",
+                "failure_code",
             )
+            if key in available
         }
-        return {**data, "owned": row["owner_id"] == actor_id}
+        # Projections that omit the additive column still produce valid metadata.
+        data.setdefault("failure_code", "")
+        return {
+            **data,
+            "stage": DOCUMENT_STAGES.get(row["status"], row["status"]),
+            "owned": row["owner_id"] == actor_id,
+        }
 
-    def documents(self, actor: Principal, project: str) -> list[Json]:
+    def documents(self, actor: Principal, project: str, q: str | None = None) -> list[Json]:
         with self.db() as db:
             self.require(db, actor, project, "read")
-            return [
-                self._metadata(row, actor.id)
-                for row in db.execute(
-                    "SELECT * FROM documents WHERE project_id=? ORDER BY created DESC",
-                    (project,),
-                ).fetchall()
-                if self._can_read(db, actor, row)
-                or (
-                    row["owner_id"] == actor.id
-                    and row["kind"] == "shared"
-                    and "upload" in self._permissions(db, actor, project)
-                )
-            ]
+            needle = (q or "").strip().lower()
+            rows = []
+            for row in db.execute(
+                "SELECT * FROM documents WHERE project_id=? ORDER BY created DESC",
+                (project,),
+            ).fetchall():
+                if not (
+                    self._can_read(db, actor, row)
+                    or (
+                        row["owner_id"] == actor.id
+                        and row["kind"] == "shared"
+                        and "upload" in self._permissions(db, actor, project)
+                    )
+                ):
+                    continue
+                if needle and needle not in row["name"].lower():
+                    continue
+                rows.append(self._metadata(row, actor.id))
+            return rows
 
     def document(self, actor: Principal, document: str, conversation: str | None = None) -> Json:
         with self.db() as db:
@@ -1959,7 +2030,7 @@ class Service:
             results: list[Json] = []
             for candidate in db.execute(
                 "SELECT id,owner_id,project_id,kind,name,status,reason,conversation_id,"
-                "grants,created "
+                "grants,created,failure_code "
                 "FROM documents WHERE project_id=? AND status='ready' AND id<>? "
                 "ORDER BY id",
                 (source["project_id"], document),
@@ -2032,11 +2103,11 @@ class Service:
             elif conversation is not None:
                 fail(422, "個人資料は会話に結び付けられません")
             queued = db.execute(
-                "SELECT COUNT(*) FROM documents WHERE status IN ('queued','scanning')"
+                "SELECT COUNT(*) FROM documents WHERE status IN ('queued','scanning','indexing')"
             ).fetchone()[0]
             owned = db.execute(
                 "SELECT COUNT(*) FROM documents WHERE owner_id=? AND status "
-                "IN ('queued','scanning')",
+                "IN ('queued','scanning','indexing')",
                 (actor.id,),
             ).fetchone()[0]
             if queued >= 32 or owned >= 4:
@@ -2080,12 +2151,14 @@ class Service:
                 return False
             # Recheck queued work BEFORE exposing content to a scanner adapter.
             if not self._ingestion_allowed(db, row):
-                db.execute(
-                    "UPDATE documents SET status='cancelled',reason=? WHERE id=?",
-                    ("登録者の利用権限が失効しました", row["id"]),
+                self._cancel_ingestion(
+                    db, row["id"], "permission_revoked", "登録者の利用権限が失効しました"
                 )
                 return True
-            db.execute("UPDATE documents SET status='scanning' WHERE id=?", (row["id"],))
+            db.execute(
+                "UPDATE documents SET status='scanning',reason='',failure_code='' WHERE id=?",
+                (row["id"],),
+            )
         try:
             outcome = self.scanner.scan(row["content"]).outcome
         except Exception:
@@ -2099,9 +2172,8 @@ class Service:
             if not live or live["status"] != "scanning":
                 return True
             if not self._ingestion_allowed(db, live):
-                db.execute(
-                    "UPDATE documents SET status='cancelled',reason=? WHERE id=?",
-                    ("登録者の利用権限が失効しました", row["id"]),
+                self._cancel_ingestion(
+                    db, row["id"], "permission_revoked", "登録者の利用権限が失効しました"
                 )
                 return True
             if outcome != "clean":
@@ -2112,23 +2184,92 @@ class Service:
                     if outcome == "rejected"
                     else "安全検査を実行できないため隔離中です（既定拒否）。本文は検索に使いません"
                 )
+                code = "scanner_rejected" if outcome == "rejected" else "scanner_unavailable"
                 db.execute(
-                    "UPDATE documents SET status='quarantined',reason=? WHERE id=?",
-                    (reason, row["id"]),
+                    "UPDATE documents SET status='quarantined',reason=?,failure_code=? WHERE id=?",
+                    (reason, code, row["id"]),
                 )
                 return True
-            self._index(db, live)
+            # Chunks are built in a resumable stage. _index commits each completed
+            # page checkpoint while keeping the checked publication transaction
+            # free of stale scanner work.
+            db.execute("UPDATE documents SET status='indexing' WHERE id=?", (row["id"],))
+            indexing_row = db.execute("SELECT * FROM documents WHERE id=?", (row["id"],)).fetchone()
+            try:
+                self._index(db, indexing_row)
+            except Exception:
+                # Roll back only the failed page; earlier committed checkpoints
+                # are retained so a restart resumes instead of duplicating.
+                db.rollback()
+                db.execute("BEGIN IMMEDIATE")
+                live = db.execute("SELECT * FROM documents WHERE id=?", (row["id"],)).fetchone()
+                if live and live["status"] == "indexing":
+                    db.execute(
+                        "UPDATE documents SET status='failed',reason=?,failure_code=? WHERE id=?",
+                        (
+                            "索引処理に失敗しました。再起動後にチェックポイントから再開します",
+                            "index_failed",
+                            row["id"],
+                        ),
+                    )
             return True
 
+    @staticmethod
+    def _cancel_ingestion(db: sqlite3.Connection, document: str, code: str, reason: str) -> None:
+        # Cancelled/revoked work must not leave indexable chunks behind.
+        db.execute("DELETE FROM chunks WHERE document_id=?", (document,))
+        db.execute(
+            "UPDATE documents SET status='cancelled',reason=?,failure_code=? WHERE id=?",
+            (reason, code, document),
+        )
+
+    @staticmethod
+    def _insert_page(db: sqlite3.Connection, document: str, page: int, text: str) -> None:
+        for ordinal, offset in enumerate(range(0, len(text), CHUNK_CHARS), start=1):
+            db.execute(
+                "INSERT INTO chunks VALUES (?,?,?,?,?)",
+                (uid(), document, page, ordinal, text[offset : offset + CHUNK_CHARS]),
+            )
+
     def _index(self, db: sqlite3.Connection, row: sqlite3.Row) -> None:
-        db.execute("DELETE FROM chunks WHERE document_id=?", (row["id"],))
-        for page, text in enumerate(row["content"].split("\f"), start=1):
-            for ordinal, offset in enumerate(range(0, len(text), 700), start=1):
-                db.execute(
-                    "INSERT INTO chunks VALUES (?,?,?,?,?)",
-                    (uid(), row["id"], page, ordinal, text[offset : offset + 700]),
-                )
-        db.execute("UPDATE documents SET status='ready',reason='' WHERE id=?", (row["id"],))
+        """Index pages from the persisted checkpoint, committing each page.
+
+        Pages already marked complete are reused as-is. Only one page is written
+        per transaction, so an interrupted run can resume without producing
+        duplicate chunks. The caller holds the write transaction; completed
+        resumable pages are committed explicitly to persist their checkpoint.
+        """
+        pages = str(row["content"]).split("\f")
+        checkpoint = int(row["index_checkpoint"] or 0)
+        resumable = row["status"] == "indexing"
+        for page in range(checkpoint + 1, len(pages) + 1):
+            if resumable:
+                # The ingestion path re-checks live work and permissions for every
+                # page. The seed path (status='ready') keeps its old behavior.
+                live = db.execute("SELECT * FROM documents WHERE id=?", (row["id"],)).fetchone()
+                if not live or live["status"] != "indexing":
+                    return
+                if not self._ingestion_allowed(db, live):
+                    self._cancel_ingestion(
+                        db, row["id"], "permission_revoked", "登録者の利用権限が失効しました"
+                    )
+                    return
+            # Any partial rows for a page that was not marked complete are
+            # replaced; completed pages are never touched again.
+            db.execute("DELETE FROM chunks WHERE document_id=? AND page=?", (row["id"], page))
+            self._insert_page(db, row["id"], page, pages[page - 1])
+            db.execute("UPDATE documents SET index_checkpoint=? WHERE id=?", (page, row["id"]))
+            if resumable and page < len(pages):
+                # Persist the checkpoint before the next page. The explicit
+                # BEGIN keeps the caller's write-serialized unit for the next
+                # page and its final publication check.
+                db.commit()
+                db.execute("BEGIN IMMEDIATE")
+        db.execute(
+            "UPDATE documents SET status='ready',reason='',failure_code='',"
+            "index_checkpoint=? WHERE id=?",
+            (len(pages), row["id"]),
+        )
 
     def seed_synthetic(self, username: str, project: str, kind: str = "personal") -> str:
         """Local CLI/test-only fixed bytes; never accepts arbitrary file content."""
@@ -2168,11 +2309,17 @@ class Service:
     def cancel(self, actor: Principal, document: str) -> None:
         with self.db() as db:
             row = self._managed_document(db, actor, document)
-            if row["owner_id"] != actor.id or row["status"] not in {"queued", "scanning"}:
+            if row["owner_id"] != actor.id or row["status"] not in {
+                "queued",
+                "scanning",
+                "indexing",
+            }:
                 fail(409, "この取り込みは取消できません")
+            db.execute("DELETE FROM chunks WHERE document_id=?", (document,))
             db.execute(
-                "UPDATE documents SET status='cancelled',content='',reason=? WHERE id=?",
-                ("利用者が取り消しました", document),
+                "UPDATE documents SET status='cancelled',content='',reason=?,failure_code=? "
+                "WHERE id=?",
+                ("利用者が取り消しました", "cancelled", document),
             )
             self._audit(db, actor.id, "ingestion.cancel", document)
 
@@ -2231,15 +2378,27 @@ class Service:
     def conversations(self, actor: Principal, project: str) -> list[Json]:
         with self.db() as db:
             self.require(db, actor, project, "retrieve")
-            return [
-                dict(row)
-                for row in db.execute(
-                    "SELECT id,project_id,created FROM conversations "
-                    "WHERE owner_id=? AND project_id=? "
-                    "ORDER BY created DESC",
-                    (actor.id, project),
-                ).fetchall()
-            ]
+            rows = []
+            for row in db.execute(
+                """
+                SELECT c.id, c.project_id, c.created,
+                       (SELECT m.text FROM messages m
+                        WHERE m.conversation_id = c.id
+                        ORDER BY m.created ASC, m.rowid ASC
+                        LIMIT 1) AS preview
+                FROM conversations c
+                WHERE c.owner_id=? AND c.project_id=?
+                ORDER BY c.created DESC
+                """,
+                (actor.id, project),
+            ).fetchall():
+                item = dict(row)
+                preview = " ".join((item.get("preview") or "").split())
+                if len(preview) > 80:
+                    preview = preview[:79].rstrip() + "…"
+                item["preview"] = preview
+                rows.append(item)
+            return rows
 
     def _citations(
         self, db: sqlite3.Connection, actor: Principal, ids: list[str], conversation: str
@@ -2478,7 +2637,7 @@ class Service:
                     self.chat_dispatch.pop(row["id"], None)
 
     # --- Dialogue waiting line -------------------------------------------------
-    # One bounded, arrival-ordered line in front of the single model slot. The
+    # One bounded, fair-share line in front of the single model slot. The
     # synchronous contract of send() is unchanged: submission stays inline while
     # the slot is free, and only an occupied slot produces a queued job (202).
 
@@ -2557,6 +2716,85 @@ class Service:
                 self.chat_dispatch[job_id] = ChatDispatch(token, generate, validate)
         return job_id
 
+    def start_stream_chat(
+        self,
+        actor: Principal,
+        conversation: str,
+        text: str,
+        scope: str,
+        attachments: list[str],
+    ) -> str:
+        """Claim the free model slot for an inline, streamed dialogue.
+
+        The row is created as `running`, so cooperative cancellation, the restart
+        sweep and the one-question-per-conversation rule all apply unchanged. It
+        never enters the waiting line, and the answer is still committed once, by
+        send(), after its final permission and citation checks.
+        """
+        if scope not in {"all", "shared", "personal"}:
+            fail(422, "参照範囲を確認してください")
+        with self.db() as db:
+            conv = self._conversation(db, actor, conversation)
+            if (
+                db.execute(
+                    "SELECT COUNT(*) FROM messages WHERE conversation_id=?", (conversation,)
+                ).fetchone()[0]
+                >= 200
+            ):
+                fail(429, "1会話200件までです。新しい会話を開始してください")
+            for document in attachments:
+                row = self._document(db, actor, document, conversation)
+                if row["kind"] != "attachment" or row["status"] != "ready":
+                    fail(
+                        409,
+                        "未解析・隔離中の添付は参照できません。取り外して再送信してください",
+                    )
+            if db.execute(
+                "SELECT id FROM chat_jobs WHERE conversation_id=? "
+                "AND status IN ('queued','running')",
+                (conversation,),
+            ).fetchone():
+                fail(409, "前の質問が処理中です。完了してから次の質問を送信してください")
+            job_id = uid()
+            now = time.time()
+            db.execute(
+                "INSERT INTO chat_jobs "
+                "(id,conversation_id,user_id,text,scope,attachments,status,created,updated) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
+                (
+                    job_id,
+                    conv["id"],
+                    actor.id,
+                    text,
+                    scope,
+                    json.dumps(attachments),
+                    "running",
+                    now,
+                    now,
+                ),
+            )
+            self._audit(db, actor.id, "chat.streaming", job_id)
+        return job_id
+
+    def stream_stopped(self, job: str) -> bool:
+        """True when a streamed dialogue must stop: cancelled, finished or gone."""
+        with self.db() as db:
+            row = db.execute(
+                "SELECT status,cancel_requested FROM chat_jobs WHERE id=?", (job,)
+            ).fetchone()
+        return not row or row["status"] != "running" or bool(row["cancel_requested"])
+
+    def finish_stream_chat(self, job: str, detail: str) -> str:
+        """Close a streamed dialogue that committed no answer, and report its state.
+
+        A requested cancellation wins over the failure detail, so an interrupted
+        stream is reported as cancelled rather than as a generation failure.
+        """
+        self._finish_chat(job, "failed", detail)
+        with self.db() as db:
+            row = db.execute("SELECT status FROM chat_jobs WHERE id=?", (job,)).fetchone()
+        return str(row["status"]) if row else "failed"
+
     def chat_job(self, actor: Principal, job: str) -> Json:
         """Owner-only status view; expired waiting entries fail visibly here too."""
         with self.db() as db:
@@ -2631,7 +2869,9 @@ class Service:
         """Run at most one queued dialogue; called by the background worker loop."""
         with self.db() as db:
             row = db.execute(
-                "SELECT * FROM chat_jobs WHERE status='queued' ORDER BY created,id LIMIT 1"
+                "SELECT * FROM chat_jobs WHERE status='queued' "
+                "ORDER BY CASE WHEN user_id=? THEN 1 ELSE 0 END, created, id LIMIT 1",
+                (self.last_chat_user,),
             ).fetchone()
             if row is None:
                 return False
@@ -2687,6 +2927,8 @@ class Service:
                 return True
             return False
         except HTTPException as exc:
+            with self.lock:
+                self.last_chat_user = row["user_id"]
             detail = (
                 "ログイン状態が変わりました。再度ログインして送信してください"
                 if exc.status_code in {401, 403}
@@ -2695,8 +2937,14 @@ class Service:
             self._finish_chat(job_id, "failed", detail)
             return True
         except Exception:
+            with self.lock:
+                self.last_chat_user = row["user_id"]
             self._finish_chat(job_id, "failed", "対話の処理中に問題が発生しました")
             return True
+        # A busy-slot retry has not consumed a turn. Other completed attempts,
+        # including cooperative cancellation, have occupied the worker turn.
+        with self.lock:
+            self.last_chat_user = row["user_id"]
         # send() commits completion with its answer atomically; a cancellation
         # winner commits no message. Drop the process-local dispatch either way.
         with self.chat_dispatch_lock:

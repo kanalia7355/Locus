@@ -4,6 +4,7 @@ import asyncio
 import json
 import re
 import threading
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -70,7 +71,14 @@ class LocalModel:
         citations: list[dict[str, Any]],
         *,
         timeout_seconds: int | None = None,
+        on_delta: Callable[[str], None] | None = None,
     ) -> tuple[str, str]:
+        """Answer once. With `on_delta` the reply is read as it arrives.
+
+        `on_delta` receives each validated fragment and may raise to abort the
+        request; the exception is propagated unchanged so a cancelled dialogue is
+        never reported as a model failure.
+        """
         if timeout_seconds is not None and (
             type(timeout_seconds) is not int or timeout_seconds not in {30, 120}
         ):
@@ -79,18 +87,20 @@ class LocalModel:
             fail(429, "モデルは処理中です")
         try:
             seconds = REQUEST_SECONDS if timeout_seconds is None else timeout_seconds
+            if on_delta is not None:
+                return asyncio.run(self._stream(model, text, citations, seconds, on_delta)), model
             return asyncio.run(self._generate(model, text, citations, seconds)), model
         except (httpx.HTTPError, TimeoutError, ValueError, KeyError, TypeError):
             fail(502, "モデル応答を確認できませんでした。自動再送は行いません")
         finally:
             self.lock.release()
 
-    async def _generate(
-        self, model: str, text: str, citations: list[dict[str, Any]], seconds: float
-    ) -> str:
-        payload = {
+    def _payload(
+        self, model: str, text: str, citations: list[dict[str, Any]], *, stream: bool
+    ) -> dict[str, Any]:
+        return {
             "model": model,
-            "stream": False,
+            "stream": stream,
             "messages": [
                 {
                     "role": "system",
@@ -111,6 +121,11 @@ class LocalModel:
                 },
             ],
         }
+
+    async def _generate(
+        self, model: str, text: str, citations: list[dict[str, Any]], seconds: float
+    ) -> str:
+        payload = self._payload(model, text, citations, stream=False)
         async with asyncio.timeout(seconds):
             async with httpx.AsyncClient(
                 transport=self.transport,
@@ -150,3 +165,91 @@ class LocalModel:
                     ):
                         raise ValueError("Invalid answer")
                     return answer
+
+    @staticmethod
+    def _fragment(line: bytes, model: str) -> tuple[str, bool]:
+        """Validate one streamed reply line and return its text and completion."""
+        data = json.loads(line)
+        if not isinstance(data, dict) or data.get("model") != model:
+            raise ValueError("Invalid response schema")
+        message = data.get("message")
+        if (
+            not isinstance(message, dict)
+            or message.get("role") != "assistant"
+            or message.get("tool_calls")
+        ):
+            raise ValueError("Invalid response schema")
+        text = message.get("content", "")
+        if not isinstance(text, str):
+            raise ValueError("Invalid response schema")
+        return text, data.get("done") is True
+
+    async def _stream(
+        self,
+        model: str,
+        text: str,
+        citations: list[dict[str, Any]],
+        seconds: float,
+        on_delta: Callable[[str], None],
+    ) -> str:
+        """Read a streamed reply, reporting each validated fragment as it arrives."""
+        payload = self._payload(model, text, citations, stream=True)
+        parts: list[str] = []
+        length = 0
+        received = 0
+        done = False
+        pending = bytearray()
+        async with asyncio.timeout(seconds):
+            async with httpx.AsyncClient(
+                transport=self.transport,
+                trust_env=False,
+                follow_redirects=False,
+                timeout=seconds,
+            ) as client:
+                async with client.stream(
+                    "POST",
+                    "http://127.0.0.1:11434/api/chat",
+                    json=payload,
+                    headers={"Accept": "application/x-ndjson", "Accept-Encoding": "identity"},
+                ) as response:
+                    if (
+                        response.status_code != 200
+                        or response.headers.get("content-encoding", "identity") != "identity"
+                    ):
+                        raise ValueError("Invalid response")
+                    async for part in response.aiter_bytes():
+                        received += len(part)
+                        if received > 1_048_576:
+                            raise ValueError("Response too large")
+                        pending.extend(part)
+                        while b"\n" in pending and not done:
+                            line, _, rest = bytes(pending).partition(b"\n")
+                            pending = bytearray(rest)
+                            if not line.strip():
+                                continue
+                            fragment, done = self._fragment(line, model)
+                            if not fragment:
+                                continue
+                            length += len(fragment)
+                            if length > 20_000:
+                                raise ValueError("Answer too long")
+                            parts.append(fragment)
+                            # The caller may raise here to abort a cancelled
+                            # dialogue; the request is closed by the context.
+                            on_delta(fragment)
+                        if done:
+                            break
+        if not done and pending.strip():
+            # A daemon that ignores `stream` answers with one document and no
+            # trailing newline; its single reply is reported as one fragment.
+            fragment, done = self._fragment(bytes(pending), model)
+            if fragment:
+                length += len(fragment)
+                if length > 20_000:
+                    raise ValueError("Answer too long")
+                parts.append(fragment)
+                on_delta(fragment)
+        answer = "".join(parts)
+        if not done or not answer.strip():
+            raise ValueError("Invalid answer")
+        return answer

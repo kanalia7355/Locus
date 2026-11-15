@@ -40,6 +40,33 @@ it("keeps quarantine and unknown states separate from usable documents on refres
   expect(within(region).getByRole("heading")).toHaveTextContent("0件");
 });
 
+it("shows indexing and failed stages with short failure categories", () => {
+  const view = render(
+    <IngestionProgress
+      documents={[
+        { ...doc("queued", "waiting"), stage: "queued" },
+        { ...doc("indexing", "indexing"), stage: "indexing" },
+        {
+          ...doc("quarantined", "blocked"),
+          stage: "failed",
+          failure_code: "scanner_unavailable",
+          reason: "安全検査を実行できないため隔離中です。本文は検索に使いません",
+        },
+      ]}
+    />,
+  );
+  const region = screen.getByRole("region", { name: "表示中の資料の処理状況" });
+  expect(
+    within(region).getByText("索引中").nextElementSibling,
+  ).toHaveTextContent("1件");
+  expect(within(region).getByText("waiting.txt：解析待ち")).toBeTruthy();
+  expect(within(region).getByText("indexing.txt：索引中")).toBeTruthy();
+  expect(
+    within(region).getByText("blocked.txt：安全検査を実行できないため既定拒否"),
+  ).toBeTruthy();
+  view.unmount();
+});
+
 async function setup() {
   localStorage.clear();
   let reads = 0;

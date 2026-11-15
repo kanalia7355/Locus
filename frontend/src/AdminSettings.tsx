@@ -7,6 +7,7 @@ interface ProjectMember {
   role: string;
   roles?: string[];
   denied_permissions?: string[];
+  delegated_permissions?: string[];
   effective_permissions?: string[];
 }
 interface ProjectRole {
@@ -282,6 +283,14 @@ export function AdminProjects() {
                         .map((permission) => permissionLabels[permission] ?? permission)
                         .join("・") || "なし"}
                     </p>
+                    {member.delegated_permissions?.length ? (
+                      <p>
+                        委任中の権限:{" "}
+                        {member.delegated_permissions
+                          .map((permission) => permissionLabels[permission] ?? permission)
+                          .join("・")}
+                      </p>
+                    ) : null}
                     <p>
                       明示的な拒否: {(member.denied_permissions ?? [])
                         .map((permission) => permissionLabels[permission] ?? permission)
@@ -602,6 +611,7 @@ interface LoadStatus {
     queued: number;
     limit: number;
     per_user_limit: number;
+    queued_per_user: number[];
     running_job: {
       id: string;
       username: string | null;
@@ -680,6 +690,8 @@ export function AdminLoad() {
           </dd>
           <dt>一人あたりの待ち上限</dt>
           <dd>{status.chat_queue.per_user_limit}件</dd>
+          <dt>待機中の利用者ごとの件数</dt>
+          <dd>{status.chat_queue.queued_per_user?.map((count) => `${count}件`).join("、") || "なし"}</dd>
           <dt>実行中の質問</dt>
           <dd>
             {runningJob

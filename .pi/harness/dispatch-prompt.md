@@ -1,0 +1,1 @@
+.pi/harness/prompts/implementer.md の指示に従い、タスク progress/phase-2-authz/tasks/T-PH2-003.md を実装せよ。完了したら PROTOCOL 通りにタスクファイルの REPORT と status を更新すること。

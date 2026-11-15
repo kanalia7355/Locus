@@ -22,6 +22,10 @@ frontend/tsconfig.tsbuildinfo
 .loop/runtime/
 *.egg-info/
 build/
+.pi
+.loop
+.bootstrap
+
 
 # Local credentials, alternate environments and database sidecars
 .venv*/
@@ -44,3 +48,10 @@ credentials.*.json
 # Generated local loop reports; authoritative runtime state remains local
 /.loop/progress.md
 /.loop/decisions.md
+
+# Locus pi harness runtime state and logs
+.pi/harness/state.json
+.pi/harness/state.json.tmp
+.pi/harness/logs/
+
+.jobloop/

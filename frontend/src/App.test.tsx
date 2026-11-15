@@ -1,11 +1,22 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
+
+const initialViewportWidth = window.innerWidth;
+
+function setViewportWidth(width: number) {
+  Object.defineProperty(window, "innerWidth", {
+    value: width,
+    configurable: true,
+    writable: true,
+  });
+}
 
 const requests: { path: string; options?: RequestInit }[] = [];
 beforeEach(() => {
   requests.length = 0;
   localStorage.clear();
+  setViewportWidth(initialViewportWidth);
   vi.stubGlobal(
     "fetch",
     vi.fn(async (path: string, options?: RequestInit) => {
@@ -41,6 +52,160 @@ beforeEach(() => {
 });
 
 describe("approved chat interaction baseline", () => {
+  it("warns that a queued question's position may change", async () => {
+    const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (input, options) => {
+      if (String(input).endsWith("/messages") && options?.method === "POST")
+        return new Response(JSON.stringify({ job_id: "job-1", status: "queued", text: "成膜" }), {
+          status: 202,
+          headers: { "Content-Type": "application/json" },
+        });
+      return originalFetch(input, options);
+    });
+    render(<App />);
+    const field = await screen.findByRole("textbox", { name: "メッセージ" });
+    await waitFor(() => expect(field).toBeEnabled());
+    fireEvent.change(field, { target: { value: "成膜" } });
+    fireEvent.click(screen.getByRole("button", { name: "送信" }));
+    expect(await screen.findByText(/待ち位置は混雑により変動します/)).toBeVisible();
+  });
+  it("renders a streamed answer while it arrives and keeps the committed message", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const frame = (event: string, data: unknown) =>
+      `event: ${event}
+data: ${JSON.stringify(data)}
+
+`;
+    const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (input, options) => {
+      const path = String(input);
+      requests.push({ path, options });
+      if (path.endsWith("/messages/stream")) {
+        const encoder = new TextEncoder();
+        const body = new ReadableStream({
+          async start(controller) {
+            controller.enqueue(encoder.encode(frame("start", { job_id: "job-1" })));
+            controller.enqueue(encoder.encode(frame("delta", { text: "成膜条件は" })));
+            await gate;
+            controller.enqueue(encoder.encode(frame("delta", { text: "180°Cです" })));
+            controller.enqueue(
+              encoder.encode(
+                frame("message", {
+                  id: "message-1",
+                  text: "成膜",
+                  scope: "all",
+                  answer: "成膜条件は180°Cです",
+                  model: "fixture:latest",
+                  citations: [],
+                }),
+              ),
+            );
+            controller.close();
+          },
+        });
+        return new Response(body, {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        });
+      }
+      return originalFetch(input, options);
+    });
+    render(<App />);
+    const field = await screen.findByRole("textbox", { name: "メッセージ" });
+    await waitFor(() => expect(field).toBeEnabled());
+    fireEvent.change(field, { target: { value: "成膜" } });
+    fireEvent.click(screen.getByRole("button", { name: "送信" }));
+    // The first fragment is visible before the answer is committed.
+    expect(await screen.findByText("成膜条件は")).toBeVisible();
+    expect(screen.getByRole("button", { name: "この質問を取り消す" })).toBeVisible();
+    release();
+    expect(await screen.findByText("成膜条件は180°Cです")).toBeVisible();
+    await waitFor(() =>
+      expect(screen.queryByText(/途中経過を表示しています/)).toBeNull(),
+    );
+    expect(
+      requests.filter((request) => request.path.endsWith("/messages")),
+    ).toHaveLength(0);
+  });
+
+  it("keeps a question the server queued mid-stream without resending it", async () => {
+    const frame = (event: string, data: unknown) =>
+      `event: ${event}
+data: ${JSON.stringify(data)}
+
+`;
+    const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (input, options) => {
+      const path = String(input);
+      requests.push({ path, options });
+      if (path.endsWith("/messages/stream"))
+        return new Response(
+          frame("start", { job_id: "stream-1" }) +
+            frame("queued", {
+              job_id: "job-2",
+              status: "queued",
+              text: "成膜",
+            }),
+          { status: 200, headers: { "Content-Type": "text/event-stream" } },
+        );
+      if (path.startsWith("/api/chat-jobs/"))
+        return new Response(
+          JSON.stringify({
+            id: "job-2",
+            conversation_id: "conversation",
+            status: "queued",
+            detail: "",
+            message_id: null,
+            cancel_requested: false,
+            created: 1,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      return originalFetch(input, options);
+    });
+    render(<App />);
+    const field = await screen.findByRole("textbox", { name: "メッセージ" });
+    await waitFor(() => expect(field).toBeEnabled());
+    fireEvent.change(field, { target: { value: "成膜" } });
+    fireEvent.click(screen.getByRole("button", { name: "送信" }));
+    expect(await screen.findByText(/順番待ちです/)).toBeVisible();
+    expect(
+      requests.filter((request) => request.path.endsWith("/messages")),
+    ).toHaveLength(0);
+  });
+
+  it("falls back to the ordinary request when streaming is unavailable", async () => {
+    const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (input, options) => {
+      const path = String(input);
+      if (path.endsWith("/messages/stream")) {
+        requests.push({ path, options });
+        return new Response(
+          JSON.stringify({ detail: "逐次表示は利用できません。通常の送信に切り替えます" }),
+          { status: 409, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return originalFetch(input, options);
+    });
+    render(<App />);
+    const field = await screen.findByRole("textbox", { name: "メッセージ" });
+    await waitFor(() => expect(field).toBeEnabled());
+    fireEvent.change(field, { target: { value: "成膜" } });
+    fireEvent.click(screen.getByRole("button", { name: "送信" }));
+    await screen.findByRole("heading", {
+      name: "参照できる記述が見つかりませんでした",
+    });
+    expect(
+      requests.filter((request) => request.path.endsWith("/messages/stream")),
+    ).toHaveLength(1);
+    expect(
+      requests.filter((request) => request.path.endsWith("/messages")),
+    ).toHaveLength(1);
+  });
+
   it("preserves the sidebar control and excludes collapsed navigation from focus", async () => {
     render(<App />);
     await screen.findByRole("heading", { name: "資料を調べる" });
@@ -294,5 +459,195 @@ describe("approved chat interaction baseline", () => {
     );
     expect(screen.getByRole("alert")).toHaveTextContent("rejected.exe");
     expect(uploads).toBe(1);
+  });
+
+  it("displays accurate delegation guidance on settings and role editor pages", async () => {
+    vi.mocked(fetch).mockImplementation(async (input, options) => {
+      const path = String(input);
+      requests.push({ path, options });
+      if (path.endsWith("/auth/me"))
+        return new Response(
+          JSON.stringify({
+            id: "alice",
+            username: "alice",
+            system_admin: false,
+            must_rotate: false,
+          }),
+        );
+      if (path.endsWith("/projects"))
+        return new Response(
+          JSON.stringify([
+            {
+              id: "project",
+              org_id: "org",
+              name: "検証",
+              role: "project_lead",
+              permissions: ["read", "retrieve", "upload", "manage_roles"],
+            },
+          ]),
+        );
+      if (path.endsWith("/projects/project/roles"))
+        return new Response(
+          JSON.stringify({
+            templates: [],
+            custom: [],
+            allowed_permissions: ["read", "retrieve"],
+          }),
+        );
+      return new Response(JSON.stringify([]));
+    });
+    render(<App />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "モデル・同時利用" }),
+    );
+    expect(
+      await screen.findByText(
+        "LAN公開、回復、組織単位の委任拡張、保存期間は承認待ちです。プロジェクト単位の権限委任は「管理委任」から設定できます。",
+      ),
+    ).toBeVisible();
+    expect(
+      screen.queryByText("LAN公開、回復、管理委任、保存期間は承認待ちです。"),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "役割・管理権限" }));
+    expect(
+      await screen.findByText(
+        "ロールは現在のプロジェクト内で有効です。管理操作の権限は委任できません。",
+      ),
+    ).toBeVisible();
+    expect(
+      screen.queryByText(/管理権限の委任は無効です/),
+    ).not.toBeInTheDocument();
+  });
+
+  it("moves focus to the page heading when the keyboard user changes pages", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "資料を調べる" });
+    fireEvent.click(screen.getByRole("button", { name: "共有資料" }));
+    const heading = await screen.findByRole("heading", { name: "共有資料" });
+    await waitFor(() => expect(heading).toHaveFocus());
+  });
+
+  it("names the target of repeated row actions with the document or conversation", async () => {
+    vi.mocked(fetch).mockImplementation(async (input, options) => {
+      const path = String(input);
+      requests.push({ path, options });
+      if (path.endsWith("/auth/me"))
+        return new Response(
+          JSON.stringify({
+            id: "alice",
+            username: "alice",
+            system_admin: false,
+            must_rotate: false,
+          }),
+        );
+      if (path.endsWith("/projects"))
+        return new Response(
+          JSON.stringify([
+            {
+              id: "project",
+              org_id: "org",
+              name: "検証",
+              role: "researcher",
+              permissions: ["read", "retrieve", "upload"],
+            },
+          ]),
+        );
+      if (path.includes("/documents?"))
+        return new Response(
+          JSON.stringify([
+            {
+              id: "document-1",
+              name: "合成サンプル.txt",
+              kind: "shared",
+              status: "ready",
+              owned: true,
+            },
+          ]),
+        );
+      return new Response(JSON.stringify([]));
+    });
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "共有資料" }));
+    const remove = await screen.findByRole("button", { name: "削除" });
+    const described = remove.getAttribute("aria-describedby");
+    expect(described).toBeTruthy();
+    expect(document.getElementById(described!)).toHaveTextContent(
+      "合成サンプル.txt",
+    );
+  });
+
+  it("closes the overlay sidebar with Escape and returns focus to its control", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "資料を調べる" });
+    const toggle = screen.getByRole("button", { name: "サイドバーを閉じる" });
+    setViewportWidth(375);
+    const sidebar = document.querySelector("#workspace-sidebar")!;
+    fireEvent.keyDown(sidebar, { key: "Escape" });
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "サイドバーを開く" }),
+      ).toHaveAttribute("aria-expanded", "false"),
+    );
+    expect(toggle).toHaveFocus();
+  });
+
+  it("keeps watching and allows cancelling a document while it is indexing", async () => {
+    let reads = 0;
+    const indexingDocument = {
+      id: "doc-1",
+      status: "indexing",
+      name: "indexing.txt",
+      project_id: "project",
+      kind: "personal",
+      reason: "",
+      conversation_id: null,
+      created: 1,
+      owned: true,
+    };
+    const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (input, options) => {
+      const path = String(input);
+      if (path.includes("/documents?project_id=")) {
+        reads++;
+        requests.push({ path, options });
+        return new Response(JSON.stringify([indexingDocument]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return originalFetch(input, options);
+    });
+    render(<App />);
+    await screen.findByRole("button", { name: "取り込み状況" });
+    fireEvent.click(screen.getByRole("button", { name: "取り込み状況" }));
+    expect(await screen.findByText("索引中")).toBeVisible();
+    const cancel = screen.getByRole("button", { name: "取消" });
+    expect(cancel).toBeVisible();
+    // The indexing stage is still progressing, so the view keeps polling.
+    const before = reads;
+    vi.useFakeTimers();
+    await act(() => vi.advanceTimersByTimeAsync(2000));
+    expect(reads).toBeGreaterThan(before);
+    vi.useRealTimers();
+    fireEvent.click(cancel);
+    await waitFor(() =>
+      expect(
+        requests.some((request) => request.path.endsWith("/doc-1/cancel")),
+      ).toBe(true),
+    );
+  });
+
+  it("keeps the desktop sidebar open when Escape is pressed inside it", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "資料を調べる" });
+    setViewportWidth(1280);
+    const sidebar = document.querySelector("#workspace-sidebar")!;
+    fireEvent.keyDown(sidebar, { key: "Escape" });
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "サイドバーを閉じる" }),
+      ).toHaveAttribute("aria-expanded", "true"),
+    );
   });
 });

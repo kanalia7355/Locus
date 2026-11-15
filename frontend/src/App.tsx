@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { FormEvent, ReactNode } from "react";
+import type { FormEvent, ReactNode, Ref } from "react";
 import {
   ArrowUp,
   ChevronDown,
@@ -12,7 +12,16 @@ import {
   UserX,
   X,
 } from "lucide-react";
-import { api, errorText, json, statusName } from "./api";
+import {
+  api,
+  errorText,
+  ingesting,
+  isEventStream,
+  json,
+  statusName,
+  streamEvents,
+  streamRequest,
+} from "./api";
 import { RelatedDocuments } from "./RelatedDocuments";
 import { StructuredCitationText } from "./StructuredCitationText";
 import { IngestionProgress } from "./IngestionProgress";
@@ -81,12 +90,14 @@ function IconButton({
   onClick,
   children,
   disabled = false,
+  buttonRef,
   ...rest
 }: {
   label: string;
   onClick?: () => void;
   children: ReactNode;
   disabled?: boolean;
+  buttonRef?: Ref<HTMLButtonElement>;
   type?: "button" | "submit";
   "aria-expanded"?: boolean;
   "aria-controls"?: string;
@@ -99,6 +110,7 @@ function IconButton({
       title={label}
       onClick={onClick}
       disabled={disabled}
+      ref={buttonRef}
       {...rest}
     >
       {children}
@@ -274,6 +286,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
       window.innerWidth >= 768,
   );
   const [documents, setDocuments] = useState<Document[]>([]);
+  const [documentQuery, setDocumentQuery] = useState("");
   const [history, setHistory] = useState<Conversation[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -292,7 +305,9 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
     text: string;
     status: "queued" | "running";
     cancelRequested: boolean;
+    streaming?: boolean;
   } | null>(null);
+  const [streamedAnswer, setStreamedAnswer] = useState("");
   const [cancelledJob, setCancelledJob] = useState<{
     conversation: string;
     text: string;
@@ -308,6 +323,9 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
   const fileInput = useRef<HTMLInputElement>(null);
   const personalInput = useRef<HTMLInputElement>(null);
   const sourceClose = useRef<HTMLButtonElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const sidebarToggle = useRef<HTMLButtonElement>(null);
+  const lastPage = useRef(page);
   const sourceTarget = useRef<HTMLDivElement>(null);
   const sourceTrigger = useRef<HTMLElement | null>(null);
   const sourceRequest = useRef(0);
@@ -388,7 +406,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
     if (
       page !== "ingestion" ||
       !projectId ||
-      !documents.some((doc) => ["queued", "scanning"].includes(doc.status))
+      !documents.some((doc) => ingesting(doc.status))
     )
       return;
     const controller = new AbortController();
@@ -447,14 +465,14 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
 
   useEffect(() => {
     if (
-      !attachments.some((item) => ["queued", "scanning"].includes(item.status))
+      !attachments.some((item) => ingesting(item.status))
     )
       return;
     const timer = setInterval(() => {
       void Promise.all(
         attachments
           .filter(
-            (item) => item.id && ["queued", "scanning"].includes(item.status),
+            (item) => item.id && ingesting(item.status),
           )
           .map(async (item) => {
             const doc = await api<Document>(
@@ -476,10 +494,13 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
   const pendingJobId = pendingJob?.id;
   const pendingConversation = pendingJob?.conversation;
   const pendingText = pendingJob?.text;
+  const pendingStreaming = pendingJob?.streaming ?? false;
   const pendingJobIdRef = useRef<string | null>(null);
   pendingJobIdRef.current = pendingJobId ?? null;
   useEffect(() => {
     if (!pendingJobId || !pendingConversation || !pendingText) return;
+    // A streamed dialogue reports its own progress and outcome over SSE.
+    if (pendingStreaming) return;
     const job = {
       id: pendingJobId,
       conversation: pendingConversation,
@@ -512,7 +533,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
                     !controller.signal.aborted &&
                     conversationRef.current === status.conversation_id
                   )
-                    setMessages(conv.messages);
+                    setMessages(conv.messages ?? []);
                 })
                 .catch((error) => setError(errorText(error)));
             } else
@@ -543,7 +564,15 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
       clearInterval(timer);
       controller.abort();
     };
-  }, [pendingJobId, pendingConversation, pendingText]);
+  }, [pendingJobId, pendingConversation, pendingText, pendingStreaming]);
+
+  useEffect(() => {
+    if (lastPage.current === page) return;
+    lastPage.current = page;
+    // The heading is the first element of the new page, so keyboard and
+    // screen reader users continue from the content that replaced it.
+    headingRef.current?.focus();
+  }, [page]);
 
   useEffect(() => {
     if (source?.selectedChunk && sourceTarget.current) {
@@ -689,6 +718,81 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
       setError(errorText(error));
     }
   }
+  async function sendStreamed(
+    id: string,
+    question: {
+      text: string;
+      scope: string;
+      attachment_ids: (string | undefined)[];
+    },
+  ): Promise<boolean> {
+    // Returns false when the answer must be requested the ordinary way: an
+    // unavailable stream, a busy model slot, or a browser without streams.
+    let response: Response;
+    try {
+      response = await streamRequest(
+        `/conversations/${id}/messages/stream`,
+        question,
+      );
+    } catch {
+      return false;
+    }
+    if (!isEventStream(response)) return false;
+    let streamed = false;
+    let queued: typeof pendingJob = null;
+    try {
+      for await (const part of streamEvents(response)) {
+        if (part.event === "start") {
+          setStreamedAnswer("");
+          setPendingJob({
+            id: String(part.data.job_id ?? ""),
+            conversation: id,
+            text: question.text,
+            status: "running",
+            cancelRequested: false,
+            streaming: true,
+          });
+        } else if (part.event === "delta") {
+          setStreamedAnswer((current) => current + String(part.data.text ?? ""));
+        } else if (part.event === "message") {
+          setMessages((items) => [...items, part.data as unknown as Message]);
+          streamed = true;
+        } else if (part.event === "cancelled") {
+          setCancelledJob({ conversation: id, text: question.text });
+          setNotice("質問を取り消しました。");
+          streamed = true;
+        } else if (part.event === "queued") {
+          // The slot was taken after the stream opened, so the server put this
+          // question in the waiting line. Resending it would charge the
+          // per-user dialogue budget twice for one question.
+          queued = {
+            id: String(part.data.job_id ?? ""),
+            conversation: id,
+            text: question.text,
+            status: "queued" as const,
+            cancelRequested: false,
+          };
+          streamed = true;
+        } else if (part.event === "error") {
+          setError(
+            `回答を生成できませんでした。${String(part.data.detail ?? "")}`,
+          );
+          streamed = true;
+        }
+      }
+    } catch (error) {
+      setError(
+        `逐次表示が途切れました。回答は調査履歴から確認できます。${errorText(error)}`,
+      );
+      streamed = true;
+    } finally {
+      // A queued question keeps its waiting entry; the status poll takes over
+      // from here because the stream is closed.
+      setPendingJob(queued);
+      setStreamedAnswer("");
+    }
+    return streamed;
+  }
   async function send(event: FormEvent) {
     event.preventDefault();
     if (!draft.trim() || busy || pendingJob || !can("retrieve")) return;
@@ -703,13 +807,19 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
     setBusy(true);
     try {
       const id = await ensureConversation();
+      const question = {
+        text: draft,
+        scope,
+        attachment_ids: attachments.map((item) => item.id),
+      };
+      if (await sendStreamed(id, question)) {
+        setDraft("");
+        await reload();
+        return;
+      }
       const response = await api<Message | ChatJobAccepted>(
         `/conversations/${id}/messages`,
-        json("POST", {
-          text: draft,
-          scope,
-          attachment_ids: attachments.map((item) => item.id),
-        }),
+        json("POST", question),
       );
       if ("job_id" in response) {
         // The model slot was busy: the question waits in line and its answer
@@ -758,9 +868,9 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
       conversationRef.current = id;
       setCancelledJob(null);
       setConversationId(id);
-      setMessages(conv.messages);
+      setMessages(conv.messages ?? []);
       setAttachments(
-        conv.attachments.map((doc) => ({
+        (conv.attachments ?? []).map((doc) => ({
           key: doc.id,
           id: doc.id,
           name: doc.name,
@@ -831,6 +941,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
         <IconButton
           label={sidebar ? "サイドバーを閉じる" : "サイドバーを開く"}
           onClick={toggleSidebar}
+          buttonRef={sidebarToggle}
           aria-expanded={sidebar}
           aria-controls="workspace-sidebar"
         >
@@ -876,6 +987,16 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
         className="sidebar"
         inert={!sidebar}
         aria-hidden={!sidebar}
+        onKeyDown={(event) => {
+          // The overlay navigation is the mobile-only layout (the CSS
+          // breakpoint is 768px). On wide viewports the sidebar belongs to
+          // the page and must not collapse.
+          if (event.key !== "Escape" || !sidebar || window.innerWidth >= 768)
+            return;
+          event.stopPropagation();
+          setSidebar(false);
+          sidebarToggle.current?.focus();
+        }}
       >
         <nav aria-label="メインメニュー">
           <p className="nav-heading">資料・調査</p>
@@ -924,7 +1045,9 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
       )}
       <main className="main">
         <div className="page-heading">
-          <h1>{labels[page]}</h1>
+          <h1 ref={headingRef} tabIndex={-1}>
+            {labels[page]}
+          </h1>
           {page === "chat" && (
             <IconButton label="新規会話" disabled={busy} onClick={newChat}>
               <SquarePen size={20} />
@@ -1039,16 +1162,31 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
                 </article>
               )}
               {pendingJob && pendingJob.conversation === conversationId && (
-                <article className="exchange">
+                <article className="exchange" aria-busy={true}>
                   <p className="user-message">{pendingJob.text}</p>
                   <div className="answer">
                     <p role="status">
                       {pendingJob.cancelRequested
                         ? "質問の取り消しを受け付けました。処理終了後に結果を破棄します。"
-                        : pendingJob.status === "running"
-                          ? "回答を作成中です。完成するとこの会話に表示されます。"
-                          : "回答の生成は順番待ちです。モデルが空くと自動的に処理されます。"}
+                        : pendingJob.streaming
+                          ? "回答を作成中です。確定前の途中経過を表示しています。"
+                          : pendingJob.status === "running"
+                            ? "回答を作成中です。完成するとこの会話に表示されます。"
+                            : "回答の生成は順番待ちです。モデルが空くと自動的に処理されます。待ち位置は混雑により変動します。"}
                     </p>
+                    {streamedAnswer && (
+                      <>
+                        <h2>資料に基づく提案</h2>
+                        {/* The surrounding list is aria-live="polite", so the
+                            growing text is announced without a second region. */}
+                        <p style={{ whiteSpace: "pre-wrap" }}>
+                          {streamedAnswer}
+                        </p>
+                        <p className="footnote">
+                          生成中の未検証の提案です。確定後に出典と併せて確認してください。
+                        </p>
+                      </>
+                    )}
                     {!pendingJob.cancelRequested && (
                       <button
                         className="text-link"
@@ -1175,6 +1313,16 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
                     ? "本人のみが参照できる資料です。会話添付はここに自動登録されません。"
                     : "このプロジェクトで閲覧を許可された資料です。"}
               </p>
+              <label className="search-field">
+                <span className="visually-hidden">資料を検索</span>
+                <input
+                  type="search"
+                  value={documentQuery}
+                  onChange={(event) => setDocumentQuery(event.target.value)}
+                  placeholder="資料名で検索"
+                  aria-label="資料名で検索"
+                />
+              </label>
               <button
                 disabled={busy}
                 onClick={() => {
@@ -1216,9 +1364,11 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
             <DocumentList
               key={projectId}
               projectId={projectId}
-              documents={documents.filter(
-                (doc) => page === "ingestion" || doc.kind === page,
-              )}
+              documents={documents.filter((doc) => {
+                if (page !== "ingestion" && doc.kind !== page) return false;
+                const q = documentQuery.trim().toLowerCase();
+                return !q || doc.name.toLowerCase().includes(q);
+              })}
               canPublish={can("publish")}
               canManageRoles={can("manage_roles")}
               onSource={openSource}
@@ -1234,15 +1384,22 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
                 <div className="list-row" key={conv.id}>
                   <button
                     className="text-link"
+                    id={`conversation-${conv.id}`}
                     disabled={busy}
                     onClick={() => {
                       void openConversation(conv.id);
                     }}
                   >
-                    調査 ·{" "}
-                    {new Date(conv.created * 1000).toLocaleString("ja-JP")}
+                    <span className="conversation-preview">
+                      {conv.preview?.trim() || "調査"}
+                    </span>
+                    <span className="muted">
+                      {" "}
+                      {new Date(conv.created * 1000).toLocaleString("ja-JP")}
+                    </span>
                   </button>
                   <button
+                    aria-describedby={`conversation-${conv.id}`}
                     onClick={() => {
                       void api(`/conversations/${conv.id}`, json("DELETE"))
                         .then(() => {
@@ -1290,7 +1447,9 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
               取り込みは1件ずつ処理し、全体32件・一人4件まで受付します。安全のための開発上限であり、性能保証ではありません。
             </p>
             <h2>本番運用</h2>
-            <p>LAN公開、回復、管理委任、保存期間は承認待ちです。</p>
+            <p>
+              LAN公開、回復、組織単位の委任拡張、保存期間は承認待ちです。プロジェクト単位の権限委任は「管理委任」から設定できます。
+            </p>
           </div>
         )}
       </main>
@@ -1309,13 +1468,14 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
             onKeyDown={(event) => {
               if (event.key === "Escape") closeSource();
               if (event.key === "Tab") {
-                const controls =
-                  event.currentTarget.querySelectorAll<HTMLButtonElement>(
-                    "button:not(:disabled)",
-                  );
+                const controls = Array.from(
+                  event.currentTarget.querySelectorAll<HTMLElement>(
+                    'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+                  ),
+                ).filter((control) => control.getClientRects().length > 0);
                 const first = controls[0];
                 const last = controls[controls.length - 1];
-                const inside = Array.from(controls).some(
+                const inside = controls.some(
                   (control) => control === document.activeElement,
                 );
                 if (!inside) {
@@ -1458,6 +1618,7 @@ function DocumentList({
             <div>
               <button
                 className="text-link file-name"
+                id={`document-name-${doc.id}`}
                 disabled={doc.status !== "ready"}
                 onClick={() => {
                   void onSource(doc.id);
@@ -1472,9 +1633,10 @@ function DocumentList({
             </div>
           </div>
           <div className="document-actions">
-            {doc.owned && ["queued", "scanning"].includes(doc.status) && (
+            {doc.owned && ingesting(doc.status) && (
               <button
                 disabled={pending}
+                aria-describedby={`document-name-${doc.id}`}
                 onClick={() => {
                   void act(() =>
                     api(`/documents/${doc.id}/cancel`, json("POST")),
@@ -1487,6 +1649,7 @@ function DocumentList({
             {doc.owned && canPublish && doc.kind !== "attachment" && (
               <button
                 disabled={pending}
+                aria-describedby={`document-name-${doc.id}`}
                 onClick={() => {
                   setPublication(publication === doc.id ? null : doc.id);
                   setRole("researcher");
@@ -1499,6 +1662,7 @@ function DocumentList({
             {doc.owned && (
               <button
                 disabled={pending}
+                aria-describedby={`document-name-${doc.id}`}
                 onClick={() => {
                   void act(() => api(`/documents/${doc.id}`, json("DELETE")));
                 }}
@@ -1675,7 +1839,7 @@ function RoleEditor({
   return (
     <div className="role-editor">
       <p className="muted">
-        ロールは現在のプロジェクト内で有効です。管理権限の委任は無効です。
+        ロールは現在のプロジェクト内で有効です。管理操作の権限は委任できません。
       </p>
       {notice && <p role="status">{notice}</p>}
       <label>

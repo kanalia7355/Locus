@@ -419,3 +419,195 @@ def test_120_total_deadline_exceeded_releases_lock_without_retry(monkeypatch):
     assert error.value.status_code == 502 and len(calls) == 1
     assert runtime.lock.acquire(blocking=False)
     runtime.lock.release()
+
+
+def fragments(model: str, parts: list[str]) -> list[bytes]:
+    """Ollama streams one JSON object per line and a final completion line."""
+    lines = [
+        json.dumps({"model": model, "done": False, "message": {"role": "assistant", "content": p}})
+        for p in parts
+    ]
+    lines.append(
+        json.dumps({"model": model, "done": True, "message": {"role": "assistant", "content": ""}})
+    )
+    return [line.encode() + b"\n" for line in lines]
+
+
+def streamed(client, conversation, text: str = "成膜条件"):
+    return client.stream(
+        "POST",
+        f"/api/conversations/{conversation}/messages/stream",
+        json={"text": text, "scope": "all"},
+        headers=ORIGIN,
+    )
+
+
+def events(response) -> list[tuple[str, dict]]:
+    collected: list[tuple[str, dict]] = []
+    name = ""
+    for line in response.iter_lines():
+        if line.startswith("event: "):
+            name = line.removeprefix("event: ")
+        elif line.startswith("data: "):
+            collected.append((name, json.loads(line.removeprefix("data: "))))
+    return collected
+
+
+def test_streamed_dialogue_arrives_in_fragments_and_commits_one_answer(service: Service):
+    parts = ["合成資料", "からの", "提案"]
+
+    def handler(request):
+        payload = json.loads(request.content)
+        assert payload["stream"] is True and "tools" not in payload
+        assert str(request.url) == "http://127.0.0.1:11434/api/chat"
+        assert "authorization" not in request.headers
+
+        async def body():
+            for chunk in fragments("fixture:latest", parts):
+                yield chunk
+
+        return httpx.Response(200, content=body())
+
+    admin, alice, conv, _ = setup(service, handler)
+    with streamed(alice, conv) as response:
+        assert response.status_code == 200, response.read()
+        assert response.headers["content-type"].startswith("text/event-stream")
+        received = events(response)
+    names = [name for name, _ in received]
+    assert names[0] == "start" and names[-1] == "message"
+    assert [data["text"] for name, data in received if name == "delta"] == parts
+    job = received[0][1]["job_id"]
+    answer = received[-1][1]
+    assert answer["answer"] == "".join(parts) and answer["citations"]
+    messages = alice.get(f"/api/conversations/{conv}").json()["messages"]
+    assert len(messages) == 1 and messages[0]["answer"] == "".join(parts)
+    assert alice.get(f"/api/chat-jobs/{job}").json()["status"] == "done"
+    assert "".join(parts) not in admin.get("/api/admin/audit").text
+
+
+def test_cancelled_stream_stops_and_stores_no_answer(service: Service):
+    delivered = []
+
+    def handler(request):
+        async def body():
+            for chunk in fragments("fixture:latest", ["最初の断片", "二番目の断片", "三番目"]):
+                delivered.append(chunk)
+                yield chunk
+                if len(delivered) == 1:
+                    # The owner cancels while the reply is still arriving.
+                    job = service.conn.execute(
+                        "SELECT id,user_id FROM chat_jobs WHERE status='running'"
+                    ).fetchone()
+                    principal = service.authenticate(alice.cookies.get("locus_session"))
+                    assert job["user_id"] == principal.id
+                    service.cancel_chat_job(principal, job["id"])
+                    # The cancellation check between fragments is throttled.
+                    await asyncio.sleep(0.4)
+
+        return httpx.Response(200, content=body())
+
+    admin, alice, conv, _ = setup(service, handler)
+    with streamed(alice, conv) as response:
+        assert response.status_code == 200
+        received = events(response)
+    names = [name for name, _ in received]
+    assert names[0] == "start" and names[-1] == "cancelled"
+    job = received[0][1]["job_id"]
+    # Interrupted mid-reply: fragments were shown, and the rest never arrived.
+    assert 0 < len([name for name in names if name == "delta"]) < 3
+    assert len(delivered) < 4
+    assert alice.get(f"/api/conversations/{conv}").json()["messages"] == []
+    assert alice.get(f"/api/chat-jobs/{job}").json()["status"] == "cancelled"
+    assert service.conn.execute("SELECT COUNT(*) FROM generated_answers").fetchone()[0] == 0
+
+
+def test_stream_refuses_other_conversations_and_unconfigured_models(service: Service):
+    def handler(request):
+        pytest.fail("A refused stream must not reach the model")
+
+    admin, alice, conv, runtime = setup(service, handler)
+    bob = TestClient(alice.app, base_url="http://127.0.0.1", client=("127.0.0.1", 50000))
+    login(bob, "bob", "03")
+    with streamed(bob, conv) as response:
+        assert response.status_code in {403, 404}
+        assert not response.headers["content-type"].startswith("text/event-stream")
+    assert service.conn.execute("SELECT COUNT(*) FROM chat_jobs").fetchone()[0] == 0
+    assert (
+        admin.put(
+            "/api/admin/models/runtime",
+            json={"candidate_id": None, "local_only_confirmed": True},
+            headers=ORIGIN,
+        ).status_code
+        == 200
+    )
+    with streamed(alice, conv) as response:
+        # Without a configured model the caller falls back to the ordinary request.
+        assert response.status_code == 409
+    assert service.conn.execute("SELECT COUNT(*) FROM chat_jobs").fetchone()[0] == 0
+
+
+def test_stream_declines_a_busy_slot_so_the_caller_keeps_the_waiting_line(service: Service):
+    def handler(request):
+        pytest.fail("A declined stream must not reach the model")
+
+    _, alice, conv, runtime = setup(service, handler)
+    assert runtime.lock.acquire(blocking=False)
+    try:
+        with streamed(alice, conv) as response:
+            assert response.status_code == 409
+    finally:
+        runtime.lock.release()
+    assert service.conn.execute("SELECT COUNT(*) FROM chat_jobs").fetchone()[0] == 0
+
+
+def test_stream_degrades_to_one_fragment_for_a_daemon_that_ignores_streaming(service: Service):
+    answer = "一括で返す合成回答"
+
+    def handler(request):
+        assert json.loads(request.content)["stream"] is True
+        return httpx.Response(
+            200,
+            content=json.dumps(
+                {
+                    "model": "fixture:latest",
+                    "done": True,
+                    "message": {"role": "assistant", "content": answer},
+                }
+            ).encode(),
+        )
+
+    _, alice, conv, _ = setup(service, handler)
+    with streamed(alice, conv) as response:
+        assert response.status_code == 200
+        received = events(response)
+    assert [data["text"] for name, data in received if name == "delta"] == [answer]
+    assert received[-1][0] == "message" and received[-1][1]["answer"] == answer
+    assert alice.get(f"/api/conversations/{conv}").json()["messages"][0]["answer"] == answer
+
+
+def test_slot_taken_after_the_probe_joins_the_line_without_a_second_charge(service: Service):
+    def handler(request):
+        pytest.fail("A question that found no free slot must not reach the model")
+
+    _, alice, conv, runtime = setup(service, handler)
+    principal = service.authenticate(alice.cookies.get("locus_session"))
+    # Reproduce the race the advisory probe cannot close: the slot is free when
+    # the request is accepted and taken by the time the model is called.
+    assert runtime.lock.acquire(blocking=False)
+    runtime.available = lambda: True
+    try:
+        with streamed(alice, conv) as response:
+            assert response.status_code == 200
+            received = events(response)
+    finally:
+        runtime.lock.release()
+    assert [name for name, _ in received] == ["start", "queued"]
+    waiting = received[-1][1]
+    assert waiting["status"] == "queued" and waiting["text"] == "成膜条件"
+    assert waiting["job_id"] != received[0][1]["job_id"]
+    assert alice.get(f"/api/chat-jobs/{waiting['job_id']}").json()["status"] == "queued"
+    # The question is in the line the caller already paid for: one charge, not two.
+    assert len(service.limits["chat:" + principal.id]) == 1
+    assert service.conn.execute(
+        "SELECT status FROM chat_jobs WHERE id=?", (received[0][1]["job_id"],)
+    ).fetchone()[0] in {"failed", "cancelled"}

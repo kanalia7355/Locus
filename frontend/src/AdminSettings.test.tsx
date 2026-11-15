@@ -284,6 +284,42 @@ it("adds membership denials through PH2-B and retains selection after an error",
   expect(permission).toHaveValue("");
 });
 
+it("displays delegated permissions separately and reflects explicit denials in effective permissions", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      requests.push({ path });
+      if (path.endsWith("/admin/projects"))
+        return respond([
+          {
+            ...project,
+            members: [
+              {
+                user_id: "user-b",
+                username: "bob",
+                role: "viewer",
+                roles: ["viewer"],
+                delegated_permissions: ["upload", "publish"],
+                denied_permissions: ["publish"],
+                effective_permissions: ["read", "retrieve", "upload"],
+              },
+            ],
+          },
+        ]);
+      if (path.endsWith("/admin/users")) return respond(users);
+      return respond({});
+    }),
+  );
+  render(<AdminProjects />);
+  await screen.findByRole("heading", { name: "合成プロジェクト" });
+  expect(
+    screen.getByText("実効権限（各ロールの和集合、拒否を適用後）: 閲覧・チャット参照・資料追加"),
+  ).toBeVisible();
+  expect(screen.getByText("委任中の権限: 資料追加・資料公開")).toBeVisible();
+  expect(screen.getByText("明示的な拒否: 資料公開")).toBeVisible();
+});
+
 it("shows local storage status and keeps external storage explicitly denied", async () => {
   vi.stubGlobal(
     "fetch",
@@ -442,6 +478,7 @@ it("displays only load metadata and reports refresh failures", async () => {
           queued: 2,
           limit: 16,
           per_user_limit: 2,
+          queued_per_user: [1, 1],
           running_job: { id: "job-1", username: "alice", started_at: 100 },
         },
       });
@@ -450,6 +487,7 @@ it("displays only load metadata and reports refresh failures", async () => {
   render(<AdminLoad />);
   expect(await screen.findByText(/alice · job-1/)).toBeVisible();
   expect(screen.getByText("2 / 16件")).toBeVisible();
+  expect(screen.getByText("待機中の利用者ごとの件数").nextElementSibling).toHaveTextContent("1件、1件");
   expect(
     screen.getByText("一人あたりの待ち上限").parentElement,
   ).not.toHaveTextContent("private question");

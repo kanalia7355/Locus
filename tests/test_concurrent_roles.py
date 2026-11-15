@@ -257,6 +257,7 @@ def test_system_admin_can_manage_holdings_in_unassigned_project_with_non_admin_r
     state = admin.get("/api/projects/unassigned-project/members/alice/roles", headers=ORIGIN).json()
     assert state["roles"] == ["researcher"]
     assert state["denied_permissions"] == ["retrieve"]
+    assert state["delegated_permissions"] == []
     assert state["effective_permissions"] == ["read", "upload"]
     assert (
         admin.post(
@@ -265,6 +266,55 @@ def test_system_admin_can_manage_holdings_in_unassigned_project_with_non_admin_r
         ).status_code
         == 422
     )
+
+
+def test_effective_permissions_preview_exposes_delegation_and_respects_explicit_denials(
+    service: Service,
+) -> None:
+    admin, alice = client_for(service), client_for(service)
+    login(admin, "admin", "01")
+    login(alice)
+    service.assign("alice", "project-a", "organization_admin")
+    users = admin.get("/api/admin/users").json()
+    bob_id = next(item["id"] for item in users if item["username"] == "bob")
+    alice_token = alice.cookies.get("locus_session")
+    alice_actor = service.authenticate(alice_token)
+    service.create_delegation(alice_actor, alice_token, "project-a", bob_id, ["upload"])
+
+    roles_preview = admin.get("/api/projects/project-a/members/bob/roles").json()
+    assert roles_preview["roles"] == ["viewer"]
+    assert roles_preview["delegated_permissions"] == ["upload"]
+    assert roles_preview["denied_permissions"] == []
+    assert roles_preview["effective_permissions"] == ["read", "retrieve", "upload"]
+
+    project_a = next(
+        item for item in admin.get("/api/admin/projects").json() if item["id"] == "project-a"
+    )
+    bob_member = next(item for item in project_a["members"] if item["username"] == "bob")
+    assert bob_member["delegated_permissions"] == ["upload"]
+    assert bob_member["effective_permissions"] == ["read", "retrieve", "upload"]
+
+    denied = admin.put(
+        "/api/projects/project-a/members/bob/denials",
+        headers=ORIGIN,
+        json={"denied_permissions": ["upload"]},
+    )
+    assert denied.status_code == 200
+
+    roles_after_deny = admin.get("/api/projects/project-a/members/bob/roles").json()
+    assert roles_after_deny["delegated_permissions"] == ["upload"]
+    assert roles_after_deny["denied_permissions"] == ["upload"]
+    assert roles_after_deny["effective_permissions"] == ["read", "retrieve"]
+
+    project_after_deny = next(
+        item for item in admin.get("/api/admin/projects").json() if item["id"] == "project-a"
+    )
+    bob_after_deny = next(
+        item for item in project_after_deny["members"] if item["username"] == "bob"
+    )
+    assert bob_after_deny["delegated_permissions"] == ["upload"]
+    assert bob_after_deny["denied_permissions"] == ["upload"]
+    assert bob_after_deny["effective_permissions"] == ["read", "retrieve"]
 
 
 def test_role_update_denials_and_built_in_roles_remain_protected(service: Service) -> None:
@@ -301,3 +351,69 @@ def test_role_update_denials_and_built_in_roles_remain_protected(service: Servic
         ).status_code
         == 422
     )
+
+
+def test_concurrent_role_deny_overrides_active_delegation_immediately(service: Service) -> None:
+    admin, owner_client, bob = client_for(service), client_for(service), client_for(service)
+    login(admin, "admin", "01")
+    login(owner_client, "alice", "02")
+    login(bob, "bob", "03")
+    service.assign("alice", "project-a", "project_lead")
+    owner = service.authenticate(owner_client.cookies.get("locus_session"))
+    with service.db() as db:
+        db.execute(
+            "INSERT INTO project_owners (project_id,user_id) VALUES (?,?)",
+            ("project-a", owner.id),
+        )
+    bob_actor = service.authenticate(bob.cookies.get("locus_session"))
+    grant = owner_client.post(
+        "/api/admin/delegations",
+        headers=ORIGIN,
+        json={
+            "project_id": "project-a",
+            "recipient_id": bob_actor.id,
+            "permissions": ["read", "retrieve", "upload"],
+        },
+    )
+    assert grant.status_code == 201
+
+    def upload() -> int:
+        return bob.post(
+            "/api/documents",
+            headers=ORIGIN,
+            json={
+                "project_id": "project-a",
+                "name": "delegated-upload.txt",
+                "content": "synthetic delegated upload",
+                "kind": "personal",
+            },
+        ).status_code
+
+    # The active delegation alone is enough for the backend to accept an upload
+    assert upload() == 201
+
+    # Bob has viewer role + active delegation for upload, but adding a concurrent role
+    # that explicitly denies retrieve/upload immediately removes them from effective permissions.
+    deny_role = admin.post(
+        "/api/projects/project-a/roles",
+        headers=ORIGIN,
+        json={
+            "name": "concurrent-deny-retrieve-upload",
+            "permissions": [],
+            "denied_permissions": ["retrieve", "upload"],
+        },
+    ).json()["id"]
+    assert (
+        admin.post(
+            f"/api/projects/project-a/members/bob/roles/{deny_role}", headers=ORIGIN
+        ).status_code
+        == 204
+    )
+    preview = admin.get("/api/projects/project-a/members/bob/roles").json()
+    assert set(preview["delegated_permissions"]) == {"read", "retrieve", "upload"}
+    # Role-scoped denials stay on the role, yet they subtract from the effective set.
+    assert preview["denied_permissions"] == []
+    assert preview["effective_permissions"] == ["read"]
+
+    # The backend, not UI hiding, enforces the concurrent role denial immediately.
+    assert upload() == 403

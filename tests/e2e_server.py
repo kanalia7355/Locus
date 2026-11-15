@@ -1,5 +1,6 @@
 """Ephemeral synthetic test fixture, never an application deployment entrypoint."""
 
+import json
 import os
 import tempfile
 from pathlib import Path
@@ -34,7 +35,12 @@ def main() -> None:
                     + "\f【合成資料の第2頁】\nuniqueanchor は出典移動の検証語です。"
                 )
                 with service.db() as db:
-                    db.execute("UPDATE documents SET content=? WHERE id=?", (content, document))
+                    # The seeded content was already indexed, so its checkpoint
+                    # has to be cleared for the replacement to be indexed whole.
+                    db.execute(
+                        "UPDATE documents SET content=?,index_checkpoint=0 WHERE id=?",
+                        (content, document),
+                    )
                     service._index(
                         db, db.execute("SELECT * FROM documents WHERE id=?", (document,)).fetchone()
                     )
@@ -64,29 +70,43 @@ def main() -> None:
                 )
             ),
         )
+        answer = "合成資料から生成したテスト用の提案です。<script>実行しない</script>"
+
+        def reply(request: httpx.Request) -> httpx.Response:
+            """Fixed synthetic reply; streamed in fragments when asked to stream."""
+            document = {
+                "model": "synthetic-ollama:latest",
+                "done": True,
+                "message": {"role": "assistant", "content": answer},
+            }
+            if not json.loads(request.content).get("stream"):
+                return httpx.Response(200, json=document)
+            half = len(answer) // 2
+            lines = [
+                {
+                    "model": "synthetic-ollama:latest",
+                    "done": False,
+                    "message": {"role": "assistant", "content": part},
+                }
+                for part in (answer[:half], answer[half:])
+            ] + [
+                {
+                    "model": "synthetic-ollama:latest",
+                    "done": True,
+                    "message": {"role": "assistant", "content": ""},
+                }
+            ]
+            body = "".join(json.dumps(line, ensure_ascii=False) + "\n" for line in lines)
+            return httpx.Response(
+                200, content=body.encode(), headers={"Content-Type": "application/x-ndjson"}
+            )
+
         try:
             uvicorn.run(
                 create_app(
                     service=service,
                     model_catalog=catalog,
-                    local_model=LocalModel(
-                        transport=httpx.MockTransport(
-                            lambda request: httpx.Response(
-                                200,
-                                json={
-                                    "model": "synthetic-ollama:latest",
-                                    "done": True,
-                                    "message": {
-                                        "role": "assistant",
-                                        "content": (
-                                            "合成資料から生成したテスト用の提案です。"
-                                            "<script>実行しない</script>"
-                                        ),
-                                    },
-                                },
-                            )
-                        )
-                    ),
+                    local_model=LocalModel(transport=httpx.MockTransport(reply)),
                 ),
                 host="127.0.0.1",
                 port=8000,
