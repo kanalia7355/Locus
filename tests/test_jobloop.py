@@ -322,6 +322,8 @@ def test_the_implementer_brief_states_the_boundary_and_the_skills(tmp_path: Path
         "needs-owner-decision",
         ".agents/skills/verification-before-completion/SKILL.md",
         task.test_command,
+        "authoritative",
+        "合成ジョブ",
     ):
         assert expected in brief
     review = prompts.reviewer_brief(

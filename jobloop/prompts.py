@@ -38,7 +38,9 @@ This is attempt {attempt} of {ATTEMPT_LIMIT}.
 
 Read these first, in this order:
 1. `AGENTS.md` and the governance files it points to.
-2. The job file `{task.path.as_posix()}` — its TASK DEFINITION is authoritative.
+2. The job text reproduced at the end of this brief. It is the authoritative
+   copy — the file in your worktree may be an older revision, so where they
+   differ, this brief wins.
 3. The existing code the job touches, before you change any of it.
 4. These skills, and actually follow them: {", ".join(SKILLS)}.
 
@@ -70,7 +72,11 @@ STATUS
   need answered, written out in full. Never copy this instruction's wording as
   your question, and never report a question you have not actually got.
 
-{BOUNDARY}"""
+{BOUNDARY}
+
+--- job text ({task.path.name}, authoritative) ---
+{task.body.strip()[:12000]}
+--- end of job text ---"""
 
 
 def reviewer_brief(task: Task, *, diff: str, evidence: str, repository: str) -> str:
