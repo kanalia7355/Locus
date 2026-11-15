@@ -739,6 +739,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
     }
     if (!isEventStream(response)) return false;
     let streamed = false;
+    let queued: typeof pendingJob = null;
     try {
       for await (const part of streamEvents(response)) {
         if (part.event === "start") {
@@ -760,8 +761,18 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
           setCancelledJob({ conversation: id, text: question.text });
           setNotice("質問を取り消しました。");
           streamed = true;
-        } else if (part.event === "fallback") {
-          return false;
+        } else if (part.event === "queued") {
+          // The slot was taken after the stream opened, so the server put this
+          // question in the waiting line. Resending it would charge the
+          // per-user dialogue budget twice for one question.
+          queued = {
+            id: String(part.data.job_id ?? ""),
+            conversation: id,
+            text: question.text,
+            status: "queued" as const,
+            cancelRequested: false,
+          };
+          streamed = true;
         } else if (part.event === "error") {
           setError(
             `回答を生成できませんでした。${String(part.data.detail ?? "")}`,
@@ -775,7 +786,9 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
       );
       streamed = true;
     } finally {
-      setPendingJob(null);
+      // A queued question keeps its waiting entry; the status poll takes over
+      // from here because the stream is closed.
+      setPendingJob(queued);
       setStreamedAnswer("");
     }
     return streamed;

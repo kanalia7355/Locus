@@ -128,6 +128,14 @@
   **1 応答 ≒ 30 秒以内**（`CHAT_WAIT_SECONDS=300` による）。10 人が各 2 件出すと全体上限 16 を超える。
   資料形式は現状 UTF-8 の txt/md/csv・256 KiB のみで、PDF/Office/バイナリは Phase 3 繰延（要 owner 承認）。
   → 2 件を owner 判断事項として `T-PH4-105` に記録。
+- 16:55 JST: **独立レビュー（別モデル `claude-sonnet-5`・読取専用）を実施**（owner 指示）。対象は本サイクル全体
+  `4d07db3..HEAD`。結果 **APPROVED（阻害なし）＋ 非阻害 2 件**。2 件とも即日修正:
+  (1) Medium: SSE 開始後にスロットが取られた場合のレート上限二重計上 →
+      クライアント再送をやめ、サーバ側で待機列へ投入して `event: queued` を返す方式に変更
+      （計上 1 回を検証するテストを追加、`event: fallback` は廃止）。
+  (2) Low: `T-PH4-102` / `T-PH4-103` の `allowed_paths` が実際の変更範囲と乖離 →
+      frontmatter を実態に合わせ、改訂理由の表を各タスクに追記（監査可能性の回復）。
+  レビュアーが自力検証できなかった点（テストの再実行・CI の再確認）は所見どおり記録に残す。
 - 注意: `scripts/verify.py` の `python-tests` 予算は 120 秒で、Windows ローカルでは
   Python スイート（約 630 秒）が必ず `timeout` になる。ローカルではグループを直接実行して検証し、
   予算付き `verify.py` の判定は hosted CI を正本とする。

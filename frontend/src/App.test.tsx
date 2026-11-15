@@ -131,6 +131,52 @@ data: ${JSON.stringify(data)}
     ).toHaveLength(0);
   });
 
+  it("keeps a question the server queued mid-stream without resending it", async () => {
+    const frame = (event: string, data: unknown) =>
+      `event: ${event}
+data: ${JSON.stringify(data)}
+
+`;
+    const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (input, options) => {
+      const path = String(input);
+      requests.push({ path, options });
+      if (path.endsWith("/messages/stream"))
+        return new Response(
+          frame("start", { job_id: "stream-1" }) +
+            frame("queued", {
+              job_id: "job-2",
+              status: "queued",
+              text: "成膜",
+            }),
+          { status: 200, headers: { "Content-Type": "text/event-stream" } },
+        );
+      if (path.startsWith("/api/chat-jobs/"))
+        return new Response(
+          JSON.stringify({
+            id: "job-2",
+            conversation_id: "conversation",
+            status: "queued",
+            detail: "",
+            message_id: null,
+            cancel_requested: false,
+            created: 1,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      return originalFetch(input, options);
+    });
+    render(<App />);
+    const field = await screen.findByRole("textbox", { name: "メッセージ" });
+    await waitFor(() => expect(field).toBeEnabled());
+    fireEvent.change(field, { target: { value: "成膜" } });
+    fireEvent.click(screen.getByRole("button", { name: "送信" }));
+    expect(await screen.findByText(/順番待ちです/)).toBeVisible();
+    expect(
+      requests.filter((request) => request.path.endsWith("/messages")),
+    ).toHaveLength(0);
+  });
+
   it("falls back to the ordinary request when streaming is unavailable", async () => {
     const originalFetch = vi.mocked(fetch).getMockImplementation()!;
     vi.mocked(fetch).mockImplementation(async (input, options) => {

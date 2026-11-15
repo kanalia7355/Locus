@@ -454,8 +454,8 @@ def create_app(
             model, version, seconds = runtime.model, runtime.version, runtime.timeout_seconds
         token = request.cookies.get(COOKIE)
         if not model or token is None or not runtime.available():
-            # Advisory check only: a slot taken right after it keeps its own
-            # fallback path below, after the stream has already started.
+            # Advisory check only: a slot taken right after it joins the waiting
+            # line below, after the stream has already started.
             fail(409, "逐次表示は利用できません。通常の送信に切り替えます")
         job = svc.start_stream_chat(user, conversation, data.text, data.scope, data.attachment_ids)
         events: queue.Queue[tuple[str, Any]] = queue.Queue()
@@ -472,17 +472,60 @@ def create_app(
                     raise ChatCancelled()
             events.put(("delta", part))
 
-        def generate(text: str, citations: list[dict[str, Any]]) -> tuple[str, str]:
+        def model_call(
+            text: str, citations: list[dict[str, Any]], fragments: bool
+        ) -> tuple[str, str]:
             if not model:
                 fail(422, "ローカルモデルが有効になっていません")
             try:
                 return runtime.generate(
-                    model, text, citations, timeout_seconds=seconds, on_delta=on_delta
+                    model,
+                    text,
+                    citations,
+                    timeout_seconds=seconds,
+                    on_delta=on_delta if fragments else None,
                 )
             except HTTPException as exc:
                 if exc.status_code == 429 and exc.detail == "モデルは処理中です":
                     raise ModelBusy() from exc
                 raise
+
+        def generate(text: str, citations: list[dict[str, Any]]) -> tuple[str, str]:
+            return model_call(text, citations, True)
+
+        def generate_later(text: str, citations: list[dict[str, Any]]) -> tuple[str, str]:
+            # The worker answers a waiting question after this response is closed,
+            # so it must not try to push fragments into a finished stream.
+            return model_call(text, citations, False)
+
+        def wait_in_line() -> tuple[str, Any]:
+            """Queue the question the caller already paid for, instead of resending.
+
+            send() charges the per-user dialogue budget before it reaches the
+            model, so asking the browser to repeat the request would charge the
+            same question twice. The waiting line is entered here instead, with
+            the same no-extra-charge contract the worker's own retries use.
+            """
+            try:
+                return (
+                    "queued",
+                    {
+                        "job_id": svc.enqueue_chat(
+                            user,
+                            conversation,
+                            data.text,
+                            data.scope,
+                            data.attachment_ids,
+                            token=token or "",
+                            generate=generate_later,
+                            validate=lambda: runtime.validate(model or "", version, seconds),
+                        ),
+                        "status": "queued",
+                        "text": data.text,
+                    },
+                )
+            except HTTPException as exc:
+                return ("error", exc.detail if isinstance(exc.detail, str) else "送信できません")
 
         def answer() -> None:
             outcome: tuple[str, Any] = ("error", "対話の処理中に問題が発生しました")
@@ -502,7 +545,7 @@ def create_app(
             except ChatCancelled:
                 outcome = ("cancelled", None)
             except ModelBusy:
-                outcome = ("fallback", "モデルは処理中です")
+                outcome = ("busy", "モデルは処理中です")
             except HTTPException as exc:
                 outcome = ("error", exc.detail if isinstance(exc.detail, str) else "送信できません")
             except Exception:  # noqa: BLE001 — the reader must always be released
@@ -514,7 +557,11 @@ def create_app(
                         outcome[1] if isinstance(outcome[1], str) else "質問を取り消しました",
                     )
                     if state == "cancelled":
+                        # A requested cancellation outranks a busy slot: the
+                        # question is dropped rather than queued.
                         outcome = ("cancelled", None)
+                    elif outcome[0] == "busy":
+                        outcome = wait_in_line()
                 events.put(outcome)
 
         def frame(name: str, payload: Any) -> str:
@@ -543,8 +590,8 @@ def create_app(
                     yield frame("message", payload)
                 elif kind == "cancelled":
                     yield frame("cancelled", {"job_id": job})
-                elif kind == "fallback":
-                    yield frame("fallback", {"detail": payload})
+                elif kind == "queued":
+                    yield frame("queued", payload)
                 else:
                     yield frame("error", {"detail": payload})
                 return

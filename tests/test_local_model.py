@@ -583,3 +583,31 @@ def test_stream_degrades_to_one_fragment_for_a_daemon_that_ignores_streaming(ser
     assert [data["text"] for name, data in received if name == "delta"] == [answer]
     assert received[-1][0] == "message" and received[-1][1]["answer"] == answer
     assert alice.get(f"/api/conversations/{conv}").json()["messages"][0]["answer"] == answer
+
+
+def test_slot_taken_after_the_probe_joins_the_line_without_a_second_charge(service: Service):
+    def handler(request):
+        pytest.fail("A question that found no free slot must not reach the model")
+
+    _, alice, conv, runtime = setup(service, handler)
+    principal = service.authenticate(alice.cookies.get("locus_session"))
+    # Reproduce the race the advisory probe cannot close: the slot is free when
+    # the request is accepted and taken by the time the model is called.
+    assert runtime.lock.acquire(blocking=False)
+    runtime.available = lambda: True
+    try:
+        with streamed(alice, conv) as response:
+            assert response.status_code == 200
+            received = events(response)
+    finally:
+        runtime.lock.release()
+    assert [name for name, _ in received] == ["start", "queued"]
+    waiting = received[-1][1]
+    assert waiting["status"] == "queued" and waiting["text"] == "成膜条件"
+    assert waiting["job_id"] != received[0][1]["job_id"]
+    assert alice.get(f"/api/chat-jobs/{waiting['job_id']}").json()["status"] == "queued"
+    # The question is in the line the caller already paid for: one charge, not two.
+    assert len(service.limits["chat:" + principal.id]) == 1
+    assert service.conn.execute(
+        "SELECT status FROM chat_jobs WHERE id=?", (received[0][1]["job_id"],)
+    ).fetchone()[0] in {"failed", "cancelled"}
