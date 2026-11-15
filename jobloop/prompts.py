@@ -164,6 +164,11 @@ The change under review:
 {diff}
 ```
 
+The job text may quote findings from an earlier review round. Those are history,
+not evidence: the code may already have changed. Re-check every finding you are
+about to report against the diff above, and report only what you can point to in
+it. A restated finding that the diff contradicts is worse than no finding.
+
 Review in this order and use these skills: {", ".join(REVIEW_SKILLS)}.
 1. Security and boundaries: does the change weaken a permission check, an access
    rule, an audit record, a resource bound or the local-only rule?

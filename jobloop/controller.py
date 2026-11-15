@@ -394,7 +394,10 @@ class Controller:
                 f"implementer={model}",
             )
         task = self.set_fields(task, status="review", reviewer=f"opencode/{reviewer}")
-        diff = git(tree, "diff", "HEAD", check=False)[:60000]
+        # Mark new files as intent-to-add first: `git diff` omits untracked files,
+        # so a reviewer was shown a change with its new tests missing.
+        git(tree, "add", "--intent-to-add", "--all", check=False)
+        diff = git(tree, "diff", "HEAD", check=False)[:120000]
         evidence = "\n".join(f"- {gate.name}: {gate.detail[:300]}" for gate in checks)
         before = self.fingerprint(tree)
         verdict = self.dispatch(

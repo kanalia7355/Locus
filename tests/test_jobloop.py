@@ -311,6 +311,15 @@ def test_no_path_to_another_checkout_survives_in_a_brief(tmp_path: Path) -> None
     assert outside not in review and outside.replace("\\", "/") not in review
 
 
+def test_the_reviewer_is_told_that_quoted_findings_are_history(tmp_path: Path) -> None:
+    # A weak reviewer restated the previous round's findings, all three already
+    # fixed. The brief has to say the diff is the evidence, not the job text.
+    task = tasks.load_phase(phase_with_task(tmp_path)).tasks[0]
+    review = prompts.reviewer_brief(task, diff="d", evidence="e", repository="/ws")
+    assert "history" in review
+    assert "Re-check every finding" in review
+
+
 def test_the_brief_names_the_workspace_not_the_main_checkout(tmp_path: Path) -> None:
     # A brief that names the main checkout invites the worker to edit it, which
     # is how three containment failures happened on 2026-11-15.
