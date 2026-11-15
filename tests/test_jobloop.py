@@ -254,11 +254,11 @@ def controller_for(tmp_path: Path, models: list[str]) -> Controller:
     return Controller(settings_for(tmp_path), roster, clock=lambda: 0.0)
 
 
-def test_worktrees_live_outside_the_repository(tmp_path: Path) -> None:
-    # A worktree nested inside the repository is not isolated: a session started
-    # there resolves its project root to the main checkout.
+def test_job_workspaces_live_outside_the_repository(tmp_path: Path) -> None:
+    # A workspace inside the repository is not isolated: a session started there
+    # resolves its project root to the main checkout and edits it.
     settings = settings_for(tmp_path)
-    root = settings.worktree_root.resolve()
+    root = settings.workspace_root.resolve()
     assert settings.repository.resolve() not in root.parents
     assert root != settings.repository.resolve()
 
@@ -266,7 +266,7 @@ def test_worktrees_live_outside_the_repository(tmp_path: Path) -> None:
 def test_usage_exhaustion_rotates_without_spending_an_attempt(tmp_path: Path) -> None:
     phase_with_task(tmp_path)
     controller = controller_for(tmp_path, ["a-free", "b-free"])
-    controller.worktree = lambda task: tmp_path  # type: ignore[assignment]
+    controller.workspace = lambda task: tmp_path  # type: ignore[assignment]
     controller.dispatch = lambda model, prompt, **_: worker.Result(  # type: ignore[assignment]
         worker.Ending.EXHAUSTED, "", model, ["quota"]
     )
@@ -279,7 +279,7 @@ def test_usage_exhaustion_rotates_without_spending_an_attempt(tmp_path: Path) ->
 def test_a_worker_asking_for_a_decision_escalates_instead_of_guessing(tmp_path: Path) -> None:
     phase_with_task(tmp_path)
     controller = controller_for(tmp_path, ["a-free", "b-free"])
-    controller.worktree = lambda task: tmp_path  # type: ignore[assignment]
+    controller.workspace = lambda task: tmp_path  # type: ignore[assignment]
     controller.dispatch = lambda model, prompt, **_: worker.Result(  # type: ignore[assignment]
         worker.Ending.COMPLETED,
         "REPORT\n- unclear\n\nSTATUS\n- needs-owner-decision: which format wins?",
@@ -298,7 +298,7 @@ def test_a_worker_asking_for_a_decision_escalates_instead_of_guessing(tmp_path: 
 def test_an_echoed_status_template_is_a_failed_attempt_not_a_decision(tmp_path: Path) -> None:
     phase_with_task(tmp_path)
     controller = controller_for(tmp_path, ["a-free", "b-free"])
-    controller.worktree = lambda task: tmp_path  # type: ignore[assignment]
+    controller.workspace = lambda task: tmp_path  # type: ignore[assignment]
     controller.dispatch = lambda model, prompt, **_: worker.Result(  # type: ignore[assignment]
         worker.Ending.COMPLETED,
         "REPORT\n- nothing\n\nSTATUS\n- needs-owner-decision: <the question>",
@@ -314,7 +314,7 @@ def test_an_echoed_status_template_is_a_failed_attempt_not_a_decision(tmp_path: 
 def test_three_failed_attempts_stop_and_ask_the_owner(tmp_path: Path) -> None:
     phase_with_task(tmp_path)
     controller = controller_for(tmp_path, ["a-free", "b-free"])
-    controller.worktree = lambda task: tmp_path  # type: ignore[assignment]
+    controller.workspace = lambda task: tmp_path  # type: ignore[assignment]
     controller.dispatch = lambda model, prompt, **_: worker.Result(  # type: ignore[assignment]
         worker.Ending.COMPLETED, "REPORT\n- nothing", model
     )

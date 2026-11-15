@@ -45,14 +45,23 @@ Options: `--phase <slug>` (default `phase-4-closeout`), `--branch <integration>`
 
 ## Isolation
 
-Each job runs in its own git worktree, and the worker session is started with
-`opencode run --standalone` so that worktree is its working directory. This flag
-is the isolation: without it the CLI reuses a shared background service whose
-directory is wherever it was first started, and a worker edits the main checkout
-instead of its own worktree (observed on 2026-11-15, now covered by a test).
-A fresh worktree has no `node_modules`, so the installed tree is linked in before
-the job starts; frontend gates would otherwise fail for a reason unrelated to the
-job.
+Each job runs in **its own local clone** of the integration branch, placed
+outside the repository (`../.jobloop-<repo>/workspaces/<id>`), and the worker
+session is started with `opencode run --standalone`.
+
+Both parts are load-bearing, and both were learned the hard way on 2026-11-15:
+
+- A **linked git worktree is not isolation**. Its `.git` is a file pointing back
+  into the main repository, so a session started inside one resolves its project
+  root to the main checkout and edits *that* — three times, with the worktree
+  left untouched. A local clone has its own `.git` and no link back.
+- `--standalone` stops the CLI reusing a shared background service whose
+  directory is wherever it was first started.
+
+A fresh clone has no `node_modules`, so the installed tree is linked in before the
+job starts; frontend gates would otherwise fail for a reason unrelated to the job.
+The reviewed commit is `fetch`ed from the clone and then merged, because the clone
+is a separate repository.
 
 ## Caps and rotation
 

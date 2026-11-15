@@ -46,16 +46,16 @@ class Settings:
         return self.repository / ".jobloop"
 
     @property
-    def worktree_root(self) -> Path:
-        """Worktrees live outside the repository, never nested inside it.
+    def workspace_root(self) -> Path:
+        """Job workspaces live outside the repository, and are clones, not worktrees.
 
-        A session started inside `<repo>/.jobloop/worktrees/<id>` resolves its
-        project root by walking up to the first git directory it finds, which is
-        the main checkout — so a worker edited the main checkout even with its
-        working directory set to the worktree. Keeping worktrees out of the
-        repository tree is what actually isolates them (observed 2026-11-15).
+        A linked worktree's `.git` is a file pointing back into the main
+        repository, so a session started inside one resolves its project root to
+        the main checkout and edits it — observed three times on 2026-11-15, with
+        the worktree left untouched. A local clone has its own `.git` and no link
+        back, which is what actually isolates a worker.
         """
-        return self.repository.parent / f".jobloop-{self.repository.name}" / "worktrees"
+        return self.repository.parent / f".jobloop-{self.repository.name}" / "workspaces"
 
 
 @dataclass
@@ -160,23 +160,29 @@ class Controller:
 
     # --- worktrees -----------------------------------------------------------
 
-    def worktree(self, task: Task) -> Path:
-        path = self.settings.worktree_root / task.id
-        branch = f"loop/{task.id}-{slug(task.section('Task definition') or task.id)}"
+    def workspace(self, task: Task) -> Path:
+        """A per-job local clone of the integration branch, outside the repository."""
+        path = self.settings.workspace_root / task.id
         if path.is_dir():
             return path
         path.parent.mkdir(parents=True, exist_ok=True)
         git(
             self.settings.repository,
-            "worktree",
-            "add",
-            "-B",
-            branch,
-            str(path),
+            "clone",
+            "--local",
+            "--single-branch",
+            "--branch",
             self.settings.integration_branch,
+            str(self.settings.repository),
+            str(path),
         )
+        git(path, "checkout", "-B", self.branch_for(task))
         self.share_installed_dependencies(path)
         return path
+
+    @staticmethod
+    def branch_for(task: Task) -> str:
+        return f"loop/{task.id}-{slug(task.section('Task definition') or task.id)}"
 
     def share_installed_dependencies(self, worktree: Path) -> None:
         """Link the installed, ignored dependency trees into a fresh worktree.
@@ -220,7 +226,7 @@ class Controller:
         model = self.roster.pick()
         if not model:
             return Outcome(task.id, "no-model", "every eligible free model is on cooldown")
-        tree = self.worktree(task)
+        tree = self.workspace(task)
         attempt = task.attempts + 1
         brief = prompts.implementer_brief(
             task, attempt=attempt, repository=str(self.settings.repository)
@@ -412,7 +418,17 @@ class Controller:
                 f"commit={head}\n{status[:1000]}",
             )
         branch = git(tree, "rev-parse", "--abbrev-ref", "HEAD").strip()
-        git(self.settings.repository, "merge", "--no-ff", "-m", f"merge(job): {task.id}", branch)
+        # The workspace is a separate clone, so its commit is fetched before it
+        # can be merged.
+        git(self.settings.repository, "fetch", str(tree), branch)
+        git(
+            self.settings.repository,
+            "merge",
+            "--no-ff",
+            "-m",
+            f"merge(job): {task.id}",
+            "FETCH_HEAD",
+        )
         if self.settings.push:
             git(self.settings.repository, "push", "origin", self.settings.integration_branch)
         return Outcome(
