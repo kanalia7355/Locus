@@ -59,12 +59,28 @@ def elsewhere(text: str, outside: str, workspace: str) -> str:
     return text
 
 
+def excerpt(task: Task, *, limit: int = 12000) -> str:
+    """The job text a worker needs: its definition, and the most recent evidence.
+
+    Each attempt appends its report and gate results to the end of the file, so a
+    naive head-truncation drops exactly the part that says why the last attempt
+    failed. Keep the definition and the tail.
+    """
+    body = task.body.strip()
+    if len(body) <= limit:
+        return body
+    definition = task.section("TASK DEFINITION (Assigned by Orchestrator)")
+    head = "## TASK DEFINITION (Assigned by Orchestrator)\n\n" + definition if definition else ""
+    room = max(limit - len(head) - 80, 1000)
+    return head + "\n\n[... 中略 ...]\n\n" + body[-room:]
+
+
 def implementer_brief(task: Task, *, attempt: int, repository: str, outside: str = "") -> str:
     """`repository` must be the job's own workspace, never the main checkout.
 
     `outside` is the main checkout, whose path is rewritten out of the brief.
     """
-    body = elsewhere(task.body.strip()[:12000], outside, repository)
+    body = elsewhere(excerpt(task), outside, repository)
     command = elsewhere(task.test_command, outside, repository)
     return f"""You are the single implementation worker for one Locus job.
 Your working copy is {repository} and nothing outside it is yours to change.
@@ -81,6 +97,12 @@ Read these first, in this order:
 Job: {task.id} (weight {task.weight or "unspecified"})
 allowed_paths: {", ".join(task.allowed_paths)}
 Verification command the controller will run: {command}
+The controller also runs, from your workspace root, and all of them must pass:
+  python -m ruff check backend tests scripts jobloop
+  python -m ruff format --check backend tests scripts jobloop
+  python scripts/secret_scan.py
+Formatting is part of the job, not an afterthought: run the formatter before you
+report, and never leave a file the formatter would rewrite.
 
 Method:
 - Reproduce or express the requirement as a failing check first, then make it pass.
