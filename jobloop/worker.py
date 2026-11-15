@@ -113,9 +113,24 @@ def run(
     binary = executable or shutil.which("opencode")
     if not binary:
         return Result(Ending.UNAVAILABLE, "", model, ["opencode executable not found"])
+    # `--standalone` is what makes the worktree the session's working directory.
+    # Without it the CLI reuses a background service whose directory is wherever
+    # it was first started, and a worker edits the main checkout instead of its
+    # own worktree — observed, not theoretical.
+    #
     # The brief carries the whole job text, which exceeds the Windows command
     # line limit, so it is piped in rather than passed as an argument.
-    command = [binary, "run", "--model", model, "--format", "json", "--archived", "--auto"]
+    command = [
+        binary,
+        "run",
+        "--standalone",
+        "--model",
+        model,
+        "--format",
+        "json",
+        "--archived",
+        "--auto",
+    ]
     execute: Any = runner if callable(runner) else subprocess.run
     try:
         completed = execute(  # noqa: S603 — fixed CLI, no shell

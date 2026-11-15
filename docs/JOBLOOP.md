@@ -43,6 +43,17 @@ Options: `--phase <slug>` (default `phase-4-closeout`), `--branch <integration>`
    the worktree, then a `--no-ff` merge into the integration branch. `main` is
    never touched. `--push` pushes the integration branch.
 
+## Isolation
+
+Each job runs in its own git worktree, and the worker session is started with
+`opencode run --standalone` so that worktree is its working directory. This flag
+is the isolation: without it the CLI reuses a shared background service whose
+directory is wherever it was first started, and a worker edits the main checkout
+instead of its own worktree (observed on 2026-11-15, now covered by a test).
+A fresh worktree has no `node_modules`, so the installed tree is linked in before
+the job starts; frontend gates would otherwise fail for a reason unrelated to the
+job.
+
 ## Caps and rotation
 
 - 3 attempts per job, 2 review cycles per job (`PROTOCOL.md` §5.4).

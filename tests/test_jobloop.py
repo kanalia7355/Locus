@@ -196,6 +196,11 @@ def test_worker_reports_the_ending_the_cli_actually_had(tmp_path: Path) -> None:
         # line cannot hold a whole job text.
         assert "do it" in kwargs["input"]
         assert "do it" not in args[0]
+        # Without --standalone the CLI reuses a background service rooted
+        # elsewhere, and the worker edits the main checkout instead of its
+        # worktree. This flag is the isolation.
+        assert "--standalone" in args[0]
+        assert kwargs["cwd"] == str(tmp_path)
         return Completed(0, '{"type":"text","part":{"type":"text","text":"REPORT\\nok"}}', "")
 
     good = worker.run(
