@@ -113,22 +113,15 @@ def run(
     binary = executable or shutil.which("opencode")
     if not binary:
         return Result(Ending.UNAVAILABLE, "", model, ["opencode executable not found"])
-    command = [
-        binary,
-        "run",
-        "--model",
-        model,
-        "--format",
-        "json",
-        "--archived",
-        "--auto",
-        prompt,
-    ]
+    # The brief carries the whole job text, which exceeds the Windows command
+    # line limit, so it is piped in rather than passed as an argument.
+    command = [binary, "run", "--model", model, "--format", "json", "--archived", "--auto"]
     execute: Any = runner if callable(runner) else subprocess.run
     try:
         completed = execute(  # noqa: S603 — fixed CLI, no shell
             command,
             cwd=str(cwd),
+            input=prompt,
             capture_output=True,
             text=True,
             encoding="utf-8",

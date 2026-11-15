@@ -191,7 +191,11 @@ def test_worker_reports_the_ending_the_cli_actually_had(tmp_path: Path) -> None:
         is worker.Ending.TIMEOUT
     )
 
-    def answered(*_args, **_kwargs):
+    def answered(*args, **kwargs):
+        # The brief is piped, never passed as an argument: a Windows command
+        # line cannot hold a whole job text.
+        assert "do it" in kwargs["input"]
+        assert "do it" not in args[0]
         return Completed(0, '{"type":"text","part":{"type":"text","text":"REPORT\\nok"}}', "")
 
     good = worker.run(
