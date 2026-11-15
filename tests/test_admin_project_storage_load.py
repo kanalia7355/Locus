@@ -7,7 +7,12 @@ import time
 import pytest
 from app.local_model import LocalModel
 from app.main import create_app
-from app.service import CHAT_QUEUE_LIMIT, CHAT_USER_QUEUE_LIMIT, Service
+from app.service import (
+    CHAT_QUEUE_LIMIT,
+    CHAT_USER_QUEUE_LIMIT,
+    CHAT_WAIT_SECONDS,
+    Service,
+)
 from fastapi.testclient import TestClient
 from test_api import ORIGIN, client_for, login
 
@@ -294,12 +299,18 @@ def test_load_display_reads_queue_limits_and_running_job_without_chat_content(se
         )
     result = admin.get("/api/admin/load")
     assert result.status_code == 200
-    assert result.json() == {
+    payload = result.json()
+    # The observed oldest wait is time dependent, so it is checked in range
+    # separately instead of inside the exact-match expectation.
+    oldest_queued_wait = payload["chat_queue"].pop("oldest_queued_wait_seconds")
+    assert 0 < oldest_queued_wait < CHAT_WAIT_SECONDS
+    assert payload == {
         "model_slot": {"enabled": False, "busy": False},
         "chat_queue": {
             "queued": 1,
             "limit": CHAT_QUEUE_LIMIT,
             "per_user_limit": CHAT_USER_QUEUE_LIMIT,
+            "wait_deadline_seconds": CHAT_WAIT_SECONDS,
             "queued_per_user": [1],
             "running_job": {
                 "id": "synthetic-running-job",
