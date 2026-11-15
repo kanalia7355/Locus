@@ -45,6 +45,18 @@ class Settings:
     def state_directory(self) -> Path:
         return self.repository / ".jobloop"
 
+    @property
+    def worktree_root(self) -> Path:
+        """Worktrees live outside the repository, never nested inside it.
+
+        A session started inside `<repo>/.jobloop/worktrees/<id>` resolves its
+        project root by walking up to the first git directory it finds, which is
+        the main checkout — so a worker edited the main checkout even with its
+        working directory set to the worktree. Keeping worktrees out of the
+        repository tree is what actually isolates them (observed 2026-11-15).
+        """
+        return self.repository.parent / f".jobloop-{self.repository.name}" / "worktrees"
+
 
 @dataclass
 class Outcome:
@@ -149,7 +161,7 @@ class Controller:
     # --- worktrees -----------------------------------------------------------
 
     def worktree(self, task: Task) -> Path:
-        path = self.settings.state_directory / "worktrees" / task.id
+        path = self.settings.worktree_root / task.id
         branch = f"loop/{task.id}-{slug(task.section('Task definition') or task.id)}"
         if path.is_dir():
             return path
