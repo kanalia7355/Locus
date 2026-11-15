@@ -53,3 +53,5 @@ credentials.*.json
 .pi/harness/state.json
 .pi/harness/state.json.tmp
 .pi/harness/logs/
+
+.jobloop/

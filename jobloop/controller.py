@@ -1,0 +1,405 @@
+"""Drive one job at a time: dispatch, verify, review, commit, or ask the owner.
+
+The loop is deterministic; the models are not trusted with any decision that has
+consequences. Every path out of a job is recorded in the job file, and the only
+path that reaches a commit is: in scope, verification green, independent review
+approved by a different model.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import re
+import shutil
+import subprocess
+import time
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+from jobloop import gates, prompts, worker
+from jobloop.roster import Roster
+from jobloop.tasks import ATTEMPT_LIMIT, REVIEW_CYCLE_LIMIT, Task, load_phase
+
+JST = timezone(timedelta(hours=9))
+GIT = shutil.which("git") or "git"
+SLUG = re.compile(r"[^a-z0-9]+")
+
+
+@dataclass
+class Settings:
+    repository: Path
+    phase: str
+    python: str
+    integration_branch: str = "loop/local-development"
+    worker_timeout: float = 1800.0
+    gate_timeout: float = 1800.0
+    review_timeout: float = 1200.0
+    push: bool = False
+
+    @property
+    def phase_directory(self) -> Path:
+        return self.repository / "progress" / self.phase
+
+    @property
+    def state_directory(self) -> Path:
+        return self.repository / ".jobloop"
+
+
+@dataclass
+class Outcome:
+    """What happened to one job, in the controller's own words."""
+
+    task_id: str
+    state: str
+    detail: str
+    model: str = ""
+    reviewer: str = ""
+    gates: list[gates.Gate] = field(default_factory=list)
+
+    @property
+    def line(self) -> str:
+        return f"{self.task_id}: {self.state} — {self.detail}"
+
+
+def git(repository: Path, *arguments: str, check: bool = True) -> str:
+    result = subprocess.run(  # noqa: S603 — resolved git path, no shell
+        [GIT, *arguments],
+        cwd=str(repository),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=300,
+        check=False,
+    )
+    if check and result.returncode:
+        raise RuntimeError(f"git {' '.join(arguments)} failed: {result.stderr.strip()}")
+    return result.stdout
+
+
+def slug(text: str) -> str:
+    return SLUG.sub("-", text.lower()).strip("-")[:40]
+
+
+class Controller:
+    def __init__(self, settings: Settings, roster: Roster, *, clock: object | None = None) -> None:
+        self.settings = settings
+        self.roster = roster
+        self.clock = clock if callable(clock) else time.monotonic
+        self.dispatch = worker.run
+
+    # --- job selection -------------------------------------------------------
+
+    def jobs(self) -> list[Task]:
+        return load_phase(self.settings.phase_directory).tasks
+
+    def select(self) -> Task | None:
+        """The next job the controller may spend an attempt on, lightest first."""
+        order = {"light": 0, "medium": 1, "heavy": 2}
+        actionable = [task for task in self.jobs() if task.actionable]
+        return min(actionable, key=lambda task: (order.get(task.weight, 3), task.id), default=None)
+
+    # --- recording -----------------------------------------------------------
+
+    def now(self) -> str:
+        return datetime.now(JST).replace(microsecond=0).isoformat()
+
+    def record(self, task: Task, heading: str, body: str) -> None:
+        from jobloop.tasks import append_section
+
+        append_section(task.path, heading, body)
+
+    def set_fields(self, task: Task, **updates: str) -> Task:
+        from jobloop.tasks import update_fields
+
+        return update_fields(task.path, dict(updates), timestamp=self.now())
+
+    def escalate(self, task: Task, category: str, question: str, context: str) -> Outcome:
+        """Stop the job and write the owner a decision request."""
+        file = self.settings.phase_directory / "OWNER_DECISIONS.md"
+        if not file.exists():
+            file.write_text(
+                "# Owner decisions requested by the job loop\n\n"
+                "Each entry is a judgement the controller refused to make itself.\n",
+                encoding="utf-8",
+            )
+        entry = (
+            f"\n## {task.id} — {category} ({self.now()})\n\n"
+            f"**Question**: {question}\n\n"
+            f"**Context**\n\n{context.strip()}\n"
+        )
+        with file.open("a", encoding="utf-8") as handle:
+            handle.write(entry)
+        self.set_fields(task, status="blocked")
+        self.record(task, f"OWNER DECISION REQUESTED ({self.now()})", f"{category}: {question}")
+        return Outcome(task.id, "escalated", f"{category}: {question}")
+
+    # --- worktrees -----------------------------------------------------------
+
+    def worktree(self, task: Task) -> Path:
+        path = self.settings.state_directory / "worktrees" / task.id
+        branch = f"loop/{task.id}-{slug(task.section('Task definition') or task.id)}"
+        if path.is_dir():
+            return path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        git(
+            self.settings.repository,
+            "worktree",
+            "add",
+            "-B",
+            branch,
+            str(path),
+            self.settings.integration_branch,
+        )
+        return path
+
+    @staticmethod
+    def fingerprint(worktree: Path) -> str:
+        """Hash the working state so a read-only reviewer can be held to it."""
+        head = git(worktree, "rev-parse", "HEAD").strip()
+        diff = git(worktree, "diff", "HEAD", check=False)
+        untracked = git(worktree, "status", "--porcelain=1", "--untracked-files=all", check=False)
+        return hashlib.sha256((head + diff + untracked).encode("utf-8")).hexdigest()
+
+    # --- one job -------------------------------------------------------------
+
+    def run_job(self, task: Task) -> Outcome:
+        model = self.roster.pick()
+        if not model:
+            return Outcome(task.id, "no-model", "every eligible free model is on cooldown")
+        tree = self.worktree(task)
+        attempt = task.attempts + 1
+        brief = prompts.implementer_brief(
+            task, attempt=attempt, repository=str(self.settings.repository)
+        )
+        result = self.dispatch(model, brief, cwd=tree, timeout=self.settings.worker_timeout)
+        if result.rotate:
+            # Usage exhaustion is not a failed attempt (PROTOCOL §5.4).
+            self.roster.mark_exhausted(model)
+            return Outcome(task.id, "rotated", f"{model} is out of usage", model=model)
+        task = self.set_fields(task, status="doing", assignee="opencode", model=model)
+        if result.ending is not worker.Ending.COMPLETED:
+            return self.failed_attempt(
+                task, model, f"{result.ending.value}: {'; '.join(result.errors[:3])}"
+            )
+        needs_owner = re.search(r"needs-owner-decision:\s*(.+)", result.text)
+        if needs_owner:
+            return self.escalate(
+                task,
+                "worker stopped for a decision",
+                needs_owner.group(1).strip()[:400],
+                result.text[-2000:],
+            )
+        names = gates.changed_files(tree)
+        if not names:
+            return self.failed_attempt(task, model, "the worker changed nothing")
+        checks = [gates.within_scope(names, task.allowed_paths)]
+        if checks[0].green:
+            checks.append(
+                gates.run_command(
+                    "task-verification",
+                    task.test_command,
+                    cwd=tree,
+                    timeout=self.settings.gate_timeout,
+                )
+            )
+            checks.extend(
+                gates.python_gates(
+                    tree, names, python=self.settings.python, timeout=self.settings.gate_timeout
+                )
+            )
+        self.record(
+            task,
+            f"ATTEMPT {attempt} — implementation by {model} ({self.now()})",
+            result.text.strip()[:6000]
+            + "\n\n### Controller gates\n\n"
+            + "\n".join(
+                f"- `{gate.name}`: {'green' if gate.green else 'FAILED'}" for gate in checks
+            ),
+        )
+        failed = [gate for gate in checks if not gate.green]
+        if failed:
+            if any(gate.name == "scope" for gate in failed):
+                return self.escalate(
+                    task,
+                    "out-of-scope change",
+                    "The worker needed paths outside allowed_paths; "
+                    "widen the scope or split the job.",
+                    failed[0].detail,
+                )
+            return self.failed_attempt(
+                task,
+                model,
+                "; ".join(f"{gate.name}: {gate.detail[:200]}" for gate in failed),
+            )
+        return self.review(task, tree, model, checks)
+
+    def failed_attempt(self, task: Task, model: str, detail: str) -> Outcome:
+        attempts = task.attempts + 1
+        task = self.set_fields(task, attempts=str(attempts), status="doing")
+        if attempts >= ATTEMPT_LIMIT:
+            return self.escalate(
+                task,
+                "attempt limit reached",
+                "Three attempts did not satisfy the acceptance criteria; "
+                "the job needs a human decision.",
+                detail,
+            )
+        return Outcome(task.id, "attempt-failed", detail, model=model)
+
+    # --- review --------------------------------------------------------------
+
+    def review(self, task: Task, tree: Path, model: str, checks: list[gates.Gate]) -> Outcome:
+        reviewer = self.roster.pick_reviewer(model)
+        if not reviewer:
+            return self.escalate(
+                task,
+                "no independent reviewer available",
+                "No second free model is available, and self-review is prohibited "
+                "(CONSTRAINTS.md §5-5). Decide whether to wait for usage to reset.",
+                f"implementer={model}",
+            )
+        task = self.set_fields(task, status="review", reviewer=f"opencode/{reviewer}")
+        diff = git(tree, "diff", "HEAD", check=False)[:60000]
+        evidence = "\n".join(f"- {gate.name}: {gate.detail[:300]}" for gate in checks)
+        before = self.fingerprint(tree)
+        verdict = self.dispatch(
+            reviewer,
+            prompts.reviewer_brief(
+                task, diff=diff, evidence=evidence, repository=str(self.settings.repository)
+            ),
+            cwd=tree,
+            timeout=self.settings.review_timeout,
+        )
+        if verdict.rotate:
+            self.roster.mark_exhausted(reviewer)
+            return Outcome(task.id, "rotated", f"{reviewer} is out of usage", model=model)
+        if self.fingerprint(tree) != before:
+            return self.escalate(
+                task,
+                "reviewer modified the worktree",
+                "The read-only reviewer changed files, so its verdict is void. "
+                "Decide whether to re-review with another model.",
+                f"reviewer={reviewer}",
+            )
+        if verdict.ending is not worker.Ending.COMPLETED:
+            return Outcome(
+                task.id,
+                "review-unavailable",
+                f"{reviewer}: {verdict.ending.value}",
+                model=model,
+                reviewer=reviewer,
+            )
+        self.record(
+            task,
+            f"REVIEW by {reviewer} ({self.now()})",
+            verdict.text.strip()[:6000],
+        )
+        approved = bool(re.search(r"^\s*-?\s*`?APPROVED`?\s*$", verdict.text, re.MULTILINE))
+        if not approved:
+            cycles = int(task.fields.get("review_cycles", "0")) + 1
+            task = self.set_fields(
+                task, status="doing", review_cycles=str(cycles), attempts=str(task.attempts + 1)
+            )
+            if cycles >= REVIEW_CYCLE_LIMIT or task.attempts >= ATTEMPT_LIMIT:
+                return self.escalate(
+                    task,
+                    "review cycle limit reached",
+                    "The reviewer still requires changes at the cycle limit.",
+                    verdict.text[-2000:],
+                )
+            return Outcome(
+                task.id,
+                "changes-required",
+                "reviewer requires changes",
+                model=model,
+                reviewer=reviewer,
+            )
+        return self.deliver(task, tree, model, reviewer, checks)
+
+    # --- delivery ------------------------------------------------------------
+
+    def deliver(
+        self, task: Task, tree: Path, model: str, reviewer: str, checks: list[gates.Gate]
+    ) -> Outcome:
+        """Commit the reviewed work and fast-forward it into the integration branch."""
+        subject = (
+            f"{self.commit_type(task)}({self.commit_scope(task)}): {self.commit_summary(task)}"
+        )
+        git(tree, "add", "-A")
+        git(
+            tree,
+            "-c",
+            "user.name=locus-jobloop",
+            "-c",
+            "user.email=jobloop@localhost",
+            "commit",
+            "-m",
+            subject[:100],
+        )
+        head = git(tree, "rev-parse", "HEAD").strip()
+        self.set_fields(task, status="done", attempts=str(task.attempts + 1))
+        status = git(self.settings.repository, "status", "--porcelain=1", check=False).strip()
+        if status:
+            return self.escalate(
+                task,
+                "integration branch is dirty",
+                "The main checkout has uncommitted changes, so the reviewed commit was not merged. "
+                "Decide how to integrate it.",
+                f"commit={head}\n{status[:1000]}",
+            )
+        branch = git(tree, "rev-parse", "--abbrev-ref", "HEAD").strip()
+        git(self.settings.repository, "merge", "--no-ff", "-m", f"merge(job): {task.id}", branch)
+        if self.settings.push:
+            git(self.settings.repository, "push", "origin", self.settings.integration_branch)
+        return Outcome(
+            task.id,
+            "delivered",
+            f"{head[:7]} merged into {self.settings.integration_branch}",
+            model=model,
+            reviewer=reviewer,
+            gates=checks,
+        )
+
+    @staticmethod
+    def commit_type(task: Task) -> str:
+        text = task.body.lower()
+        if "test" in task.id.lower():
+            return "test"
+        for keyword, kind in (
+            ("修復", "fix"),
+            ("不具合", "fix"),
+            ("監査", "test"),
+            ("実測", "feat"),
+        ):
+            if keyword in text:
+                return kind
+        return "feat"
+
+    @staticmethod
+    def commit_scope(task: Task) -> str:
+        return slug(task.id) or "job"
+
+    @staticmethod
+    def commit_summary(task: Task) -> str:
+        for line in task.body.splitlines():
+            if line.startswith("# Task"):
+                return line.split(":", 1)[-1].strip().replace("`", "")[:60] or task.id
+        return task.id
+
+    # --- bounded run ---------------------------------------------------------
+
+    def run(self, *, minutes: float, max_jobs: int = 20) -> list[Outcome]:
+        deadline = self.clock() + minutes * 60
+        outcomes: list[Outcome] = []
+        while len(outcomes) < max_jobs and self.clock() < deadline:
+            task = self.select()
+            if task is None:
+                outcomes.append(Outcome("-", "idle", "no actionable job is left"))
+                break
+            outcome = self.run_job(task)
+            outcomes.append(outcome)
+            if outcome.state == "no-model":
+                break
+        return outcomes
