@@ -7,7 +7,6 @@ reports `ran=False` and is treated as a failure, never as a pass.
 
 from __future__ import annotations
 
-import shlex
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -91,6 +90,13 @@ def within_scope(names: list[str], allowed: list[str]) -> Gate:
     return Gate("scope", True, True, f"{len(names)} changed path(s) within scope")
 
 
+def summarise(result: subprocess.CompletedProcess[str]) -> str:
+    """Keep the exit code and the last lines of each stream as the evidence."""
+    tail = "\n".join((result.stdout or "").strip().splitlines()[-12:])
+    errors = "\n".join((result.stderr or "").strip().splitlines()[-12:])
+    return f"exit {result.returncode}\n{tail}\n{errors}".strip()
+
+
 def run_command(name: str, command: str, *, cwd: Path, timeout: float) -> Gate:
     """Run a recorded verification command and keep its real exit code."""
     if not command.strip():
@@ -111,38 +117,60 @@ def run_command(name: str, command: str, *, cwd: Path, timeout: float) -> Gate:
         return Gate(name, False, False, f"timed out after {timeout:.0f}s")
     except OSError as error:
         return Gate(name, False, False, str(error))
-    tail = "\n".join((result.stdout or "").strip().splitlines()[-12:])
-    errors = "\n".join((result.stderr or "").strip().splitlines()[-12:])
-    detail = f"exit {result.returncode}\n{tail}\n{errors}".strip()
-    return Gate(name, True, result.returncode == 0, detail)
+    return Gate(name, True, result.returncode == 0, summarise(result))
+
+
+def run_argv(name: str, argv: list[str], *, cwd: Path, timeout: float) -> Gate:
+    """Run a fixed command without a shell, so no path needs quoting.
+
+    The recorded `test_cmd` keeps its shell (it may chain with `&&`), but a gate
+    the controller builds itself must not depend on how the host shell quotes a
+    Windows path.
+    """
+    try:
+        result = subprocess.run(  # noqa: S603 — fixed argument vector, no shell
+            argv,
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return Gate(name, False, False, f"timed out after {timeout:.0f}s")
+    except OSError as error:
+        return Gate(name, False, False, str(error))
+    return Gate(name, True, result.returncode == 0, summarise(result))
 
 
 def python_gates(worktree: Path, names: list[str], *, python: str, timeout: float) -> list[Gate]:
     """Lint, format and secret-scan gates, run only when they apply."""
+    targets = ["backend", "tests", "scripts", "jobloop"]
     gates: list[Gate] = []
     if any(name.endswith(".py") for name in names):
-        quoted = shlex.quote(python)
         gates.append(
-            run_command(
+            run_argv(
                 "python-lint",
-                f"{quoted} -m ruff check backend tests scripts jobloop",
+                [python, "-m", "ruff", "check", *targets],
                 cwd=worktree,
                 timeout=timeout,
             )
         )
         gates.append(
-            run_command(
+            run_argv(
                 "python-format",
-                f"{quoted} -m ruff format --check backend tests scripts jobloop",
+                [python, "-m", "ruff", "format", "--check", *targets],
                 cwd=worktree,
                 timeout=timeout,
             )
         )
     if names:
         gates.append(
-            run_command(
+            run_argv(
                 "secret-scan",
-                f"{shlex.quote(python)} scripts/secret_scan.py",
+                [python, "scripts/secret_scan.py"],
                 cwd=worktree,
                 timeout=timeout,
             )

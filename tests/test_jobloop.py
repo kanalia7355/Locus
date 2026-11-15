@@ -4,6 +4,7 @@ These tests use fake workers, so no provider is contacted.
 """
 
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -211,6 +212,17 @@ def test_scope_gate_blocks_protected_and_out_of_scope_paths() -> None:
         assert not gate.green, f"{protected} must never be writable by a job"
         assert "protected" in gate.detail
     assert not gates.within_scope(["backend/app/service.py"], []).green
+
+
+def test_controller_built_gates_do_not_depend_on_shell_quoting(tmp_path: Path) -> None:
+    # A Windows interpreter path contains a drive letter and backslashes; a
+    # shell-quoted form of it fails, so these gates must use an argument vector.
+    spaced = tmp_path / "with space"
+    spaced.mkdir()
+    gate = gates.run_argv("echo", [sys.executable, "-c", "print(1)"], cwd=spaced, timeout=60)
+    assert gate.green and "exit 0" in gate.detail
+    missing = gates.run_argv("missing", ["definitely-not-a-binary"], cwd=spaced, timeout=60)
+    assert not missing.ran and not missing.passed
 
 
 def test_a_gate_that_cannot_run_is_a_failure_not_a_pass(tmp_path: Path) -> None:
