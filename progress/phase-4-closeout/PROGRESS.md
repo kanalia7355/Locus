@@ -17,9 +17,9 @@
 ## 1. Phase 完了条件（Gate Criteria）
 
 - [ ] 統合ゲート: `loop/local-development` HEAD で GitHub Actions 3 ワークフロー (Prototype quality / Loop engine checks / PR title convention) がすべて green
-- [ ] 対象タスク 5 件がすべて `status: done`（試行上限内で）
+- [x] 対象タスク（当初 5 件＋フォローアップ 2 件 = `T-PH4-G1` / `T-PH4-101` / `T-PH4-102` / `T-PH3-101` / `T-PH4-103` / `T-PH3-102` / `T-PH4-104`）がすべて `status: done`
 - [ ] Phase 節目のフルテストスイート検証 (`scripts/verify.py --e2e --audit`) が PASS
-- [ ] 未解決の `blocked` タスクや人間判断待ち (Escalation) が残っていないこと
+- [x] 未解決の `blocked` タスクなし（`T-PH4-103` は 2026-11-15 に解消）。残る人間判断待ちは「別モデル独立レビューの要否」のみ（各タスク REVIEW 欄に記録）
 - [ ] 本バッチはプロトタイプ範囲のみ。production TLS/MFA/実データ/外部コネクタ等は gate 付き繰延のまま（変更しない）
 
 ## 2. タスク一覧と現在状態
@@ -27,7 +27,7 @@
 | Task ID | タイトル / 要件 ID | Weight | Status | Assignee | Model | Attempts | Worktree / Branch | Updated |
 |---|---|---|---|---|---|---|---|---|
 | `T-PH4-G1` | Prototype quality E2E timeout 修復 (統合ゲート解消) | `heavy` | `done` | `deepai` | `deepai/gemini-4-hydrogen` | `1` | 統合済み: `4fc9b48` (loop/local-development) | `2026-11-14T18:15:00+09:00` |
-| `T-PH4-101` | ローカル LLM ストリーミング応答 (`PH-ROADMAP-4` 残部) | `heavy` | `todo` | `unassigned` | `deepai/kimi-k3.1-pro` | `0` | `task/T-PH4-101` | `2026-11-14T17:35:00+09:00` |
+| `T-PH4-101` | ローカル LLM ストリーミング応答 (`PH-ROADMAP-4` 残部) | `heavy` | `done` | `claude-code` | `claude-opus-5` | `1` | 統合ブランチへ直接実装 | `2026-11-15T15:50:00+09:00` |
 | `T-PH4-102` | 質問ジョブの優先度・公平性 (bounded queue, `PH-ROADMAP-4` 残部) | `medium` | `done` | `claude-code` | `gpt-6.1-terra` (実装) → `claude-opus-5` (検証・記録) | `1` | 統合済み: 統合ブランチへ 3-way 適用 | `2026-11-15T14:45:00+09:00` |
 | `T-PH3-101` | 取り込み状態の粒度・再開性強化 (`PH-ROADMAP-3` 残部) | `medium` | `done` | `deepai` | `deepai/deepseek-v4.1-flash` | `2` | 統合済み: `548cb55` (loop/local-development) | `2026-11-14T20:00:00+09:00` |
 | `T-PH4-103` | アクセシビリティ・キーボード・モバイル監査と修正 (`PH-ROADMAP-4` 残部) | `medium` | `done` | `claude-code` | `minimax-m3.1-flash` → `claude-opus-5` (CI 修復) | `3` | 統合 `7b2b3d9` + secret scan 修復 (資格情報リテラル排除) | `2026-11-15T14:40:00+09:00` |
@@ -104,6 +104,15 @@
   checkpoint を戻さず 1 頁目を再インデックスしていなかったこと（出典ダイアログの本文が短くなり
   スクロールが発生しない）。fixture の UPDATE に `index_checkpoint=0` を追加して解消。
   ローカル E2E 18/18 green。プロダクトコードとアサーションは未変更。
+- 15:50 JST: **`T-PH4-101` 完了（Phase 4 残件の最後）**。ローカル LLM の逐次応答を SSE で実装。
+  `POST /api/conversations/{id}/messages/stream` を追加し、断片は `send()` の既存の権限・添付・引用
+  再確認をすべて通したあとにのみ流れる。回答の確定コミットは従来どおり `send()` の単一トランザクション。
+  取消は既存の `DELETE /chat-jobs/{id}` をそのまま使い、断片間（0.25 秒間隔）で検知して中断し、
+  部分回答は履歴に残さない。モデル未設定・セッション無し・スロット占有では SSE を開始せず 409 を返し、
+  クライアントは従来の `POST /messages`（待機列 202 経路）へ自動フォールバックする。
+  `stream` を無視するデーモンには 1 断片として自動劣化する。外部送信は追加なし。
+  新規テスト: バックエンド 5 件・Vitest 2 件。合成 Ollama スタブを NDJSON 対応にし、
+  生成回答の E2E が逐次経路を通るようにした（E2E 18/18 green）。
 - 注意: `scripts/verify.py` の `python-tests` 予算は 120 秒で、Windows ローカルでは
   Python スイート（約 630 秒）が必ず `timeout` になる。ローカルではグループを直接実行して検証し、
   予算付き `verify.py` の判定は hosted CI を正本とする。

@@ -3,13 +3,16 @@
 import asyncio
 import json
 import os
-from collections.abc import AsyncIterator, Callable
+import queue
+import threading
+import time
+from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
@@ -17,7 +20,7 @@ from app.agents.registry import AgentRegistry
 from app.local_model import LocalModel
 from app.model_catalog import ModelCatalog
 from app.scanner import scanner_from_environment
-from app.service import ModelBusy, Principal, Service, fail
+from app.service import ChatCancelled, ModelBusy, Principal, Service, fail
 
 COOKIE = "locus_session"
 ALLOWED_ORIGINS = frozenset(
@@ -435,6 +438,122 @@ def create_app(
                 {"job_id": job_id, "status": "queued", "text": data.text},
                 status_code=202,
             )
+
+    @app.post("/api/conversations/{conversation}/messages/stream")
+    def message_stream(conversation: str, data: Message, request: Request, user: Actor) -> Response:
+        """Answer inline over SSE, reusing the ordinary dialogue checks.
+
+        Nothing is streamed before send() has passed its permission, attachment
+        and citation checks, and the answer is still committed exactly once by
+        send(). A caller that receives a non-streaming reply falls back to the
+        ordinary request, which keeps the waiting line behaviour unchanged.
+        """
+        if not data.text.strip():
+            fail(422, "メッセージを入力してください")
+        with runtime.settings_lock:
+            model, version, seconds = runtime.model, runtime.version, runtime.timeout_seconds
+        token = request.cookies.get(COOKIE)
+        if not model or token is None or not runtime.available():
+            # Advisory check only: a slot taken right after it keeps its own
+            # fallback path below, after the stream has already started.
+            fail(409, "逐次表示は利用できません。通常の送信に切り替えます")
+        job = svc.start_stream_chat(user, conversation, data.text, data.scope, data.attachment_ids)
+        events: queue.Queue[tuple[str, Any]] = queue.Queue()
+        checked = 0.0
+
+        def on_delta(part: str) -> None:
+            nonlocal checked
+            now = time.monotonic()
+            if now - checked >= 0.25:
+                # Bounded polling: cancellation is cooperative and must not read
+                # the database once per token.
+                checked = now
+                if svc.stream_stopped(job):
+                    raise ChatCancelled()
+            events.put(("delta", part))
+
+        def generate(text: str, citations: list[dict[str, Any]]) -> tuple[str, str]:
+            if not model:
+                fail(422, "ローカルモデルが有効になっていません")
+            try:
+                return runtime.generate(
+                    model, text, citations, timeout_seconds=seconds, on_delta=on_delta
+                )
+            except HTTPException as exc:
+                if exc.status_code == 429 and exc.detail == "モデルは処理中です":
+                    raise ModelBusy() from exc
+                raise
+
+        def answer() -> None:
+            outcome: tuple[str, Any] = ("error", "対話の処理中に問題が発生しました")
+            try:
+                message = svc.send(
+                    user,
+                    conversation,
+                    data.text,
+                    data.scope,
+                    data.attachment_ids,
+                    generate=generate,
+                    validate=lambda: runtime.validate(model or "", version, seconds),
+                    token=token,
+                    chat_job_id=job,
+                )
+                outcome = ("message", message) if message else ("cancelled", None)
+            except ChatCancelled:
+                outcome = ("cancelled", None)
+            except ModelBusy:
+                outcome = ("fallback", "モデルは処理中です")
+            except HTTPException as exc:
+                outcome = ("error", exc.detail if isinstance(exc.detail, str) else "送信できません")
+            except Exception:  # noqa: BLE001 — the reader must always be released
+                outcome = ("error", "対話の処理中に問題が発生しました")
+            finally:
+                if outcome[0] != "message":
+                    state = svc.finish_stream_chat(
+                        job,
+                        outcome[1] if isinstance(outcome[1], str) else "質問を取り消しました",
+                    )
+                    if state == "cancelled":
+                        outcome = ("cancelled", None)
+                events.put(outcome)
+
+        def frame(name: str, payload: Any) -> str:
+            return f"event: {name}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+        def stream() -> Iterator[str]:
+            reader = threading.Thread(target=answer, daemon=True)
+            reader.start()
+            yield frame("start", {"job_id": job})
+            # The model call is already bounded; this only stops a reader that
+            # never reports an outcome from holding the response open.
+            deadline = time.monotonic() + seconds + 30
+            while True:
+                try:
+                    kind, payload = events.get(timeout=1.0)
+                except queue.Empty:
+                    if time.monotonic() > deadline:
+                        yield frame("error", {"detail": "応答が完了しませんでした"})
+                        return
+                    yield ": keep-alive\n\n"
+                    continue
+                if kind == "delta":
+                    yield frame("delta", {"text": payload})
+                    continue
+                if kind == "message":
+                    yield frame("message", payload)
+                elif kind == "cancelled":
+                    yield frame("cancelled", {"job_id": job})
+                elif kind == "fallback":
+                    yield frame("fallback", {"detail": payload})
+                else:
+                    yield frame("error", {"detail": payload})
+                return
+
+        return StreamingResponse(
+            stream(),
+            media_type="text/event-stream",
+            headers={"X-Accel-Buffering": "no"},
+        )
 
     @app.get("/api/chat-jobs/{job}")
     def chat_job(job: str, user: Actor) -> dict[str, Any]:

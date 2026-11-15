@@ -76,6 +76,10 @@ class ModelBusy(Exception):
     """Raised when the single model slot is occupied; the caller may enqueue instead."""
 
 
+class ChatCancelled(Exception):
+    """Raised inside a streamed dialogue once its owner asked to cancel it."""
+
+
 # Bounded development-safety limits for the dialogue waiting line, mirroring the
 # ingestion queue limits. They are not verified user capacity.
 CHAT_WAIT_SECONDS = 300.0
@@ -2711,6 +2715,85 @@ class Service:
             with self.chat_dispatch_lock:
                 self.chat_dispatch[job_id] = ChatDispatch(token, generate, validate)
         return job_id
+
+    def start_stream_chat(
+        self,
+        actor: Principal,
+        conversation: str,
+        text: str,
+        scope: str,
+        attachments: list[str],
+    ) -> str:
+        """Claim the free model slot for an inline, streamed dialogue.
+
+        The row is created as `running`, so cooperative cancellation, the restart
+        sweep and the one-question-per-conversation rule all apply unchanged. It
+        never enters the waiting line, and the answer is still committed once, by
+        send(), after its final permission and citation checks.
+        """
+        if scope not in {"all", "shared", "personal"}:
+            fail(422, "参照範囲を確認してください")
+        with self.db() as db:
+            conv = self._conversation(db, actor, conversation)
+            if (
+                db.execute(
+                    "SELECT COUNT(*) FROM messages WHERE conversation_id=?", (conversation,)
+                ).fetchone()[0]
+                >= 200
+            ):
+                fail(429, "1会話200件までです。新しい会話を開始してください")
+            for document in attachments:
+                row = self._document(db, actor, document, conversation)
+                if row["kind"] != "attachment" or row["status"] != "ready":
+                    fail(
+                        409,
+                        "未解析・隔離中の添付は参照できません。取り外して再送信してください",
+                    )
+            if db.execute(
+                "SELECT id FROM chat_jobs WHERE conversation_id=? "
+                "AND status IN ('queued','running')",
+                (conversation,),
+            ).fetchone():
+                fail(409, "前の質問が処理中です。完了してから次の質問を送信してください")
+            job_id = uid()
+            now = time.time()
+            db.execute(
+                "INSERT INTO chat_jobs "
+                "(id,conversation_id,user_id,text,scope,attachments,status,created,updated) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
+                (
+                    job_id,
+                    conv["id"],
+                    actor.id,
+                    text,
+                    scope,
+                    json.dumps(attachments),
+                    "running",
+                    now,
+                    now,
+                ),
+            )
+            self._audit(db, actor.id, "chat.streaming", job_id)
+        return job_id
+
+    def stream_stopped(self, job: str) -> bool:
+        """True when a streamed dialogue must stop: cancelled, finished or gone."""
+        with self.db() as db:
+            row = db.execute(
+                "SELECT status,cancel_requested FROM chat_jobs WHERE id=?", (job,)
+            ).fetchone()
+        return not row or row["status"] != "running" or bool(row["cancel_requested"])
+
+    def finish_stream_chat(self, job: str, detail: str) -> str:
+        """Close a streamed dialogue that committed no answer, and report its state.
+
+        A requested cancellation wins over the failure detail, so an interrupted
+        stream is reported as cancelled rather than as a generation failure.
+        """
+        self._finish_chat(job, "failed", detail)
+        with self.db() as db:
+            row = db.execute("SELECT status FROM chat_jobs WHERE id=?", (job,)).fetchone()
+        return str(row["status"]) if row else "failed"
 
     def chat_job(self, actor: Principal, job: str) -> Json:
         """Owner-only status view; expired waiting entries fail visibly here too."""

@@ -142,6 +142,63 @@ export async function api<T>(
     : (response.json() as Promise<T>);
 }
 
+// Server-sent events for the inline answer. A reply that is not an event
+// stream means streaming is unavailable, and the caller sends the ordinary
+// request instead, so the waiting line keeps working unchanged.
+export async function streamRequest(
+  path: string,
+  data: unknown,
+): Promise<Response> {
+  return fetch(`/api${path}`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+    },
+    body: JSON.stringify(data),
+  });
+}
+
+export const isEventStream = (response: Response) =>
+  response.ok &&
+  !!response.body &&
+  (response.headers.get("Content-Type") ?? "").includes("text/event-stream");
+
+export async function* streamEvents(
+  response: Response,
+): AsyncGenerator<{ event: string; data: Record<string, unknown> }> {
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffered = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    buffered += done ? "" : decoder.decode(value, { stream: true });
+    let border = buffered.indexOf("\n\n");
+    while (border >= 0) {
+      const block = buffered.slice(0, border);
+      buffered = buffered.slice(border + 2);
+      let event = "";
+      let payload = "";
+      for (const line of block.split("\n")) {
+        if (line.startsWith("event: ")) event = line.slice(7);
+        if (line.startsWith("data: ")) payload = line.slice(6);
+      }
+      if (event && payload) {
+        let data: Record<string, unknown>;
+        try {
+          data = JSON.parse(payload) as Record<string, unknown>;
+        } catch {
+          data = {};
+        }
+        yield { event, data };
+      }
+      border = buffered.indexOf("\n\n");
+    }
+    if (done) return;
+  }
+}
+
 export const json = (method: string, data?: unknown): RequestInit => ({
   method,
   ...(data === undefined ? {} : { body: JSON.stringify(data) }),

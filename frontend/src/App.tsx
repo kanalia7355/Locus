@@ -12,7 +12,16 @@ import {
   UserX,
   X,
 } from "lucide-react";
-import { api, errorText, ingesting, json, statusName } from "./api";
+import {
+  api,
+  errorText,
+  ingesting,
+  isEventStream,
+  json,
+  statusName,
+  streamEvents,
+  streamRequest,
+} from "./api";
 import { RelatedDocuments } from "./RelatedDocuments";
 import { StructuredCitationText } from "./StructuredCitationText";
 import { IngestionProgress } from "./IngestionProgress";
@@ -296,7 +305,9 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
     text: string;
     status: "queued" | "running";
     cancelRequested: boolean;
+    streaming?: boolean;
   } | null>(null);
+  const [streamedAnswer, setStreamedAnswer] = useState("");
   const [cancelledJob, setCancelledJob] = useState<{
     conversation: string;
     text: string;
@@ -483,10 +494,13 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
   const pendingJobId = pendingJob?.id;
   const pendingConversation = pendingJob?.conversation;
   const pendingText = pendingJob?.text;
+  const pendingStreaming = pendingJob?.streaming ?? false;
   const pendingJobIdRef = useRef<string | null>(null);
   pendingJobIdRef.current = pendingJobId ?? null;
   useEffect(() => {
     if (!pendingJobId || !pendingConversation || !pendingText) return;
+    // A streamed dialogue reports its own progress and outcome over SSE.
+    if (pendingStreaming) return;
     const job = {
       id: pendingJobId,
       conversation: pendingConversation,
@@ -550,7 +564,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
       clearInterval(timer);
       controller.abort();
     };
-  }, [pendingJobId, pendingConversation, pendingText]);
+  }, [pendingJobId, pendingConversation, pendingText, pendingStreaming]);
 
   useEffect(() => {
     if (lastPage.current === page) return;
@@ -704,6 +718,68 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
       setError(errorText(error));
     }
   }
+  async function sendStreamed(
+    id: string,
+    question: {
+      text: string;
+      scope: string;
+      attachment_ids: (string | undefined)[];
+    },
+  ): Promise<boolean> {
+    // Returns false when the answer must be requested the ordinary way: an
+    // unavailable stream, a busy model slot, or a browser without streams.
+    let response: Response;
+    try {
+      response = await streamRequest(
+        `/conversations/${id}/messages/stream`,
+        question,
+      );
+    } catch {
+      return false;
+    }
+    if (!isEventStream(response)) return false;
+    let streamed = false;
+    try {
+      for await (const part of streamEvents(response)) {
+        if (part.event === "start") {
+          setStreamedAnswer("");
+          setPendingJob({
+            id: String(part.data.job_id ?? ""),
+            conversation: id,
+            text: question.text,
+            status: "running",
+            cancelRequested: false,
+            streaming: true,
+          });
+        } else if (part.event === "delta") {
+          setStreamedAnswer((current) => current + String(part.data.text ?? ""));
+        } else if (part.event === "message") {
+          setMessages((items) => [...items, part.data as unknown as Message]);
+          streamed = true;
+        } else if (part.event === "cancelled") {
+          setCancelledJob({ conversation: id, text: question.text });
+          setNotice("質問を取り消しました。");
+          streamed = true;
+        } else if (part.event === "fallback") {
+          return false;
+        } else if (part.event === "error") {
+          setError(
+            `回答を生成できませんでした。${String(part.data.detail ?? "")}`,
+          );
+          streamed = true;
+        }
+      }
+    } catch (error) {
+      setError(
+        `逐次表示が途切れました。回答は調査履歴から確認できます。${errorText(error)}`,
+      );
+      streamed = true;
+    } finally {
+      setPendingJob(null);
+      setStreamedAnswer("");
+    }
+    return streamed;
+  }
   async function send(event: FormEvent) {
     event.preventDefault();
     if (!draft.trim() || busy || pendingJob || !can("retrieve")) return;
@@ -718,13 +794,19 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
     setBusy(true);
     try {
       const id = await ensureConversation();
+      const question = {
+        text: draft,
+        scope,
+        attachment_ids: attachments.map((item) => item.id),
+      };
+      if (await sendStreamed(id, question)) {
+        setDraft("");
+        await reload();
+        return;
+      }
       const response = await api<Message | ChatJobAccepted>(
         `/conversations/${id}/messages`,
-        json("POST", {
-          text: draft,
-          scope,
-          attachment_ids: attachments.map((item) => item.id),
-        }),
+        json("POST", question),
       );
       if ("job_id" in response) {
         // The model slot was busy: the question waits in line and its answer
@@ -1067,16 +1149,31 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
                 </article>
               )}
               {pendingJob && pendingJob.conversation === conversationId && (
-                <article className="exchange">
+                <article className="exchange" aria-busy={true}>
                   <p className="user-message">{pendingJob.text}</p>
                   <div className="answer">
                     <p role="status">
                       {pendingJob.cancelRequested
                         ? "質問の取り消しを受け付けました。処理終了後に結果を破棄します。"
-                        : pendingJob.status === "running"
-                          ? "回答を作成中です。完成するとこの会話に表示されます。"
-                          : "回答の生成は順番待ちです。モデルが空くと自動的に処理されます。待ち位置は混雑により変動します。"}
+                        : pendingJob.streaming
+                          ? "回答を作成中です。確定前の途中経過を表示しています。"
+                          : pendingJob.status === "running"
+                            ? "回答を作成中です。完成するとこの会話に表示されます。"
+                            : "回答の生成は順番待ちです。モデルが空くと自動的に処理されます。待ち位置は混雑により変動します。"}
                     </p>
+                    {streamedAnswer && (
+                      <>
+                        <h2>資料に基づく提案</h2>
+                        {/* The surrounding list is aria-live="polite", so the
+                            growing text is announced without a second region. */}
+                        <p style={{ whiteSpace: "pre-wrap" }}>
+                          {streamedAnswer}
+                        </p>
+                        <p className="footnote">
+                          生成中の未検証の提案です。確定後に出典と併せて確認してください。
+                        </p>
+                      </>
+                    )}
                     {!pendingJob.cancelRequested && (
                       <button
                         className="text-link"

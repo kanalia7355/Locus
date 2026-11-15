@@ -69,6 +69,97 @@ describe("approved chat interaction baseline", () => {
     fireEvent.click(screen.getByRole("button", { name: "送信" }));
     expect(await screen.findByText(/待ち位置は混雑により変動します/)).toBeVisible();
   });
+  it("renders a streamed answer while it arrives and keeps the committed message", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const frame = (event: string, data: unknown) =>
+      `event: ${event}
+data: ${JSON.stringify(data)}
+
+`;
+    const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (input, options) => {
+      const path = String(input);
+      requests.push({ path, options });
+      if (path.endsWith("/messages/stream")) {
+        const encoder = new TextEncoder();
+        const body = new ReadableStream({
+          async start(controller) {
+            controller.enqueue(encoder.encode(frame("start", { job_id: "job-1" })));
+            controller.enqueue(encoder.encode(frame("delta", { text: "成膜条件は" })));
+            await gate;
+            controller.enqueue(encoder.encode(frame("delta", { text: "180°Cです" })));
+            controller.enqueue(
+              encoder.encode(
+                frame("message", {
+                  id: "message-1",
+                  text: "成膜",
+                  scope: "all",
+                  answer: "成膜条件は180°Cです",
+                  model: "fixture:latest",
+                  citations: [],
+                }),
+              ),
+            );
+            controller.close();
+          },
+        });
+        return new Response(body, {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        });
+      }
+      return originalFetch(input, options);
+    });
+    render(<App />);
+    const field = await screen.findByRole("textbox", { name: "メッセージ" });
+    await waitFor(() => expect(field).toBeEnabled());
+    fireEvent.change(field, { target: { value: "成膜" } });
+    fireEvent.click(screen.getByRole("button", { name: "送信" }));
+    // The first fragment is visible before the answer is committed.
+    expect(await screen.findByText("成膜条件は")).toBeVisible();
+    expect(screen.getByRole("button", { name: "この質問を取り消す" })).toBeVisible();
+    release();
+    expect(await screen.findByText("成膜条件は180°Cです")).toBeVisible();
+    await waitFor(() =>
+      expect(screen.queryByText(/途中経過を表示しています/)).toBeNull(),
+    );
+    expect(
+      requests.filter((request) => request.path.endsWith("/messages")),
+    ).toHaveLength(0);
+  });
+
+  it("falls back to the ordinary request when streaming is unavailable", async () => {
+    const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (input, options) => {
+      const path = String(input);
+      if (path.endsWith("/messages/stream")) {
+        requests.push({ path, options });
+        return new Response(
+          JSON.stringify({ detail: "逐次表示は利用できません。通常の送信に切り替えます" }),
+          { status: 409, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return originalFetch(input, options);
+    });
+    render(<App />);
+    const field = await screen.findByRole("textbox", { name: "メッセージ" });
+    await waitFor(() => expect(field).toBeEnabled());
+    fireEvent.change(field, { target: { value: "成膜" } });
+    fireEvent.click(screen.getByRole("button", { name: "送信" }));
+    await screen.findByRole("heading", {
+      name: "参照できる記述が見つかりませんでした",
+    });
+    expect(
+      requests.filter((request) => request.path.endsWith("/messages/stream")),
+    ).toHaveLength(1);
+    expect(
+      requests.filter((request) => request.path.endsWith("/messages")),
+    ).toHaveLength(1);
+  });
+
   it("preserves the sidebar control and excludes collapsed navigation from focus", async () => {
     render(<App />);
     await screen.findByRole("heading", { name: "資料を調べる" });
