@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+
 from jobloop import gates, prompts, tasks, worker
 from jobloop.controller import Controller, Settings
 from jobloop.roster import Roster, eligible
