@@ -320,6 +320,54 @@ class Controller:
             )
         return self.review(task, tree, model, checks)
 
+    def resume(self, task: Task) -> Outcome:
+        """Re-check an existing workspace and carry on, without a new attempt.
+
+        Used after the owner or the orchestrator rules on an escalation: the work
+        is already in the workspace, so re-dispatching would throw it away and
+        spend an attempt on a question that has been answered.
+        """
+        tree = self.settings.workspace_root / task.id
+        if not tree.is_dir():
+            return Outcome(task.id, "no-workspace", f"{tree} does not exist")
+        model = task.model or "unknown"
+        names = gates.changed_files(tree)
+        if not names:
+            return Outcome(task.id, "nothing-to-resume", "the workspace has no changes")
+        checks = [gates.within_scope(names, task.allowed_paths)]
+        if checks[0].green:
+            checks.append(
+                gates.run_command(
+                    "task-verification",
+                    task.test_command,
+                    cwd=tree,
+                    timeout=self.settings.gate_timeout,
+                )
+            )
+            checks.extend(
+                gates.python_gates(
+                    tree, names, python=self.settings.python, timeout=self.settings.gate_timeout
+                )
+            )
+        self.record(
+            task,
+            f"RESUMED GATES ({self.now()})",
+            "\n".join(
+                f"- `{gate.name}`: {'green' if gate.green else 'FAILED — ' + gate.detail[:300]}"
+                for gate in checks
+            ),
+        )
+        failed = [gate for gate in checks if not gate.green]
+        if failed:
+            return Outcome(
+                task.id,
+                "gates-failed",
+                "; ".join(f"{gate.name}: {gate.detail[:160]}" for gate in failed),
+                model=model,
+            )
+        task = self.set_fields(task, status="review")
+        return self.review(task, tree, model, checks)
+
     def failed_attempt(self, task: Task, model: str, detail: str) -> Outcome:
         attempts = task.attempts + 1
         task = self.set_fields(task, attempts=str(attempts), status="doing")

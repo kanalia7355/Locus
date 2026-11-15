@@ -38,6 +38,9 @@ BOUNDARY = """Hard boundary, enforced by the controller after you stop:
 - Do not commit, push, merge, rebase or touch another branch. The controller
   commits once your work passes its gates.
 - Do not install packages, fetch remote scripts or call a network service.
+- Your report belongs in your reply, not on disk. Do not create `REPORT.md`,
+  notes, logs, plans or scratch files: any file outside `allowed_paths` stops the
+  job, including one that only describes what you did.
 - If the job cannot be done inside this boundary, or the specification is
   ambiguous, stop and say exactly what decision is needed. A stop with a clear
   question is a good outcome; a guess is not."""

@@ -127,6 +127,12 @@ def main(argv: list[str] | None = None) -> int:
     one.add_argument(
         "--push", action="store_true", help="push the integration branch after merging"
     )
+    again = commands.add_parser(
+        "resume-one",
+        help="re-check an existing workspace after a ruling, without a new attempt",
+    )
+    again.add_argument("task", help="task id, for example T-PH5-101")
+    again.add_argument("--push", action="store_true")
     run = commands.add_parser("run", help="run jobs until the deadline or the queue empties")
     run.add_argument("--minutes", type=float, default=60.0)
     run.add_argument("--max-jobs", type=int, default=20)
@@ -141,6 +147,14 @@ def main(argv: list[str] | None = None) -> int:
         task = controller.select()
         print(f"next: {task.id} ({task.weight})" if task else "next: nothing actionable")
         return 0
+    if arguments.command == "resume-one":
+        wanted = [task for task in controller.jobs() if task.id == arguments.task]
+        if not wanted:
+            print(f"no job named {arguments.task}")
+            return 1
+        outcome = controller.resume(wanted[0])
+        print(outcome.line)
+        return 0 if outcome.state in {"delivered", "escalated"} else 1
     if arguments.command == "run-one":
         task = controller.select()
         if task is None:
