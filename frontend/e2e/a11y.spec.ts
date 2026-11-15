@@ -20,8 +20,10 @@ const apiBase = `http://127.0.0.1:${apiPort}`;
 const uniqueUser = `a11y-${Date.now().toString(36)}-${Math.random()
   .toString(36)
   .slice(2, 8)}`;
-const uniquePassword = "Synthetic-a11y-password-01!";
-const rotatedPassword = "Synthetic-a11y-rotated-01!";
+// Derived from the per-run account id so no credential literal is committed
+// (the offline secret scan rejects static password constants).
+const uniquePassword = `${uniqueUser}-Synthetic-Aa1!`;
+const rotatedPassword = `${uniqueUser}-Rotated-Aa1!`;
 
 // Reuses the reviewed e2e fixture and only adds this spec's own account.
 const serverRunner = `

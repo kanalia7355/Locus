@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -59,6 +60,10 @@ def main() -> int:
         if not paths:
             print("Offline secret scan: no publishable source files")
             return 0
+    # The scanner reads sources with the interpreter's default encoding and
+    # silently skips files it cannot decode. On a non-UTF-8 locale (Windows
+    # cp932) that hid every finding in a file containing Japanese text, so the
+    # local gate reported 0 while the UTF-8 hosted runners reported findings.
     result = subprocess.run(  # noqa: S603 — fixed interpreter/module, no shell
         [
             sys.executable,
@@ -79,6 +84,7 @@ def main() -> int:
         capture_output=True,
         text=True,
         encoding="utf-8",
+        env={**os.environ, "PYTHONUTF8": "1"},
         timeout=120,
     )
     if result.returncode:
