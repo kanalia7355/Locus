@@ -440,7 +440,7 @@ it("keeps a running job's displayed start time when refreshed cancellation metad
     vi.fn(async () => {
       requests.push({ path: "/admin/load" });
       return respond({
-        model_slot: { enabled: true, busy: true },
+        model_slot: { enabled: true, busy: 1, total: 1 },
         chat_queue: {
           queued: 0,
           limit: 16,
@@ -473,7 +473,7 @@ it("displays only load metadata and reports refresh failures", async () => {
       requests.push({ path: String(input) });
       if (failRefresh) return respond({ detail: "状態を確認できません" }, 503);
       return respond({
-        model_slot: { enabled: true, busy: true },
+        model_slot: { enabled: true, busy: 1, total: 1 },
         chat_queue: {
           queued: 2,
           limit: 16,
@@ -497,4 +497,81 @@ it("displays only load metadata and reports refresh failures", async () => {
     "状態を確認できません",
   );
   expect(requests.every(({ path }) => !path.includes("messages"))).toBe(true);
+});
+
+it("keeps the 実行中 / 空き wording when the model has a single slot", async () => {
+  let busy = 1;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => {
+      requests.push({ path: "/admin/load" });
+      return respond({
+        model_slot: { enabled: true, busy, total: 1 },
+        chat_queue: {
+          queued: 0,
+          limit: 16,
+          per_user_limit: 2,
+          queued_per_user: [],
+          running_job: null,
+        },
+      });
+    }),
+  );
+  render(<AdminLoad />);
+  const slotText = () =>
+    screen.getByText("モデル枠").nextElementSibling?.textContent;
+  await screen.findByText("モデル枠");
+  expect(slotText()).toBe("実行中 · モデル 有効");
+  busy = 0;
+  fireEvent.click(screen.getByRole("button", { name: "更新" }));
+  await waitFor(() => expect(slotText()).toBe("空き · モデル 有効"));
+});
+
+it("shows both the in-use and total counts for a multi-slot model", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => {
+      requests.push({ path: "/admin/load" });
+      return respond({
+        model_slot: { enabled: true, busy: 2, total: 4 },
+        chat_queue: {
+          queued: 0,
+          limit: 16,
+          per_user_limit: 2,
+          queued_per_user: [],
+          running_job: null,
+        },
+      });
+    }),
+  );
+  render(<AdminLoad />);
+  await screen.findByText("モデル枠");
+  const text = screen.getByText("モデル枠").nextElementSibling?.textContent;
+  expect(text).toBe("使用中 2 / 全 4 本 · モデル 有効");
+  expect(text).toContain("使用中 2");
+  expect(text).toContain("全 4 本");
+});
+
+it("treats busy 0 as 空き without rendering a stray zero", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => {
+      requests.push({ path: "/admin/load" });
+      return respond({
+        model_slot: { enabled: true, busy: 0, total: 4 },
+        chat_queue: {
+          queued: 0,
+          limit: 16,
+          per_user_limit: 2,
+          queued_per_user: [],
+          running_job: null,
+        },
+      });
+    }),
+  );
+  render(<AdminLoad />);
+  await screen.findByText("モデル枠");
+  const text = screen.getByText("モデル枠").nextElementSibling?.textContent;
+  expect(text).toBe("空き · モデル 有効");
+  expect(text).not.toContain("0");
 });

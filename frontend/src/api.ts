@@ -109,6 +109,12 @@ export interface ModelInventory {
     inference_enabled: false;
   }[];
 }
+// 管理画面の負荷表示で使う 1 モデル分の実行スロット。busy は使用中本数。
+export interface ModelSlot {
+  enabled: boolean;
+  busy: number;
+  total: number;
+}
 
 export async function api<T>(
   path: string,

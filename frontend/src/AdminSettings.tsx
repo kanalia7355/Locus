@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errorText, json } from "./api";
+import type { ModelSlot } from "./api";
 
 interface ProjectMember {
   user_id: string;
@@ -606,7 +607,7 @@ export function AdminStorage() {
 }
 
 interface LoadStatus {
-  model_slot: { enabled: boolean; busy: boolean };
+  model_slot: ModelSlot;
   chat_queue: {
     queued: number;
     limit: number;
@@ -618,6 +619,17 @@ interface LoadStatus {
       started_at: number;
     } | null;
   };
+}
+
+// 単一スロットのときは従来の「実行中 / 空き」を保ち、複数スロットのときは
+// 使用中本数と総本数の両方を出す。busy は 0 もありうるので falsy 判定に
+// 頼らず明示的に本数を見る。
+function modelSlotText(slot: ModelSlot): string {
+  const model = `モデル ${slot.enabled ? "有効" : "無効"}`;
+  if (slot.total === 1)
+    return `${slot.busy === 0 ? "空き" : "実行中"} · ${model}`;
+  if (slot.busy === 0) return `空き · ${model}`;
+  return `使用中 ${slot.busy} / 全 ${slot.total} 本 · ${model}`;
 }
 
 export function AdminLoad() {
@@ -680,10 +692,7 @@ export function AdminLoad() {
       {status ? (
         <dl className="admin-settings-list">
           <dt>モデル枠</dt>
-          <dd>
-            {status.model_slot.busy ? "実行中" : "空き"} · モデル{" "}
-            {status.model_slot.enabled ? "有効" : "無効"}
-          </dd>
+          <dd>{modelSlotText(status.model_slot)}</dd>
           <dt>対話の待ち行列</dt>
           <dd>
             {status.chat_queue.queued} / {status.chat_queue.limit}件
