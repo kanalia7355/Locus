@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { api, json } from "./api";
+import { api, json, uniqueKey } from "./api";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -109,4 +109,35 @@ it("credential errors leave rotation sessions available, while data 401 expires 
   await expect(api("/projects")).rejects.toThrow("確認してください");
   expect(expired).toHaveBeenCalledOnce();
   window.removeEventListener("locus-session-expired", expired);
+});
+
+it("uses crypto.randomUUID when the environment provides it", () => {
+  const randomUUID = vi.fn(() => "uuid-from-environment");
+  vi.stubGlobal("crypto", { randomUUID });
+
+  expect(uniqueKey()).toBe("uuid-from-environment");
+  expect(randomUUID).toHaveBeenCalledOnce();
+});
+
+it("falls back to crypto.getRandomValues when randomUUID is missing", () => {
+  vi.stubGlobal("crypto", {
+    getRandomValues: (array: Uint8Array) => {
+      array.fill(0xab);
+      return array;
+    },
+  });
+
+  expect(uniqueKey()).toMatch(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+  );
+});
+
+it("still returns distinct keys when crypto itself is unavailable", () => {
+  vi.stubGlobal("crypto", undefined);
+
+  const keys = Array.from({ length: 50 }, () => uniqueKey());
+  expect(keys.every((key) => typeof key === "string" && key.length > 0)).toBe(
+    true,
+  );
+  expect(new Set(keys).size).toBe(keys.length);
 });

@@ -21,6 +21,7 @@ import {
   statusName,
   streamEvents,
   streamRequest,
+  uniqueKey,
 } from "./api";
 import { RelatedDocuments } from "./RelatedDocuments";
 import { StructuredCitationText } from "./StructuredCitationText";
@@ -639,7 +640,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
       const conversation =
         kind === "attachment" ? await ensureConversation() : null;
       for (const file of files) {
-        const key = crypto.randomUUID();
+        const key = uniqueKey();
         if (kind === "attachment")
           setAttachments((items) => [
             ...items,
