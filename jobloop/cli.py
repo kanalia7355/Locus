@@ -65,8 +65,12 @@ def report(controller: Controller) -> int:
             f"  {task.weight or '-':<7} {task.model or '-'}"
         )
     print(f"available models: {', '.join(controller.roster.available()) or 'none'}")
-    if phase.decisions_file.is_file():
-        print(f"owner decisions pending in {phase.decisions_file.relative_to(ROOT).as_posix()}")
+    waiting = phase.open_decisions
+    if waiting:
+        location = phase.decisions_file.relative_to(ROOT).as_posix()
+        print(f"{len(waiting)} owner decision(s) unanswered in {location}")
+        for heading in waiting:
+            print(f"   ? {heading}")
     return 0
 
 

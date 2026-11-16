@@ -116,6 +116,26 @@ def test_attempt_limit_and_status_stop_a_job_being_picked_up(tmp_path: Path) -> 
     assert not tasks.load_phase(directory).tasks[0].actionable
 
 
+def test_only_an_unanswered_decision_counts_as_waiting_on_the_owner(tmp_path: Path) -> None:
+    # Answered requests stay in the file forever — they are the record of why the
+    # code looks the way it does — so the file's existence cannot be the signal.
+    directory = phase_with_task(tmp_path)
+    phase = tasks.load_phase(directory)
+    assert phase.open_decisions == []
+    phase.decisions_file.write_text(
+        "# Owner decisions\n\n"
+        "## T-JOB-1 — scope (2026-01-01)\n\n"
+        "**Question**: widen the scope?\n\n"
+        "**Answer** (2026-01-02): no, split the job.\n\n"
+        "## T-JOB-2 — limit (2026-01-03)\n\n"
+        "**Question**: raise the wait limit?\n\n"
+        "**Context**\n\nmeasured 35s per answer\n",
+        encoding="utf-8",
+        newline="",
+    )
+    assert tasks.load_phase(directory).open_decisions == ["T-JOB-2 — limit (2026-01-03)"]
+
+
 # --- roster ------------------------------------------------------------------
 
 

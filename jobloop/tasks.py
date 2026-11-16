@@ -109,6 +109,25 @@ class Phase:
     def decisions_file(self) -> Path:
         return self.directory / "OWNER_DECISIONS.md"
 
+    @property
+    def open_decisions(self) -> list[str]:
+        """Headings of the decision requests the owner has not answered yet.
+
+        The file keeps every request, answered or not, because the answer is the
+        record of why the code looks the way it does. "The file exists" therefore
+        says nothing about whether the phase is still waiting: only an entry with
+        no `**Answer**` does.
+        """
+        if not self.decisions_file.is_file():
+            return []
+        text = self.decisions_file.read_bytes().decode("utf-8").replace("\r\n", "\n")
+        entries = re.split(r"^##\s+", text, flags=re.MULTILINE)[1:]
+        return [
+            entry.split("\n", 1)[0].strip()
+            for entry in entries
+            if "**Question**" in entry and "**Answer**" not in entry
+        ]
+
 
 def parse(path: Path) -> Task:
     # Read bytes: `read_text` translates CRLF to LF, which would hide the file's

@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Owner判断まとめ（やさしい解説版）</title>
+  <style>
+    :root {
+      --bg: #f7f9fc;
+      --surface: #ffffff;
+      --border: #dce3ec;
+      --text: #1e293b;
+      --muted: #526075;
+      --accent: #2563eb;
+      --soft-blue: #eff6ff;
+      --soft-yellow: #fefce8;
+      --soft-green: #f0fdf4;
+      --soft-red: #fef2f2;
+      --border-yellow: #fde047;
+      --border-green: #86efac;
+      --border-red: #fca5a5;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", Meiryo, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.75;
+    }
+    header {
+      background: linear-gradient(135deg, #1e3a8a, #2563eb);
+      color: #ffffff;
+      padding: 28px 24px;
+    }
+    header .wrap {
+      max-width: 980px;
+      margin: 0 auto;
+    }
+    header h1 {
+      margin: 0 0 8px;
+      font-size: 1.55rem;
+    }
+    header p {
+      margin: 0;
+      opacity: 0.92;
+      font-size: 0.96rem;
+    }
+    main {
+      max-width: 980px;
+      margin: 24px auto 64px;
+      padding: 0 18px;
+    }
+    .intro-box {
+      background: var(--soft-blue);
+      border: 1px solid #bfdbfe;
+      border-radius: 12px;
+      padding: 18px 22px;
+      margin-bottom: 24px;
+    }
+    .intro-box h2 {
+      margin: 0 0 8px;
+      font-size: 1.08rem;
+      color: #1e40af;
+    }
+    .toc {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+    .toc a {
+      display: block;
+      background: #ffffff;
+      border: 1px solid #bfdbfe;
+      border-radius: 8px;
+      padding: 10px 12px;
+      text-decoration: none;
+      color: #1e3a8a;
+      font-weight: 600;
+      font-size: 0.88rem;
+    }
+    .toc a:hover { background: #dbeafe; }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 22px 24px;
+      margin-bottom: 20px;
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+    }
+    .card-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .card-num {
+      background: var(--accent);
+      color: #ffffff;
+      font-weight: 700;
+      font-size: 0.85rem;
+      padding: 3px 10px;
+      border-radius: 999px;
+    }
+    .card-title {
+      font-size: 1.15rem;
+      font-weight: 700;
+      margin-right: auto;
+    }
+    .tag {
+      font-size: 0.78rem;
+      font-weight: 700;
+      padding: 3px 10px;
+      border-radius: 999px;
+    }
+    .tag-now { background: var(--soft-red); color: #b91c1c; border: 1px solid var(--border-red); }
+    .tag-later { background: var(--soft-yellow); color: #854d0e; border: 1px solid var(--border-yellow); }
+    .tldr {
+      background: #f8fafc;
+      border-left: 4px solid var(--accent);
+      padding: 10px 14px;
+      border-radius: 0 8px 8px 0;
+      margin-bottom: 14px;
+      font-size: 0.95rem;
+    }
+    .cols {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 12px;
+    }
+    .subbox {
+      border-radius: 10px;
+      padding: 12px 14px;
+      font-size: 0.92rem;
+    }
+    .sub-now { background: #f1f5f9; }
+    .sub-ask { background: var(--soft-yellow); border: 1px solid var(--border-yellow); }
+    .sub-rec { background: var(--soft-green); border: 1px solid var(--border-green); }
+    .sublabel {
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    ul {
+      margin: 6px 0 0;
+      padding-left: 18px;
+    }
+    li { margin-bottom: 4px; }
+    .ref {
+      margin-top: 12px;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      background: #e2e8f0;
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-size: 0.85em;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <h1>Locus「Owner判断待ち」やさしい解説ガイド</h1>
+      <p>難しい専門用語を使わずに、「今なぜ止まっているのか」「オーナーに何を決めてほしいのか」を 6 つのテーマにまとめました（2026-11-16 時点）。</p>
+    </div>
+  </header>
+
+  <main>
+    <section class="intro-box">
+      <h2>まず全体のイメージ（30秒でわかる前提）</h2>
+      <p style="margin: 0;">
+        今の Locus は、<strong>「テスト用の安全なダミーデータで、自分のパソコンの中で動くお試し版（プロトタイプ）」としてはほぼ完成</strong>しています。<br />
+        ここから先に進もうとすると、<strong>「外とつないでいい？」「危ないファイルも開いていい？」「もし悪い人が入ってきたらどうする？」</strong>という、プログラムの勝手な判断では決められない<strong>安全ルール（オーナーの許可）</strong>が必要になります。それが「Owner判断待ち」の正体です。
+      </p>
+      <div class="toc">
+        <a href="#item1">1. 別の作業部屋（Runner）で AI を動かすルール</a>
+        <a href="#item2">2. 「何でもファイル対応」とウイルス検査</a>
+        <a href="#item3">3. 10人同時に使って遅くなるときのルール</a>
+        <a href="#item4">4. Google Drive や共有フォルダとの連携</a>
+        <a href="#item5">5. 本番公開（みんなが実データで使う）の準備</a>
+        <a href="#item6">6. AI に自動でプログラムを書かせる本番ルール</a>
+      </div>
+    </section>
+
+    <!-- Item 1 -->
+    <article class="card" id="item1">
+      <div class="card-head">
+        <span class="card-num">テーマ 1</span>
+        <span class="card-title">別の作業部屋（Runner）で AI やツールを動かすルール</span>
+        <span class="tag tag-now">次の機能に進む前に決定が必要</span>
+      </div>
+      <div class="tldr">
+        <strong>ひとことで言うと：</strong>今は Locus の中だけで安全なローカル AI を動かしています。将来的に外部の AI（Codex や Claude など）や便利なツールを<strong>「隔離された作業部屋（Runner）」</strong>で動かすための、<strong>5つの安全ルール</strong>がまだ決まっていません。
+      </div>
+      <div class="cols">
+        <div class="subbox sub-now">
+          <div class="sublabel">今どうなっている？</div>
+          作業部屋の「名簿」を作る機能だけはできましたが、実際に仕事を頼もうとすると<strong>安全のためわざと「409 エラー（今は動かせません）」で止める</strong>ようになっています。
+        </div>
+        <div class="subbox sub-ask">
+          <div class="sublabel">決めてほしい 5 つのこと（Entry 1〜5）</div>
+          <ul>
+            <li><strong>① 許可証の期限：</strong>AI に渡す「1回限りの通行証」を何時間で期限切れにするか？</li>
+            <li><strong>② 専用の許可ボタン：</strong>今の「管理者」が承認するか、「承認係」という新しい役割を作るか？</li>
+            <li><strong>③ 通信していい範囲：</strong>作業部屋と本体が、決まった社内回線だけ通していいか？</li>
+            <li><strong>④ パスワードの渡し方：</strong>外部 AI を使うときの鍵を、安全な仲介役経由で渡していいか？</li>
+            <li><strong>⑤ 本人確認と鍵管理：</strong>偽物の作業部屋が来ないよう、どうやって見分けて、鍵をどう管理するか？</li>
+          </ul>
+        </div>
+        <div class="subbox sub-rec">
+          <div class="sublabel">開発側のおすすめ案</div>
+          <ul>
+            <li>① 許可証は「基本24時間・最大7日」で期限切れ</li>
+            <li>② 新しい役割は増やさず今の権限でやる</li>
+            <li>③ 決まった安全な社内窓口だけ通す</li>
+            <li>④ 安全確認できた環境だけ仲介役が鍵を渡す（無理なら使わない）</li>
+            <li>⑤ OS 標準の安全な金庫に鍵をしまい、1回限りの合言葉で登録する</li>
+          </ul>
+        </div>
+      </div>
+      <div class="ref">元の資料: <code>docs/plans/OWNER_CHECKLIST_2026-11-11.md</code>（Entry 1〜5）, <code>ADR-0012</code>, <code>ADR-0013</code></div>
+    </article>
+
+    <!-- Item 2 -->
+    <article class="card" id="item2">
+      <div class="card-head">
+        <span class="card-num">テーマ 2</span>
+        <span class="card-title">「資料は割と何でも対応したい」とウイルス検査</span>
+        <span class="tag tag-now">形式を増やすなら決定が必要</span>
+      </div>
+      <div class="tldr">
+        <strong>ひとことで言うと：</strong>今は<strong>「文字だけのファイル（.txt / .md / .csv）」</strong>しか読み込めません。PDF やプログラムファイルなど何でも読めるようにすると、<strong>悪意あるファイルでパソコンが壊れる危険</strong>があるため、安全対策のやり方を決める必要があります。
+      </div>
+      <div class="cols">
+        <div class="subbox sub-now">
+          <div class="sublabel">今どうなっている？</div>
+          <ul>
+            <li>読み込めるのは UTF-8 の <code>.txt</code> / <code>.md</code> / <code>.csv</code>（256KB まで）だけ。</li>
+            <li>ウイルス検査（ClamAV）の接続口は作ってありますが、本物の検査ソフトが動いていないときは安全のため「隔離（保留）」にして止められます。</li>
+          </ul>
+        </div>
+        <div class="subbox sub-ask">
+          <div class="sublabel">決めてほしいこと</div>
+          <ul>
+            <li><strong>① どこまでのファイル形式を許すか：</strong>PDF、Word/Excel、画像文字読み取り（OCR）、ソースコードなど、どれを対応対象にするか？</li>
+            <li><strong>② 危険なファイルの開き方：</strong>ファイルの中身を取り出す処理を、本体から切り離した「安全な箱（サンドボックス）」の中で動かす方針でよいか？</li>
+            <li><strong>③ 本物のウイルス検査ソフトをどこで動かしてテストするか。</strong></li>
+          </ul>
+        </div>
+        <div class="subbox sub-rec">
+          <div class="sublabel">ポイント</div>
+          ファイルを増やすだけに見えますが、実は<strong>セキュリティ事故が一番起きやすい場所</strong>なので、対応形式と隔離ルールが決まるまであえて止めています。
+        </div>
+      </div>
+      <div class="ref">元の資料: <code>progress/phase-5-prototype/PROGRESS.md</code> §3, <code>T-PH4-105.md</code>, <code>DATA-006</code>, <code>DATA-007</code></div>
+    </article>
+
+    <!-- Item 3 -->
+    <article class="card" id="item3">
+      <div class="card-head">
+        <span class="card-num">テーマ 3</span>
+        <span class="card-title">10人同時に使って AI の返事が遅いときのルール</span>
+        <span class="tag tag-now">11/15 の実測で新しく判明</span>
+      </div>
+      <div class="tldr">
+        <strong>ひとことで言うと：</strong>テストで測ったところ、今の仕組みは AI が「1回に1人ずつ順番待ち」で答えるため、<strong>10人が同時に質問すると「1回30秒以内」で答えないと10人目が時間切れエラーになる</strong>ことが分かりました。
+      </div>
+      <div class="cols">
+        <div class="subbox sub-now">
+          <div class="sublabel">今どうなっている？</div>
+          待ち時間の上限が <strong>300秒（5分）</strong>、行列に並べる上限が <strong>全体16件（1人2件まで）</strong> です。1回の返事が2秒なら10人全員に22秒以内に返せますが、重い AI で1回35秒かかると10人目は5分を超えて失敗します。
+        </div>
+        <div class="subbox sub-ask">
+          <div class="sublabel">3つの選択肢から選んでほしい</div>
+          <ul>
+            <li><strong>(a) 待ち時間の上限を 5分より長くする</strong>（例: 10分にする）</li>
+            <li><strong>(b) 同時人数の上限を画面に表示して、超えたらハッキリ断る</strong></li>
+            <li><strong>(c) AI の待機列を 1本ではなく複数本にする</strong>（メモリや GPU を多く使う大きな設計変更）</li>
+          </ul>
+        </div>
+        <div class="subbox sub-rec">
+          <div class="sublabel">ポイント</div>
+          使うパソコンの性能と AI の大きさ次第で答えが変わるため、プログラム側が勝手に数字を変えず、オーナーの運用方針を待っています。
+        </div>
+      </div>
+      <div class="ref">元の資料: <code>progress/phase-4-closeout/tasks/T-PH4-105.md</code></div>
+    </article>
+
+    <!-- Item 4 -->
+    <article class="card" id="item4">
+      <div class="card-head">
+        <span class="card-num">テーマ 4</span>
+        <span class="card-title">共有フォルダ（NAS）やオンラインストレージとの自動連携</span>
+        <span class="tag tag-later">後回し（専用フェーズで対応）</span>
+      </div>
+      <div class="tldr">
+        <strong>ひとことで言うと：</strong>今は人間が「手動でアップロード」するだけですが、将来「社内共有フォルダやクラウドの中を自動で読みに行く」なら、<strong>元のフォルダの閲覧禁止ルールをどう引き継ぐか</strong>を決める必要があります。
+      </div>
+      <div class="cols">
+        <div class="subbox sub-now">
+          <div class="sublabel">今どうなっている？</div>
+          調べたレポートと設計案は書いてありますが、コードは<strong>まだ作っていません</strong>（手動アップロードを優先完成させる方針で合意済み）。
+        </div>
+        <div class="subbox sub-ask">
+          <div class="sublabel">つなぐときに決めること</div>
+          <ul>
+            <li>どの保存場所（Windows 共有フォルダ / Google Drive 等）につなぐか？</li>
+            <li>元のフォルダで見る権利を失った人が、Locus の過去の検索結果からも見れなくなるようにするチェック頻度や方法。</li>
+          </ul>
+        </div>
+        <div class="subbox sub-rec">
+          <div class="sublabel">ポイント</div>
+          まずは手動アップロード版を完成させてから、別フェーズとして順番に取り組む計画になっています。
+        </div>
+      </div>
+      <div class="ref">元の資料: <code>OWNER_DECISIONS_2026-11-09-EVENING.md</code>（Q5・Q6）, <code>PHASE2_STORAGE_ACL_RESEARCH.md</code>, <code>DATA-008</code></div>
+    </article>
+
+    <!-- Item 5 -->
+    <article class="card" id="item5">
+      <div class="card-head">
+        <span class="card-num">テーマ 5</span>
+        <span class="card-title">本番公開（本物の研究データを入れてみんなで使う）ための準備</span>
+        <span class="tag tag-later">本番フェーズ（P6）で決定</span>
+      </div>
+      <div class="tldr">
+        <strong>ひとことで言うと：</strong>今は「お試し用のダミーデータ＋1台のパソコン」専用です。<strong>本物の研究データを入れて、ネットワーク越しにみんなで安全に使う</strong>ための本格的なお店開きルールがまだ決まっていません。
+      </div>
+      <div class="cols">
+        <div class="subbox sub-now">
+          <div class="sublabel">今どうなっている？</div>
+          間違って本番モードで起動しようとすると、<strong>安全のためわざと起動を拒否する</strong>ように作ってあります。
+        </div>
+        <div class="subbox sub-ask">
+          <div class="sublabel">本番前に決める 5 つのこと</div>
+          <ul>
+            <li><strong>二段階認証（MFA）：</strong>本番では必須と決まったが、スマホアプリ等のどの方式にするか？</li>
+            <li><strong>通信の暗号化（HTTPS/TLS）と社内ネットワーク制限</strong></li>
+            <li><strong>本番データベース：</strong>SQLite から PostgreSQL 等に変えるか？</li>
+            <li><strong>データの保存期間と完全削除：</strong>何年残して、いつどう完全に消すか？ログの改ざん防止はどうするか？</li>
+            <li><strong>組織全体の管理画面（Entry 6）：</strong>会社・研究室全体の設定画面を今作るか、後回しにするか（推奨: 後回し可）。</li>
+          </ul>
+        </div>
+        <div class="subbox sub-rec">
+          <div class="sublabel">ポイント</div>
+          お試し版のうちから「あとで本番用に差し替えられる構造」で作ってあるので、テストが終わってから順番に決めて切り替える予定です。
+        </div>
+      </div>
+      <div class="ref">元の資料: <code>OWNER_DECISIONS_2026-11-09-EVENING.md</code>（Q7）, <code>OWNER_CHECKLIST_2026-11-11.md</code>（Entry 6）, <code>P6</code></div>
+    </article>
+
+    <!-- Item 6 -->
+    <article class="card" id="item6">
+      <div class="card-head">
+        <span class="card-num">テーマ 6</span>
+        <span class="card-title">AI が自動でプログラムを書いて本番へ合流するルール</span>
+        <span class="tag tag-later">運用ルールの最終決定待ち</span>
+      </div>
+      <div class="tldr">
+        <strong>ひとことで言うと：</strong>開発用の AI ループ自体は動いていますが、<strong>「人間が見ていない夜間に自動で動かしていいか」「本番用の main ブランチへ自動で合流させていいか」</strong>という最終ゴーサインは出していません。
+      </div>
+      <div class="cols">
+        <div class="subbox sub-now">
+          <div class="sublabel">今どうなっている？</div>
+          開発用の枝（ブランチ）の中での作業や、テストでの動作確認は進んでいます。
+        </div>
+        <div class="subbox sub-ask">
+          <div class="sublabel">決めること</div>
+          <ul>
+            <li>人が見ていない無監視状態で自動で動かしてよい条件の承認</li>
+            <li>別の AI がチェックした結果を「独立した合格」と認める仕組みの承認</li>
+            <li>開発ブランチから本番の <code>main</code> ブランチへ合流させる正式な手順の一本化</li>
+          </ul>
+        </div>
+        <div class="subbox sub-rec">
+          <div class="sublabel">ポイント</div>
+          AI が勝手に本番のプログラムを書き換えて事故を起こさないよう、あえて厳しめのブレーキをかけたままにしています。
+        </div>
+      </div>
+      <div class="ref">元の資料: <code>REQUIREMENTS_TRACEABILITY_MATRIX.md</code>（<code>LOOP-003/006/008/012〜014/018/020〜022</code>）</div>
+    </article>
+  </main>
+</body>
+</html>

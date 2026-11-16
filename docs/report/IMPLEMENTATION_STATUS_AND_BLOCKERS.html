@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Locus 実装状況・未実装/部分実装の停止理由レポート</title>
+  <style>
+    :root {
+      --bg: #f6f8fa;
+      --surface: #ffffff;
+      --border: #d0d7de;
+      --text: #1f2328;
+      --muted: #59636e;
+      --accent: #0969da;
+      --green-bg: #dafbe1;
+      --green-fg: #116329;
+      --yellow-bg: #fff8c5;
+      --yellow-fg: #7d4e00;
+      --red-bg: #ffebe9;
+      --red-fg: #cf222e;
+      --blue-bg: #ddf4ff;
+      --blue-fg: #0550ae;
+      --gray-bg: #eaeef2;
+      --gray-fg: #424a53;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", Meiryo, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+    header {
+      background: #1f2328;
+      color: #ffffff;
+      padding: 24px 32px;
+      border-bottom: 3px solid var(--accent);
+    }
+    header h1 {
+      margin: 0 0 6px;
+      font-size: 1.5rem;
+      font-weight: 600;
+    }
+    header p {
+      margin: 0;
+      color: #b1bac4;
+      font-size: 0.92rem;
+    }
+    main {
+      max-width: 1200px;
+      margin: 24px auto 64px;
+      padding: 0 20px;
+    }
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+    .kpi-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px 18px;
+    }
+    .kpi-label {
+      font-size: 0.82rem;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    .kpi-value {
+      font-size: 1.6rem;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    .kpi-sub {
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+    .section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px 24px;
+      margin-bottom: 20px;
+    }
+    .section h2 {
+      margin: 0 0 12px;
+      font-size: 1.15rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 8px;
+    }
+    .progress-bar {
+      display: flex;
+      height: 18px;
+      border-radius: 9px;
+      overflow: hidden;
+      background: var(--gray-bg);
+      margin: 10px 0 8px;
+    }
+    .seg-done { background: #1a7f37; }
+    .seg-proto { background: #2da44e; }
+    .seg-wip { background: #0969da; }
+    .seg-wait { background: #d29922; }
+    .seg-todo { background: #8c959f; }
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      font-size: 0.84rem;
+      color: var(--muted);
+    }
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    .filter-btn {
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .filter-btn:hover { background: var(--gray-bg); }
+    .filter-btn.active {
+      background: var(--accent);
+      color: #ffffff;
+      border-color: var(--accent);
+    }
+    .search-box {
+      margin-left: auto;
+      padding: 6px 12px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 0.88rem;
+      min-width: 220px;
+    }
+    .item-list {
+      display: grid;
+      gap: 14px;
+    }
+    .item-card {
+      border: 1px solid var(--border);
+      border-left: 5px solid var(--border);
+      border-radius: 8px;
+      padding: 16px 18px;
+      background: #ffffff;
+    }
+    .item-card[data-cat="owner"] { border-left-color: #cf222e; }
+    .item-card[data-cat="scope"] { border-left-color: #d29922; }
+    .item-card[data-cat="wip"] { border-left-color: #0969da; }
+    .item-header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .item-title {
+      font-weight: 700;
+      font-size: 1.02rem;
+      margin-right: auto;
+    }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 0.76rem;
+      font-weight: 600;
+    }
+    .b-red { background: var(--red-bg); color: var(--red-fg); }
+    .b-yellow { background: var(--yellow-bg); color: var(--yellow-fg); }
+    .b-blue { background: var(--blue-bg); color: var(--blue-fg); }
+    .b-green { background: var(--green-bg); color: var(--green-fg); }
+    .b-gray { background: var(--gray-bg); color: var(--gray-fg); }
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 12px;
+      font-size: 0.88rem;
+    }
+    .box {
+      background: var(--bg);
+      border-radius: 6px;
+      padding: 10px 12px;
+    }
+    .box-label {
+      font-size: 0.76rem;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.84em;
+      background: #eff1f3;
+      padding: 1px 5px;
+      border-radius: 4px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    th {
+      background: var(--bg);
+      font-weight: 600;
+      color: var(--muted);
+    }
+    .hidden { display: none !important; }
+    footer {
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.82rem;
+      margin-top: 28px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Locus 実装状況・未実装 / 部分実装の停止理由レポート</h1>
+    <p>調査基準日: 2026-11-16 ／ 対象: 実装コード（<code>backend/</code>, <code>frontend/</code>）・計画台帳（<code>docs/plans/</code>, <code>progress/</code>）・Git 履歴</p>
+  </header>
+
+  <main>
+    <section class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-label">プロトタイプ開発（Phase 1〜5）</div>
+        <div class="kpi-value" style="color: #1a7f37;">終盤（約 9 割）</div>
+        <div class="kpi-sub">P1〜P4 完了。<code>phase-5-prototype</code> は 3 件中 2 件統合済み（残 <code>T-PH5-102</code>）</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">全 92 要件カタログ（統合/充足）</div>
+        <div class="kpi-value" style="color: #0969da;">53.3% <span style="font-size:0.9rem;font-weight:400;">(49/92)</span></div>
+        <div class="kpi-sub">完了条件充足 4 + プロトタイプ統合済み 45（直近追加 <code>DATA-014</code>, <code>UI-006</code> は実質統合）</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">停止中の主要要因</div>
+        <div class="kpi-value" style="color: #cf222e;">安全ゲート / 決定待ち</div>
+        <div class="kpi-sub">未着手 21 件＋Owner 判断待ち 18 件の大半は技術的障害ではなく意図的な承認・方針待ち</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">最終受入基準（40 項目）</div>
+        <div class="kpi-value" style="color: #7d4e00;">open 32 / 40</div>
+        <div class="kpi-sub"><code>prototype-satisfied</code> 4 件 / <code>deferred</code> 4 件 / <code>open</code> 32 件</div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>全 92 要件の現在分布（<code>REQUIREMENTS_TRACEABILITY_MATRIX.md</code> 基準）</h2>
+      <div class="progress-bar" title="完了4 / 統合済み45 / 実装中4 / Owner判断待ち18 / 未着手21">
+        <div class="seg-done" style="width: 4.35%"></div>
+        <div class="seg-proto" style="width: 48.91%"></div>
+        <div class="seg-wip" style="width: 4.35%"></div>
+        <div class="seg-wait" style="width: 19.57%"></div>
+        <div class="seg-todo" style="width: 22.82%"></div>
+      </div>
+      <div class="legend">
+        <span class="legend-item"><span class="dot seg-done"></span>完了条件充足: 4件 (4.3%)</span>
+        <span class="legend-item"><span class="dot seg-proto"></span>統合済み (prototype含む): 45件 (48.9%)</span>
+        <span class="legend-item"><span class="dot seg-wip"></span>実装中: 4件 (4.3%)</span>
+        <span class="legend-item"><span class="dot seg-wait"></span>Owner判断待ち: 18件 (19.6%)</span>
+        <span class="legend-item"><span class="dot seg-todo"></span>未着手: 21件 (22.8%)</span>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>なぜ止まっているのか（未実装・部分実装の要因別一覧）</h2>
+      <div class="controls">
+        <button class="filter-btn active" data-filter="all">すべて (12)</button>
+        <button class="filter-btn" data-filter="owner">🔴 安全ゲート / Owner判断待ち (6)</button>
+        <button class="filter-btn" data-filter="scope">🟡 フェーズ順序待ち / 後回し (3)</button>
+        <button class="filter-btn" data-filter="wip">🔵 進行中・直近残タスク (3)</button>
+        <input class="search-box" type="search" id="searchInput" placeholder="キーワード検索 (例: HBR, PDF, MFA, T-PH5)..." />
+      </div>
+
+      <div class="item-list" id="itemList">
+        <!-- 1. Hybrid Runner -->
+        <article class="item-card" data-cat="owner">
+          <div class="item-header">
+            <span class="item-title">1. ハイブリッド Agent Runner 実行基盤（H2b〜H6）</span>
+            <span class="badge b-blue">H2a のみ部分実装</span>
+            <span class="badge b-red">Owner 判断・ADR 承認待ち</span>
+            <span class="badge b-gray">HBR-001〜015</span>
+          </div>
+          <div class="grid-3">
+            <div class="box">
+              <div class="box-label">現在の実装</div>
+              <code>backend/app/agents/registry.py</code> にメタデータ登録・不変ポリシー・B6 実行拒否（常に 409 を返すゲート）のみ実装済み。Runner 本体・実行アダプタ・設定 UI は未実装。
+            </div>
+            <div class="box">
+              <div class="box-label">止まっている理由（根拠資料）</div>
+              <code>ADR-0012</code>（B6 強制拒否）と <code>ADR-0013</code>（DRAFT 未承認）により、承認と実装・有効化が厳格に分離されているため。<code>OWNER_CHECKLIST_2026-11-11.md</code> の <strong>Entry 1〜5</strong>（Receipt TTL、新規権限要否、Runner 通信トポロジ、外部認証情報供給、信頼/鍵管理 8 項目）が未決定。
+            </div>
+            <div class="box">
+              <div class="box-label">再開・解除条件</div>
+              Owner が Entry 1〜5 を決定し、<code>ADR-0013</code> を正式承認すること。その後、OS 隔離プロファイルの環境別実機検証・独立セキュリティレビューを通過するまで有効化されない。
+            </div>
+          </div>
+        </article>
+
+        <!-- 2. Storage connectors & source ACL -->
+        <article class="item-card" data-cat="owner">
+          <div class="item-header">
+            <span class="item-title">2. 外部保存先コネクタと元保存先 ACL 同期</span>
+            <span class="badge b-gray">調査/計画のみ（コード未着手）</span>
+            <span class="badge b-red">Q5/Q6 による繰延</span>
+            <span class="badge b-gray">DATA-008</span>
+          </div>
+          <div class="grid-3">
+            <div class="box">
+              <div class="box-label">現在の実装</div>
+              手動アップロード（<code>service.py::upload</code>）と即時アクセス拒否のみ実装済み。<code>PHASE2_STORAGE_ACL_RESEARCH.md</code> / <code>IMPLEMENTATION_PLAN.md</code> は存在するが実装は未着手。
+            </div>
+            <div class="box">
+              <div class="box-label">止まっている理由（根拠資料）</div>
+              <code>OWNER_DECISIONS_2026-11-09-EVENING.md</code> <strong>Q5/Q6</strong> および <code>DEFERRED_WITH_GATES_2026-11-09.md</code> <strong>Gate D-3</strong> により「手動アップロード優先、ローカルフォルダ/NAS/オンラインストレージ連携は後続の専用 Phase へ繰延」と決定されたため。
+            </div>
+            <div class="box">
+              <div class="box-label">再開・解除条件</div>
+              コネクタ専用 Phase を起票し、対象ストレージ種別・認証情報管理・元 ACL 参照方式の【要決定】項目を Owner 承認した上で着手する。
+            </div>
+          </div>
+        </article>
+
+        <!-- 3. Formats & Scanner -->
+        <article class="item-card" data-cat="owner">
+          <div class="item-header">
+            <span class="item-title">3. PDF/OCR・任意形式対応と本番マルウェアスキャナ</span>
+            <span class="badge b-blue">一部アダプタのみ（モック）</span>
+            <span class="badge b-red">セキュリティ境界承認待ち</span>
+            <span class="badge b-gray">DATA-006, DATA-007</span>
+          </div>
+          <div class="grid-3">
+            <div class="box">
+              <div class="box-label">現在の実装</div>
+              取り込みは <code>.txt</code> / <code>.md</code> / <code>.csv</code>（UTF-8・256KiB 上限）のみ。<code>backend/app/scanner.py</code> に ClamAV ループバックアダプタはあるが、実デーモン未検証・未設定時は fail-closed 隔離。
+            </div>
+            <div class="box">
+              <div class="box-label">止まっている理由（根拠資料）</div>
+              <code>phase-5-prototype/PROGRESS.md</code> §3 および <code>T-PH4-105.md</code> のとおり、未知ファイル解析・PDF/OCR はサンドボックス隔離設計と許可形式の Owner 承認が前提のため、現行プロトタイプ Phase から意図的に除外。
+            </div>
+            <div class="box">
+              <div class="box-label">再開・解除条件</div>
+              対応形式の範囲・パーサー隔離方式・ClamAV 等の実運用検証計画を承認し、専用タスクとして分離実装する。
+            </div>
+          </div>
+        </article>
+
+        <!-- 4. Production DB / TLS / MFA / Audit protection -->
+        <article class="item-card" data-cat="owner">
+          <div class="item-header">
+            <span class="item-title">4. 本番 DB・TLS/LAN 配備・MFA・監査改ざん防止・保持運用</span>
+            <span class="badge b-gray">未着手（P6 本番準備）</span>
+            <span class="badge b-red">Q7 繰延 / Owner 決定待ち</span>
+            <span class="badge b-gray">PROD-002/003/007, IAM-004/005/016/017, DATA-013/015</span>
+          </div>
+          <div class="grid-3">
+            <div class="box">
+              <div class="box-label">現在の実装</div>
+              SQLite + 合成データ専用。<code>backend/app/main.py</code> は本番環境設定での起動を fail-closed で拒否するガードのみ実装。MFA・本番 TLS・監査ログ改ざん防止・バックアップ/保持削除は未実装。
+            </div>
+            <div class="box">
+              <div class="box-label">止まっている理由（根拠資料）</div>
+              <code>OWNER_DECISIONS_2026-11-09-EVENING.md</code> <strong>Q7</strong> および <code>DEFERRED_WITH_GATES_2026-11-09.md</code> <strong>Gate D-1 / §4</strong> により、プロトタイプ段階では SQLite 置換可能構成を維持し、技術選定・保持期間・MFA 実装・実データ許可は本番準備 Phase（P6）へ繰延済み。
+            </div>
+            <div class="box">
+              <div class="box-label">再開・解除条件</div>
+              本番 DB/検索技術・保持期間・TLS/セッション永続化方針・MFA 方式を Owner 選定し、実データ解禁ゲートと本番セキュリティ審査を通過する。
+            </div>
+          </div>
+        </article>
+
+        <!-- 5. Data Classification -->
+        <article class="item-card" data-cat="owner">
+          <div class="item-header">
+            <span class="item-title">5. データ分類・機密区分継承パイプライン</span>
+            <span class="badge b-gray">未着手</span>
+            <span class="badge b-red">H2c / H3 境界待ち</span>
+            <span class="badge b-gray">DATA-012, HBR-003</span>
+          </div>
+          <div class="grid-3">
+            <div class="box">
+              <div class="box-label">現在の実装</div>
+              <code>backend/app/agents/registry.py</code> に分類レベル定数（<code>none/public/personal/research_shared/confidential</code>）はあるが、文書・引用・派生出力へ伝播する実行パイプラインは未実装。
+            </div>
+            <div class="box">
+              <div class="box-label">止まっている理由（根拠資料）</div>
+              <code>ADR-0012</code> §4 により、外部・Runner へコンテキストを渡す段階（H2c/H3）の前提ゲートとして定義されており、プロトタイプ内の閉じたローカル利用では未起動。
+            </div>
+            <div class="box">
+              <div class="box-label">再開・解除条件</div>
+              H2b/H3 の着手に合わせて、未知データの fail-closed 扱い・派生出力への最大機密区分継承ルールを実装・テストする。
+            </div>
+          </div>
+        </article>
+
+        <!-- 6. Autonomous Loop live acceptance -->
+        <article class="item-card" data-cat="owner">
+          <div class="item-header">
+            <span class="item-title">6. 自律開発ループの本番ライブ受入・保護ブランチ自動統合</span>
+            <span class="badge b-blue">ローカル/モック実装済み</span>
+            <span class="badge b-red">ライブ許可・配信方針待ち</span>
+            <span class="badge b-gray">LOOP-003/006/008/012〜014/018/020〜022</span>
+          </div>
+          <div class="grid-3">
+            <div class="box">
+              <div class="box-label">現在の実装</div>
+              <code>loop_engine/</code> および <code>jobloop</code> / <code>scripts/autoloop.mjs</code> によりローカル開発ブランチ上での実装・テスト・レビュー循環は稼働している。
+            </div>
+            <div class="box">
+              <div class="box-label">止まっている理由（根拠資料）</div>
+              <code>REQUIREMENTS_TRACEABILITY_MATRIX.md</code> / <code>LOOP_IMPLEMENTATION.md</code> のとおり、無監視本番稼働（<code>LOOP-021</code>）、ライブ C-min 実行認可（<code>LOOP-020</code>）、信頼できる独立レビュアー環境（<code>LOOP-006</code>）、保護された <code>main</code> 統合機構（<code>LOOP-022</code>）が未確定・未認可。
+            </div>
+            <div class="box">
+              <div class="box-label">再開・解除条件</div>
+              <code>main</code> 配信ポリシーの最終一本化と、ライブ実行境界・独立レビュー搬送の実環境証明に対する Owner 承認。
+            </div>
+          </div>
+        </article>
+
+        <!-- 7. P5 Extensions (GraphRAG, Plots, Cloud Routing) -->
+        <article class="item-card" data-cat="scope">
+          <div class="item-header">
+            <span class="item-title">7. P5 拡張（意味的 GraphRAG・プロット分析・承認済み外部 AI ルーティング）</span>
+            <span class="badge b-blue">語彙関連図/構造比較表のみ</span>
+            <span class="badge b-yellow">プロトタイプ完成後の拡張 Phase 待ち</span>
+            <span class="badge b-gray">UI-007, DATA-004(vector/graph), PH-ROADMAP-5</span>
+          </div>
+          <div class="grid-3">
+            <div class="box">
+              <div class="box-label">現在の実装</div>
+              <code>frontend/src/ProvenanceDiagram.tsx</code> の語彙ベース関連文書 SVG 図と、P4 で追加された構造化比較表、ローカル Ollama アダプタのみ。意味的 GraphRAG・プロット生成サンドボックス・クラウド API ルーティングは未実装。
+            </div>
+            <div class="box">
+              <div class="box-label">止まっている理由（根拠資料）</div>
+              <code>phase-5-prototype/PROGRESS.md</code> §3 および <code>MASTER_IMPLEMENTATION_ROADMAP.md</code> により、「まずプロトタイプを完成させ、その後に拡張 Phase で扱う」という順序方針で後回しにされているため（外部 AI 通信は default-deny）。
+            </div>
+            <div class="box">
+              <div class="box-label">再開・解除条件</div>
+              現行 <code>phase-5-prototype</code> 完了後、グラフホップ毎の ACL フィルタ・分析実行境界・外部プロバイダ利用規約/egress 承認を得て着手する。
+            </div>
+          </div>
+        </article>
+
+        <!-- 8. Org-level UI / Delegation residual -->
+        <article class="item-card" data-cat="scope">
+          <div class="item-header">
+            <span class="item-title">8. 組織レベル管理 UI・組織横断委任・受領側 UI のさらなる精緻化</span>
+            <span class="badge b-blue">プロジェクト単位は実装済み</span>
+            <span class="badge b-yellow">Entry 6 で後回し指定</span>
+            <span class="badge b-gray">DP-071, IAM-011/014</span>
+          </div>
+          <div class="grid-3">
+            <div class="box">
+              <div class="box-label">現在の実装</div>
+              <code>T-PH2-001</code> / <code>T-PH2-002</code> によりプロジェクト単位の委任 UI・非権限者ガード・実効権限内訳表示は完了。組織全体の一括管理 UI・組織横断委任は未実装。
+            </div>
+            <div class="box">
+              <div class="box-label">止まっている理由（根拠資料）</div>
+              <code>OWNER_CHECKLIST_2026-11-11.md</code> <strong>Entry 6（DP-071）</strong> で組織モデルの定義が未確定のため「組織レベル管理 UI は後回し可」と整理されている。
+            </div>
+            <div class="box">
+              <div class="box-label">再開・解除条件</div>
+              組織単位の運用要件が必要になった段階で組織モデルを定義・承認し、設計提案を行う。
+            </div>
+          </div>
+        </article>
+
+        <!-- 9. Capacity > 30s response follow-up -->
+        <article class="item-card" data-cat="scope">
+          <div class="item-header">
+            <span class="item-title">9. 同時 10 人利用時の「1 応答 30 秒超」構成への対策</span>
+            <span class="badge b-blue">実測ハーネス完了 (T-PH4-105)</span>
+            <span class="badge b-yellow">設計方針の選択待ち</span>
+            <span class="badge b-gray">T-PH4-105 残件</span>
+          </div>
+          <div class="grid-3">
+            <div class="box">
+              <div class="box-label">現在の実装</div>
+              <code>scripts/measure_capacity.py</code> による実測は完了。現行は単一モデルスロット直列処理＋<code>CHAT_WAIT_SECONDS=300</code> 秒のため、同時 10 人では 1 応答 30 秒以内でないと末尾が待機上限エラーになる。
+            </div>
+            <div class="box">
+              <div class="box-label">止まっている理由（根拠資料）</div>
+              <code>progress/phase-4-closeout/tasks/T-PH4-105.md</code> 末尾のとおり、(a) 待機上限引き上げ、(b) 同時人数の上限明示、(c) モデルスロット複数化、のどれを採るか設計判断が必要なため未実装。
+            </div>
+            <div class="box">
+              <div class="box-label">再開・解除条件</div>
+              Owner が (a)〜(c) の方針を選択すること（(c) は単一スロット前提の見直しを伴う）。
+            </div>
+          </div>
+        </article>
+
+        <!-- 10. T-PH5-102 -->
+        <article class="item-card" data-cat="wip">
+          <div class="item-header">
+            <span class="item-title">10. <code>T-PH5-102</code>: 検索・関連・出典・履歴・待機ジョブ・モデル文脈の現行 ACL 網羅証明</span>
+            <span class="badge b-blue">todo（未着手タスク）</span>
+            <span class="badge b-green">承認不要で実装可能</span>
+            <span class="badge b-gray">DATA-004 (現行経路)</span>
+          </div>
+          <div class="grid-3">
+            <div class="box">
+              <div class="box-label">現在の実装</div>
+              <code>T-PH5-101</code>（取り込み前インベントリ）と <code>T-PH5-103</code>（嘘のない待機上限表示）は 2026-11-15 に完了・マージ済み。<code>phase-5-prototype</code> で残っているのはこの 1 件のみ。
+            </div>
+            <div class="box">
+              <div class="box-label">止まっている理由（根拠資料）</div>
+              技術的ブロッカーや判断待ちはない。単に <code>jobloop</code> の実行キュー上でまだ着手されていない（<code>status: todo</code>, <code>attempts: 0</code>）。
+            </div>
+            <div class="box">
+              <div class="box-label">再開・解除条件</div>
+              <code>tests/test_retrieval_acl_paths.py</code> を作成して 6 経路の権限失効テストを実行・レビューすれば、<code>phase-5-prototype</code> の残タスクが完了する。
+            </div>
+          </div>
+        </article>
+
+        <!-- 11. T-PH2-005 ledger discrepancy -->
+        <article class="item-card" data-cat="wip">
+          <div class="item-header">
+            <span class="item-title">11. <code>phase-2-authz</code> 台帳整合（<code>T-PH2-005</code> の状態記録と CI 最終確認）</span>
+            <span class="badge b-blue">コード修正済み / 台帳不整合</span>
+            <span class="badge b-yellow">Controller 整理待ち</span>
+            <span class="badge b-gray">T-PH2-005</span>
+          </div>
+          <div class="grid-3">
+            <div class="box">
+              <div class="box-label">現在の実装</div>
+              <code>T-PH2-001</code>〜<code>005</code> のコード変更は完了し <code>status: done</code> になっている。
+            </div>
+            <div class="box">
+              <div class="box-label">止まっている理由（根拠資料）</div>
+              <code>progress/phase-2-authz/PROGRESS.md</code> L215〜219 のとおり、<code>T-PH2-005.md</code> 本文末尾に過去の <code>QA-VERDICT: FAIL</code> が残っており、プランナーが整合解決のため <code>NEEDS_HUMAN</code> 停止したままになっている。
+            </div>
+            <div class="box">
+              <div class="box-label">再開・解除条件</div>
+              <code>T-PH2-005.md</code> の最新 QA 証跡を照合・確定し、統合ブランチでの CI グリーンを最終確認する。
+            </div>
+          </div>
+        </article>
+
+        <!-- 12. Phase 5 PROGRESS/OWNER_DECISIONS sync -->
+        <article class="item-card" data-cat="wip">
+          <div class="item-header">
+            <span class="item-title">12. <code>phase-5-prototype</code> の台帳/判断記録の最新化</span>
+            <span class="badge b-blue">実コードは統合済み</span>
+            <span class="badge b-gray">記録のみ未同期</span>
+            <span class="badge b-gray">PROGRESS.md / OWNER_DECISIONS.md</span>
+          </div>
+          <div class="grid-3">
+            <div class="box">
+              <div class="box-label">現在の実装</div>
+              <code>T-PH5-101</code>（<code>eb6dd38</code>）と <code>T-PH5-103</code>（<code>055d85d</code>）はタスクファイル上 <code>done</code> かつ統合ブランチへマージ済み。
+            </div>
+            <div class="box">
+              <div class="box-label">止まっている理由（根拠資料）</div>
+              <code>progress/phase-5-prototype/PROGRESS.md</code> の一覧表が 2026-11-15 17:30 時点（<code>todo</code>）のまま更新されておらず、<code>OWNER_DECISIONS.md</code> にも解決済みマージ前の記録が残っている。
+            </div>
+            <div class="box">
+              <div class="box-label">再開・解除条件</div>
+              <code>T-PH5-102</code> 完了後に <code>PROGRESS.md</code> と <code>OWNER_DECISIONS.md</code> を実態に合わせて締め、Phase 5 フル検証を実行する。
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>参考: Phase 4 までの直近完了状況（2026-11-15 更新分）</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>タスク / 領域</th>
+            <th>状態</th>
+            <th>内容</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>T-PH4-101</code> ローカル LLM ストリーミング</td>
+            <td><span class="badge b-green">done (6d7d918)</span></td>
+            <td>SSE 逐次応答・キャンセル連動・非ストリーム自動フォールバック実装済み</td>
+          </tr>
+          <tr>
+            <td><code>T-PH4-102</code> 質問ジョブの公平性</td>
+            <td><span class="badge b-green">done (ec946b3)</span></td>
+            <td>利用者別 round-robin 公平スケジューリングと待ち行列分布表示を実装済み</td>
+          </tr>
+          <tr>
+            <td><code>T-PH4-103</code> a11y・キーボード・モバイル監査</td>
+            <td><span class="badge b-green">done (7adb21a)</span></td>
+            <td>フォーカス移動・Tab トラップ・モバイル Escape 閉じ・secret scan 修正まで完了</td>
+          </tr>
+          <tr>
+            <td><code>T-PH3-101</code> / <code>T-PH3-102</code> 取り込み状態・再開性</td>
+            <td><span class="badge b-green">done (548cb55 / 881777c)</span></td>
+            <td><code>indexing</code> 段のチェックポイント再開とライブ UI 取消追従を実装済み</td>
+          </tr>
+          <tr>
+            <td><code>T-PH4-104</code> / <code>T-PH4-105</code> 出典スクロール・能力実測</td>
+            <td><span class="badge b-green">done (64e439b / 9d1c40a)</span></td>
+            <td>Windows E2E スクロール修正と、同時 10 人・40 アカウントの実測ハーネスを完了</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <footer>
+      Generated from repository state &amp; planning ledgers at <code>C:\Users\hirot\Locus</code>
+    </footer>
+  </main>
+
+  <script>
+    const buttons = document.querySelectorAll('.filter-btn');
+    const cards = document.querySelectorAll('.item-card');
+    const searchInput = document.getElementById('searchInput');
+    let activeFilter = 'all';
+
+    function applyFilter() {
+      const q = searchInput.value.trim().toLowerCase();
+      cards.forEach((card) => {
+        const cat = card.dataset.cat;
+        const text = card.textContent.toLowerCase();
+        const catOk = activeFilter === 'all' || cat === activeFilter;
+        const searchOk = !q || text.includes(q);
+        card.classList.toggle('hidden', !(catOk && searchOk));
+      });
+    }
+
+    buttons.forEach((btn) => {
+      btn.addEventListener('click', () => {
+        buttons.forEach((b) => b.classList.remove('active'));
+        btn.classList.add('active');
+        activeFilter = btn.dataset.filter;
+        applyFilter();
+      });
+    });
+
+    searchInput.addEventListener('input', applyFilter);
+  </script>
+</body>
+</html>
