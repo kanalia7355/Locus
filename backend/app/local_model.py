@@ -1,4 +1,4 @@
-"""Opt-in, single-request Ollama adapter. No tools, retries or credentials."""
+"""Opt-in, slot-limited Ollama adapter. No tools, retries or credentials."""
 
 import asyncio
 import json
@@ -12,12 +12,74 @@ import httpx
 from app.service import fail
 
 REQUEST_SECONDS = 30.0
+# Upper bound on concurrent executions. Each slot keeps a whole model context
+# resident in memory/GPU, so an unmeasured deployment must not be allowed to
+# raise the count without bound; 4 stays within the headroom of the smallest
+# supported models until a deployment measures its own safe ceiling.
+MAX_SLOTS = 4
+
+
+class _Slots:
+    """Counting execution slots whose occupancy is readable without acquiring.
+
+    `threading.Semaphore` exposes neither a `locked()` probe nor its used count,
+    and both the advisory availability check and the admin load display need
+    them, so the primitive is kept explicit here.
+    """
+
+    def __init__(self, total: int) -> None:
+        self._condition = threading.Condition()
+        self._total = total
+        self._busy = 0
+
+    def acquire(self, blocking: bool = True) -> bool:
+        with self._condition:
+            if not blocking and self._busy >= self._total:
+                return False
+            while self._busy >= self._total:
+                self._condition.wait()
+            self._busy += 1
+            return True
+
+    def release(self) -> None:
+        with self._condition:
+            self._busy -= 1
+            self._condition.notify()
+
+    def set_total(self, total: int) -> None:
+        """Re-aim the pool in place.
+
+        Raising the total wakes blocked acquirers; lowering it only blocks new
+        acquirers until in-flight holders release, so no running answer is
+        dropped and the pool object itself never needs replacing.
+        """
+        with self._condition:
+            self._total = total
+            self._condition.notify_all()
+
+    def locked(self) -> bool:
+        with self._condition:
+            return self._busy >= self._total
+
+    def usage(self) -> tuple[int, int]:
+        """Return the busy and total slot counts as one consistent reading."""
+        with self._condition:
+            return self._busy, self._total
+
+    def __enter__(self) -> "_Slots":
+        self.acquire()
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.release()
 
 
 class LocalModel:
     def __init__(self, *, transport: httpx.AsyncBaseTransport | None = None) -> None:
         self.transport = transport
-        self.lock = threading.Lock()
+        # One execution slot by default: identical to the former single Lock
+        # until an administrator raises the count through configure().
+        self.lock = _Slots(1)
         self.settings_lock = threading.RLock()
         self.model: str | None = None
         self.version = 0
@@ -25,11 +87,19 @@ class LocalModel:
         self.registered: dict[str, str] = {}
 
     def configure(
-        self, candidate: str | None, local_only: bool, timeout_seconds: int = 30
+        self,
+        candidate: str | None,
+        local_only: bool,
+        timeout_seconds: int = 30,
+        slots: int | None = None,
     ) -> dict[str, Any]:
         with self.settings_lock:
             if type(timeout_seconds) is not int or timeout_seconds not in {30, 120}:
                 fail(422, "待機時間は30秒または120秒を指定してください")
+            # `None` keeps the current count, so an existing configuration is
+            # never silently reset by a call that omits it.
+            if slots is not None and (type(slots) is not int or not 1 <= slots <= MAX_SLOTS):
+                fail(422, f"同時実行数は1〜{MAX_SLOTS}本の整数で指定してください")
             model = self.registered.get(candidate or "")
             if candidate is not None and (
                 not local_only
@@ -38,6 +108,8 @@ class LocalModel:
                 or "cloud" in model.lower()
             ):
                 fail(422, "確認済みのローカルOllamaモデルを選択してください")
+            if slots is not None:
+                self.lock.set_total(slots)
             self.model = model if candidate is not None else None
             self.timeout_seconds = timeout_seconds if self.model else 30
             self.version += 1
@@ -54,6 +126,11 @@ class LocalModel:
                 "model": self.model,
                 "timeout_seconds": self.timeout_seconds,
             }
+
+    def slot_usage(self) -> dict[str, int]:
+        """Busy and total execution slot counts for the admin load display."""
+        busy, total = self.lock.usage()
+        return {"busy": busy, "total": total}
 
     def validate(self, model: str, version: int, timeout_seconds: int) -> None:
         with self.settings_lock:

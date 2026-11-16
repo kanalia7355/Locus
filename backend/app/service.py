@@ -852,7 +852,14 @@ class Service:
             self._limit("admin-project-member:" + actor.id, 30)
             self._project_member_mutation(db, actor, project_id, user_id, None)
 
-    def load_status(self, actor: Principal, *, model_busy: bool, model_enabled: bool) -> Json:
+    def load_status(
+        self,
+        actor: Principal,
+        *,
+        model_busy: int,
+        model_slots: int,
+        model_enabled: bool,
+    ) -> Json:
         if not actor.system_admin:
             fail(403, "管理権限が必要です")
         with self.db() as db:
@@ -878,6 +885,7 @@ class Service:
                 "model_slot": {
                     "enabled": model_enabled,
                     "busy": model_busy,
+                    "total": model_slots,
                 },
                 "chat_queue": {
                     "queued": queued,

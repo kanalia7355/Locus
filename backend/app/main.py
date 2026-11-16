@@ -143,6 +143,9 @@ class ModelRuntime(Input):
     candidate_id: str | None = Field(default=None, max_length=64)
     local_only_confirmed: bool = False
     timeout_seconds: int = Field(default=30, strict=True)
+    # `None` keeps the configured slot count; the accepted range is enforced by
+    # LocalModel.configure() together with its upper bound.
+    slots: int | None = Field(default=None, strict=True)
 
     @field_validator("timeout_seconds")
     @classmethod
@@ -709,9 +712,11 @@ def create_app(
 
     @app.get("/api/admin/load")
     def load_status(user: Actor) -> dict[str, Any]:
+        usage = runtime.slot_usage()
         return svc.load_status(
             user,
-            model_busy=not runtime.available(),
+            model_busy=usage["busy"],
+            model_slots=usage["total"],
             model_enabled=bool(runtime.status()["enabled"]),
         )
 
@@ -752,7 +757,7 @@ def create_app(
             if not current.system_admin:
                 fail(403, "管理権限が必要です")
             result = runtime.configure(
-                data.candidate_id, data.local_only_confirmed, data.timeout_seconds
+                data.candidate_id, data.local_only_confirmed, data.timeout_seconds, data.slots
             )
             svc._audit(db, current.id, "model.configure", "local-model-runtime")
             return result

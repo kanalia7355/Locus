@@ -305,7 +305,7 @@ def test_load_display_reads_queue_limits_and_running_job_without_chat_content(se
     oldest_queued_wait = payload["chat_queue"].pop("oldest_queued_wait_seconds")
     assert 0 < oldest_queued_wait < CHAT_WAIT_SECONDS
     assert payload == {
-        "model_slot": {"enabled": False, "busy": False},
+        "model_slot": {"enabled": False, "busy": 0, "total": 1},
         "chat_queue": {
             "queued": 1,
             "limit": CHAT_QUEUE_LIMIT,
@@ -369,4 +369,4 @@ def test_load_display_reads_queue_limits_and_running_job_without_chat_content(se
         )
         assert busy_login.status_code == 200
         observed = busy_result.get("/api/admin/load").json()
-        assert observed["model_slot"]["busy"] is True
+        assert observed["model_slot"]["busy"] == 1
