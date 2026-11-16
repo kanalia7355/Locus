@@ -116,6 +116,28 @@ def test_attempt_limit_and_status_stop_a_job_being_picked_up(tmp_path: Path) -> 
     assert not tasks.load_phase(directory).tasks[0].actionable
 
 
+def test_a_job_waits_for_the_result_it_builds_on(tmp_path: Path) -> None:
+    # The controller picks the lightest job first, so a light job written against
+    # a heavier one's result would be dispatched before that result exists.
+    directory = phase_with_task(tmp_path)
+    (directory / "tasks" / "T-JOB-2.md").write_text(
+        TASK.replace("T-JOB-1", "T-JOB-2").replace(
+            "attempts: 0", "attempts: 0\ndepends_on: T-JOB-1"
+        ),
+        encoding="utf-8",
+        newline="",
+    )
+    phase = tasks.load_phase(directory)
+    second = next(task for task in phase.tasks if task.id == "T-JOB-2")
+    assert second.actionable, "it is actionable on its own terms"
+    assert phase.unmet(second) == ["T-JOB-1"] and not phase.ready(second)
+    (directory / "tasks" / "T-JOB-1.md").write_text(
+        TASK.replace("status: todo", "status: done"), encoding="utf-8", newline=""
+    )
+    done = tasks.load_phase(directory)
+    assert done.ready(next(task for task in done.tasks if task.id == "T-JOB-2"))
+
+
 def test_only_an_unanswered_decision_counts_as_waiting_on_the_owner(tmp_path: Path) -> None:
     # Answered requests stay in the file forever — they are the record of why the
     # code looks the way it does — so the file's existence cannot be the signal.
@@ -347,6 +369,24 @@ def test_no_path_to_another_checkout_survives_in_a_brief(tmp_path: Path) -> None
         outside=outside,
     )
     assert outside not in review and outside.replace("\\", "/") not in review
+
+
+def test_the_shown_command_names_an_interpreter_the_workspace_actually_has() -> None:
+    # Rewriting the main checkout's path into the workspace is right for every
+    # path except the interpreter: the workspace has no `.venv`, so the brief then
+    # instructs the worker to run a binary that does not exist.
+    outside = "C:\\Users\\x\\Locus"
+    shown = prompts.shown_command(
+        outside + "\\.venv\\Scripts\\python.exe -m pytest tests/test_api.py -q",
+        outside,
+        "/workspaces/T-JOB-1",
+    )
+    assert shown == "python.exe -m pytest tests/test_api.py -q"
+    assert "/workspaces/T-JOB-1" not in shown and outside not in shown
+    # A path that is not the leading interpreter is still rewritten, not stripped.
+    assert prompts.shown_command(
+        "python -m pytest " + outside + "/tests/test_api.py", outside, "/ws"
+    ) == ("python -m pytest /ws/tests/test_api.py")
 
 
 def test_the_reviewer_is_told_that_quoted_findings_are_history(tmp_path: Path) -> None:

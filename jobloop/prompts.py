@@ -7,6 +7,8 @@ with a checklist outperforms the same model without one.
 
 from __future__ import annotations
 
+import re
+
 from jobloop.tasks import ATTEMPT_LIMIT, Task
 
 # Guidance a worker in a job workspace can actually act on. The operator-facing
@@ -62,6 +64,22 @@ def elsewhere(text: str, outside: str, workspace: str) -> str:
     return text
 
 
+INTERPRETER = re.compile(r"^\S*[/\\]((?:python|python3)(?:\.exe)?)(?=\s|$)", re.IGNORECASE)
+
+
+def shown_command(command: str, outside: str, workspace: str) -> str:
+    """The verification command as the worker should run it, in its own workspace.
+
+    A recorded `test_cmd` names the interpreter by absolute path in the main
+    checkout. Rewriting that path to the workspace — which `elsewhere` does to
+    every other path, correctly — invents an interpreter the workspace does not
+    have, and the worker on `T-PH6-102` reported the brief's command as broken.
+    The environment is shared, so the plain name is the honest instruction; the
+    controller still runs the recorded command itself.
+    """
+    return INTERPRETER.sub(r"\1", elsewhere(command.strip(), outside, workspace), count=1)
+
+
 def excerpt(task: Task, *, limit: int = 12000) -> str:
     """The job text a worker needs: its definition, and the most recent evidence.
 
@@ -84,7 +102,7 @@ def implementer_brief(task: Task, *, attempt: int, repository: str, outside: str
     `outside` is the main checkout, whose path is rewritten out of the brief.
     """
     body = elsewhere(excerpt(task), outside, repository)
-    command = elsewhere(task.test_command, outside, repository)
+    command = shown_command(task.test_command, outside, repository)
     return f"""You are the single implementation worker for one Locus job.
 Your working copy is {repository} and nothing outside it is yours to change.
 This is attempt {attempt} of {ATTEMPT_LIMIT}.

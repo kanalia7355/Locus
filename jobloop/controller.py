@@ -120,8 +120,9 @@ class Controller:
     def select(self) -> Task | None:
         """The next job the controller may spend an attempt on, lightest first."""
         order = {"light": 0, "medium": 1, "heavy": 2}
-        actionable = [task for task in self.jobs() if task.actionable]
-        return min(actionable, key=lambda task: (order.get(task.weight, 3), task.id), default=None)
+        phase = load_phase(self.settings.phase_directory)
+        ready = [task for task in phase.tasks if phase.ready(task)]
+        return min(ready, key=lambda task: (order.get(task.weight, 3), task.id), default=None)
 
     # --- recording -----------------------------------------------------------
 

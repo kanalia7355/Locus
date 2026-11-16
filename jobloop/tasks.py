@@ -71,6 +71,12 @@ class Task:
         return [part.strip() for part in raw.split(",") if part.strip()]
 
     @property
+    def depends_on(self) -> list[str]:
+        """Jobs that must be `done` first, because this one builds on their result."""
+        raw = self.fields.get("depends_on", "")
+        return [part.strip() for part in raw.split(",") if part.strip()]
+
+    @property
     def actionable(self) -> bool:
         """True when the controller may still spend an attempt on this job."""
         return (
@@ -108,6 +114,20 @@ class Phase:
     @property
     def decisions_file(self) -> Path:
         return self.directory / "OWNER_DECISIONS.md"
+
+    def unmet(self, task: Task) -> list[str]:
+        """Dependencies of `task` that are not `done` yet, in declaration order.
+
+        The controller picks the lightest actionable job first, so a light job
+        written against a heavier one's result would otherwise be dispatched
+        before that result exists — the worker would then write tests against a
+        shape the code does not have yet.
+        """
+        status = {other.id: other.status for other in self.tasks}
+        return [name for name in task.depends_on if status.get(name) != "done"]
+
+    def ready(self, task: Task) -> bool:
+        return task.actionable and not self.unmet(task)
 
     @property
     def open_decisions(self) -> list[str]:

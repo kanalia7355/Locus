@@ -59,10 +59,12 @@ def report(controller: Controller) -> int:
     phase = load_phase(controller.settings.phase_directory)
     print(f"phase {phase.slug}: {len(phase.tasks)} job(s)")
     for task in phase.tasks:
-        mark = "*" if task.actionable else " "
+        unmet = phase.unmet(task)
+        mark = "*" if phase.ready(task) else " "
+        waiting = f"  waits for {', '.join(unmet)}" if unmet else ""
         print(
             f" {mark} {task.id:<12} {task.status:<8} attempts {task.attempts}/{ATTEMPT_LIMIT}"
-            f"  {task.weight or '-':<7} {task.model or '-'}"
+            f"  {task.weight or '-':<7} {task.model or '-'}{waiting}"
         )
     print(f"available models: {', '.join(controller.roster.available()) or 'none'}")
     waiting = phase.open_decisions
