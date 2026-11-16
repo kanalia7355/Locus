@@ -32,7 +32,13 @@ class Settings:
     phase: str
     python: str
     integration_branch: str = "loop/local-development"
-    worker_timeout: float = 900.0
+    # A worker reads the files it touches, writes a test, and runs the whole
+    # verification command itself — on a job touching `App.tsx` (1979 lines) the
+    # frontend suite alone is ~25s and the reading dwarfs it. 900s was chosen to
+    # fit a foreground tool call, not from measurement, and it timed out two jobs
+    # on 2026-11-17 while a trivial prompt to the same model answered in a second.
+    # The loop runs in the background now, so the budget can match the work.
+    worker_timeout: float = 1800.0
     gate_timeout: float = 1800.0
     review_timeout: float = 1200.0
     push: bool = False
