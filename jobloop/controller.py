@@ -117,6 +117,24 @@ class Controller:
     def jobs(self) -> list[Task]:
         return load_phase(self.settings.phase_directory).tasks
 
+    def points_outside(self, task: Task) -> str:
+        """The main-checkout path a worker would find by reading its own job file.
+
+        Sanitising the brief is not enough: the brief tells the worker the job
+        file is in its workspace, the worker opens it, and an absolute path in
+        the frontmatter reads as "the project is over there". On 2026-11-15 a
+        worker said so in its own report — it ran the interpreter from the main
+        checkout because the workspace had no `.venv` — and on 2026-11-16 the
+        `T-PH6-103` worker went further and edited the main checkout. The path
+        must not be in the file at all.
+        """
+        text = task.path.read_bytes().decode("utf-8")
+        root = str(self.settings.repository)
+        for form in {root, root.replace("\\", "/"), root.replace("/", "\\")}:
+            if form in text:
+                return form
+        return ""
+
     def select(self) -> Task | None:
         """The next job the controller may spend an attempt on, lightest first."""
         order = {"light": 0, "medium": 1, "heavy": 2}
@@ -230,6 +248,16 @@ class Controller:
     # --- one job -------------------------------------------------------------
 
     def run_job(self, task: Task) -> Outcome:
+        leak = self.points_outside(task)
+        if leak:
+            return self.escalate(
+                task,
+                "the job file names another checkout",
+                "The job file contains an absolute path to the main checkout, which a "
+                "worker reads as the project root. Replace it with a relative path "
+                "(use the bare name `python` in `test_cmd`) before dispatching.",
+                f"found={leak}\nfile={task.path.name}",
+            )
         model = self.roster.pick()
         if not model:
             return Outcome(task.id, "no-model", "every eligible free model is on cooldown")
@@ -288,6 +316,7 @@ class Controller:
                     task.test_command,
                     cwd=tree,
                     timeout=self.settings.gate_timeout,
+                    python=self.settings.python,
                 )
             )
             checks.extend(
@@ -344,6 +373,7 @@ class Controller:
                     task.test_command,
                     cwd=tree,
                     timeout=self.settings.gate_timeout,
+                    python=self.settings.python,
                 )
             )
             checks.extend(

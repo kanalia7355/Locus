@@ -7,6 +7,7 @@ reports `ran=False` and is treated as a failure, never as a pass.
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -97,10 +98,30 @@ def summarise(result: subprocess.CompletedProcess[str]) -> str:
     return f"exit {result.returncode}\n{tail}\n{errors}".strip()
 
 
-def run_command(name: str, command: str, *, cwd: Path, timeout: float) -> Gate:
+INTERPRETER = re.compile(r"^(python3?|python3?\.exe)(?=\s|$)", re.IGNORECASE)
+
+
+def with_interpreter(command: str, python: str) -> str:
+    """Bind a bare leading `python` to the interpreter the controller runs with.
+
+    A recorded command must not name an interpreter by absolute path: a worker
+    reads its own job file, finds the path, and treats the checkout it points at
+    as the project — which is how `T-PH6-103` came to edit the main checkout on
+    2026-11-16. The file says `python`; the controller supplies the rest.
+    """
+    stripped = command.strip()
+    found = INTERPRETER.match(stripped)
+    if not found:
+        return stripped
+    return f'"{python}"{stripped[found.end() :]}'
+
+
+def run_command(name: str, command: str, *, cwd: Path, timeout: float, python: str = "") -> Gate:
     """Run a recorded verification command and keep its real exit code."""
     if not command.strip():
         return Gate(name, False, False, "no command recorded")
+    if python:
+        command = with_interpreter(command, python)
     try:
         result = subprocess.run(  # noqa: S602 — recorded repository command, shell needed for &&
             command,

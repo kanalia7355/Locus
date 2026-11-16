@@ -286,6 +286,18 @@ def test_controller_built_gates_do_not_depend_on_shell_quoting(tmp_path: Path) -
     assert not missing.ran and not missing.passed
 
 
+def test_a_bare_python_is_bound_to_the_controllers_own_interpreter() -> None:
+    # The job file must not name an interpreter by absolute path; the worker
+    # reads that file and treats the checkout it points at as the project.
+    bound = gates.with_interpreter(
+        "python -m pytest tests/test_api.py -q", r"C:\x\.venv\python.exe"
+    )
+    assert bound == r'"C:\x\.venv\python.exe" -m pytest tests/test_api.py -q'
+    # Anything that is not a leading bare interpreter is left alone.
+    for command in ("npm --prefix frontend run test", "pythonx -m pytest", "./x/python -m pytest"):
+        assert gates.with_interpreter(command, "P") == command
+
+
 def test_a_frontend_job_is_typechecked_and_a_backend_job_is_not(tmp_path: Path) -> None:
     # `vitest` transpiles without typechecking, so a frontend job whose only gate
     # is its test command can land a type error with every check green.
@@ -321,6 +333,23 @@ def test_job_workspaces_live_outside_the_repository(tmp_path: Path) -> None:
     root = settings.workspace_root.resolve()
     assert settings.repository.resolve() not in root.parents
     assert root != settings.repository.resolve()
+
+
+def test_a_job_naming_the_main_checkout_is_never_dispatched(tmp_path: Path) -> None:
+    # Sanitising the brief is not enough: the worker opens its own job file.
+    # On 2026-11-16 one read the absolute interpreter path out of `test_cmd`,
+    # ran that interpreter, and went on to edit the checkout it belonged to.
+    root = str(tmp_path)
+    directory = phase_with_task(
+        tmp_path, TASK.replace("test_cmd: ", f"test_cmd: {root}/.venv/bin/python ")
+    )
+    controller = controller_for(tmp_path, ["a-free", "b-free"])
+    dispatched: list[str] = []
+    controller.dispatch = lambda model, prompt, **_: dispatched.append(model)  # type: ignore[assignment]
+    outcome = controller.run_job(tasks.load_phase(directory).tasks[0])
+    assert outcome.state == "escalated" and "another checkout" in outcome.detail
+    assert not dispatched, "the worker must never be started"
+    assert tasks.load_phase(directory).tasks[0].status == "blocked"
 
 
 def test_a_worker_that_edits_the_main_checkout_is_escalated(tmp_path: Path) -> None:
