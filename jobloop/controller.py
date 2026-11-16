@@ -393,7 +393,10 @@ class Controller:
                 "(CONSTRAINTS.md §5-5). Decide whether to wait for usage to reset.",
                 f"implementer={model}",
             )
-        task = self.set_fields(task, status="review", reviewer=f"opencode/{reviewer}")
+        # Roster ids already carry their provider (`opencode/...`, `ollama/...`), and
+        # the reviewer field is the evidence that a *different* model reviewed this
+        # job, so it has to name a model that actually exists.
+        task = self.set_fields(task, status="review", reviewer=reviewer)
         # Mark new files as intent-to-add first: `git diff` omits untracked files,
         # so a reviewer was shown a change with its new tests missing.
         git(tree, "add", "--intent-to-add", "--all", check=False)

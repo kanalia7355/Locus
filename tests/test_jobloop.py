@@ -173,6 +173,16 @@ def test_exhausted_models_rotate_and_a_reviewer_is_never_the_implementer(tmp_pat
     assert later.pick() == "a-free", "cooldown has to expire"
 
 
+def test_a_picked_model_is_recorded_under_the_identifier_the_cli_accepts() -> None:
+    # The reviewer field is the evidence of independence, so it must name a model
+    # that exists. Roster ids already carry their provider; a caller that adds one
+    # writes `opencode/opencode/...`, which matches nothing.
+    picked = eligible(["opencode/glm-5.3-flash-free", "ollama/gemma3:4b", "openai/gpt-5"])
+    assert picked == ["opencode/glm-5.3-flash-free", "ollama/gemma3:4b"]
+    for name in picked:
+        assert name.count("/") == 1 and name.split("/")[0] in {"opencode", "ollama"}
+
+
 # --- worker classification ---------------------------------------------------
 
 

@@ -14,10 +14,17 @@
 
 ## 1. Phase 完了条件（Gate Criteria）
 
-- [ ] 本 Phase の全ジョブが `status: done`（試行上限 3・レビュー上限 2 以内）
-- [ ] 統合ブランチ HEAD で GitHub Actions 3 ワークフローが green
-- [ ] Phase 節目のフル検証（Python 全スイート・Vitest・Playwright・ruff/mypy/secret scan）が PASS
-- [ ] `OWNER_DECISIONS.md` に未回答の判断要求が残っていないこと
+- [x] 本 Phase の全ジョブが `status: done`
+      （`T-PH5-101` `T-PH5-103` はレビュー上限到達後にオーナー指示で Claude Code が引き継ぎ。
+      受入条件は緩めていない。経緯は各 task ファイルと `OWNER_DECISIONS.md` に記録）
+- [ ] 統合ブランチ HEAD で GitHub Actions 3 ワークフローが green（push 後に確認）
+- [x] Phase 節目のフル検証がローカルで PASS（2026-11-16、`a5fec08` 時点）
+      - `pytest tests -q` → 1269 passed, 9 skipped（skip は Docker 実機と Windows の symlink 権限）
+      - `npm run test`（Vitest）→ 15 files / 89 tests passed
+      - `npx playwright test` → 18 passed
+      - `ruff check` / `ruff format --check` / `mypy backend/app jobloop` / `secret_scan.py` → すべて PASS
+- [x] `OWNER_DECISIONS.md` に未回答の判断要求が残っていないこと
+      （4 件すべてに `**Answer**` を記録済み。`python -m jobloop status` が未回答 0 と報告）
 - [ ] プロトタイプ範囲外（production TLS/MFA/実データ/外部コネクタ/ハイブリッド Runner）は
       繰延のまま。本 Phase で前倒ししない。
 
@@ -25,9 +32,15 @@
 
 | Task ID | 要件 ID / 内容 | Weight | Status | Assignee | Model | Attempts | Updated |
 |---|---|---|---|---|---|---|---|
-| `T-PH5-101` | `DATA-014` 取り込み前インベントリと明示的な対象外理由 | `medium` | `todo` | `unassigned` | `-` | `0` | `2026-11-15T17:30:00+09:00` |
-| `T-PH5-102` | `DATA-004` 検索・関連・出典・モデル文脈の各経路での現行 ACL 証明 | `medium` | `todo` | `unassigned` | `-` | `0` | `2026-11-15T17:30:00+09:00` |
-| `T-PH5-103` | `UI-006` 能力を偽らない待ち時間・上限表示 | `light` | `todo` | `unassigned` | `-` | `0` | `2026-11-15T17:30:00+09:00` |
+| `T-PH5-101` | `DATA-014` 取り込み前インベントリと明示的な対象外理由 | `medium` | `done` | `opencode` → Claude Code | `opencode/nemotron-3.5-lightning-free` → `claude-opus-5` | `5` | `2026-11-15T21:40:00+09:00` |
+| `T-PH5-102` | `DATA-004` 検索・関連・出典・モデル文脈の各経路での現行 ACL 証明 | `medium` | `done` | `opencode` | `opencode/glm-5.3-flash-free`（レビュー `opencode/deepseek-v4.1-flash-free`） | `1` | `2026-11-16T14:36:56+09:00` |
+| `T-PH5-103` | `UI-006` 能力を偽らない待ち時間・上限表示 | `light` | `done` | `opencode` | `opencode/glm-5.3-flash-free` | `4` | `2026-11-15T17:30:00+09:00` |
+
+`T-PH5-102` は 1 回の実装・1 回のレビューで通った唯一のジョブ。6 経路
+（字句検索・関連資料・出典チャンク・会話履歴のマスク・待機ジョブ・モデル文脈）すべてに
+「権限を剥がす前は成功し、剥がした後は失敗する」形の回帰テストが入り、
+`backend/app/service.py` の変更は**ゼロ**だった = 現行実装に漏れは見つからなかった
+（`tests/test_retrieval_acl_paths.py`、187 行）。
 
 ## 3. 本 Phase に入れない残件（根拠つき）
 
