@@ -264,6 +264,14 @@ def test_controller_built_gates_do_not_depend_on_shell_quoting(tmp_path: Path) -
     assert not missing.ran and not missing.passed
 
 
+def test_a_frontend_job_is_typechecked_and_a_backend_job_is_not(tmp_path: Path) -> None:
+    # `vitest` transpiles without typechecking, so a frontend job whose only gate
+    # is its test command can land a type error with every check green.
+    assert gates.frontend_gates(tmp_path, ["backend/app/service.py"], timeout=5) == []
+    built = gates.frontend_gates(tmp_path, ["frontend/src/api.ts"], timeout=5)
+    assert [gate.name for gate in built] == ["frontend-typecheck", "frontend-lint"]
+
+
 def test_a_gate_that_cannot_run_is_a_failure_not_a_pass(tmp_path: Path) -> None:
     assert not gates.run_command("empty", "   ", cwd=tmp_path, timeout=5).ran
     failing = gates.run_command("boom", "exit 3", cwd=tmp_path, timeout=60)

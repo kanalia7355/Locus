@@ -294,6 +294,7 @@ class Controller:
                     tree, names, python=self.settings.python, timeout=self.settings.gate_timeout
                 )
             )
+            checks.extend(gates.frontend_gates(tree, names, timeout=self.settings.gate_timeout))
         self.record(
             task,
             f"ATTEMPT {attempt} — implementation by {model} ({self.now()})",
@@ -349,6 +350,7 @@ class Controller:
                     tree, names, python=self.settings.python, timeout=self.settings.gate_timeout
                 )
             )
+            checks.extend(gates.frontend_gates(tree, names, timeout=self.settings.gate_timeout))
         self.record(
             task,
             f"RESUMED GATES ({self.now()})",

@@ -145,6 +145,32 @@ def run_argv(name: str, argv: list[str], *, cwd: Path, timeout: float) -> Gate:
     return Gate(name, True, result.returncode == 0, summarise(result))
 
 
+def frontend_gates(worktree: Path, names: list[str], *, timeout: float) -> list[Gate]:
+    """Typecheck and lint the frontend, run only when the job touched it.
+
+    `vitest` transpiles without typechecking, so a job whose only gate is its
+    test command can land a type error with every check green — the reviewer on
+    `T-PH6-101` flagged exactly that gap and could not close it itself, because a
+    read-only reviewer may not run a command that writes `tsconfig.tsbuildinfo`.
+    The controller can: that file is ignored by git, so it does not disturb the
+    scope gate.
+    """
+    if not any(name.startswith("frontend/") for name in names):
+        return []
+    npm = shutil.which("npm")
+    if not npm:
+        return [Gate("frontend-typecheck", False, False, "npm is not installed")]
+    return [
+        run_argv(
+            f"frontend-{script}",
+            [npm, "--prefix", "frontend", "run", script],
+            cwd=worktree,
+            timeout=timeout,
+        )
+        for script in ("typecheck", "lint")
+    ]
+
+
 def python_gates(worktree: Path, names: list[str], *, python: str, timeout: float) -> list[Gate]:
     """Lint, format and secret-scan gates, run only when they apply."""
     targets = ["backend", "tests", "scripts", "jobloop"]
