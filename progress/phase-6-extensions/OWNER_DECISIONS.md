@@ -492,3 +492,12 @@ outside allowed_paths: ['frontend/errors.txt', 'frontend/filtered.txt', 'fronten
 
 model=opencode/nemotron-3.5-lightning-free
 workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-109
+
+## T-PH6-113 — worker wrote outside its workspace (2026-11-18T00:01:45+09:00)
+
+**Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
+
+**Context**
+
+model=opencode/nemotron-3.5-lightning-free
+workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-113

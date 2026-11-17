@@ -167,7 +167,10 @@ def main(argv: list[str] | None = None) -> int:
     run = commands.add_parser("run", help="run jobs until the deadline or the queue empties")
     run.add_argument("--minutes", type=float, default=60.0)
     run.add_argument("--max-jobs", type=int, default=20)
-    run.add_argument("--push", action="store_true")
+    # Pushing is the default for an unattended run. It was opt-in, and the
+    # consequence was 30 commits sitting only on this machine for a day —
+    # work that looked done but was nowhere anyone else could see it.
+    run.add_argument("--no-push", dest="push", action="store_false", default=True)
     arguments = parser.parse_args(argv)
     controller = build(arguments)
     if arguments.command == "status":
@@ -199,6 +202,15 @@ def main(argv: list[str] | None = None) -> int:
     outcomes = controller.run(minutes=arguments.minutes, max_jobs=arguments.max_jobs)
     for outcome in outcomes:
         print(outcome.line)
+    if arguments.push:
+        # Not only after a merge: a run that produced nothing but rulings and
+        # loop repairs still has commits, and they belong on the remote too.
+        branch = controller.settings.integration_branch
+        try:
+            git(controller.settings.repository, "push", "origin", branch)
+            print(f"pushed {branch}")
+        except RuntimeError as error:
+            print(f"push failed: {error}")
     escalated = [outcome for outcome in outcomes if outcome.state == "escalated"]
     if escalated:
         print(f"\n{len(escalated)} job(s) need an owner decision:")
