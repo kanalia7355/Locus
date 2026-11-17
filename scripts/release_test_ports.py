@@ -78,9 +78,18 @@ def stop(pid: int) -> bool:
         else ["kill", "-9", str(pid)]
     )
     try:
+        # These tools answer in the console code page, not UTF-8. Without an
+        # explicit replacement policy the reader thread raises UnicodeDecodeError
+        # on a Japanese Windows console and the real result is lost in the noise.
         return (
             subprocess.run(  # noqa: S603 — fixed system tool, no shell
-                argv, capture_output=True, text=True, timeout=30, check=False
+                argv,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=30,
+                check=False,
             ).returncode
             == 0
         )

@@ -184,7 +184,10 @@ def frontend_gates(
     if not npm:
         return [Gate("frontend-typecheck", False, False, "npm is not installed")]
     built: list[Gate] = []
-    if python:
+    # Only when the workspace actually has it: a clone taken before this script
+    # existed must not fail on a preflight convenience. Real checks still treat
+    # "could not run" as a failure; this one is housekeeping, not evidence.
+    if python and (worktree / "scripts" / "release_test_ports.py").is_file():
         # Playwright starts its own servers on fixed ports and does not always
         # take them down when a run aborts. One orphan then fails every later
         # frontend job on "port already in use" — a gate that poisons itself.
