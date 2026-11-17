@@ -247,9 +247,27 @@ class Controller:
         head = git(worktree, "rev-parse", "HEAD", check=False).strip()
         if not head:
             return ""
+        return hashlib.sha256((head + Controller.dirt(worktree)).encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def dirt(worktree: Path) -> str:
+        """Everything in the checkout that is not committed, as one string.
+
+        Containment has to be judged on this and not on `fingerprint`, which also
+        covers `HEAD`. The operator commits to the main checkout while the loop
+        runs — recording a ruling, fixing the loop — and every one of those moved
+        `HEAD` and was reported as "the worker wrote outside its workspace".
+        That happened to `T-PH6-109` and `T-PH6-111` on 2026-11-17: both workers
+        had written only inside their own clones, and both were blocked anyway.
+
+        An escaped worker leaves files behind, so uncommitted changes are the
+        signal that matters. A worker that wrote *and committed* in the main
+        checkout would slip past this, but it is told not to commit, and every
+        real escape so far left the tree dirty.
+        """
         diff = git(worktree, "diff", "HEAD", check=False)
         untracked = git(worktree, "status", "--porcelain=1", "--untracked-files=all", check=False)
-        return hashlib.sha256((head + diff + untracked).encode("utf-8")).hexdigest()
+        return diff + untracked
 
     # --- one job -------------------------------------------------------------
 
@@ -276,10 +294,12 @@ class Controller:
             outside=str(self.settings.repository),
         )
         # Containment is verified, not assumed: a worker that edits the main
-        # checkout has escaped, whatever its report says.
-        outside = self.fingerprint(self.settings.repository)
+        # checkout has escaped, whatever its report says. Judge that on the
+        # uncommitted state only — see `dirt`, and the two jobs this wrongly
+        # blocked on 2026-11-17 when the operator committed mid-run.
+        outside = self.dirt(self.settings.repository)
         result = self.dispatch(model, brief, cwd=tree, timeout=self.settings.worker_timeout)
-        if outside and self.fingerprint(self.settings.repository) != outside:
+        if self.dirt(self.settings.repository) != outside:
             return self.escalate(
                 task,
                 "worker wrote outside its workspace",

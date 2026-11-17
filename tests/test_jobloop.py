@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from jobloop import gates, prompts, tasks, worker
-from jobloop.controller import Controller, Settings
+from jobloop.controller import Controller, Settings, git
 from jobloop.roster import Roster, eligible
 
 TASK = """---
@@ -341,6 +341,33 @@ def test_job_workspaces_live_outside_the_repository(tmp_path: Path) -> None:
     assert root != settings.repository.resolve()
 
 
+def test_a_commit_in_the_main_checkout_is_not_mistaken_for_an_escape(tmp_path: Path) -> None:
+    # The operator commits to the main checkout while the loop runs — a ruling,
+    # a fix to the loop itself. Every one of those moves HEAD, and judging
+    # containment on HEAD blocked two innocent jobs on 2026-11-17 whose workers
+    # had written only inside their own clones.
+    repository = tmp_path / "main"
+    repository.mkdir()
+    git(repository, "init", "-b", "main")
+    git(repository, "config", "user.email", "t@example.invalid")
+    git(repository, "config", "user.name", "t")
+    (repository / "a.txt").write_text("one", encoding="utf-8")
+    git(repository, "add", "-A")
+    git(repository, "commit", "-m", "first")
+
+    before_dirt = Controller.dirt(repository)
+    before_print = Controller.fingerprint(repository)
+    (repository / "a.txt").write_text("two", encoding="utf-8")
+    git(repository, "add", "-A")
+    git(repository, "commit", "-m", "operator")
+
+    assert Controller.fingerprint(repository) != before_print, "HEAD moved, as it should"
+    assert Controller.dirt(repository) == before_dirt, "a clean commit is not an escape"
+    # A worker leaving a file behind still is.
+    (repository / "escaped.py").write_text("x = 1", encoding="utf-8")
+    assert Controller.dirt(repository) != before_dirt
+
+
 def test_a_job_naming_the_main_checkout_is_never_dispatched(tmp_path: Path) -> None:
     # Sanitising the brief is not enough: the worker opens its own job file.
     # On 2026-11-16 one read the absolute interpreter path out of `test_cmd`,
@@ -367,12 +394,12 @@ def test_a_worker_that_edits_the_main_checkout_is_escalated(tmp_path: Path) -> N
     )
     seen: list[str] = []
 
-    def fingerprint(path: Path) -> str:
-        # The main checkout looks different after the worker ran.
+    def dirt(path: Path) -> str:
+        # The main checkout has files in it that were not there before.
         seen.append(str(path))
         return f"state-{len(seen)}"
 
-    controller.fingerprint = fingerprint  # type: ignore[assignment]
+    controller.dirt = dirt  # type: ignore[assignment]
     outcome = controller.run_job(controller.select())
     assert outcome.state == "escalated" and "outside its workspace" in outcome.detail
     decisions = (controller.settings.phase_directory / "OWNER_DECISIONS.md").read_text(

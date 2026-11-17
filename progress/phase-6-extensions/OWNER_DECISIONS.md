@@ -301,3 +301,16 @@ timeout で停止させたワーカーの子プロセスが生き残って後か
 
 model=opencode/glm-5.3-flash-free
 workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-109
+
+**Answer** (2026-11-17, orchestrator): 誤検知。ワーカーは自分のクローンの中にだけ書いており、メインチェックアウトにワーカー由来のファイルは無かった。原因は封じ込め判定が`HEAD` を含んでいたことで、ループ実行中のオーケストレーターのコミットで `HEAD` が動いた。判定を未コミットの状態だけに変更し、回帰テストで固定した。試行は消費していないので、ワークスペースを残したまま `resume-one` で再開する。詳細は各 task ファイルの裁定に記録。
+## T-PH6-111 — worker wrote outside its workspace (2026-11-17T11:35:07+09:00)
+
+**Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
+
+**Context**
+
+model=opencode/glm-5.3-flash-free
+workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-111
+
+**Answer** (2026-11-17, orchestrator): 誤検知。ワーカーは自分のクローンの中にだけ書いており、メインチェックアウトにワーカー由来のファイルは無かった。原因は封じ込め判定が`HEAD` を含んでいたことで、ループ実行中のオーケストレーターのコミットで `HEAD` が動いた。判定を未コミットの状態だけに変更し、回帰テストで固定した。試行は消費していないので、ワークスペースを残したまま `resume-one` で再開する。詳細は各 task ファイルの裁定に記録。
+
