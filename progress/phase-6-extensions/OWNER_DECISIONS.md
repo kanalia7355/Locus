@@ -483,3 +483,12 @@ outside allowed_paths: ['frontend/errors.txt', 'frontend/filtered.txt', 'fronten
 
 **Answer** (2026-11-17, orchestrator): 検査基盤の欠陥。ワークスペースに `.venv` を共有しておらず画面検査のサーバが起動できなかったこと、および Playwright の実行記録が`.gitignore` の外に出ていたことが原因。両方直して試行を戻した。範囲判定は緩めない。
 
+
+## T-PH6-109 — worker wrote outside its workspace (2026-11-17T23:59:23+09:00)
+
+**Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
+
+**Context**
+
+model=opencode/nemotron-3.5-lightning-free
+workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-109

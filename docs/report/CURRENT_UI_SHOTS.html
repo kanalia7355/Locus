@@ -1,0 +1,125 @@
+<title>Locus 実装の現状（スクリーンショット）</title>
+<style>
+  :root {
+    --bg:#eceeed; --card:#fbfbfa; --ink:#2c3740; --muted:#5d6a73; --line:#d4d8d6;
+    --warn:#7a5a1e; --warn-bg:#fdf8ec; --ok:#2f5d45; --ok-bg:#f1f6f3;
+    --font:"Yu Gothic UI","Hiragino Kaku Gothic ProN",Meiryo,system-ui,sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#15191c; --card:#1d2225; --ink:#e3e7e6; --muted:#9aa5ab; --line:#2e3539;
+            --warn:#dfc489; --warn-bg:#2b2619; --ok:#9fc9b2; --ok-bg:#1e2a24; }
+  }
+  :root[data-theme="dark"] { --bg:#15191c; --card:#1d2225; --ink:#e3e7e6; --muted:#9aa5ab; --line:#2e3539; --warn:#dfc489; --warn-bg:#2b2619; --ok:#9fc9b2; --ok-bg:#1e2a24; }
+  :root[data-theme="light"] { --bg:#eceeed; --card:#fbfbfa; --ink:#2c3740; --muted:#5d6a73; --line:#d4d8d6; --warn:#7a5a1e; --warn-bg:#fdf8ec; --ok:#2f5d45; --ok-bg:#f1f6f3; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:var(--font); line-height:1.75; }
+  .wrap { max-width:1100px; margin:0 auto; padding:28px 18px 64px; }
+  h1 { font-size:1.5rem; margin:0 0 6px; }
+  .lede { color:var(--muted); margin:0 0 22px; }
+  .note { background:var(--card); border:1px solid var(--line); border-left:3px solid var(--warn);
+          border-radius:8px; padding:14px 18px; margin-bottom:26px; }
+  .note p { margin:0 0 8px; } .note p:last-child { margin:0; }
+  h2 { font-size:1.15rem; margin:34px 0 4px; padding-bottom:8px; border-bottom:1px solid var(--line); }
+  .shots { display:grid; grid-template-columns:repeat(auto-fit,minmax(330px,1fr)); gap:20px; margin-top:16px; }
+  figure { margin:0; background:var(--card); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  figure img { display:block; width:100%; height:auto; border-bottom:1px solid var(--line); }
+  figcaption { padding:12px 14px; font-size:0.9rem; }
+  figcaption b { display:block; margin-bottom:4px; }
+  figcaption span { color:var(--muted); }
+  .flag { display:inline-block; font-size:0.76rem; border-radius:999px; padding:1px 9px; border:1px solid var(--line); margin-bottom:6px; }
+  .flag.bad { background:var(--warn-bg); color:var(--warn); border-color:var(--warn); }
+  .flag.ok { background:var(--ok-bg); color:var(--ok); border-color:var(--ok); }
+  table { border-collapse:collapse; width:100%; font-size:0.93rem; margin-top:12px; }
+  th,td { text-align:left; padding:9px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:500; font-size:0.84rem; }
+  .scroller { overflow-x:auto; }
+  code { background:#8882; padding:1px 5px; border-radius:4px; font-size:0.9em; }
+</style>
+
+<div class="wrap">
+  <h1>Locus 実装の現状</h1>
+  <p class="lede">2026-11-17 時点の実装を、実ブラウザで撮影したものです。合成データのみ。</p>
+
+  <div class="note">
+    <p><b>これは「いま動いているもの」です。</b>プレビュー（試作）で見ていただいた opencode 式の呼び名・設定ダイアログ・ダークモードは<strong>まだ入っていません</strong>。その差を見比べるための資料です。</p>
+    <p>撮影はループを止めずに行うため、別ポート（UI 5274 / API 8100）の使い捨てクローンで実施しました。本番の設定は変えていません。</p>
+  </div>
+
+  <h2>1. 入口</h2>
+  <div class="shots">
+    <figure>
+      <img src="shots/01-login.png" alt="ログイン画面。利用者IDとパスワードの2項目だけ。">
+      <figcaption><b>ログイン</b><span>ID とパスワードのみ。MFA は実装しない決定どおり。「初回アカウント発行・回復はローカル管理者へ」と明示。</span></figcaption>
+    </figure>
+    <figure>
+      <img src="shots/02-chat-empty.png" alt="ログイン直後のチャット画面。会話は空。">
+      <figcaption><span class="flag bad">要改善</span><b>チャット（空）</b><span>左に「資料を調べる / 共有資料 / 個人資料 / 調査履歴」と管理グループ。<strong>会話一覧はサイドバーに無い</strong>。参照範囲が本文の最上部を占めている。</span></figcaption>
+    </figure>
+  </div>
+
+  <h2>2. 会話</h2>
+  <div class="shots">
+    <figure>
+      <img src="shots/03-chat-answer.png" alt="1往復した状態。回答の下に出典リンクとフットノート。">
+      <figcaption><span class="flag ok">良好</span><b>回答と出典</b><span>出典が資料名・頁・chunk まで出ており、クリックで原文へ飛べる。「検索で抽出した原文です。AI生成の回答ではありません」と正直に書いてある。</span></figcaption>
+    </figure>
+    <figure>
+      <img src="shots/05-chat-scrolled-to-top.png" alt="会話が伸びた状態で上端までスクロールしたところ。入力欄が画面内に無い。">
+      <figcaption><span class="flag bad">不具合</span><b>入力欄が消える</b><span>会話が伸びた状態で上に戻ると、<strong>入力欄が画面内にありません</strong>。入力のたびに下まで送る必要があります。<code>T-PH6-111</code> で修正中（<code>T-PH6-109</code> 待ち）。</span></figcaption>
+    </figure>
+  </div>
+
+  <h2>3. 資料</h2>
+  <div class="shots">
+    <figure>
+      <img src="shots/06-shared.png" alt="共有資料の一覧。">
+      <figcaption><b>共有資料</b><span>プロジェクトで閲覧を許可された資料。</span></figcaption>
+    </figure>
+    <figure>
+      <img src="shots/09-ingestion.png" alt="取り込み状況の画面。">
+      <figcaption><span class="flag bad">未接続</span><b>取り込み状況</b><span>取り込み前インベントリ（<code>T-PH5-101</code>）は<strong>API のみ実装済みで、画面はまだ繋がっていません</strong>。</span></figcaption>
+    </figure>
+  </div>
+
+  <h2>4. 管理</h2>
+  <div class="shots">
+    <figure>
+      <img src="shots/10-model.png" alt="モデル・同時利用の画面。説明文が3つ並ぶだけ。">
+      <figcaption><span class="flag bad">要確認</span><b>モデル・同時利用</b><span>スロット複数本化（<code>T-PH6-102</code>）と使用中/全本数の表示（<code>T-PH6-107</code>）はマージ済みですが、<strong>この画面には出ていません</strong>。検査用データが値を返していない可能性もあり、要確認。</span></figcaption>
+    </figure>
+    <figure>
+      <img src="shots/11-delegation.png" alt="管理委任の画面。">
+      <figcaption><b>管理委任</b><span>プロジェクト単位の権限委任。API は実装済み。</span></figcaption>
+    </figure>
+  </div>
+
+  <h2>5. 狭い画面</h2>
+  <div class="shots">
+    <figure>
+      <img src="shots/12-phone.png" alt="スマートフォン幅での表示。">
+      <figcaption><b>390px 幅</b><span>横スクロールは発生していません（画面検査の不変条件のひとつ）。</span></figcaption>
+    </figure>
+    <figure>
+      <img src="shots/08-history.png" alt="調査履歴の画面。">
+      <figcaption><span class="flag bad">要改善</span><b>調査履歴</b><span>会話の一覧が独立したページになっています。opencode 式ではサイドバーに統合する案で承認済み（<code>T-PH6-112</code>）。</span></figcaption>
+    </figure>
+  </div>
+
+  <h2>プレビューとの差分</h2>
+  <div class="scroller">
+    <table>
+      <thead><tr><th>項目</th><th>いまの実装</th><th>決まっている形</th><th>担当</th></tr></thead>
+      <tbody>
+        <tr><td>製品名</td><td>研究資料室 Locus（併記）</td><td>Locus のみ</td><td><code>T-PH6-109</code></td></tr>
+        <tr><td>上部の帯</td><td>スクロールで画面外へ出る</td><td>固定</td><td><code>T-PH6-109</code></td></tr>
+        <tr><td>入力欄</td><td>文書末尾。会話と一緒に流れる</td><td>画面下部に固定</td><td><code>T-PH6-111</code></td></tr>
+        <tr><td>参照範囲</td><td>本文最上部の <code>select</code></td><td>入力欄の中のドロップダウン</td><td><code>T-PH6-111</code> / <code>117</code></td></tr>
+        <tr><td>ナビ</td><td>資料を調べる / 共有 / 個人 / 調査履歴 + 管理 8 項目</td><td>新しいチャット → 会話 → 資料。設定は歯車のダイアログ</td><td><code>T-PH6-112</code></td></tr>
+        <tr><td>設定</td><td>サイドバーに展開</td><td>左下アカウント＋歯車 → ダイアログ（<code>&lt;dialog&gt;</code>）</td><td><code>T-PH6-112</code> / <code>116</code></td></tr>
+        <tr><td>ダークモード</td><td>無し</td><td>ライト / システム / ダーク</td><td><code>T-PH6-110</code> / <code>118</code></td></tr>
+        <tr><td>注意書き</td><td>回答ごとのフットノートのみ</td><td>チャット上部に常時表示</td><td><code>T-PH6-115</code></td></tr>
+        <tr><td>文字サイズ</td><td><code>:root { font-size:14px }</code> が OS 設定を無効化</td><td><code>rem</code> 化して OS に従う</td><td><code>T-PH6-119</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
