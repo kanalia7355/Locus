@@ -48,7 +48,9 @@ def test_a_process_it_may_not_stop_is_reported_not_killed(monkeypatch) -> None:
 
 def test_our_own_stale_server_is_stopped(monkeypatch) -> None:
     killed: list[int] = []
-    monkeypatch.setattr(ports, "listeners", lambda port: [99] if port == 8000 else [])
+    monkeypatch.setattr(
+        ports, "listeners", lambda port: [99] if port == 8000 and not killed else []
+    )
     monkeypatch.setattr(
         ports, "command_of", lambda pid: r"C:\x\Locus\.venv\python.exe tests/e2e_server.py"
     )
@@ -56,3 +58,16 @@ def test_our_own_stale_server_is_stopped(monkeypatch) -> None:
     monkeypatch.setattr(sys, "argv", ["release_test_ports.py"])
     assert ports.main() == 0
     assert killed == [99]
+
+
+def test_a_port_that_never_frees_is_a_failure_not_a_silent_pass(monkeypatch) -> None:
+    # Killing the process does not free the socket at once on Windows. If the
+    # gate returned success anyway, Playwright would fail to bind a moment later
+    # and the job would be blamed for it.
+    monkeypatch.setattr(ports, "listeners", lambda port: [99] if port == 8000 else [])
+    monkeypatch.setattr(ports, "command_of", lambda pid: "python Locus/tests/e2e_server.py")
+    monkeypatch.setattr(ports, "stop", lambda pid: True)
+    monkeypatch.setattr(ports, "WAIT_SECONDS", 0.2)
+    monkeypatch.setattr(ports, "freed", lambda port, wait=0.2: False)
+    monkeypatch.setattr(sys, "argv", ["release_test_ports.py"])
+    assert ports.main() == 1

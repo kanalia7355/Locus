@@ -19,6 +19,7 @@ import argparse
 import re
 import subprocess
 import sys
+import time
 
 PORTS = (8000, 5174)
 # The fixture and the dev server, by the way they appear in a command line.
@@ -97,6 +98,19 @@ def stop(pid: int) -> bool:
         return False
 
 
+WAIT_SECONDS = 15.0
+
+
+def freed(port: int, *, wait: float = WAIT_SECONDS) -> bool:
+    """Wait until nothing listens on `port` again, or give up and say so."""
+    deadline = time.monotonic() + wait
+    while time.monotonic() < deadline:
+        if not listeners(port):
+            return True
+        time.sleep(0.5)
+    return not listeners(port)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dry-run", action="store_true")
@@ -113,6 +127,12 @@ def main() -> int:
                 print(f"would stop pid {pid} on port {port}")
             elif stop(pid):
                 print(f"stopped the stale test server on port {port} (pid {pid})")
+                # Killing the process does not free the socket immediately on
+                # Windows, and Playwright binds within milliseconds of this gate
+                # finishing — it then fails to start its own server for a reason
+                # that has nothing to do with the change under test.
+                if not freed(port):
+                    foreign.append(f"port {port}: still held {WAIT_SECONDS}s after stopping {pid}")
             else:
                 foreign.append(f"port {port}: pid {pid} would not stop")
     if foreign:
