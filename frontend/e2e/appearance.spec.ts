@@ -47,15 +47,20 @@ async function enter(page: Page, index: number) {
   ).toBeVisible();
 }
 
-/** Ask one question so the transcript is long enough to need scrolling. */
+/** Ask one question, and wait for this answer rather than any answer.
+ *
+ * Waiting on the heading itself only works for the first exchange: from the
+ * second one there are two of them and the locator is ambiguous, which reads as
+ * a product failure when it is only an ambiguous selector.
+ */
 async function askSomething(page: Page) {
+  const answers = page.getByRole("heading", { name: "資料に見つかった記述" });
+  const before = await answers.count();
   await page
     .getByRole("textbox", { name: "メッセージ", exact: true })
     .fill("成膜条件を比較");
   await page.getByRole("button", { name: "送信", exact: true }).click();
-  await expect(
-    page.getByRole("heading", { name: "資料に見つかった記述" }),
-  ).toBeVisible();
+  await expect(answers).toHaveCount(before + 1);
 }
 
 test("no screen scrolls sideways at any supported width", async ({ page }) => {
