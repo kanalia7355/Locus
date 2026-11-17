@@ -200,10 +200,15 @@ def frontend_gates(
             )
         )
     return built + [
+        # Run from `frontend/`, not from the root with `--prefix`: npm does not
+        # move the script's working directory, so Playwright wrote its artefacts
+        # to a root `test-results/` that `.gitignore` does not cover. The scope
+        # gate then reported them as an out-of-scope change and blocked three
+        # jobs on 2026-11-17 for files the gate itself had created.
         run_argv(
             f"frontend-{script}",
-            [npm, "--prefix", "frontend", "run", script],
-            cwd=worktree,
+            [npm, "run", script],
+            cwd=worktree / "frontend",
             timeout=timeout,
         )
         # `appearance` drives the real screen in a browser and asserts the layout

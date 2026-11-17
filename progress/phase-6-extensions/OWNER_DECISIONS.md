@@ -416,3 +416,32 @@ https://github.com/GoogleChrome/modern-web-guidance などを使用して進め�
 オーナー承認が要るため、ここでは提案に留める）。食い違いを放置すると、
 次に別の担当が読んだときにどちらが正かが分からなくなる。
 
+
+## T-PH6-109 — out-of-scope change (2026-11-17T16:42:16+09:00)
+
+**Question**: The worker needed paths outside allowed_paths; widen the scope or split the job.
+
+**Context**
+
+outside allowed_paths: ['test-results/.last-run.json']
+
+**Answer** (2026-11-17, orchestrator): オーナー判断ではない。範囲外として報告されたのは画面検査ゲート自身が書いた `test-results/.last-run.json` と、ワーカーがテスト出力を読むために作った作業ファイル。ゲートを `frontend/` から起動するよう直し（`.gitignore` が覆う場所に成果物が出る）、3 件とも試行を戻して再開する。範囲判定そのものは緩めない。
+## T-PH6-113 — out-of-scope change (2026-11-17T16:55:38+09:00)
+
+**Question**: The worker needed paths outside allowed_paths; widen the scope or split the job.
+
+**Context**
+
+outside allowed_paths: ['frontend/test-output.txt', 'frontend/test-results.txt']
+
+**Answer** (2026-11-17, orchestrator): オーナー判断ではない。範囲外として報告されたのは画面検査ゲート自身が書いた `test-results/.last-run.json` と、ワーカーがテスト出力を読むために作った作業ファイル。ゲートを `frontend/` から起動するよう直し（`.gitignore` が覆う場所に成果物が出る）、3 件とも試行を戻して再開する。範囲判定そのものは緩めない。
+## T-PH6-115 — out-of-scope change (2026-11-17T17:07:18+09:00)
+
+**Question**: The worker needed paths outside allowed_paths; widen the scope or split the job.
+
+**Context**
+
+outside allowed_paths: ['test-results/.last-run.json']
+
+**Answer** (2026-11-17, orchestrator): オーナー判断ではない。範囲外として報告されたのは画面検査ゲート自身が書いた `test-results/.last-run.json` と、ワーカーがテスト出力を読むために作った作業ファイル。ゲートを `frontend/` から起動するよう直し（`.gitignore` が覆う場所に成果物が出る）、3 件とも試行を戻して再開する。範囲判定そのものは緩めない。
+
