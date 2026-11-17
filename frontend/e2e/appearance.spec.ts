@@ -18,7 +18,10 @@ const WIDTHS = [
 ];
 
 // The owner settled this on 2026-11-17: no emoji anywhere in the product.
-const EMOJI = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/u;
+// One property escape, no character class: a class holding a base character and
+// a variation selector is misleading (eslint no-misleading-character-class), and
+// the `v` flag that would fix it needs an es2024 target this project does not set.
+const EMOJI = /\p{Extended_Pictographic}/u;
 
 async function enter(page: Page, index: number) {
   await page.goto("/");

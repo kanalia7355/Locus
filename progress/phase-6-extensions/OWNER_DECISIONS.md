@@ -314,3 +314,52 @@ workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-111
 
 **Answer** (2026-11-17, orchestrator): 誤検知。ワーカーは自分のクローンの中にだけ書いており、メインチェックアウトにワーカー由来のファイルは無かった。原因は封じ込め判定が`HEAD` を含んでいたことで、ループ実行中のオーケストレーターのコミットで `HEAD` が動いた。判定を未コミットの状態だけに変更し、回帰テストで固定した。試行は消費していないので、ワークスペースを残したまま `resume-one` で再開する。詳細は各 task ファイルの裁定に記録。
 
+
+## T-PH6-109 — worker stopped for a decision (2026-11-17T12:28:47+09:00)
+
+**Question**: appearance.spec.ts:146 の test.fail 印は、本件の修正で帯が固定されたことで「期待に反して成功」の失敗に変わっており、印のコメントは T-PH6-109 のジョブで印を消すよう指示しているが、appearance.spec.ts は本ジョブの allowed_paths 外なので消せない — この印の削除を本ジョブの許可パス拡張で行うのか、別途（オーナーまたは後続ジョブ）で消すのかを決めてください。
+
+**Context**
+
+ows the old name; the 6 pre-existing combined-run failures in (c) remain; on the chat page the composer sits marginally higher than before on an empty conversation (content now scrolls inside `.main` instead of the page; no test asserts this); running e2e locally required a gitignored `.venv` bridged to the existing environment's packages via a `.pth` file — no packages were installed and nothing outside the workspace was written.
+
+TEST
+- `npx playwright test e2e/workspace.spec.ts -g "the topbar stays visible"` (separate-test version, before the fix): 1 failed — `pageScrollY` was 64, reproducing the page-level scroll that takes the topbar off screen.
+- Same test after the CSS fix: 1 passed.
+- `npx playwright test e2e/workspace.spec.ts`: 13 passed (13/13, including the strengthened scroll test).
+- `npx playwright test e2e/appearance.spec.ts`: 6 passed, 1 failed — only the `test.fail` marker inversion「Expected to fail, but passed」at line 146; the T-PH6-111 marker (message box) still fails as expected.
+- `npx playwright test` (full, with my changes): 7 failed / 18 passed — the same 6 login-collision failures observed on the stashed baseline (6 failed / 19 passed) plus the designed marker inversion; `a11y.spec.ts` 5/5 passed in every full run.
+- `npm --prefix frontend run test` (controller command, run twice): 15 files / 95 tests passed.
+- `npm run typecheck`: PASS. `npm run lint`: only the pre-existing `no-misleading-character-class` error in untouched `appearance.spec.ts`.
+- `python -m ruff check backend tests scripts jobloop`: All checks passed. `python -m ruff format --check backend tests scripts jobloop`: 160 files already formatted. `python scripts/secret_scan.py`: 0 findings.
+- `grep -c "研究資料室" frontend/src/App.tsx`: 0.
+
+STATUS
+needs-owner-decision: appearance.spec.ts:146 の test.fail 印は、本件の修正で帯が固定されたことで「期待に反して成功」の失敗に変わっており、印のコメントは T-PH6-109 のジョブで印を消すよう指示しているが、appearance.spec.ts は本ジョブの allowed_paths 外なので消せない — この印の削除を本ジョブの許可パス拡張で行うのか、別途（オーナーまたは後続ジョブ）で消すのかを決めてください。
+
+**Answer** (2026-11-17, orchestrator): オーナー判断ではなく範囲の問題なので私が裁定した。印はその修正が入った証拠なので、**消すのは同じジョブの仕事**。両ジョブの許可パスに `frontend/e2e/appearance.spec.ts` を加え、自分の修正に対応する `test.fail` 印 1 つだけを外すこと、外したあとそのテストが本物の合格として通ることを受入条件に足した。あわせて報告された eslint の `no-misleading-character-class` は**私が入れた欠陥**で、先に直した（T-PH6-111 のワーカーの指摘。ワーカー側の対応は不要）。
+## T-PH6-111 — worker stopped for a decision (2026-11-17T12:42:08+09:00)
+
+**Question**: frontend/e2e/appearance.spec.ts は許可パス外なので触れませんでしたが、その中の test.fail("the message box stays reachable") には「Fixed by T-PH6-111 — remove this marker in that job」とあり、今回の修正でこのテストは合格に反転し、次回の --e2e 実行で browser-e2e ゲートが赤くなります。このマーカー1行の削除だけ許可パスに加えて私が消してよいか、それともマージ直後にオーナーが消すか（同じファイル21行目に基底コミット時点から存在する eslint エラー no-misleading-character-class も CI の frontend-lint を赤くしています。そちらの扱いも併せてご指定ください）、どちらで進めるべきかの判断をお願いしま
+
+**Context**
+
+error (`no-misleading-character-class`, introduced in today's commit `5620ee3`), so `frontend-lint` fails on the unmodified head too (verified by stashing my changes). This job's gates do not include lint, but hosted CI's `verify.py` runs it.
+- Risks left behind: jsdom cannot compute layout, so the fixed-composer behavior is verified structurally plus as a stylesheet contract; real-layout confirmation depends on the Playwright test currently inverted by the `test.fail` marker. The pre-existing lint error and the e2e marker are both outside my paths and unresolved.
+
+TEST
+- `npm --prefix frontend run test -- --run src/App.test.tsx` (before implementation): 4 new tests failed as expected, 17 existing passed.
+- `npm --prefix frontend run test -- --run src/App.test.tsx` (after implementation): 21 passed.
+- `npm --prefix frontend run test`: 99 passed (15 files), twice (final run fresh).
+- `npm --prefix frontend run typecheck`: PASS.
+- `npm --prefix frontend run lint`: FAIL — `frontend/e2e/appearance.spec.ts 21:45 error no-misleading-character-class`; reproduced on the unmodified head via `git stash` → pre-existing, not caused by this change.
+- `python -m ruff check backend tests scripts jobloop`: "All checks passed!".
+- `python -m ruff format --check backend tests scripts jobloop`: "160 files already formatted".
+- `python scripts/secret_scan.py`: "Offline secret scan: 0 findings".
+- Playwright e2e was not run (not this job's verification command); expected state after this change: the `test.fail` marker test will pass and be reported as a failure.
+
+STATUS
+needs-owner-decision: frontend/e2e/appearance.spec.ts は許可パス外なので触れませんでしたが、その中の test.fail("the message box stays reachable") には「Fixed by T-PH6-111 — remove this marker in that job」とあり、今回の修正でこのテストは合格に反転し、次回の --e2e 実行で browser-e2e ゲートが赤くなります。このマーカー1行の削除だけ許可パスに加えて私が消してよいか、それともマージ直後にオーナーが消すか（同じファイル21行目に基底コミット時点から存在する eslint エラー no-misleading-character-class も CI の frontend-lint を赤くしています。そちらの扱いも併せてご指定ください）、どちらで進めるべきかの判断をお願いします。
+
+**Answer** (2026-11-17, orchestrator): オーナー判断ではなく範囲の問題なので私が裁定した。印はその修正が入った証拠なので、**消すのは同じジョブの仕事**。両ジョブの許可パスに `frontend/e2e/appearance.spec.ts` を加え、自分の修正に対応する `test.fail` 印 1 つだけを外すこと、外したあとそのテストが本物の合格として通ることを受入条件に足した。あわせて報告された eslint の `no-misleading-character-class` は**私が入れた欠陥**で、先に直した（T-PH6-111 のワーカーの指摘。ワーカー側の対応は不要）。
+
