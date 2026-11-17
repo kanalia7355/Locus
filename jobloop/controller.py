@@ -218,7 +218,11 @@ class Controller:
         without a network install. A failure here is not fatal: the affected
         gate then reports its own real failure.
         """
-        for relative in ("frontend/node_modules",):
+        # `.venv` too: `frontend/playwright.config.ts` resolves the interpreter
+        # as `../.venv/Scripts/python.exe`, so without it the browser checks
+        # cannot start their API fixture and every frontend job fails with
+        # "the specified path was not found" — nothing to do with the change.
+        for relative in ("frontend/node_modules", ".venv"):
             source = self.settings.repository / relative
             target = worktree / relative
             if not source.is_dir() or target.exists():

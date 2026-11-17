@@ -55,3 +55,6 @@ credentials.*.json
 .pi/harness/logs/
 
 .jobloop/
+# Playwright writes these relative to wherever it was started.
+test-results/
+playwright-report/
