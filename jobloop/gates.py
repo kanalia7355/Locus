@@ -166,7 +166,9 @@ def run_argv(name: str, argv: list[str], *, cwd: Path, timeout: float) -> Gate:
     return Gate(name, True, result.returncode == 0, summarise(result))
 
 
-def frontend_gates(worktree: Path, names: list[str], *, timeout: float) -> list[Gate]:
+def frontend_gates(
+    worktree: Path, names: list[str], *, timeout: float, python: str = ""
+) -> list[Gate]:
     """Typecheck and lint the frontend, run only when the job touched it.
 
     `vitest` transpiles without typechecking, so a job whose only gate is its
@@ -181,7 +183,20 @@ def frontend_gates(worktree: Path, names: list[str], *, timeout: float) -> list[
     npm = shutil.which("npm")
     if not npm:
         return [Gate("frontend-typecheck", False, False, "npm is not installed")]
-    return [
+    built: list[Gate] = []
+    if python:
+        # Playwright starts its own servers on fixed ports and does not always
+        # take them down when a run aborts. One orphan then fails every later
+        # frontend job on "port already in use" — a gate that poisons itself.
+        built.append(
+            run_argv(
+                "frontend-free-ports",
+                [python, "scripts/release_test_ports.py"],
+                cwd=worktree,
+                timeout=timeout,
+            )
+        )
+    return built + [
         run_argv(
             f"frontend-{script}",
             [npm, "--prefix", "frontend", "run", script],
