@@ -292,3 +292,12 @@ timeout で停止させたワーカーの子プロセスが生き残って後か
    チャット入力欄の中に置く。OS 標準の `<select>` は使わない（`T-PH6-111`）。
 4. チャット画面を開いている間、**入力欄は常に画面下部に固定**する（`T-PH6-111`）。
 5. 絵文字は使わない（上記 1. と同じ規則）。
+
+## T-PH6-109 — worker wrote outside its workspace (2026-11-17T11:21:44+09:00)
+
+**Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
+
+**Context**
+
+model=opencode/glm-5.3-flash-free
+workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-109

@@ -303,7 +303,13 @@ def test_a_frontend_job_is_typechecked_and_a_backend_job_is_not(tmp_path: Path) 
     # is its test command can land a type error with every check green.
     assert gates.frontend_gates(tmp_path, ["backend/app/service.py"], timeout=5) == []
     built = gates.frontend_gates(tmp_path, ["frontend/src/api.ts"], timeout=5)
-    assert [gate.name for gate in built] == ["frontend-typecheck", "frontend-lint"]
+    assert [gate.name for gate in built] == [
+        "frontend-typecheck",
+        "frontend-lint",
+        # Unit tests render components; only this one lays out a real page and
+        # can see that the top bar scrolled away or text ran off the edge.
+        "frontend-test:appearance",
+    ]
 
 
 def test_a_gate_that_cannot_run_is_a_failure_not_a_pass(tmp_path: Path) -> None:

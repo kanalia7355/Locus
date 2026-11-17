@@ -188,7 +188,14 @@ def frontend_gates(worktree: Path, names: list[str], *, timeout: float) -> list[
             cwd=worktree,
             timeout=timeout,
         )
-        for script in ("typecheck", "lint")
+        # `appearance` drives the real screen in a browser and asserts the layout
+        # invariants a person would otherwise have to notice by scrolling around
+        # (nothing off the right edge, the top bar staying put, the message box
+        # staying reachable, no emoji, every icon button named). Unit tests never
+        # see these: they render components, not a laid-out page.
+        # It binds 127.0.0.1:8000 and :5174, so a dev server left running on
+        # those ports will fail this gate — stop them before an unattended run.
+        for script in ("typecheck", "lint", "test:appearance")
     ]
 
 
