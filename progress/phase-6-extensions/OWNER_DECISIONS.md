@@ -445,3 +445,35 @@ outside allowed_paths: ['test-results/.last-run.json']
 
 **Answer** (2026-11-17, orchestrator): オーナー判断ではない。範囲外として報告されたのは画面検査ゲート自身が書いた `test-results/.last-run.json` と、ワーカーがテスト出力を読むために作った作業ファイル。ゲートを `frontend/` から起動するよう直し（`.gitignore` が覆う場所に成果物が出る）、3 件とも試行を戻して再開する。範囲判定そのものは緩めない。
 
+
+## T-PH6-109 — out-of-scope change (2026-11-17T21:13:29+09:00)
+
+**Question**: The worker needed paths outside allowed_paths; widen the scope or split the job.
+
+**Context**
+
+outside allowed_paths: ['test-results/.last-run.json']
+
+## T-PH6-113 — out-of-scope change (2026-11-17T21:35:45+09:00)
+
+**Question**: The worker needed paths outside allowed_paths; widen the scope or split the job.
+
+**Context**
+
+outside allowed_paths: ['frontend/test-output.txt', 'frontend/test-results.txt']
+
+## T-PH6-115 — out-of-scope change (2026-11-17T21:38:36+09:00)
+
+**Question**: The worker needed paths outside allowed_paths; widen the scope or split the job.
+
+**Context**
+
+outside allowed_paths: ['test-results/.last-run.json']
+
+## T-PH6-124 — out-of-scope change (2026-11-17T22:28:50+09:00)
+
+**Question**: The worker needed paths outside allowed_paths; widen the scope or split the job.
+
+**Context**
+
+outside allowed_paths: ['frontend/errors.txt', 'frontend/filtered.txt', 'frontend/install-eslint.txt', 'frontend/install-final.txt', 'frontend/install-log.txt', 'frontend/install2.txt', 'frontend/install3.txt', 'frontend/install4.txt', 'frontend/install5.txt', 'frontend/install6.txt', 'frontend/install7.txt', 'frontend/install8.txt', 'frontend/lint-apits.txt', 'frontend/lint-check.txt', 'frontend/lint-final.txt', 'frontend/lint-final2.txt', 'frontend/lint-new.txt', 'frontend/lint-output.txt', 'frontend/lint-output2.txt', 'frontend/lint-restricted-syntax.txt', 'frontend/lint-verify.txt', 'frontend/lint_result.txt', 'frontend/output.txt', 'frontend/package-lock.json', 'frontend/package.json', 'frontend/powershell-lint.txt', 'frontend/pw-build.txt', 'frontend/pw-eslint.txt', 'frontend/pw-eslint2.txt', 'frontend/pw-lint.txt', 'frontend/pw-test.txt', 'frontend/src/api.ts', 'frontend/test-all.txt', 'frontend/test-exist.txt', 'frontend/test-final.txt', 'frontend/test-output.txt', 'frontend/test.txt', 'frontend/typecheck-out.txt', 'frontend/typecookerrt.txt', 'frontend/typecookout.txt', 'frontend/vitest-out.txt']
