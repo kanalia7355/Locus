@@ -76,6 +76,30 @@ def report(controller: Controller) -> int:
     return 0
 
 
+def explain(controller: Controller) -> int:
+    """Rewrite the open questions as a page the owner can decide from.
+
+    The loop writes `OWNER_DECISIONS.md` for itself — requirement ids, paths,
+    failure modes. Asking an owner to answer from that is asking them to read the
+    loop's notes. `scripts/explain_decisions.py` hands the same text to Hydrogen
+    and gets back one plain-language page. A failure here never fails the run:
+    the questions are already recorded, this is only how they are presented.
+    """
+    script = ROOT / "scripts" / "explain_decisions.py"
+    result = subprocess.run(  # noqa: S603 — repository script, resolved interpreter
+        [controller.settings.python, str(script)],
+        cwd=str(ROOT),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=1200,
+        check=False,
+    )
+    print((result.stdout or result.stderr).strip()[:2000])
+    return result.returncode
+
+
 def doctor(controller: Controller) -> int:
     checks: list[tuple[str, bool, str]] = []
     checks.append(("opencode", bool(shutil.which("opencode")), "free worker CLI"))
@@ -129,6 +153,7 @@ def main(argv: list[str] | None = None) -> int:
     commands.add_parser("status", help="show what the loop sees")
     commands.add_parser("doctor", help="check the loop can run at all")
     commands.add_parser("plan", help="show the job the loop would pick next")
+    commands.add_parser("explain", help="rewrite open owner questions as a plain-language page")
     one = commands.add_parser("run-one", help="run the next job through one full cycle")
     one.add_argument(
         "--push", action="store_true", help="push the integration branch after merging"
@@ -149,6 +174,8 @@ def main(argv: list[str] | None = None) -> int:
         return report(controller)
     if arguments.command == "doctor":
         return doctor(controller)
+    if arguments.command == "explain":
+        return explain(controller)
     if arguments.command == "plan":
         task = controller.select()
         print(f"next: {task.id} ({task.weight})" if task else "next: nothing actionable")
@@ -177,6 +204,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\n{len(escalated)} job(s) need an owner decision:")
         for outcome in escalated:
             print(f"  - {outcome.line}")
+        # An unattended run can stop overnight on a question. Leave it already
+        # written in language the owner can answer from, not in the loop's own.
+        explain(controller)
     return 0
 
 

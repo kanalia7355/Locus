@@ -1,392 +1,502 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Owner判断まとめ（やさしい解説版）</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>オーナーに決めてほしいこと（やさしい説明）</title>
   <style>
     :root {
-      --bg: #f7f9fc;
+      color-scheme: light dark;
+      --bg: #f6f7f9;
       --surface: #ffffff;
-      --border: #dce3ec;
-      --text: #1e293b;
-      --muted: #526075;
-      --accent: #2563eb;
-      --soft-blue: #eff6ff;
-      --soft-yellow: #fefce8;
-      --soft-green: #f0fdf4;
-      --soft-red: #fef2f2;
-      --border-yellow: #fde047;
-      --border-green: #86efac;
-      --border-red: #fca5a5;
+      --surface-muted: #eef1f5;
+      --text: #1f2937;
+      --text-muted: #4b5563;
+      --border: #d5dce4;
+      --accent: #2f5d8a;
+      --accent-soft: #e8f0f8;
+      --note-bg: #f3f5f8;
+      --note-border: #8fa3b8;
+      --shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
     }
-    * { box-sizing: border-box; }
+
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #12161c;
+        --surface: #1a2029;
+        --surface-muted: #222a35;
+        --text: #e5e9f0;
+        --text-muted: #aeb8c6;
+        --border: #313b4a;
+        --accent: #7aa7d6;
+        --accent-soft: #1f2d3d;
+        --note-bg: #1e2631;
+        --note-border: #556b82;
+        --shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+      }
+    }
+
+    :root[data-theme="dark"] {
+      --bg: #12161c;
+      --surface: #1a2029;
+      --surface-muted: #222a35;
+      --text: #e5e9f0;
+      --text-muted: #aeb8c6;
+      --border: #313b4a;
+      --accent: #7aa7d6;
+      --accent-soft: #1f2d3d;
+      --note-bg: #1e2631;
+      --note-border: #556b82;
+      --shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
     body {
       margin: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", Meiryo, sans-serif;
-      background: var(--bg);
+      padding: 24px 16px 48px;
+      background-color: var(--bg);
       color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif;
       line-height: 1.75;
+      font-size: 16px;
     }
-    header {
-      background: linear-gradient(135deg, #1e3a8a, #2563eb);
-      color: #ffffff;
-      padding: 28px 24px;
-    }
-    header .wrap {
-      max-width: 980px;
+
+    .container {
+      max-width: 860px;
       margin: 0 auto;
     }
-    header h1 {
-      margin: 0 0 8px;
-      font-size: 1.55rem;
-    }
-    header p {
-      margin: 0;
-      opacity: 0.92;
-      font-size: 0.96rem;
-    }
-    main {
-      max-width: 980px;
-      margin: 24px auto 64px;
-      padding: 0 18px;
-    }
-    .intro-box {
-      background: var(--soft-blue);
-      border: 1px solid #bfdbfe;
-      border-radius: 12px;
-      padding: 18px 22px;
-      margin-bottom: 24px;
-    }
-    .intro-box h2 {
-      margin: 0 0 8px;
-      font-size: 1.08rem;
-      color: #1e40af;
-    }
-    .toc {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 10px;
-      margin-top: 14px;
-    }
-    .toc a {
-      display: block;
-      background: #ffffff;
-      border: 1px solid #bfdbfe;
-      border-radius: 8px;
-      padding: 10px 12px;
-      text-decoration: none;
-      color: #1e3a8a;
-      font-weight: 600;
-      font-size: 0.88rem;
-    }
-    .toc a:hover { background: #dbeafe; }
-    .card {
-      background: var(--surface);
+
+    header {
+      background-color: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 22px 24px;
-      margin-bottom: 20px;
-      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
-    }
-    .card-head {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 10px;
-      margin-bottom: 12px;
-      padding-bottom: 10px;
-      border-bottom: 1px solid var(--border);
-    }
-    .card-num {
-      background: var(--accent);
-      color: #ffffff;
-      font-weight: 700;
-      font-size: 0.85rem;
-      padding: 3px 10px;
-      border-radius: 999px;
-    }
-    .card-title {
-      font-size: 1.15rem;
-      font-weight: 700;
-      margin-right: auto;
-    }
-    .tag {
-      font-size: 0.78rem;
-      font-weight: 700;
-      padding: 3px 10px;
-      border-radius: 999px;
-    }
-    .tag-now { background: var(--soft-red); color: #b91c1c; border: 1px solid var(--border-red); }
-    .tag-later { background: var(--soft-yellow); color: #854d0e; border: 1px solid var(--border-yellow); }
-    .tldr {
-      background: #f8fafc;
-      border-left: 4px solid var(--accent);
-      padding: 10px 14px;
-      border-radius: 0 8px 8px 0;
-      margin-bottom: 14px;
-      font-size: 0.95rem;
-    }
-    .cols {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-      gap: 12px;
-    }
-    .subbox {
       border-radius: 10px;
-      padding: 12px 14px;
-      font-size: 0.92rem;
+      padding: 24px;
+      margin-bottom: 20px;
+      box-shadow: var(--shadow);
     }
-    .sub-now { background: #f1f5f9; }
-    .sub-ask { background: var(--soft-yellow); border: 1px solid var(--border-yellow); }
-    .sub-rec { background: var(--soft-green); border: 1px solid var(--border-green); }
-    .sublabel {
-      font-size: 0.78rem;
-      font-weight: 700;
-      color: var(--muted);
-      margin-bottom: 4px;
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: 1.5rem;
+      line-height: 1.4;
+      color: var(--text);
     }
-    ul {
-      margin: 6px 0 0;
-      padding-left: 18px;
+
+    .lead {
+      margin: 0;
+      color: var(--text-muted);
     }
-    li { margin-bottom: 4px; }
-    .ref {
-      margin-top: 12px;
+
+    .badge {
+      display: inline-block;
       font-size: 0.8rem;
-      color: var(--muted);
+      font-weight: 600;
+      padding: 2px 10px;
+      border-radius: 999px;
+      background-color: var(--accent-soft);
+      color: var(--accent);
+      margin-bottom: 10px;
     }
+
+    nav.toc {
+      background-color: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px 24px;
+      margin-bottom: 20px;
+      box-shadow: var(--shadow);
+    }
+
+    nav.toc h2 {
+      margin: 0 0 12px;
+      font-size: 1.1rem;
+    }
+
+    nav.toc ol {
+      margin: 0;
+      padding-left: 22px;
+    }
+
+    nav.toc li {
+      margin-bottom: 6px;
+    }
+
+    nav.toc a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    nav.toc a:hover,
+    nav.toc a:focus {
+      text-decoration: underline;
+    }
+
+    .card {
+      background-color: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 24px;
+      margin-bottom: 20px;
+      box-shadow: var(--shadow);
+    }
+
+    .card h2 {
+      margin: 0 0 14px;
+      font-size: 1.2rem;
+      line-height: 1.45;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 10px;
+    }
+
+    .card h3 {
+      margin: 18px 0 6px;
+      font-size: 0.98rem;
+      color: var(--accent);
+    }
+
+    .card p {
+      margin: 0 0 10px;
+    }
+
+    .card ul {
+      margin: 6px 0 12px;
+      padding-left: 22px;
+    }
+
+    .card li {
+      margin-bottom: 6px;
+    }
+
+    .callout {
+      background-color: var(--note-bg);
+      border-left: 4px solid var(--note-border);
+      padding: 12px 16px;
+      border-radius: 4px;
+      margin-top: 12px;
+      color: var(--text);
+    }
+
+    .table-wrap {
+      width: 100%;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      margin-top: 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+
+    table {
+      width: 100%;
+      min-width: 620px;
+      border-collapse: collapse;
+      font-size: 0.94rem;
+      background-color: var(--surface);
+    }
+
+    th,
+    td {
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+      border-bottom: 1px solid var(--border);
+      border-right: 1px solid var(--border);
+    }
+
+    th:last-child,
+    td:last-child {
+      border-right: none;
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    th {
+      background-color: var(--surface-muted);
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
     code {
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      background: #e2e8f0;
+      font-size: 0.9em;
+      background-color: var(--surface-muted);
       padding: 1px 5px;
       border-radius: 4px;
-      font-size: 0.85em;
+    }
+
+    .back-top {
+      display: inline-block;
+      margin-top: 10px;
+      font-size: 0.88rem;
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .back-top:hover {
+      text-decoration: underline;
     }
   </style>
 </head>
 <body>
-  <header>
-    <div class="wrap">
-      <h1>Locus「Owner判断待ち」やさしい解説ガイド</h1>
-      <p>難しい専門用語を使わずに、「今なぜ止まっているのか」「オーナーに何を決めてほしいのか」を 6 つのテーマにまとめました（2026-11-16 時点）。</p>
-    </div>
-  </header>
-
-  <main>
-    <section class="intro-box">
-      <h2>まず全体のイメージ（30秒でわかる前提）</h2>
-      <p style="margin: 0;">
-        今の Locus は、<strong>「テスト用の安全なダミーデータで、自分のパソコンの中で動くお試し版（プロトタイプ）」としてはほぼ完成</strong>しています。<br />
-        ここから先に進もうとすると、<strong>「外とつないでいい？」「危ないファイルも開いていい？」「もし悪い人が入ってきたらどうする？」</strong>という、プログラムの勝手な判断では決められない<strong>安全ルール（オーナーの許可）</strong>が必要になります。それが「Owner判断待ち」の正体です。
+  <div class="container" id="top">
+    <header>
+      <span class="badge">段階: phase-6-extensions（拡張機能の段階）</span>
+      <h1>オーナーに決めてほしいこと（やさしい説明）</h1>
+      <p class="lead">
+        ここに並んでいる項目は、いま開発が止まっている「決めてほしいこと」ではなく、オーナーの決定を受けて開発を進めるうえでの「申し送り（注意点の報告）」です。オーナーの決定どおりに作りますが、その代わりに残る弱点と、それを補うために開発側が取る対策をまとめています。
       </p>
-      <div class="toc">
-        <a href="#item1">1. 別の作業部屋（Runner）で AI を動かすルール</a>
-        <a href="#item2">2. 「何でもファイル対応」とウイルス検査</a>
-        <a href="#item3">3. 10人同時に使って遅くなるときのルール</a>
-        <a href="#item4">4. Google Drive や共有フォルダとの連携</a>
-        <a href="#item5">5. 本番公開（みんなが実データで使う）の準備</a>
-        <a href="#item6">6. AI に自動でプログラムを書かせる本番ルール</a>
-      </div>
+    </header>
+
+    <nav class="toc" aria-label="全体の目次">
+      <h2>全体の目次</h2>
+      <ol>
+        <li><a href="#item-legend">この資料に出てくる言葉の意味</a></li>
+        <li><a href="#item-summary">申し送り全体の早見表</a></li>
+        <li><a href="#item-ttl">通行証の有効期限（TTL）を長くしたときの弱点と対策</a></li>
+        <li><a href="#item-lan">研究室内のネットワーク（LAN）の安全性と本人確認</a></li>
+        <li><a href="#item-sandbox">危ないファイルが開かれたときの被害範囲と隔離の仕組み</a></li>
+        <li><a href="#item-slots">同時に動かせる作業の数（N）と機械の性能</a></li>
+        <li><a href="#item-mfa">二段階認証（MFA）を不要にした場合のパスワード対策</a></li>
+        <li><a href="#item-code-exec">図を作るためにプログラムを動かすときの安全対策</a></li>
+        <li><a href="#item-handling">今後の作業予定表への反映と「申し送り」の扱い方</a></li>
+      </ol>
+    </nav>
+
+    <section class="card" id="item-legend">
+      <span class="badge">用語の説明</span>
+      <h2>1. この資料に出てくる言葉の意味</h2>
+      <p>元の記録では、次の4つの見出しが使われています。</p>
+      <ul>
+        <li><strong>回答</strong>: オーナーが答えた言葉そのままの内容です。</li>
+        <li><strong>解釈</strong>: 実際のプログラム作りが従うルールです。</li>
+        <li><strong>解禁</strong>: その決定によって新しく始められるようになる作業の番号です。</li>
+        <li><strong>申し送り</strong>: オーナーの決定には従うものの、開発側として同意していない点や、確認・注意が必要な点です。</li>
+      </ul>
+      <a class="back-top" href="#top">目次に戻る</a>
     </section>
 
-    <!-- Item 1 -->
-    <article class="card" id="item1">
-      <div class="card-head">
-        <span class="card-num">テーマ 1</span>
-        <span class="card-title">別の作業部屋（Runner）で AI やツールを動かすルール</span>
-        <span class="tag tag-now">次の機能に進む前に決定が必要</span>
+    <section class="card" id="item-summary">
+      <span class="badge">全体まとめ</span>
+      <h2>2. 申し送り全体の早見表</h2>
+      <p>今回の内容はすべて「申し送り（決定への注意）」です。決めてもらうための選択肢は提示されていません。</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>項目</th>
+              <th>残る弱点・気をつけること</th>
+              <th>開発側が取る対策</th>
+              <th>変えたい場合</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>通行証の有効期限（TTL）</td>
+              <td>期限が長いほど、漏れた通行証を使われてしまう時間も長くなります。</td>
+              <td>後から取り消す仕組み（revoke）と利用履歴の記録を必須にします。</td>
+              <td>短くしたいという指示があれば、いつでも設定で変えられます。</td>
+            </tr>
+            <tr>
+              <td>内部ネットワーク（LAN）の安全</td>
+              <td>内部ネットワークでも、乗っ取られた端末や持ち込み端末、別部署から狙われる可能性があります。</td>
+              <td>費用がほぼかからない「1回限りの合言葉」と「誰がいつ使ったかの記録」だけを入れます。</td>
+              <td>重い相互認証（お互いを確かめ合う仕組み）は費用判断のため入れませんが、後から強める土台にはなります。</td>
+            </tr>
+            <tr>
+              <td>危ないファイルの扱い</td>
+              <td>共有ツール（Locus）のため、1人が開いた危ないファイルから全員の資料へ被害が広がるおそれがあります。</td>
+              <td>外に影響が出ない隔離された仕組み（サンドボックス）を前提に、広く受け入れる形を作ります。</td>
+              <td>元の文には書かれていません（ここは分かりません）。</td>
+            </tr>
+            <tr>
+              <td>同時実行数（N）と性能</td>
+              <td>同時に動かす数（スロット）を増やすと、記憶領域（メモリ）や計算部品（GPU）の消費が比例して増えます。</td>
+              <td>設定値 N はそのままにし、起動時に機械の性能を測って超えていたら警告を出します。</td>
+              <td>配備する実機の性能で上限が決まります。</td>
+            </tr>
+            <tr>
+              <td>二段階認証（MFA）なし</td>
+              <td>IDとパスワードだけだと、パスワードが漏れたときに全資料を見られてしまいます。</td>
+              <td>パスワードの最低限の強さ、連続失敗での一時停止、定期変更、ログイン履歴の管理者確認を標準にします。</td>
+              <td>2026-11-16のオーナー判断で MFA（<code>IAM-005</code>）は実装しない方針に変わりました。</td>
+            </tr>
+            <tr>
+              <td>図を作るプログラムの実行</td>
+              <td>データを「読む」だけの解析と違い、AIが書いた「命令」を実際に動かすため踏み込んだ危険があります。</td>
+              <td>資料原本は読み取り専用にし、通信を遮断し、出力は画像1枚と文字結果だけに絞ります。</td>
+              <td>これらは作業番号 <code>T-PH6-114</code> の完了条件として組み込みます。</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
-      <div class="tldr">
-        <strong>ひとことで言うと：</strong>今は Locus の中だけで安全なローカル AI を動かしています。将来的に外部の AI（Codex や Claude など）や便利なツールを<strong>「隔離された作業部屋（Runner）」</strong>で動かすための、<strong>5つの安全ルール</strong>がまだ決まっていません。
-      </div>
-      <div class="cols">
-        <div class="subbox sub-now">
-          <div class="sublabel">今どうなっている？</div>
-          作業部屋の「名簿」を作る機能だけはできましたが、実際に仕事を頼もうとすると<strong>安全のためわざと「409 エラー（今は動かせません）」で止める</strong>ようになっています。
-        </div>
-        <div class="subbox sub-ask">
-          <div class="sublabel">決めてほしい 5 つのこと（Entry 1〜5）</div>
-          <ul>
-            <li><strong>① 許可証の期限：</strong>AI に渡す「1回限りの通行証」を何時間で期限切れにするか？</li>
-            <li><strong>② 専用の許可ボタン：</strong>今の「管理者」が承認するか、「承認係」という新しい役割を作るか？</li>
-            <li><strong>③ 通信していい範囲：</strong>作業部屋と本体が、決まった社内回線だけ通していいか？</li>
-            <li><strong>④ パスワードの渡し方：</strong>外部 AI を使うときの鍵を、安全な仲介役経由で渡していいか？</li>
-            <li><strong>⑤ 本人確認と鍵管理：</strong>偽物の作業部屋が来ないよう、どうやって見分けて、鍵をどう管理するか？</li>
-          </ul>
-        </div>
-        <div class="subbox sub-rec">
-          <div class="sublabel">開発側のおすすめ案</div>
-          <ul>
-            <li>① 許可証は「基本24時間・最大7日」で期限切れ</li>
-            <li>② 新しい役割は増やさず今の権限でやる</li>
-            <li>③ 決まった安全な社内窓口だけ通す</li>
-            <li>④ 安全確認できた環境だけ仲介役が鍵を渡す（無理なら使わない）</li>
-            <li>⑤ OS 標準の安全な金庫に鍵をしまい、1回限りの合言葉で登録する</li>
-          </ul>
-        </div>
-      </div>
-      <div class="ref">元の資料: <code>docs/plans/OWNER_CHECKLIST_2026-11-11.md</code>（Entry 1〜5）, <code>ADR-0012</code>, <code>ADR-0013</code></div>
-    </article>
+      <a class="back-top" href="#top">目次に戻る</a>
+    </section>
 
-    <!-- Item 2 -->
-    <article class="card" id="item2">
-      <div class="card-head">
-        <span class="card-num">テーマ 2</span>
-        <span class="card-title">「資料は割と何でも対応したい」とウイルス検査</span>
-        <span class="tag tag-now">形式を増やすなら決定が必要</span>
-      </div>
-      <div class="tldr">
-        <strong>ひとことで言うと：</strong>今は<strong>「文字だけのファイル（.txt / .md / .csv）」</strong>しか読み込めません。PDF やプログラムファイルなど何でも読めるようにすると、<strong>悪意あるファイルでパソコンが壊れる危険</strong>があるため、安全対策のやり方を決める必要があります。
-      </div>
-      <div class="cols">
-        <div class="subbox sub-now">
-          <div class="sublabel">今どうなっている？</div>
-          <ul>
-            <li>読み込めるのは UTF-8 の <code>.txt</code> / <code>.md</code> / <code>.csv</code>（256KB まで）だけ。</li>
-            <li>ウイルス検査（ClamAV）の接続口は作ってありますが、本物の検査ソフトが動いていないときは安全のため「隔離（保留）」にして止められます。</li>
-          </ul>
-        </div>
-        <div class="subbox sub-ask">
-          <div class="sublabel">決めてほしいこと</div>
-          <ul>
-            <li><strong>① どこまでのファイル形式を許すか：</strong>PDF、Word/Excel、画像文字読み取り（OCR）、ソースコードなど、どれを対応対象にするか？</li>
-            <li><strong>② 危険なファイルの開き方：</strong>ファイルの中身を取り出す処理を、本体から切り離した「安全な箱（サンドボックス）」の中で動かす方針でよいか？</li>
-            <li><strong>③ 本物のウイルス検査ソフトをどこで動かしてテストするか。</strong></li>
-          </ul>
-        </div>
-        <div class="subbox sub-rec">
-          <div class="sublabel">ポイント</div>
-          ファイルを増やすだけに見えますが、実は<strong>セキュリティ事故が一番起きやすい場所</strong>なので、対応形式と隔離ルールが決まるまであえて止めています。
-        </div>
-      </div>
-      <div class="ref">元の資料: <code>progress/phase-5-prototype/PROGRESS.md</code> §3, <code>T-PH4-105.md</code>, <code>DATA-006</code>, <code>DATA-007</code></div>
-    </article>
+    <section class="card" id="item-ttl">
+      <span class="badge">申し送り（報告）</span>
+      <h2>3. 通行証の有効期限（TTL）を長くしたときの弱点と対策</h2>
 
-    <!-- Item 3 -->
-    <article class="card" id="item3">
-      <div class="card-head">
-        <span class="card-num">テーマ 3</span>
-        <span class="card-title">10人同時に使って AI の返事が遅いときのルール</span>
-        <span class="tag tag-now">11/15 の実測で新しく判明</span>
-      </div>
-      <div class="tldr">
-        <strong>ひとことで言うと：</strong>テストで測ったところ、今の仕組みは AI が「1回に1人ずつ順番待ち」で答えるため、<strong>10人が同時に質問すると「1回30秒以内」で答えないと10人目が時間切れエラーになる</strong>ことが分かりました。
-      </div>
-      <div class="cols">
-        <div class="subbox sub-now">
-          <div class="sublabel">今どうなっている？</div>
-          待ち時間の上限が <strong>300秒（5分）</strong>、行列に並べる上限が <strong>全体16件（1人2件まで）</strong> です。1回の返事が2秒なら10人全員に22秒以内に返せますが、重い AI で1回35秒かかると10人目は5分を超えて失敗します。
-        </div>
-        <div class="subbox sub-ask">
-          <div class="sublabel">3つの選択肢から選んでほしい</div>
-          <ul>
-            <li><strong>(a) 待ち時間の上限を 5分より長くする</strong>（例: 10分にする）</li>
-            <li><strong>(b) 同時人数の上限を画面に表示して、超えたらハッキリ断る</strong></li>
-            <li><strong>(c) AI の待機列を 1本ではなく複数本にする</strong>（メモリや GPU を多く使う大きな設計変更）</li>
-          </ul>
-        </div>
-        <div class="subbox sub-rec">
-          <div class="sublabel">ポイント</div>
-          使うパソコンの性能と AI の大きさ次第で答えが変わるため、プログラム側が勝手に数字を変えず、オーナーの運用方針を待っています。
-        </div>
-      </div>
-      <div class="ref">元の資料: <code>progress/phase-4-closeout/tasks/T-PH4-105.md</code></div>
-    </article>
+      <h3>ひとことで言うと</h3>
+      <p>通行証の有効期限（TTL: 一度発行した通行証が使える時間）が長いと、万が一漏れたときに悪用される時間も長くなるという報告です。</p>
 
-    <!-- Item 4 -->
-    <article class="card" id="item4">
-      <div class="card-head">
-        <span class="card-num">テーマ 4</span>
-        <span class="card-title">共有フォルダ（NAS）やオンラインストレージとの自動連携</span>
-        <span class="tag tag-later">後回し（専用フェーズで対応）</span>
-      </div>
-      <div class="tldr">
-        <strong>ひとことで言うと：</strong>今は人間が「手動でアップロード」するだけですが、将来「社内共有フォルダやクラウドの中を自動で読みに行く」なら、<strong>元のフォルダの閲覧禁止ルールをどう引き継ぐか</strong>を決める必要があります。
-      </div>
-      <div class="cols">
-        <div class="subbox sub-now">
-          <div class="sublabel">今どうなっている？</div>
-          調べたレポートと設計案は書いてありますが、コードは<strong>まだ作っていません</strong>（手動アップロードを優先完成させる方針で合意済み）。
-        </div>
-        <div class="subbox sub-ask">
-          <div class="sublabel">つなぐときに決めること</div>
-          <ul>
-            <li>どの保存場所（Windows 共有フォルダ / Google Drive 等）につなぐか？</li>
-            <li>元のフォルダで見る権利を失った人が、Locus の過去の検索結果からも見れなくなるようにするチェック頻度や方法。</li>
-          </ul>
-        </div>
-        <div class="subbox sub-rec">
-          <div class="sublabel">ポイント</div>
-          まずは手動アップロード版を完成させてから、別フェーズとして順番に取り組む計画になっています。
-        </div>
-      </div>
-      <div class="ref">元の資料: <code>OWNER_DECISIONS_2026-11-09-EVENING.md</code>（Q5・Q6）, <code>PHASE2_STORAGE_ACL_RESEARCH.md</code>, <code>DATA-008</code></div>
-    </article>
+      <h3>オーナーの決定どおりに作ると残る弱点</h3>
+      <p>通行証の有効期限（TTL）を長く設定するほど、もし誰かに通行証を盗まれたり漏れたりした場合に、その通行証を使われてしまう時間も長くなります。</p>
 
-    <!-- Item 5 -->
-    <article class="card" id="item5">
-      <div class="card-head">
-        <span class="card-num">テーマ 5</span>
-        <span class="card-title">本番公開（本物の研究データを入れてみんなで使う）ための準備</span>
-        <span class="tag tag-later">本番フェーズ（P6）で決定</span>
-      </div>
-      <div class="tldr">
-        <strong>ひとことで言うと：</strong>今は「お試し用のダミーデータ＋1台のパソコン」専用です。<strong>本物の研究データを入れて、ネットワーク越しにみんなで安全に使う</strong>ための本格的なお店開きルールがまだ決まっていません。
-      </div>
-      <div class="cols">
-        <div class="subbox sub-now">
-          <div class="sublabel">今どうなっている？</div>
-          間違って本番モードで起動しようとすると、<strong>安全のためわざと起動を拒否する</strong>ように作ってあります。
-        </div>
-        <div class="subbox sub-ask">
-          <div class="sublabel">本番前に決める 5 つのこと</div>
-          <ul>
-            <li><strong>二段階認証（MFA）：</strong>本番では必須と決まったが、スマホアプリ等のどの方式にするか？</li>
-            <li><strong>通信の暗号化（HTTPS/TLS）と社内ネットワーク制限</strong></li>
-            <li><strong>本番データベース：</strong>SQLite から PostgreSQL 等に変えるか？</li>
-            <li><strong>データの保存期間と完全削除：</strong>何年残して、いつどう完全に消すか？ログの改ざん防止はどうするか？</li>
-            <li><strong>組織全体の管理画面（Entry 6）：</strong>会社・研究室全体の設定画面を今作るか、後回しにするか（推奨: 後回し可）。</li>
-          </ul>
-        </div>
-        <div class="subbox sub-rec">
-          <div class="sublabel">ポイント</div>
-          お試し版のうちから「あとで本番用に差し替えられる構造」で作ってあるので、テストが終わってから順番に決めて切り替える予定です。
-        </div>
-      </div>
-      <div class="ref">元の資料: <code>OWNER_DECISIONS_2026-11-09-EVENING.md</code>（Q7）, <code>OWNER_CHECKLIST_2026-11-11.md</code>（Entry 6）, <code>P6</code></div>
-    </article>
+      <h3>開発側が代わりに取る対策</h3>
+      <p>この弱点を補うため、次の2つを必ず入れる方針で進めます。</p>
+      <ul>
+        <li>通行証を後から強制的に使えなくする仕組み（revoke: 取消）</li>
+        <li>誰がいつ使ったかの利用履歴の記録</li>
+      </ul>
 
-    <!-- Item 6 -->
-    <article class="card" id="item6">
-      <div class="card-head">
-        <span class="card-num">テーマ 6</span>
-        <span class="card-title">AI が自動でプログラムを書いて本番へ合流するルール</span>
-        <span class="tag tag-later">運用ルールの最終決定待ち</span>
+      <h3>決める前に知っておくこと</h3>
+      <ul>
+        <li>この項目は決定待ちではなく報告です。</li>
+        <li>有効期限（TTL）を短くしたいという指示をいただければ、いつでも設定で変更できます。</li>
+      </ul>
+      <a class="back-top" href="#top">目次に戻る</a>
+    </section>
+
+    <section class="card" id="item-lan">
+      <span class="badge">申し送り（報告）</span>
+      <h2>4. 研究室内のネットワーク（LAN）の安全性と本人確認</h2>
+
+      <h3>ひとことで言うと</h3>
+      <p>研究室内のネットワーク（LAN）だから安全とは言い切れないため、費用がほぼかからない最低限の守りだけ入れて進めるという報告です。</p>
+
+      <h3>オーナーの決定どおりに作ると残る弱点</h3>
+      <p>開発側としては「内部ネットワーク（LAN）の中だから攻撃が起きない」という前提には同意していません。内部であっても、乗っ取られて踏み台になった端末、外から持ち込まれた端末、同じネットワーク内の別部署からのアクセスは起こりえます。</p>
+      <p>ただし、セキュリティにどれだけ費用をかけるかはオーナーの判断であるため、お互いが本物かを厳しく確かめ合う重い仕組み（相互認証）は入れずに進めます。</p>
+
+      <h3>開発側が代わりに取る対策</h3>
+      <p>費用がほぼゼロで効果がある、次の2つだけを入れます。</p>
+      <ul>
+        <li>作業を動かす機械やプログラム（Runner）を登録するときに使う、1回限りの合言葉</li>
+        <li>作業を任せた貸し出し記録（lease: 誰のどの許可が、いつ、どの Runner で使われたか）の保存</li>
+      </ul>
+
+      <h3>決める前に知っておくこと</h3>
+      <ul>
+        <li>これら2つの仕組みは、将来もし本人確認をもっと強くしたくなったときの土台としても使えます。</li>
+      </ul>
+      <a class="back-top" href="#top">目次に戻る</a>
+    </section>
+
+    <section class="card" id="item-sandbox">
+      <span class="badge">申し送り（報告）</span>
+      <h2>5. 危ないファイルが開かれたときの被害範囲と隔離の仕組み</h2>
+
+      <h3>ひとことで言うと</h3>
+      <p>共有ツールでは1人のミスが全員の資料に被害を広げるため、隔離された安全な仕組み（サンドボックス）を前提に実装するという報告です。</p>
+
+      <h3>オーナーの決定どおりに作ると残る弱点</h3>
+      <p>「危ないデータを入れるのは本人の責任」という考え方は、被害が本人の範囲だけで終わる場合にしか成り立ちません。Locus はみんなで使う共有ツールなので、悪意のあるファイルが開かれた瞬間に、みんなのデータが入っている中心のコンピュータ（サーバ）側、つまり全員の資料へ被害が及ぶおそれがあります。</p>
+
+      <h3>開発側が代わりに取る対策</h3>
+      <p>本人の責任だけでは防げない差を埋めるために、外に影響が出ないよう隔離する仕組み（サンドボックス）を採用します。その隔離の仕組みがあることを前提として、「データを広く受け入れる」方針を実装します。</p>
+
+      <h3>決める前に知っておくこと</h3>
+      <ul>
+        <li>どのようなファイル形式や制限になるかの詳しい条件は、元の文には書かれていません（ここは分かりません）。</li>
+      </ul>
+      <a class="back-top" href="#top">目次に戻る</a>
+    </section>
+
+    <section class="card" id="item-slots">
+      <span class="badge">申し送り（報告）</span>
+      <h2>6. 同時に動かせる作業の数（N）と機械の性能</h2>
+
+      <h3>ひとことで言うと</h3>
+      <p>同時に動かす作業の数（スロット: N）を増やすと機械への負担も比例して増えるため、起動時に性能を測って限界を超えていたら警告するという報告です。</p>
+
+      <h3>オーナーの決定どおりに作ると残る弱点</h3>
+      <p>同時に動かせる作業の枠（スロット）を増やすと、記憶領域（メモリ）や画像・計算を速くする部品（GPU）の消費量もそれに比例して増えます。いくつまで動かせるか（N の上限）は、実際に設置する機械の性能によって決まります。</p>
+
+      <h3>開発側が代わりに取る対策</h3>
+      <p>設定された数（N）はそのまま受け入れつつ、システムを起動したときに実際の機械の性能を測り、無理な数になっていたら警告を出すようにします。</p>
+
+      <h3>決める前に知っておくこと</h3>
+      <ul>
+        <li>具体的な上限の数値は、配備先の機械の性能によって変わるため、元の文には書かれていません（ここは分かりません）。</li>
+      </ul>
+      <a class="back-top" href="#top">目次に戻る</a>
+    </section>
+
+    <section class="card" id="item-mfa">
+      <span class="badge">申し送り（報告）</span>
+      <h2>7. 二段階認証（MFA）を不要にした場合のパスワード対策</h2>
+
+      <h3>ひとことで言うと</h3>
+      <p>二段階認証（MFA）を入れない決定に変わったため、パスワードが漏れたときの被害を減らす4つの対策を標準で入れるという報告です。</p>
+
+      <h3>オーナーの決定どおりに作ると残る弱点</h3>
+      <p>二段階認証（MFA: パスワードに加えてスマホなどで本人確認をする仕組み）は、2026-11-09 の記録では「本番運用で必須」と整理されていました。しかし今回の回答で「不要」に変わったため、この機能（要件番号 <code>IAM-005</code>）の扱いを「実装しない（オーナー判断 2026-11-16）」へ改めます。</p>
+      <p>ID とパスワードだけで入る仕組みにすると、もしパスワードが外に漏れた場合、それだけで全員の資料を見られてしまう弱点が残ります。</p>
+
+      <h3>開発側が代わりに取る対策</h3>
+      <p>二段階認証の代わりに、次の4つを標準の設定として入れます。</p>
+      <ul>
+        <li>パスワードに最低限の強さを求めること</li>
+        <li>一定回数ログインに失敗したら一時的に使えなくすること（一時ロック）</li>
+        <li>パスワードを定期的に変えてもらう既存の運用（<code>must_rotate</code>）を続けること</li>
+        <li>いつ誰がログインしたかの履歴を管理者が確認できるようにすること</li>
+      </ul>
+
+      <h3>決める前に知っておくこと</h3>
+      <ul>
+        <li>これらは二段階認証を入れないことによる弱点を補うための対策です。</li>
+      </ul>
+      <a class="back-top" href="#top">目次に戻る</a>
+    </section>
+
+    <section class="card" id="item-code-exec">
+      <span class="badge">申し送り（報告）</span>
+      <h2>8. 図を作るためにプログラムを動かすときの安全対策</h2>
+
+      <h3>ひとことで言うと</h3>
+      <p>図を作る機能（B: コード実行）は、ただファイルを読むよりも危険度が高いため、専用の厳しい制限を追加して進めるという報告です。</p>
+
+      <h3>オーナーの決定どおりに作ると残る弱点</h3>
+      <p>ファイルを解析するだけの作業は「攻撃者が用意したデータを読み取る」だけですが、図を作る作業は「AI（モデル）が書いた命令そのものを実際に動かす（コード実行）」ため、より踏み込んだ危険な境界になります。そのため、既存の解析用の安全対策（作業番号 <code>T-PH6-104</code>）をそのまま使い回すだけでは足りません。</p>
+
+      <h3>開発側が代わりに取る対策</h3>
+      <p>図を作る作業専用に、次の制限を追加する前提で進めます。</p>
+      <ul>
+        <li>動かすのは作られたプログラムだけにし、利用者の元の資料は「見るだけ（読み取り専用）」で渡して書き換えられないようにする</li>
+        <li>結果として外に出せるのは、画像1枚と画面に出る文字の結果（標準出力）だけに限る</li>
+        <li>外部や他の場所との通信（ネットワーク）は遮断する</li>
+        <li>動かせる時間と使える記憶領域（メモリ）は、図を作る作業用の別枠で制限する</li>
+      </ul>
+
+      <h3>決める前に知っておくこと</h3>
+      <ul>
+        <li>上記の対策は、作業番号 <code>T-PH6-114</code> が完了したと認めるための条件（受入条件）として組み込みます。</li>
+      </ul>
+      <a class="back-top" href="#top">目次に戻る</a>
+    </section>
+
+    <section class="card" id="item-handling">
+      <span class="badge">進め方の確認</span>
+      <h2>9. 今後の作業予定表への反映と「申し送り」の扱い方</h2>
+
+      <h3>ひとことで言うと</h3>
+      <p>決まったことだけを作業予定表に入れ、開発側が追加した対策は不要と言われれば外すという確認です。</p>
+
+      <h3>進め方のルール</h3>
+      <ul>
+        <li>今回のやり取りで決まった項目だけを、作業予定表（<code>PROGRESS.md</code>）の作業（ジョブ）へ変換します。決定がない項目は作業にしません。</li>
+        <li>「申し送り」に書いた内容は、オーナーの決定をひっくり返すものではありません。開発側が弱点を補うために取る対策をはっきり示しているだけなので、オーナーから「不要」と指示されれば外します。</li>
+      </ul>
+
+      <div class="callout">
+        もし上記の「開発側が取る対策」の中で外してほしいものや、設定を変えたいものがあれば、開発チームへお知らせください。
       </div>
-      <div class="tldr">
-        <strong>ひとことで言うと：</strong>開発用の AI ループ自体は動いていますが、<strong>「人間が見ていない夜間に自動で動かしていいか」「本番用の main ブランチへ自動で合流させていいか」</strong>という最終ゴーサインは出していません。
-      </div>
-      <div class="cols">
-        <div class="subbox sub-now">
-          <div class="sublabel">今どうなっている？</div>
-          開発用の枝（ブランチ）の中での作業や、テストでの動作確認は進んでいます。
-        </div>
-        <div class="subbox sub-ask">
-          <div class="sublabel">決めること</div>
-          <ul>
-            <li>人が見ていない無監視状態で自動で動かしてよい条件の承認</li>
-            <li>別の AI がチェックした結果を「独立した合格」と認める仕組みの承認</li>
-            <li>開発ブランチから本番の <code>main</code> ブランチへ合流させる正式な手順の一本化</li>
-          </ul>
-        </div>
-        <div class="subbox sub-rec">
-          <div class="sublabel">ポイント</div>
-          AI が勝手に本番のプログラムを書き換えて事故を起こさないよう、あえて厳しめのブレーキをかけたままにしています。
-        </div>
-      </div>
-      <div class="ref">元の資料: <code>REQUIREMENTS_TRACEABILITY_MATRIX.md</code>（<code>LOOP-003/006/008/012〜014/018/020〜022</code>）</div>
-    </article>
-  </main>
+      <a class="back-top" href="#top">目次に戻る</a>
+    </section>
+  </div>
 </body>
 </html>
