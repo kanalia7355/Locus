@@ -253,6 +253,23 @@ class Controller:
             return ""
         return hashlib.sha256((head + Controller.dirt(worktree)).encode("utf-8")).hexdigest()
 
+    def operator_busy(self) -> bool:
+        """True while a person is editing the main checkout alongside the loop.
+
+        Containment is judged by whether the main checkout changed during a
+        dispatch, which cannot tell a worker's escape from the operator writing a
+        ruling, repairing the loop or saving a report. That ambiguity blamed
+        innocent jobs twice on 2026-11-17: three workers had written only inside
+        their own clones and were blocked anyway.
+
+        Suspending the comparison is worse than a perfect check and better than a
+        false accusation, so it is suspended **and said out loud** — the job file
+        records that containment went unverified for that cycle. The marker lives
+        under `.jobloop/`, which git ignores, so creating it cannot itself look
+        like an escape.
+        """
+        return (self.settings.state_directory / "orchestrator-busy").is_file()
+
     @staticmethod
     def dirt(worktree: Path) -> str:
         """Everything in the checkout that is not committed, as one string.
@@ -303,13 +320,21 @@ class Controller:
         # blocked on 2026-11-17 when the operator committed mid-run.
         outside = self.dirt(self.settings.repository)
         result = self.dispatch(model, brief, cwd=tree, timeout=self.settings.worker_timeout)
-        if self.dirt(self.settings.repository) != outside:
+        if self.dirt(self.settings.repository) != outside and not self.operator_busy():
             return self.escalate(
                 task,
                 "worker wrote outside its workspace",
                 "The main checkout changed while the job ran, so this work is unreviewable. "
                 "Inspect and restore the checkout before the job is retried.",
                 f"model={model}\nworkspace={tree}",
+            )
+        if self.operator_busy():
+            self.record(
+                task,
+                f"CONTAINMENT UNVERIFIED ({self.now()})",
+                "The operator was editing the main checkout during this cycle, so the "
+                "containment comparison was suspended. The worker's isolation was not "
+                "verified for this attempt.",
             )
         if result.rotate:
             # Usage exhaustion is not a failed attempt (PROTOCOL §5.4).

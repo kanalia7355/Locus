@@ -493,6 +493,7 @@ outside allowed_paths: ['frontend/errors.txt', 'frontend/filtered.txt', 'fronten
 model=opencode/nemotron-3.5-lightning-free
 workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-109
 
+**Answer** (2026-11-18, orchestrator): 誤検知。3 件ともワーカーは自分のクローンの中だけに書いており、メインチェックアウトにワーカー由来のファイルは無い。原因は私がループ実行中にメインチェックアウトで作業したこと（スクリーンショット取り込み、報告の追加、push まわりの修正）。`.jobloop/orchestrator-busy` がある間は判定を停止し、停止したことをジョブに記録する仕組みにした。試行は戻した。
 ## T-PH6-113 — worker wrote outside its workspace (2026-11-18T00:01:45+09:00)
 
 **Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
@@ -501,3 +502,16 @@ workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-109
 
 model=opencode/nemotron-3.5-lightning-free
 workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-113
+
+**Answer** (2026-11-18, orchestrator): 誤検知。3 件ともワーカーは自分のクローンの中だけに書いており、メインチェックアウトにワーカー由来のファイルは無い。原因は私がループ実行中にメインチェックアウトで作業したこと（スクリーンショット取り込み、報告の追加、push まわりの修正）。`.jobloop/orchestrator-busy` がある間は判定を停止し、停止したことをジョブに記録する仕組みにした。試行は戻した。
+## T-PH6-115 — worker wrote outside its workspace (2026-11-18T00:04:13+09:00)
+
+**Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
+
+**Context**
+
+model=opencode/nemotron-3.5-lightning-free
+workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-115
+
+**Answer** (2026-11-18, orchestrator): 誤検知。3 件ともワーカーは自分のクローンの中だけに書いており、メインチェックアウトにワーカー由来のファイルは無い。原因は私がループ実行中にメインチェックアウトで作業したこと（スクリーンショット取り込み、報告の追加、push まわりの修正）。`.jobloop/orchestrator-busy` がある間は判定を停止し、停止したことをジョブに記録する仕組みにした。試行は戻した。
+
