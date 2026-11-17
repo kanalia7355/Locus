@@ -363,3 +363,56 @@ needs-owner-decision: frontend/e2e/appearance.spec.ts は許可パス外なの�
 
 **Answer** (2026-11-17, orchestrator): オーナー判断ではなく範囲の問題なので私が裁定した。印はその修正が入った証拠なので、**消すのは同じジョブの仕事**。両ジョブの許可パスに `frontend/e2e/appearance.spec.ts` を加え、自分の修正に対応する `test.fail` 印 1 つだけを外すこと、外したあとそのテストが本物の合格として通ることを受入条件に足した。あわせて報告された eslint の `no-misleading-character-class` は**私が入れた欠陥**で、先に直した（T-PH6-111 のワーカーの指摘。ワーカー側の対応は不要）。
 
+
+## T-PH6-109 — worker stopped for a decision (2026-11-17T13:30:48+09:00)
+
+**Question**: Should the job be closed as delivered while leaving `frontend/index.html` (`<title>研究資料室 · Locus</title>`) untouched, or should you authorize expanding the allowed paths by a one-line change to make that title Locus-only?
+
+**Context**
+
+ATION_BASELINE.md, ui-and-multiuser-design.md, demo fragment) still use the old name; treated as reference material and out of scope.
+- Prettier is a devDependency wired into no script or gate; all four touched files already fail `prettier --check` at HEAD due to CRLF endings, while the enforced format gate is `ruff format`, which passes.
+
+Risks left behind:
+
+- The full E2E suite (`npm run test:e2e`) shows 7 failures from cross-spec user-ID reuse colliding with rotated passwords; these were reproduced identically on unmodified HEAD and are pre-existing, not caused by this change.
+- The `frontend/index.html` title residual requires an owner decision before it can be fixed.
+
+TEST
+
+- `npm --prefix frontend run test` → PASS (fresh): Test Files 15 passed (15), Tests 95 passed (95), Duration 21.72s.
+- `npm --prefix frontend run typecheck` → PASS (fresh): `tsc -b` completed with exit 0.
+- `npm --prefix frontend run lint` → PASS (fresh): `eslint . --max-warnings 0` completed with exit 0.
+- `npm --prefix frontend run test:appearance` → PASS (fresh): 7 passed (16.1s); the single `✘`-labeled line is T-PH6-111's expected-failure marker and passed as expected.
+- `python -m ruff check backend tests scripts jobloop` → PASS: All checks passed!
+- `python -m ruff format --check backend tests scripts jobloop` → PASS: 160 files already formatted.
+- `python scripts/secret_scan.py` → PASS: Offline secret scan: 0 findings.
+- Earlier in attempt 2, on the same final diff: RED confirmed with the old CSS (`pageScrollY` expected 0, received 64); GREEN after the fix. `npx playwright test e2e/workspace.spec.ts` → 13 passed (31.2s). Full `npm run test:e2e` → 18 passed / 7 failed, with the same failures reproduced on unmodified HEAD (pre-existing).
+
+STATUS
+- needs-owner-decision: Should the job be closed as delivered while leaving `frontend/index.html` (`<title>研究資料室 · Locus</title>`) untouched, or should you authorize expanding the allowed paths by a one-line change to make that title Locus-only?
+
+**Answer** (2026-11-17, orchestrator): 範囲の問題なので私が裁定した。ブラウザのタブも画面なので、`frontend/index.html` を T-PH6-109 の許可パスに加え、`<title>` を Locus のみにすることを受入条件にした。確認手段を `App.tsx` の grep に狭めていた私の起票の欠陥で、レビュアの指摘が正しい。`docs/planning/` 配下は基準記録なので変更しない。
+
+## GOV-002 / UI 参照資料 — 2026-11-17 の指示
+
+【回答】「サブエージェント起動してガンガン進めていいので起票ガンガンしましょう」
+「UI 系に関しては opencode の UI や google が出している
+https://github.com/GoogleChrome/modern-web-guidance などを使用して進めてください」
+
+【解釈】
+
+1. **要件 `GOV-002`（No routine implementation subagents）への回答として扱う。**
+   起票・調査・設計の下書きにサブエージェントを使ってよい。
+   ただし次は維持する: 実装したモデルが自分のジョブをレビューしない、
+   成果物は私が読んでから取り込む、サブエージェントにオーナー判断をさせない。
+2. UI は opencode の実装（命名・設定画面の作り）に加えて、
+   **Google Chrome の `modern-web-guidance`** を参照する。
+   新しいという理由だけで採用せず、採否と理由を記録する。
+
+【申し送り】`CLAUDE.md` と `AGENTS.md` は現在「サブエージェント駆動開発・
+並列エージェント起動を行わない」と明記しており、本指示と食い違う。
+実態に合わせて両ファイルを更新することを提案する（governance の文面変更は
+オーナー承認が要るため、ここでは提案に留める）。食い違いを放置すると、
+次に別の担当が読んだときにどちらが正かが分からなくなる。
+
