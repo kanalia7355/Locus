@@ -20,12 +20,53 @@
   --color-backdrop: #17232b66;
   --font-body: "Yu Gothic UI", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
   --font-mono: Consolas, monospace;
+  color-scheme: light;
   font-family: var(--font-body);
   color: var(--color-ink);
   background: var(--color-paper);
   font-size: 14px;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+}
+/* ダーク配色のトークンは、明るい配色の単純な反転ではない。
+ * アクセントはボタン背景の明暗が入れ替わる（明るいスレート＋暗い文字）。
+ * エラー色は暗い背景で読めるよう彩度を落としたテラコッタ。
+ * 以下の2ブロックは常に同じ値を保つこと。
+ * メディアクエリ側は JS なしの初期描画でもシステム設定に従わせるためのもの。
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-mode="light"]) {
+    --color-paper: #181b22;
+    --color-sidebar: #1d2029;
+    --color-soft: #222634;
+    --color-selected: #2b3040;
+    --color-ink: #d9dee7;
+    --color-muted: #929aab;
+    --color-line: #363c4c;
+    --color-accent: #b7cbd8;
+    --color-on-accent: #14181f;
+    --color-error: #d6907f;
+    --color-error-paper: #2a1f1c;
+    --color-focus: #8fb3c9;
+    --color-backdrop: #05070b99;
+    color-scheme: dark;
+  }
+}
+:root[data-mode="dark"] {
+  --color-paper: #181b22;
+  --color-sidebar: #1d2029;
+  --color-soft: #222634;
+  --color-selected: #2b3040;
+  --color-ink: #d9dee7;
+  --color-muted: #929aab;
+  --color-line: #363c4c;
+  --color-accent: #b7cbd8;
+  --color-on-accent: #14181f;
+  --color-error: #d6907f;
+  --color-error-paper: #2a1f1c;
+  --color-focus: #8fb3c9;
+  --color-backdrop: #05070b99;
+  color-scheme: dark;
 }
 * {
   box-sizing: border-box;

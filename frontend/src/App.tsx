@@ -27,6 +27,12 @@ import {
 import { RelatedDocuments } from "./RelatedDocuments";
 import { StructuredCitationText } from "./StructuredCitationText";
 import { IngestionProgress } from "./IngestionProgress";
+import {
+  parseThemePreference,
+  resolveColorScheme,
+  THEME_STORAGE_KEY,
+} from "./theme";
+import type { ColorScheme, ThemePreference } from "./theme";
 import { AdminLoad, AdminProjects, AdminStorage } from "./AdminSettings";
 import { AdminDelegations } from "./Delegations";
 import { ModelSettings } from "./ModelSettings";
@@ -43,6 +49,38 @@ import type {
   SourceChunk,
   User,
 } from "./api";
+
+function readStoredTheme(): string | null {
+  try {
+    return window.localStorage.getItem(THEME_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function systemPrefersDark(): boolean {
+  return (
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-color-scheme: dark)").matches
+  );
+}
+
+function applyColorScheme(scheme: ColorScheme) {
+  document.documentElement.dataset.mode = scheme;
+}
+
+// 初期描画で明るい配色が一瞬見える（ちらつく）ことを防ぐため、
+// モジュール評価の時点で <html data-mode> を決めておく。
+// localStorage が読めない環境ではシステム設定に従う。
+if (typeof window !== "undefined" && typeof document !== "undefined") {
+  try {
+    applyColorScheme(
+      resolveColorScheme(readStoredTheme(), systemPrefersDark()),
+    );
+  } catch {
+    // 適用に失敗しても、CSS の media query がシステム設定を反映する
+  }
+}
 
 type Page =
   | "chat"
@@ -419,6 +457,33 @@ function AccessForm({
 export function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [themePreference, setThemePreference] = useState<ThemePreference>(() =>
+    parseThemePreference(readStoredTheme()),
+  );
+  // 利用者の選択はメディアクエリより常に優先する（両方向とも）。
+  // 「システムに従う」の間は OS 側のカラースキーム変更にも追従する。
+  useEffect(() => {
+    const media =
+      typeof window.matchMedia === "function"
+        ? window.matchMedia("(prefers-color-scheme: dark)")
+        : null;
+    const apply = () =>
+      applyColorScheme(
+        resolveColorScheme(themePreference, media?.matches ?? false),
+      );
+    apply();
+    if (!media) return undefined;
+    media.addEventListener("change", apply);
+    return () => media.removeEventListener("change", apply);
+  }, [themePreference]);
+  const changeThemePreference = (preference: ThemePreference) => {
+    setThemePreference(preference);
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, preference);
+    } catch {
+      // 保存できない環境では、この画面の表示だけ反映する
+    }
+  };
   useEffect(() => {
     let active = true;
     void api<User>("/auth/me")
@@ -444,10 +509,28 @@ export function App() {
     );
   if (!user || user.must_rotate)
     return <AccessForm user={user} onUser={setUser} />;
-  return <Workspace key={user.id} user={user} onLogout={() => setUser(null)} />;
+  return (
+    <Workspace
+      key={user.id}
+      user={user}
+      onLogout={() => setUser(null)}
+      themePreference={themePreference}
+      onThemePreferenceChange={changeThemePreference}
+    />
+  );
 }
 
-function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
+function Workspace({
+  user,
+  onLogout,
+  themePreference,
+  onThemePreferenceChange,
+}: {
+  user: User;
+  onLogout: () => void;
+  themePreference: ThemePreference;
+  onThemePreferenceChange: (preference: ThemePreference) => void;
+}) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState("");
   const [page, setPage] = useState<Page>("chat");
@@ -1600,6 +1683,25 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
         {page === "load" && user.system_admin && <AdminLoad />}
         {page === "settings" && (
           <div className="settings">
+            <h2>表示</h2>
+            <label>
+              配色テーマ
+              <select
+                value={themePreference}
+                onChange={(event) =>
+                  onThemePreferenceChange(
+                    parseThemePreference(event.target.value),
+                  )
+                }
+              >
+                <option value="light">ライト</option>
+                <option value="system">システムに従う</option>
+                <option value="dark">ダーク</option>
+              </select>
+            </label>
+            <p>
+              「システムに従う」は端末のカラースキーム設定に従います。選択はこのブラウザに保存され、次回の起動時も維持されます。
+            </p>
             <h2>処理先</h2>
             <p>
               既定はローカルの原文検索です。管理者がOllamaモデルを明示的に有効化した場合は、参照資料に基づく回答を生成します。
