@@ -179,3 +179,67 @@ test("the message box stays reachable", async ({ page }) => {
     page.getByRole("textbox", { name: "メッセージ", exact: true }),
   ).toBeInViewport();
 });
+
+test("a jump to the first message lands clear of the notice and the composer", async ({
+  page,
+}) => {
+  // The notice rides above the conversation and the composer below it. A
+  // programmatic jump (from a citation, or to a fresh answer) must land the
+  // target fully between them, not underneath either.
+  await page.setViewportSize(WIDTHS[0]);
+  await enter(page, 9);
+  for (let turn = 0; turn < 3; turn++) await askSomething(page);
+  await page.evaluate(() => {
+    const messages = document.querySelector<HTMLElement>(".messages");
+    if (messages) messages.scrollTop = 0;
+  });
+  await page.evaluate(() => {
+    document
+      .querySelector<HTMLElement>(".user-message")
+      ?.scrollIntoView({ block: "nearest" });
+  });
+  const targetBox = await page.locator(".user-message").first().boundingBox();
+  const noticeBox = await page.locator(".chat-notice").boundingBox();
+  const composerBox = await page.locator(".composer").boundingBox();
+  expect(targetBox, "the jump target is not visible").not.toBeNull();
+  expect(noticeBox, "the notice is not visible").not.toBeNull();
+  expect(composerBox, "the composer is not visible").not.toBeNull();
+  const targetTop = targetBox!.y;
+  const targetBottom = targetBox!.y + targetBox!.height;
+  const noticeBottom = noticeBox!.y + noticeBox!.height;
+  const composerTop = composerBox!.y;
+  expect(
+    targetTop,
+    `target top ${targetTop}px is under the notice bottom ${noticeBottom}px`,
+  ).toBeGreaterThanOrEqual(noticeBottom);
+  expect(
+    targetBottom,
+    `target bottom ${targetBottom}px is under the composer top ${composerTop}px`,
+  ).toBeLessThanOrEqual(composerTop);
+});
+
+test("the reading position holds while the conversation grows", async ({
+  page,
+}) => {
+  // Overflow anchoring is on by default and is what keeps a reader's place
+  // when content is inserted. This is the invariant a future
+  // `overflow-anchor: none` would silently break.
+  await page.setViewportSize(WIDTHS[0]);
+  await enter(page, 7);
+  await askSomething(page);
+  await askSomething(page);
+  await page.evaluate(() => {
+    const messages = document.querySelector<HTMLElement>(".messages");
+    if (messages) messages.scrollTop = 0;
+  });
+  const before = await page.evaluate(
+    () => document.querySelector<HTMLElement>(".messages")?.scrollTop ?? -1,
+  );
+  // Equivalent to receiving more SSE content: the list grows underneath a
+  // reader who is scrolled up.
+  await askSomething(page);
+  const after = await page.evaluate(
+    () => document.querySelector<HTMLElement>(".messages")?.scrollTop ?? -1,
+  );
+  expect(after, "scrollTop moved while the conversation grew").toBe(before);
+});

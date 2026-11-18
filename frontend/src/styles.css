@@ -365,13 +365,24 @@ pre {
 .chat {
   display: flex;
   flex-direction: column;
+  /* Reserved block space of the pinned chrome around .messages: the notice
+     above (height + its bottom margin) and the composer below (height + its
+     top margin). .chat-notice, .composer and .messages' scroll padding all
+     derive from these variables so a programmatic jump lands clear of both;
+     sizes cover the one-line notice and the empty composer, and grow with
+     their content on their own. */
+  --chat-notice-height: 34px;
+  --chat-notice-gap: 8px;
+  --composer-height: 134px;
+  --composer-gap: 16px;
 }
 
 .chat-notice {
   position: sticky;
   top: 0;
   z-index: 1;
-  margin: 0 0 8px;
+  min-height: var(--chat-notice-height);
+  margin: 0 0 var(--chat-notice-gap);
   padding-block: 6px;
   background: var(--color-paper);
   text-align: center;
@@ -381,6 +392,8 @@ pre {
   min-height: 0;
   overflow-y: auto;
   padding-top: 32px;
+  scroll-padding-block: calc(var(--chat-notice-height) + var(--chat-notice-gap))
+    calc(var(--composer-height) + var(--composer-gap));
 }
 .chat-empty {
   display: flex;
@@ -487,7 +500,8 @@ pre {
   border: 1px solid var(--color-line);
   border-radius: 23px;
   padding: 14px 14px 8px;
-  margin-top: 16px;
+  margin-top: var(--composer-gap);
+  min-height: var(--composer-height);
   background: var(--color-paper);
 }
 .composer textarea {
