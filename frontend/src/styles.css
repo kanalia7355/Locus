@@ -507,9 +507,10 @@ pre {
 .composer textarea {
   display: block;
   width: 100%;
-  min-height: 74px;
-  max-height: 220px;
-  resize: vertical;
+  field-sizing: content;
+  min-block-size: 74px;
+  max-block-size: 30dvh;
+  resize: none;
   border: 0;
   outline: none;
   background: transparent;
