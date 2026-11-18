@@ -243,3 +243,99 @@ test("the reading position holds while the conversation grows", async ({
   );
   expect(after, "scrollTop moved while the conversation grew").toBe(before);
 });
+
+test("the message box grows with its content", async ({ page }) => {
+  // Measured 2026-11-19: the textarea had a fixed height, so a five-line
+  // draft scrolled inside it instead of growing it. With
+  // `field-sizing: content` the box fits its content, so five lines must
+  // render taller than one.
+  await page.setViewportSize(WIDTHS[0]);
+  await enter(page, 10);
+  const box = page.getByRole("textbox", { name: "メッセージ", exact: true });
+  await box.fill("一行");
+  const one = (await box.boundingBox())?.height ?? 0;
+  await box.fill("一行目\n二行目\n三行目\n四行目\n五行目");
+  const five = (await box.boundingBox())?.height ?? 0;
+  expect(
+    five,
+    `five lines (${five}px) are not taller than one line (${one}px)`,
+  ).toBeGreaterThan(one);
+});
+
+test("the message box stops at its upper limit below the notice", async ({
+  page,
+}) => {
+  // Measured 2026-11-19: with enough lines the box must stop at
+  // `max-block-size` (a share of the viewport height) rather than eat the
+  // conversation, and its top edge must stay below the standing notice
+  // (T-PH6-115). Twenty and thirty lines both exceed the cap, so the two
+  // heights must be equal; the exact ratio lives in styles.css.
+  await page.setViewportSize(WIDTHS[0]);
+  await enter(page, 11);
+  const box = page.getByRole("textbox", { name: "メッセージ", exact: true });
+  const lines = (count: number) =>
+    Array.from({ length: count }, (_, i) => `${i + 1}行目`).join("\n");
+  await box.fill(lines(20));
+  const twenty = (await box.boundingBox())?.height ?? 0;
+  await box.fill(lines(30));
+  const thirtyBox = await box.boundingBox();
+  expect(thirtyBox, "the message box is not visible").not.toBeNull();
+  const notice = await page.locator(".chat-notice").boundingBox();
+  expect(notice, "the notice is not visible").not.toBeNull();
+  // Two separate boundingBox calls, each after a re-layout; allow the same
+  // 1px of sub-pixel rounding the rest of this file allows.
+  expect(
+    Math.abs(thirtyBox!.height - twenty),
+    `thirty lines drew ${thirtyBox!.height}px but twenty drew ${twenty}px; the box did not stop at its limit`,
+  ).toBeLessThanOrEqual(1);
+  const noticeBottom = notice!.y + notice!.height;
+  expect(
+    thirtyBox!.y,
+    `the box top ${thirtyBox!.y}px is not below the notice bottom ${noticeBottom}px`,
+  ).toBeGreaterThanOrEqual(noticeBottom - 1);
+  // A tall draft must not push any supported width sideways either.
+  for (const size of WIDTHS) {
+    await page.setViewportSize(size);
+    await page.waitForTimeout(250);
+    const overflow = await page.evaluate(() => {
+      const root = document.scrollingElement ?? document.documentElement;
+      return root.scrollWidth - root.clientWidth;
+    });
+    expect(
+      overflow,
+      `${size.name} scrolls sideways by ${overflow}px with a tall draft`,
+    ).toBeLessThanOrEqual(1);
+  }
+});
+
+test("the last utterance is not hidden under the grown input box", async ({
+  page,
+}) => {
+  // T-PH6-111 kept the last message clear of the composer. The composer is
+  // taller once the box fits its content, so re-measure with a five-line
+  // draft: scrolled to the end, the last exchange must sit entirely above
+  // the composer.
+  await page.setViewportSize(WIDTHS[0]);
+  await enter(page, 0);
+  for (let turn = 0; turn < 3; turn++) await askSomething(page);
+  const box = page.getByRole("textbox", { name: "メッセージ", exact: true });
+  await box.fill("一行目\n二行目\n三行目\n四行目\n五行目");
+  await page.evaluate(() => {
+    const messages = document.querySelector<HTMLElement>(".messages");
+    // A huge top value is clamped by the browser to the maximum scroll
+    // position, so this lands on the last utterance without measuring
+    // content height (reading content height to size the input is what
+    // this job exists to avoid).
+    if (messages) messages.scrollTo({ top: Number.MAX_SAFE_INTEGER });
+  });
+  await page.waitForTimeout(400);
+  const lastBox = await page.locator(".exchange").last().boundingBox();
+  const composerBox = await page.locator(".composer").boundingBox();
+  expect(lastBox, "the last exchange is not rendered").not.toBeNull();
+  expect(composerBox, "the composer is not visible").not.toBeNull();
+  const lastBottom = lastBox!.y + lastBox!.height;
+  expect(
+    lastBottom,
+    `the last exchange bottom ${lastBottom}px is under the composer top ${composerBox!.y}px`,
+  ).toBeLessThanOrEqual(composerBox!.y + 1);
+});
