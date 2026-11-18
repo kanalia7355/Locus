@@ -581,6 +581,29 @@ test("sidebar, long names, mobile widths and reduced motion", async ({
       .locator(".workspace")
       .evaluate((element) => getComputedStyle(element).transitionDuration),
   ).toBe("0s");
+  // The shell is pinned to the viewport: a short window must scroll the content
+  // area, not the page, so the top bar cannot leave the screen.
+  await page.setViewportSize({ width: 1024, height: 280 });
+  await page.waitForTimeout(250);
+  await page.mouse.move(600, 200);
+  await page.mouse.wheel(0, 1200);
+  await page.waitForTimeout(400);
+  expect(
+    await page.evaluate(() => window.scrollY),
+    "the page itself scrolled",
+  ).toBe(0);
+  expect(
+    await page.locator(".main").evaluate((element) => element.scrollTop),
+    "the content did not scroll",
+  ).toBeGreaterThan(0);
+  const bar = await page.locator(".topbar").boundingBox();
+  expect(bar?.y ?? -1, "the top bar left the top edge").toBeGreaterThanOrEqual(
+    0,
+  );
+  expect(
+    (bar?.y ?? 0) + (bar?.height ?? 0),
+    "the top bar is not fully visible",
+  ).toBeLessThanOrEqual(64);
 });
 
 test("role editor previews scoped subsets and administrator audit is redacted", async ({

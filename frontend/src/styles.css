@@ -37,7 +37,7 @@ body {
   overflow-x: clip;
 }
 body {
-  min-height: 100dvh;
+  height: 100dvh;
 }
 button,
 input,
@@ -200,7 +200,7 @@ pre {
   display: grid;
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   grid-template-rows: 64px minmax(0, 1fr);
-  min-height: 100dvh;
+  height: 100dvh;
   transition: grid-template-columns 220ms ease;
 }
 .topbar {
@@ -325,10 +325,12 @@ pre {
 .main {
   grid-column: 2;
   min-width: 0;
+  min-height: 0;
   padding: 24px 16px 16px;
   max-width: 1100px;
   width: 100%;
   margin: 0 auto;
+  overflow-y: auto;
 }
 .page-heading {
   display: flex;

@@ -151,12 +151,12 @@ test("every icon-only control says what it does", async ({ page }) => {
   expect(nameless, "buttons with no accessible name").toEqual([]);
 });
 
-test.fail(
+test(
   "the top bar stays put while the conversation scrolls",
   async ({ page }) => {
-    // Measured 2026-11-17: the whole document scrolls, so the product name,
-    // project switcher and sign-out leave the screen. Fixed by T-PH6-109 —
-    // when this starts passing, remove the test.fail marker in that job.
+    // Measured 2026-11-17: the whole document scrolled, so the product name,
+    // project switcher and sign-out left the screen. The shell is pinned to the
+    // viewport now, so the page must not move when the content scrolls.
     await page.setViewportSize(WIDTHS[0]);
     await enter(page, 6);
     await askSomething(page);
