@@ -20,7 +20,12 @@
   --color-backdrop: #17232b66;
   --font-body: "Yu Gothic UI", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
   --font-mono: Consolas, monospace;
-  color-scheme: light;
+  color-scheme: light dark;
+  accent-color: var(--color-accent);
+  /* 2025-12 newly baseline。未対応では既定のスクロールバーが出るだけで悪化しない。
+     本体とつまみの対比は 3:1 以上（#68747c on #f4f4f3 / #929aab on #222634）。
+     アニメーションはさせない（WebKit のちらつき不具合）。 */
+  scrollbar-color: var(--color-muted) var(--color-soft);
   font-family: var(--font-body);
   color: var(--color-ink);
   background: var(--color-paper);
@@ -67,6 +72,21 @@
   --color-focus: #8fb3c9;
   --color-backdrop: #05070b99;
   color-scheme: dark;
+}
+/* <meta name="color-scheme"> が利用者の選択を運んでいる。著者 CSS の color-scheme は
+ * いかなる meta よりも強いため、meta の値を写し戻さないと利用者の選択が
+ * スクロールバー等のブラウザ描画部分に効かない。
+ * 基底は light dark のまま保ち、選択があるときだけ narrow にする。 */
+:root:has(> head > meta[name="color-scheme"][content="dark"]) {
+  color-scheme: dark;
+}
+:root:has(> head > meta[name="color-scheme"][content="light"]) {
+  color-scheme: light;
+}
+/* 切り替え直後は meta が次回読み込みまで古いままになるので、JS が付ける
+ * data-mode 側にも写す。ダーク側は上の [data-mode="dark"] に含まれる。 */
+:root[data-mode="light"] {
+  color-scheme: light;
 }
 * {
   box-sizing: border-box;

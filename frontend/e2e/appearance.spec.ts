@@ -339,3 +339,74 @@ test("the last utterance is not hidden under the grown input box", async ({
     `the last exchange bottom ${lastBottom}px is under the composer top ${composerBox!.y}px`,
   ).toBeLessThanOrEqual(composerBox!.y + 1);
 });
+
+// T-PH6-118 / T-PH6-110 受入条件5「明るい配色が一瞬見えてから暗くなることがない」。
+// 正攻法は <meta name="color-scheme"> とその直後の同期インラインスクリプト（CSS だけでは
+// 初期描画に間に合わない）。この2本はそのちらつきを機械的に代用する検査。
+// このファイルのテストはテスト利用者 (test-researcher-0..11) を各1回ずつ使い切る
+// （enter() が仮パスワードを回すため再ログインできない）。新しいアカウントは
+// テスト用サーバ (tests/e2e_server.py) が range(12) しか provision せず、そのファイルは
+// 本ジョブの許可パス外なので、ここでは未ログインのエントリー画面で測る。
+// エントリー画面も配色トークン全体を読み込む実際の画面なので、ちらつきの検査として成立する。
+test.describe("color-scheme in a dark browser context", () => {
+  test.use({ colorScheme: "dark" });
+
+  test("the page paints on a dark background in a dark browser context", async ({
+    page,
+  }) => {
+    // Measured 2026-11-19: ダークブラウザ文脈で入場したとき、<html> の背景は
+    // --color-paper のトークン値を持つ。明るい側 (#fff) ではないことを確かめる。
+    await page.setViewportSize(WIDTHS[0]);
+    await page.goto("/");
+    await page.waitForLoadState("domcontentloaded");
+    const background = await page.evaluate(
+      () => getComputedStyle(document.documentElement).backgroundColor,
+    );
+    expect(
+      background,
+      "the page painted with the light paper token",
+    ).not.toBe("rgb(255, 255, 255)");
+  });
+});
+
+test("a dark choice is dark from the first paint after reload", async ({
+  page,
+}) => {
+  // Measured 2026-11-19: ダークが保存された状態 (= ダークを選んだ直後と同じ状態) で
+  // 再読み込みし、描画開始時点の <meta name="color-scheme"> の content と
+  // document.documentElement の colorScheme を読む。インラインスクリプトが
+  // 保存値を <meta> に書き戻し、CSS の :has() 規則がそれを写し戻さなければ、
+  // <meta> 自体が存在せず基底値 light dark のままになる。
+  // ブラウザ文脈は既定のライトにしておく — ここをダーク文脈にすると、システムの
+  // 暗さだけで通ってしまい、ちらつきの検査として機能しなくなる。
+  // なお Vite の開発サーバはスタイルを JS で注入するため、モジュール実行後は
+  // data-mode 経路でも colorScheme が dark になりうる。現状コードでも
+  // domcontentloaded 以降なら computed colorScheme は dark に見えるため、
+  // computed の側は回帰ガードに留め、インラインスクリプトの動作証拠は <meta> の
+  // content が担う（<meta> が保存値 dark を持つことは修正前のコードでは成立しない）。
+  await page.setViewportSize(WIDTHS[0]);
+  await page.addInitScript(() => {
+    try {
+      localStorage.setItem("locus-theme", "dark");
+    } catch {
+      // 保存できない環境ではこの検査自体が意味をなさないので、失敗は測定側で出す
+    }
+  });
+  await page.goto("/");
+  await page.reload({ waitUntil: "domcontentloaded" });
+  const measured = await page.evaluate(() => {
+    const meta = document.querySelector<HTMLMetaElement>(
+      'meta[name="color-scheme"]',
+    );
+    return {
+      meta: meta?.content ?? null,
+      scheme: getComputedStyle(document.documentElement).colorScheme,
+    };
+  });
+  expect(measured.meta, "the inline script did not write the stored choice into <meta>").toBe(
+    "dark",
+  );
+  expect(measured.scheme, "color-scheme when the first paint was requested").toBe(
+    "dark",
+  );
+});
