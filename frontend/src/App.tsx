@@ -29,7 +29,7 @@ import { IngestionProgress } from "./IngestionProgress";
 import { AdminLoad, AdminProjects, AdminStorage } from "./AdminSettings";
 import { AdminDelegations } from "./Delegations";
 import { ModelSettings } from "./ModelSettings";
-import { ProvisionUser } from "./ProvisionUser";
+import { ProvisionUser, useUserInvalidForm } from "./ProvisionUser";
 import type {
   ChatJob,
   ChatJobAccepted,
@@ -135,7 +135,20 @@ function AccessForm({
   const [confirmation, setConfirmation] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const { invalidFields, attachForm } = useUserInvalidForm();
   const rotate = !!user?.must_rotate;
+  const fieldProps = (id: string) =>
+    ({
+      id,
+      "aria-invalid": invalidFields.has(id),
+      "aria-describedby": invalidFields.has(id) ? `${id}-error` : undefined,
+    }) as const;
+  const fieldError = (id: string, message: string) =>
+    invalidFields.has(id) ? (
+      <p id={`${id}-error`} className="field-error">
+        {message}
+      </p>
+    ) : null;
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError("");
@@ -170,7 +183,7 @@ function AccessForm({
       <div className="access-brand">
         Locus
       </div>
-      <form onSubmit={submit} className="access-form">
+      <form onSubmit={submit} className="access-form" ref={attachForm}>
         <p className="eyebrow">ローカル検証環境 · 合成データ専用</p>
         <h1>{rotate ? "仮パスワードの変更" : "ログイン"}</h1>
         {rotate ? (
@@ -179,16 +192,23 @@ function AccessForm({
           <p>管理者が発行した利用者IDでログインしてください。</p>
         )}
         {!rotate && (
-          <label>
-            利用者ID
-            <input
-              autoComplete="username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              required
-              maxLength={64}
-            />
-          </label>
+          <>
+            <label>
+              利用者ID
+              <input
+                autoComplete="username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                required
+                maxLength={64}
+                {...fieldProps("access-username")}
+              />
+            </label>
+            {fieldError(
+              "access-username",
+              "利用者IDが未入力です。管理者が発行した利用者IDを入力してください。",
+            )}
+          </>
         )}
         <label>
           {rotate ? "仮パスワード" : "パスワード"}
@@ -199,8 +219,13 @@ function AccessForm({
             onChange={(e) => setPassword(e.target.value)}
             required
             maxLength={128}
+            {...fieldProps("access-password")}
           />
         </label>
+        {fieldError(
+          "access-password",
+          "パスワードが未入力です。管理者が発行したパスワードを入力してください。",
+        )}
         {rotate && (
           <>
             <label>
@@ -213,8 +238,13 @@ function AccessForm({
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 required
+                {...fieldProps("access-new-password")}
               />
             </label>
+            {fieldError(
+              "access-new-password",
+              "新しいパスワードは14〜128文字で設定してください。",
+            )}
             <label>
               新しいパスワード（確認）
               <input
@@ -225,8 +255,13 @@ function AccessForm({
                 value={confirmation}
                 onChange={(e) => setConfirmation(e.target.value)}
                 required
+                {...fieldProps("access-confirmation-password")}
               />
             </label>
+            {fieldError(
+              "access-confirmation-password",
+              "新しいパスワードと同じものをもう一度、14〜128文字で入力してください。",
+            )}
             <p className="muted">14〜128文字で設定してください。</p>
           </>
         )}

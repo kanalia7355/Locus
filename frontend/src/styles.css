@@ -123,6 +123,18 @@ pre {
   color: var(--color-muted);
   font-size: 12px;
 }
+input:user-invalid,
+select:user-invalid,
+textarea:user-invalid {
+  border-color: var(--color-error);
+}
+.field-error {
+  margin: 0;
+  color: var(--color-error);
+  font-size: 13px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
 .error {
   color: var(--color-error);
 }
