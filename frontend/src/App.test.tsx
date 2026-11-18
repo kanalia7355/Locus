@@ -772,3 +772,132 @@ describe("chat fallibility notice", () => {
     expect(screen.getByText(FALLIBILITY_NOTICE)).toBeVisible();
   });
 });
+
+// The owner moved the reference-scope setting into the composer as a chip
+// (2026-11-16) and asked for it to behave like the rest of the composer.
+describe("composer scope picker and fixed composer", () => {
+  it("sends the scope chosen from the chip in the message request", async () => {
+    render(<App />);
+    const field = await screen.findByRole("textbox", { name: "メッセージ" });
+    await waitFor(() => expect(field).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "参照範囲" }));
+    fireEvent.click(screen.getByRole("option", { name: "個人資料" }));
+    fireEvent.change(field, { target: { value: "成膜" } });
+    fireEvent.click(screen.getByRole("button", { name: "送信" }));
+    await waitFor(() =>
+      expect(
+        requests.some(
+          (request) =>
+            request.path.endsWith("/messages") &&
+            request.options?.method === "POST",
+        ),
+      ).toBe(true),
+    );
+    const request = requests.find(
+      (item) =>
+        item.path.endsWith("/messages") && item.options?.method === "POST",
+    )!;
+    expect(JSON.parse(String(request.options?.body))).toMatchObject({
+      scope: "personal",
+    });
+  });
+
+  it("marks the chosen option and returns to the collapsed chip", async () => {
+    render(<App />);
+    await screen.findByRole("textbox", { name: "メッセージ" });
+    const chip = screen.getByRole("button", { name: "参照範囲" });
+    expect(chip).toHaveAttribute("aria-expanded", "false");
+    // The default value is the shared+personal option.
+    expect(chip).toHaveTextContent("共有資料＋個人資料");
+    fireEvent.click(chip);
+    expect(chip).toHaveAttribute("aria-expanded", "true");
+    const shared = screen.getByRole("option", { name: "共有資料" });
+    fireEvent.click(shared);
+    expect(chip).toHaveAttribute("aria-expanded", "false");
+    expect(chip).toHaveTextContent("共有資料");
+    expect(chip).toHaveFocus();
+    fireEvent.click(chip);
+    expect(
+      screen.getByRole("option", { name: "共有資料" }),
+    ).toHaveAttribute("aria-selected", "true");
+    expect(
+      screen.getByRole("option", { name: "個人資料" }),
+    ).toHaveAttribute("aria-selected", "false");
+  });
+
+  it("moves with the arrow keys, commits with Enter and closes with Escape", async () => {
+    render(<App />);
+    await screen.findByRole("textbox", { name: "メッセージ" });
+    const chip = screen.getByRole("button", { name: "参照範囲" });
+    // The chip is reachable by keyboard and opens with an arrow key.
+    expect(chip).toHaveAttribute("aria-haspopup", "listbox");
+    fireEvent.keyDown(chip, { key: "ArrowDown" });
+    expect(chip).toHaveAttribute("aria-expanded", "true");
+    const listbox = screen.getByRole("listbox", { name: "参照範囲" });
+    // While the popup is open, focus lives inside it.
+    expect(listbox).toHaveFocus();
+    // Starting from the default "all" option, two steps down and one up
+    // lands on "shared".
+    fireEvent.keyDown(listbox, { key: "ArrowDown" });
+    fireEvent.keyDown(listbox, { key: "ArrowDown" });
+    fireEvent.keyDown(listbox, { key: "ArrowUp" });
+    fireEvent.keyDown(listbox, { key: "Enter" });
+    expect(chip).toHaveAttribute("aria-expanded", "false");
+    expect(chip).toHaveFocus();
+    expect(chip).toHaveTextContent("共有資料");
+    // Escape closes without changing the value.
+    fireEvent.keyDown(chip, { key: "ArrowDown" });
+    fireEvent.keyDown(screen.getByRole("listbox", { name: "参照範囲" }), {
+      key: "Escape",
+    });
+    expect(chip).toHaveAttribute("aria-expanded", "false");
+    expect(chip).toHaveFocus();
+    expect(chip).toHaveTextContent("共有資料");
+  });
+
+  it("closes on an outside click and on Tab without leaving focus behind", async () => {
+    render(<App />);
+    await screen.findByRole("textbox", { name: "メッセージ" });
+    const chip = screen.getByRole("button", { name: "参照範囲" });
+    fireEvent.click(chip);
+    expect(screen.getByRole("listbox", { name: "参照範囲" })).toBeVisible();
+    fireEvent.mouseDown(document.body);
+    expect(chip).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(chip);
+    fireEvent.keyDown(screen.getByRole("listbox", { name: "参照範囲" }), {
+      key: "Tab",
+    });
+    expect(chip).toHaveAttribute("aria-expanded", "false");
+    expect(chip).toHaveFocus();
+  });
+
+  it("keeps the conversation in its own scroll region with the composer outside it", async () => {
+    render(<App />);
+    await screen.findByRole("textbox", { name: "メッセージ" });
+    const chat = document.querySelector<HTMLElement>(".chat")!;
+    const messages = document.querySelector<HTMLElement>(".messages")!;
+    const composer = document.querySelector<HTMLElement>("form.composer")!;
+    expect(chat).toContainElement(messages);
+    expect(chat).toContainElement(composer);
+    // The composer is a sibling after the scrolling message list, so the
+    // conversation can never park its last line underneath it.
+    expect(messages).not.toContainElement(composer);
+    expect(
+      messages.compareDocumentPosition(composer) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    // A long conversation lives inside the scroll region, not beside it.
+    fireEvent.change(screen.getByRole("textbox", { name: "メッセージ" }), {
+      target: { value: "成膜" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "送信" }));
+    await waitFor(() =>
+      expect(document.querySelectorAll(".messages .exchange")).toHaveLength(1),
+    );
+    for (const exchange of document.querySelectorAll<HTMLElement>(
+      ".messages .exchange",
+    )) {
+      expect(composer).not.toContainElement(exchange);
+    }
+  });
+});

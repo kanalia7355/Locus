@@ -167,9 +167,7 @@ test(
   },
 );
 
-test.fail("the message box stays reachable", async ({ page }) => {
-  // Measured 2026-11-17: the composer sits at the end of the document and
-  // scrolls away with it. Fixed by T-PH6-111 — remove this marker in that job.
+test("the message box stays reachable", async ({ page }) => {
   // One exchange is not enough to prove it: the page has to be tall enough that
   // the end of the document is off screen while you are reading the start.
   await page.setViewportSize(WIDTHS[0]);
