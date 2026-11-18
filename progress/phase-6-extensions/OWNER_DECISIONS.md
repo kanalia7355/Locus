@@ -515,3 +515,12 @@ workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-115
 
 **Answer** (2026-11-18, orchestrator): 誤検知。3 件ともワーカーは自分のクローンの中だけに書いており、メインチェックアウトにワーカー由来のファイルは無い。原因は私がループ実行中にメインチェックアウトで作業したこと（スクリーンショット取り込み、報告の追加、push まわりの修正）。`.jobloop/orchestrator-busy` がある間は判定を停止し、停止したことをジョブに記録する仕組みにした。試行は戻した。
 
+
+## T-PH6-111 — the job file names another checkout (2026-11-18T17:45:28+09:00)
+
+**Question**: The job file contains an absolute path to the main checkout, which a worker reads as the project root. Replace it with a relative path (use the bare name `python` in `test_cmd`) before dispatching.
+
+**Context**
+
+found=C:\Users\hirot\Locus
+file=T-PH6-111.md
