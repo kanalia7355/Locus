@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from jobloop import gates, prompts, worker
+from jobloop import gates, prompts, selfrepair, worker
 from jobloop.roster import Roster
 from jobloop.tasks import ATTEMPT_LIMIT, REVIEW_CYCLE_LIMIT, Task, load_phase
 
@@ -170,8 +170,48 @@ class Controller:
 
         return update_fields(task.path, dict(updates), timestamp=self.now())
 
+    def repair(self, task: Task, repair: selfrepair.Repair) -> None:
+        """Undo one of the loop's own messes, and say in the job file that it did.
+
+        A silent recovery is worse than the stop it replaces: the next person to
+        read the file would see a job that simply worked, with no sign that the
+        checks had to be cleaned up around it.
+        """
+        if repair.action == "clean":
+            for name in repair.paths:
+                target = self.settings.repository / name
+                if target.is_dir():
+                    shutil.rmtree(target, ignore_errors=True)
+                elif target.exists():
+                    target.unlink(missing_ok=True)
+        elif repair.action == "redact":
+            text = task.path.read_bytes().decode("utf-8")
+            for form in repair.paths:
+                text = text.replace(form, "<repository>")
+            task.path.write_bytes(text.encode("utf-8"))
+        # "sweep" needs nothing here: the page is committed with the records.
+        self.record(
+            task,
+            f"SELF-REPAIR ({self.now()})",
+            f"{repair.line}\n\npaths: {', '.join(repair.paths) or '(none)'}\n\n"
+            "This was the loop's own doing, so the attempt was not charged and the "
+            "job was put back in the queue. No scope was widened and no acceptance "
+            "criterion was touched.",
+        )
+
     def escalate(self, task: Task, category: str, question: str, context: str) -> Outcome:
-        """Stop the job and write the owner a decision request."""
+        """Stop the job and write the owner a decision request.
+
+        Unless the stop is one the loop caused itself and knows how to undo —
+        then it undoes it, records that it did, and asks for nothing.
+        """
+        mend = selfrepair.classify(category, context, repository=str(self.settings.repository))
+        if mend is not None:
+            self.repair(task, mend)
+            return Outcome(task.id, "self-repaired", mend.line)
+        said = selfrepair.describe(category, context)
+        if said:
+            question = f"{question} — {said}"
         file = self.settings.phase_directory / "OWNER_DECISIONS.md"
         if not file.exists():
             file.write_text(
@@ -302,13 +342,18 @@ class Controller:
     def run_job(self, task: Task) -> Outcome:
         leak = self.points_outside(task)
         if leak:
+            head = task.path.read_bytes().decode("utf-8").split("\n---\n", 1)[0]
             return self.escalate(
                 task,
                 "the job file names another checkout",
                 "The job file contains an absolute path to the main checkout, which a "
                 "worker reads as the project root. Replace it with a relative path "
                 "(use the bare name `python` in `test_cmd`) before dispatching.",
-                f"found={leak}\nfile={task.path.name}",
+                # Say where it was found: in the frontmatter it is the ticket
+                # being wrong and must be fixed by a person; further down it is
+                # the controller's own recorded evidence, which it may redact.
+                f"found={leak}\nfile={task.path.name}\n"
+                f"frontmatter={'yes' if leak in head else 'no'}",
             )
         model = self.roster.pick()
         if not model:
