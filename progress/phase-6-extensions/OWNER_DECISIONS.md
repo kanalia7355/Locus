@@ -571,3 +571,15 @@ commit=03d4bb5adc1ca6953224860f17ff11e3bf46715b
 
 **Answer** (2026-11-19, orchestrator): 汚していたのはループ自身。質問を起票するたびに再生成する `OWNER_DECISIONS_PLAIN_GUIDE.html` が未コミットで残り、次のマージを止めていた。記録の掃除対象に加えた。
 
+
+## T-PH6-116 — worker stopped for a decision (2026-11-19T04:25:56+09:00)
+
+**Question**: May I extend this job's allowed_paths to include frontend/e2e/a11y.spec.ts and frontend/e2e/workspace.spec.ts so I can update exactly four stale assertions to the migrated native-<dialog> semantics — a11y.spec.ts:349 and :405 (querySelector('[role="dialog"]') → querySelector('dialog, [role="dialog"]'), which the review itself recommended) and workspace.spec.ts:66 and :275 (the single-Tab toBeFocus
+
+**Context**
+
+ndex="-1"` chunk no longer lands on `閉じる`) and `workspace.spec.ts:275` (Tab from the pending `関連資料を確認` wraps to `<body>`, not `閉じる`). Re-run at unmodified HEAD → 13 passed. So both are migration-caused, both via native-Tab semantics the deleted custom trap used to emulate.
+- Measurement caveat I corrected in-flight: my first a11y/workspace runs were issued from the repo root, loading no `playwright.config.ts` (hence no `baseURL`); every test failed at `page.goto("/")` ("Cannot navigate to invalid URL"), on my build and falsely appearing identical at HEAD. Re-running from `frontend/` with stashed/popped changes produced the HEAD-green vs migrated-red split quoted above. No other files were modified; `frontend/test-results/` is gitignored and holds only run artifacts; working tree contains only the five allowed files.
+
+STATUS
+needs-owner-decision: May I extend this job's allowed_paths to include frontend/e2e/a11y.spec.ts and frontend/e2e/workspace.spec.ts so I can update exactly four stale assertions to the migrated native-<dialog> semantics — a11y.spec.ts:349 and :405 (querySelector('[role="dialog"]') → querySelector('dialog, [role="dialog"]'), which the review itself recommended) and workspace.spec.ts:66 and :275 (the single-Tab toBeFocused('閉じる') expectations, which encode the deleted custom trap: under Chromium's native modal Tab the start from a tabindex="-1" chunk goes to the next sequential control, and wrap-Tab parks transiently on <body>, so these need to assert native order — e.g. the next sequential control is focused, or focus is inside the dialog/body at the boundary) — and then re-run both e2e suites plus all in-bounds gates to confirm 5/5 and 13/13 again; or should those assertion updates be carved out to a separate task (e.g. T-PH6-112/T-PH6-125 or a new chore job) so this job closes on its in-bounds evidence (unit/typecheck/lint/appearance/ruff/secret-scan all green, dialog migration complete) with the two e2e suites knowingly left red in the interim?
