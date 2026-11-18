@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { FormEvent, ReactNode, Ref } from "react";
+import type { FormEvent, KeyboardEvent, ReactNode, Ref } from "react";
 import {
   ArrowUp,
+  Check,
   ChevronDown,
   FileText,
   LogOut,
@@ -119,6 +120,175 @@ function IconButton({
         {label}
       </span>
     </button>
+  );
+}
+
+const scopeOptions = [
+  { value: "all", label: "共有資料＋個人資料" },
+  { value: "shared", label: "共有資料" },
+  { value: "personal", label: "個人資料" },
+] as const;
+type ScopeValue = (typeof scopeOptions)[number]["value"];
+
+// The scope picker is a button plus a popup, not an OS <select>: the native
+// control cannot match the composer's chip styling. Everything <select> gave
+// unpaid is paid back here — arrow keys move, Enter commits, Escape closes,
+// and focus stays inside the picker while it is open.
+function ScopePicker({
+  value,
+  disabled = false,
+  onChange,
+}: {
+  value: ScopeValue;
+  disabled?: boolean;
+  onChange: (value: ScopeValue) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(() =>
+    Math.max(
+      0,
+      scopeOptions.findIndex((option) => option.value === value),
+    ),
+  );
+  const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+  const [listId] = useState(() => `scope-list-${uniqueKey()}`);
+  const optionId = (index: number) => `${listId}-option-${index}`;
+  const selected =
+    scopeOptions.find((option) => option.value === value) ?? scopeOptions[0];
+
+  useEffect(() => {
+    if (!open) return;
+    // Focus belongs to the listbox while it is open, so nothing tabs out.
+    listRef.current?.focus();
+    const onMouseDown = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onMouseDown);
+    return () => document.removeEventListener("mousedown", onMouseDown);
+  }, [open]);
+
+  function openPopup() {
+    setActive(
+      Math.max(
+        0,
+        scopeOptions.findIndex((option) => option.value === value),
+      ),
+    );
+    setOpen(true);
+  }
+  function closePopup() {
+    setOpen(false);
+    triggerRef.current?.focus();
+  }
+  function choose(next: ScopeValue) {
+    onChange(next);
+    closePopup();
+  }
+  function onKeyDown(event: KeyboardEvent) {
+    if (!open) {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        openPopup();
+      }
+      return;
+    }
+    switch (event.key) {
+      case "ArrowDown":
+        event.preventDefault();
+        setActive((current) => (current + 1) % scopeOptions.length);
+        break;
+      case "ArrowUp":
+        event.preventDefault();
+        setActive(
+          (current) =>
+            (current - 1 + scopeOptions.length) % scopeOptions.length,
+        );
+        break;
+      case "Home":
+        event.preventDefault();
+        setActive(0);
+        break;
+      case "End":
+        event.preventDefault();
+        setActive(scopeOptions.length - 1);
+        break;
+      case "Enter":
+      case " ":
+        event.preventDefault();
+        choose(scopeOptions[active].value);
+        break;
+      case "Escape":
+        event.preventDefault();
+        closePopup();
+        break;
+      case "Tab":
+        // Focus must not slip out while the popup is open; closing first
+        // keeps the focus order predictable instead.
+        event.preventDefault();
+        closePopup();
+        break;
+      default:
+        break;
+    }
+  }
+
+  return (
+    <div className="scope-picker" ref={rootRef} onKeyDown={onKeyDown}>
+      <button
+        type="button"
+        className="scope-chip"
+        ref={triggerRef}
+        aria-label="参照範囲"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={listId}
+        disabled={disabled}
+        onClick={() => (open ? closePopup() : openPopup())}
+      >
+        <span className="scope-chip-label">{selected.label}</span>
+        <ChevronDown
+          size={14}
+          aria-hidden="true"
+          className={open ? "scope-chip-caret open" : "scope-chip-caret"}
+        />
+      </button>
+      <ul
+        id={listId}
+        ref={listRef}
+        className="scope-popup"
+        role="listbox"
+        aria-label="参照範囲"
+        tabIndex={-1}
+        data-open={open}
+        aria-activedescendant={open ? optionId(active) : undefined}
+        aria-hidden={!open}
+      >
+        {scopeOptions.map((option, index) => (
+          <li
+            key={option.value}
+            id={optionId(index)}
+            role="option"
+            aria-selected={option.value === value}
+            className={[
+              "scope-option",
+              index === active ? "active" : "",
+              option.value === value ? "selected" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+            onClick={() => choose(option.value)}
+            onMouseEnter={() => setActive(index)}
+          >
+            <span>{option.label}</span>
+            {option.value === value && (
+              <Check size={14} aria-hidden="true" className="scope-option-check" />
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -292,7 +462,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
-  const [scope, setScope] = useState("all");
+  const [scope, setScope] = useState<ScopeValue>("all");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -1078,18 +1248,6 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
             <p className="chat-notice">
               Locusは間違えることがあります。重要な情報は確認してください。
             </p>
-            <label className="scope-label">
-              参照範囲
-              <select
-                value={scope}
-                disabled={busy}
-                onChange={(e) => setScope(e.target.value)}
-              >
-                <option value="all">共有資料＋個人資料</option>
-                <option value="shared">共有資料</option>
-                <option value="personal">個人資料</option>
-              </select>
-            </label>
             <div className="messages" aria-live="polite">
               {messages.length === 0 ? (
                 <div className="chat-empty">
@@ -1288,6 +1446,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
                     event.target.value = "";
                   }}
                 />
+                <ScopePicker value={scope} disabled={busy} onChange={setScope} />
                 <span className="send-state" role="status">
                   {busy ? "処理中…" : pendingJob ? "順番待ちあり" : ""}
                 </span>
