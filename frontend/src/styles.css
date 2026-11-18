@@ -586,7 +586,6 @@ pre {
   outline-offset: 3px;
 }
 .scope-picker {
-  position: relative;
   flex-shrink: 0;
 }
 .scope-chip {
@@ -617,11 +616,12 @@ pre {
 .scope-chip-caret.open {
   transform: rotate(180deg);
 }
+/* popover="auto" は top layer に出るので、位置は開いた瞬間に JS が
+   getBoundingClientRect() で測って fixed で決める。z-index は不要。 */
 .scope-popup {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 0;
-  z-index: 30;
+  position: fixed;
+  top: 8px;
+  left: 8px;
   margin: 0;
   padding: 4px;
   list-style: none;
