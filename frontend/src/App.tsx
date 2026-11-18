@@ -168,7 +168,7 @@ function AccessForm({
   return (
     <main className="access">
       <div className="access-brand">
-        研究資料室 <span>Locus</span>
+        Locus
       </div>
       <form onSubmit={submit} className="access-form">
         <p className="eyebrow">ローカル検証環境 · 合成データ専用</p>
@@ -948,7 +948,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
         >
           <PanelLeft size={19} />
         </IconButton>
-        <strong>研究資料室</strong>
+        <strong>Locus</strong>
         <select
           className="project-select"
           aria-label="プロジェクト"
