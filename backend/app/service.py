@@ -2992,19 +2992,29 @@ class Service:
             with self.chat_dispatch_lock:
                 self.chat_dispatch.pop(job, None)
 
-    def process_next_chat(self) -> bool:
-        """Run at most one queued dialogue; called by the background worker loop."""
+    def _claim_chat_turn(
+        self, last_user: str | None
+    ) -> tuple[str, sqlite3.Row | None, ChatDispatch | None]:
+        """Claim the oldest eligible queued dialogue for execution.
+
+        Pick order is the fair-share order shared by the sequential worker and
+        the parallel batch: the last-served user is picked after everyone else,
+        ties break by creation time. Returns ``("started", row, dispatch)`` when
+        a queued entry transitioned to ``running``, ``("handled", None, None)``
+        when an entry was failed in place (wait deadline or the restart sweep),
+        and ``("nothing", None, None)`` when no entry can be claimed right now.
+        """
         with self.db() as db:
             row = db.execute(
                 "SELECT * FROM chat_jobs WHERE status='queued' "
                 "ORDER BY CASE WHEN user_id=? THEN 1 ELSE 0 END, created, id LIMIT 1",
-                (self.last_chat_user,),
+                (last_user,),
             ).fetchone()
             if row is None:
-                return False
+                return ("nothing", None, None)
             if time.time() - row["created"] > CHAT_WAIT_SECONDS:
                 self._fail_chat(db, row["id"], "対話の待機上限を超えました。再度送信してください")
-                return True
+                return ("handled", None, None)
             dispatch = self.chat_dispatch.get(row["id"])
             if dispatch is None:
                 self._fail_chat(
@@ -3012,14 +3022,16 @@ class Service:
                     row["id"],
                     "アプリケーションの再起動により中止しました。再度送信してください",
                 )
-                return True
+                return ("handled", None, None)
             taken = db.execute(
                 "UPDATE chat_jobs SET status='running',updated=? WHERE id=? AND status='queued'",
                 (time.time(), row["id"]),
             ).rowcount
             if not taken:
-                return False
-        job_id = row["id"]
+                return ("nothing", None, None)
+        return ("started", row, dispatch)
+
+    def _run_chat_job(self, row: sqlite3.Row, dispatch: ChatDispatch, job_id: str) -> bool:
         try:
             principal = self.authenticate(dispatch.token)
             self.send(
@@ -3077,6 +3089,57 @@ class Service:
         with self.chat_dispatch_lock:
             self.chat_dispatch.pop(job_id, None)
         return True
+
+    def process_next_chat(self) -> bool:
+        """Run at most one queued dialogue; called by the background worker loop."""
+        kind, row, dispatch = self._claim_chat_turn(self.last_chat_user)
+        if kind == "nothing":
+            return False
+        if kind == "handled":
+            return True
+        assert row is not None and dispatch is not None
+        return self._run_chat_job(row, dispatch, row["id"])
+
+    def process_next_chat_batch(self, limit: int) -> list[str]:
+        """Claim up to ``limit`` queued dialogues and run them concurrently.
+
+        Claims are made one at a time in the shared fair-share order, so the
+        last-served user still yields to waiting users and creation order is
+        otherwise kept; only the model execution overlaps between entries.
+        Callers pass the number of free model slots: at most ``limit`` entries
+        leave the queue, and an entry never starts while its turn is not due.
+        An entry whose generation raises is failed in place and cannot affect
+        the other entries or hold a slot.
+
+        Returns the started job ids in claim order.
+        """
+        if limit < 1:
+            return []
+        claims: list[tuple[sqlite3.Row, ChatDispatch]] = []
+        last_user = self.last_chat_user
+        while len(claims) < limit:
+            kind, row, dispatch = self._claim_chat_turn(last_user)
+            if kind == "nothing":
+                break
+            if kind == "handled":
+                # The expired or restart-swept entry was failed in place; keep
+                # looking so one stale entry cannot starve the rest of the line.
+                continue
+            assert row is not None and dispatch is not None
+            claims.append((row, dispatch))
+            last_user = row["user_id"]
+        if not claims:
+            return []
+
+        def run(row: sqlite3.Row, dispatch: ChatDispatch) -> None:
+            self._run_chat_job(row, dispatch, row["id"])
+
+        threads = [threading.Thread(target=run, args=(row, dispatch)) for row, dispatch in claims]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        return [row["id"] for row, _ in claims]
 
     def _fail_chat(self, db: sqlite3.Connection, job: str, detail: str) -> None:
         changed = db.execute(
