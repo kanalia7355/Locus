@@ -369,6 +369,79 @@ test.describe("color-scheme in a dark browser context", () => {
   });
 });
 
+// T-PH6-117: 参照範囲のポップオーバーを Popover API に載せ替えた。ここからは
+// 「ポップオーバーが top layer に出る」ことに依存する検査。このファイルは使い切りの
+// 合成アカウントで動き、新規ログイン分のアカウントは無いので、冒頭の横スクロール検査が
+// 一度だけ回し終えた test-researcher-1 に、このファイルが enter() で使うのと同じ合成の
+// 変更後パスワードで入り直す。
+// 注意: このテストはファイル全体の実行順に依存する（fresh DB・workers:1・retries:0・
+// ファイル順）。-g でこの1件だけを抜き出すと test-researcher-1 は未回転のままなので、
+// 変更後パスワードでは入れずログイン待ちで失敗する。ファイル全体で実行すること。
+test("the scope popup dismisses on an outside click and is not covered", async ({
+  page,
+}) => {
+  await page.setViewportSize(WIDTHS[0]);
+  await page.goto("/");
+  await page.getByLabel("利用者ID").fill("test-researcher-1");
+  await page
+    .getByLabel("パスワード", { exact: true })
+    .fill("Changed-synthetic-password-01!");
+  await page.getByRole("button", { name: "ログイン", exact: true }).click();
+  const textbox = page.getByRole("textbox", { name: "メッセージ", exact: true });
+  await expect(textbox).toBeVisible();
+
+  const chip = page.getByRole("button", { name: "参照範囲" });
+  await chip.click();
+  const popup = page.getByRole("listbox", { name: "参照範囲" });
+  await expect(popup).toBeVisible();
+
+  // Measured 2026-11-19: ポップオーバーは top layer に出るので、矩形の中心を叩けば
+  // 中身の要素が返る。入力欄や textarea が返ってくる = 入力欄の下に隠れている、が
+  // この検査が捕まえる故障。
+  const hitInside = await popup.evaluate((el) => {
+    const rect = el.getBoundingClientRect();
+    const hit = document.elementFromPoint(
+      rect.left + rect.width / 2,
+      rect.top + rect.height / 2,
+    );
+    return hit !== null && el.contains(hit);
+  });
+  expect(
+    hitInside,
+    "the scope popup is covered by another element at its own center",
+  ).toBe(true);
+
+  // <strong> はフォーカスを奪わない非フォーカス要素なので、外側へのクリックとして
+  // 一意に light dismiss だけを試せる。閉じたらチップへフォーカスが戻る。
+  await page.locator(".topbar strong").click();
+  await expect(popup).toBeHidden();
+  await expect(chip).toBeFocused();
+
+  // Escape でも閉じてチップへフォーカスが戻る。light dismiss と自前の Escape
+  // 処理が二重に走り得る経路なので、実ブラウザで確かめる。
+  await chip.click();
+  await expect(popup).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(popup).toBeHidden();
+  await expect(chip).toBeFocused();
+
+  // 開いた状態でも横スクロールしない（既存の invariant と同じ条件）。
+  await chip.click();
+  await expect(popup).toBeVisible();
+  for (const size of WIDTHS) {
+    await page.setViewportSize(size);
+    await page.waitForTimeout(250);
+    const overflow = await page.evaluate(() => {
+      const root = document.scrollingElement ?? document.documentElement;
+      return root.scrollWidth - root.clientWidth;
+    });
+    expect(
+      overflow,
+      `${size.name} scrolls sideways by ${overflow}px with the scope popup open`,
+    ).toBeLessThanOrEqual(1);
+  }
+});
+
 test("a dark choice is dark from the first paint after reload", async ({
   page,
 }) => {

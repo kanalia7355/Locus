@@ -171,7 +171,12 @@ type ScopeValue = (typeof scopeOptions)[number]["value"];
 // The scope picker is a button plus a popup, not an OS <select>: the native
 // control cannot match the composer's chip styling. Everything <select> gave
 // unpaid is paid back here — arrow keys move, Enter commits, Escape closes,
-// and focus stays inside the picker while it is open.
+// and focus stays inside the picker while it is open. The popup rides the
+// Popover API (Baseline 2025-01-27), so outside-click light dismiss, Escape
+// and top-layer stacking come from the platform; only the arrow keys and
+// Enter remain hand-rolled. Positioning is one getBoundingClientRect() read
+// at open time with a single above/below flip — no CSS anchor positioning
+// (Chrome/Edge 157+ and Safari 27+ only, Firefox unsupported).
 function ScopePicker({
   value,
   disabled = false,
@@ -188,7 +193,6 @@ function ScopePicker({
       scopeOptions.findIndex((option) => option.value === value),
     ),
   );
-  const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const [listId] = useState(() => `scope-list-${uniqueKey()}`);
@@ -196,16 +200,54 @@ function ScopePicker({
   const selected =
     scopeOptions.find((option) => option.value === value) ?? scopeOptions[0];
 
+  // 開閉を React の open に合わせて Popover API へ反映する。外側クリックや
+  // Escape による light dismiss はブラウザが直接ポップオーバーを閉じるので、
+  // toggle イベント側でも open を追随させる（二重に閉じても無害な冪等な経路）。
   useEffect(() => {
-    if (!open) return;
-    // Focus belongs to the listbox while it is open, so nothing tabs out.
-    listRef.current?.focus();
-    const onMouseDown = (event: MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onMouseDown);
-    return () => document.removeEventListener("mousedown", onMouseDown);
+    const list = listRef.current;
+    if (!list) return;
+    if (open) {
+      try {
+        list.showPopover();
+      } catch {
+        // 既に開いているポップオーバーに showPopover() を呼ぶと投げられる。
+        // 二重呼び出しはここで捨てる。
+      }
+      list.focus();
+      // 開くたびに座標を一度だけ測る。上端に収まらなければチップの下側へ出す。
+      const chip = triggerRef.current?.getBoundingClientRect();
+      if (chip) {
+        const height = list.getBoundingClientRect().height;
+        const top = chip.top - height - 8;
+        const left = Math.min(
+          Math.max(chip.left, 8),
+          Math.max(8, window.innerWidth - list.getBoundingClientRect().width - 8),
+        );
+        list.style.top = `${top >= 8 ? top : chip.bottom + 8}px`;
+        list.style.left = `${left}px`;
+      }
+      return;
+    }
+    try {
+      list.hidePopover();
+    } catch {
+      // light dismiss で既に閉じられている場合は投げられる。二重に閉じない。
+    }
   }, [open]);
+
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const onToggle = (event: Event) => {
+      if ((event as ToggleEvent).newState !== "closed") return;
+      // light dismiss（外側クリック / Escape）で勝手に閉じた場合に React の
+      // 状態を追随させ、どちらが閉じてもチップへフォーカスを戻す。
+      setOpen(false);
+      triggerRef.current?.focus();
+    };
+    list.addEventListener("toggle", onToggle);
+    return () => list.removeEventListener("toggle", onToggle);
+  }, []);
 
   function openPopup() {
     setActive(
@@ -273,7 +315,7 @@ function ScopePicker({
   }
 
   return (
-    <div className="scope-picker" ref={rootRef} onKeyDown={onKeyDown}>
+    <div className="scope-picker" onKeyDown={onKeyDown}>
       <button
         type="button"
         className="scope-chip"
@@ -297,6 +339,7 @@ function ScopePicker({
         ref={listRef}
         className="scope-popup"
         role="listbox"
+        popover="auto"
         aria-label="参照範囲"
         tabIndex={-1}
         data-open={open}
