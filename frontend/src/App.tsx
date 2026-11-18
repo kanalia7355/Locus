@@ -1075,6 +1075,9 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
         )}
         {projectId && page === "chat" && (
           <div className="chat">
+            <p className="chat-notice">
+              Locusは間違えることがあります。重要な情報は確認してください。
+            </p>
             <label className="scope-label">
               参照範囲
               <select

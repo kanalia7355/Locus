@@ -651,3 +651,124 @@ data: ${JSON.stringify(data)}
     );
   });
 });
+
+// The owner asked on 2026-11-17 for one standing line above the conversation:
+// whether or not an answer cites a source, the product can be wrong and the
+// reader should check. The exact wording is the requirement, so it is repeated
+// here rather than imported.
+const FALLIBILITY_NOTICE =
+  "Locusは間違えることがあります。重要な情報は確認してください。";
+
+describe("chat fallibility notice", () => {
+  it("shows the exact notice above the conversation", async () => {
+    render(<App />);
+    await screen.findByRole("textbox", { name: "メッセージ" });
+    const notice = screen.getByText(FALLIBILITY_NOTICE);
+    expect(notice).toBeVisible();
+    expect(notice).toHaveClass("chat-notice");
+    // The message list is what scrolls once the composer is fixed, so the
+    // notice has to sit outside it or the conversation would carry it away.
+    const messages = document.querySelector(".messages")!;
+    expect(messages).not.toContainElement(notice);
+    expect(
+      notice.compareDocumentPosition(messages) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    // A static caution: no repeated announcement and no warning icon.
+    expect(notice).not.toHaveAttribute("aria-live");
+    expect(notice.closest("[aria-live]")).toBeNull();
+    expect(notice.querySelector("svg, [role='img']")).toBeNull();
+  });
+
+  it("keeps the notice while the conversation grows", async () => {
+    const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+    let posted = 0;
+    vi.mocked(fetch).mockImplementation(async (input, options) => {
+      if (String(input).endsWith("/messages") && options?.method === "POST")
+        return new Response(
+          JSON.stringify({
+            id: `message-${++posted}`,
+            text: "成膜",
+            scope: "all",
+            citations: [],
+          }),
+          { headers: { "Content-Type": "application/json" } },
+        );
+      return originalFetch(input, options);
+    });
+    render(<App />);
+    const field = await screen.findByRole("textbox", { name: "メッセージ" });
+    for (let turn = 1; turn <= 4; turn++) {
+      await waitFor(() => expect(field).toBeEnabled());
+      fireEvent.change(field, { target: { value: `質問${turn}` } });
+      fireEvent.click(screen.getByRole("button", { name: "送信" }));
+      await waitFor(() =>
+        expect(document.querySelectorAll(".messages .exchange")).toHaveLength(
+          turn,
+        ),
+      );
+    }
+    expect(screen.getByText(FALLIBILITY_NOTICE)).toBeVisible();
+  });
+
+  it("keeps the per-answer footnote beside the notice", async () => {
+    vi.mocked(fetch).mockImplementation(async (input, options) => {
+      const path = String(input);
+      requests.push({ path, options });
+      if (path.endsWith("/auth/me"))
+        return new Response(
+          JSON.stringify({
+            id: "alice",
+            username: "alice",
+            system_admin: false,
+            must_rotate: false,
+          }),
+        );
+      if (path.endsWith("/projects"))
+        return new Response(
+          JSON.stringify([
+            {
+              id: "project",
+              org_id: "org",
+              name: "検証",
+              role: "researcher",
+              permissions: ["read", "retrieve"],
+            },
+          ]),
+        );
+      if (path.endsWith("/messages"))
+        return new Response(
+          JSON.stringify({
+            id: "message-1",
+            text: "成膜",
+            scope: "all",
+            citations: [
+              {
+                id: "citation-1",
+                document_id: "document-1",
+                page: 1,
+                ordinal: 2,
+                name: "合成資料.md",
+                text: "成膜温度は180°Cです。",
+              },
+            ],
+          }),
+          { headers: { "Content-Type": "application/json" } },
+        );
+      return new Response(JSON.stringify([]));
+    });
+    render(<App />);
+    const field = await screen.findByRole("textbox", { name: "メッセージ" });
+    await waitFor(() => expect(field).toBeEnabled());
+    fireEvent.change(field, { target: { value: "成膜" } });
+    fireEvent.click(screen.getByRole("button", { name: "送信" }));
+    // This is the per-answer provenance note, not the standing caution: the
+    // two have different jobs and both have to stay.
+    expect(
+      await screen.findByText(
+        "検索で抽出した原文です。AI生成の回答ではありません。判断には元資料を確認してください。",
+      ),
+    ).toBeVisible();
+    expect(screen.getByText(FALLIBILITY_NOTICE)).toBeVisible();
+  });
+});

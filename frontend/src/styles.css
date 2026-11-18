@@ -118,7 +118,8 @@ pre {
 .muted,
 .footnote,
 .eyebrow,
-.composer-note {
+.composer-note,
+.chat-notice {
   color: var(--color-muted);
   font-size: 12px;
 }
@@ -356,6 +357,16 @@ pre {
   display: flex;
   flex-direction: column;
   min-height: calc(100dvh - 180px);
+}
+
+.chat-notice {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 0 0 8px;
+  padding-block: 6px;
+  background: var(--color-paper);
+  text-align: center;
 }
 .scope-label {
   display: flex;
