@@ -226,10 +226,12 @@ def create_app(
     async def worker() -> None:
         while not stop.is_set():
             await asyncio.to_thread(svc.process_next)
-            # Advisory check only: a slot taken between this probe and the next
-            # pickup is handled by the queue's requeue path, not by failure.
-            if runtime.available():
-                await asyncio.to_thread(svc.process_next_chat)
+            # Advisory check only: slots taken between this probe and the next
+            # pickup are handled by the queue's requeue path, not by failure.
+            usage = runtime.slot_usage()
+            free = usage["total"] - usage["busy"]
+            if free > 0:
+                await asyncio.to_thread(svc.process_next_chat_batch, free)
             try:
                 await asyncio.wait_for(stop.wait(), timeout=0.25)
             except TimeoutError:
