@@ -524,3 +524,50 @@ workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-115
 
 found=C:\Users\hirot\Locus
 file=T-PH6-111.md
+
+**Answer** (2026-11-19, orchestrator): ループが自分の証跡で自分を止めていた。名指ししていたのはコントローラが記録したゲート出力。記録時にパスを伏せるよう直し、既出分も伏せ字にした。
+## T-PH6-108 — out-of-scope change (2026-11-18T21:38:18+09:00)
+
+**Question**: The worker needed paths outside allowed_paths; widen the scope or split the job.
+
+**Context**
+
+outside allowed_paths: ['debug_test.py', 'edit_service.py', 'edit_service2.py', 'modify_service.py', 'test1.txt', 'test_api_output.txt', 'test_api_output2.txt', 'test_api_output3.txt', 'test_batch.py', 'test_capacity_output.txt', 'test_chat_drain_output.txt', 'test_chat_drain_output2.txt', 'test_chat_drain_output3.txt', 'test_drain_output3.txt', 'test_drain_output4.txt', 'test_drain_output5.txt', 'test_output.txt', 'tests/test_api.py', 'tmp_test_output.txt']
+
+**Answer** (2026-11-19, orchestrator): 退行確認の対象 `tests/test_api.py` を許可パスに入れていなかった私の不備。追加した。ワーカーが作った 19 個の作業ファイルは逸脱なので規則は緩めず、受入条件に「出力は標準出力で読む、作業ファイルを作らない」を明記した。
+## T-PH6-110 — out-of-scope change (2026-11-18T21:51:53+09:00)
+
+**Question**: The worker needed paths outside allowed_paths; widen the scope or split the job.
+
+**Context**
+
+outside allowed_paths: ['frontend/src/test-setup.ts']
+
+**Answer** (2026-11-19, orchestrator): jsdom に `window.matchMedia` が無いため、ダークモードの単体テストにはテスト設定の差し替えが要る。正当な要求で、許可パスに入れていなかったのは私の不備。`frontend/src/test-setup.ts` を追加した。
+## T-PH6-116 — attempt limit reached (2026-11-18T23:59:49+09:00)
+
+**Question**: Three attempts did not satisfy the acceptance criteria; the job needs a human decision.
+
+**Context**
+
+timeout: no reply within 1800s
+
+**Answer** (2026-11-19, orchestrator): 3 回とも中身の失敗ではなく時間切れ。ジョブが大きすぎた見積もりの誤りなので、`::backdrop`・入場アニメーション・`closedby` を別ジョブに切り出して縮めた。
+## T-PH6-123 — integration branch is dirty (2026-11-19T00:59:31+09:00)
+
+**Question**: The main checkout has uncommitted changes, so the reviewed commit was not merged. Decide how to integrate it.
+
+**Context**
+
+commit=03d4bb5adc1ca6953224860f17ff11e3bf46715b
+ M docs/report/OWNER_DECISIONS_PLAIN_GUIDE.html
+ M progress/phase-6-extensions/OWNER_DECISIONS.md
+ M progress/phase-6-extensions/tasks/T-PH6-105.md
+ M progress/phase-6-extensions/tasks/T-PH6-108.md
+ M progress/phase-6-extensions/tasks/T-PH6-110.md
+ M progress/phase-6-extensions/tasks/T-PH6-116.md
+ M progress/phase-6-extensions/tasks/T-PH6-123.md
+ M progress/phase-6-extensions/tasks/T-PH6-124.md
+
+**Answer** (2026-11-19, orchestrator): 汚していたのはループ自身。質問を起票するたびに再生成する `OWNER_DECISIONS_PLAIN_GUIDE.html` が未コミットで残り、次のマージを止めていた。記録の掃除対象に加えた。
+

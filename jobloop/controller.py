@@ -156,6 +156,13 @@ class Controller:
     def record(self, task: Task, heading: str, body: str) -> None:
         from jobloop.tasks import append_section
 
+        # Redact the main checkout's path. Gate output quotes real commands, and
+        # a recorded failure once wrote `C:\...\Locus\.venv\...` into the job
+        # file — which `points_outside` then refused to dispatch. The loop was
+        # poisoning itself with its own evidence.
+        root = str(self.settings.repository)
+        for form in {root, root.replace("\\", "/"), root.replace("/", "\\")}:
+            body = body.replace(form, "<repository>")
         append_section(task.path, heading, body)
 
     def set_fields(self, task: Task, **updates: str) -> Task:
@@ -629,11 +636,15 @@ class Controller:
         if not lines:
             return ""
         records = f"progress/{self.settings.phase}/"
+        # The loop regenerates this page whenever it raises a question, so it
+        # is the loop's own record, not a person's edit. Leaving it out made a
+        # reviewed commit unmergeable on 2026-11-19.
+        guide = "docs/report/OWNER_DECISIONS_PLAIN_GUIDE.html"
         paths = [line[3:].strip().strip('"').replace("\\", "/") for line in lines]
-        foreign = [path for path in paths if not path.startswith(records)]
+        foreign = [path for path in paths if not path.startswith(records) and path != guide]
         if foreign:
             return "\n".join(lines)
-        git(self.settings.repository, "add", "--", records)
+        git(self.settings.repository, "add", "--", records, guide)
         git(
             self.settings.repository,
             "-c",
