@@ -591,3 +591,17 @@ needs-owner-decision: May I extend this job's allowed_paths to include frontend/
 **Context**
 
 the worker changed nothing
+
+## T-PH6-113 — review cycle limit reached (2026-11-19T12:37:33+09:00)
+
+**Question**: The reviewer still requires changes at the cycle limit.
+
+**Context**
+
+)` in the accept handler (or inside `switchProject`) now that the selector stays mounted, mirroring `cancelProjectSwitch`.
+- **Low** — `frontend/src/App.tsx:649` (with `:1374`, `:1379-1381`, `:578-595`): `switchProject` clears `pendingJob` only when `streaming`; a queued job is deliberately kept, so the confirmation's promise at `:1564-1567` ("生成中の回答は画面から閉じられ…") does not hold for a queued answer. Concrete sequence: with the model slot busy, send a question (it enters the waiting line), switch projects and confirm → the new project still shows the status line `順番待ちあり` and its 送信 button stays `disabled` through `!!pendingJob` until the old project's job ends; if that job then reports `failed` (or the poll errors), `setError` writes the old project's failure into the new project's screen. This retention is pre-existing, but the new dialog makes the promise newly relevant. Smallest fix: clear `pendingJob` for every in-flight job in `switchProject` (the answer is still committed to the old conversation and reachable from 調査履歴), or scope the poll's terminal `setError`/`setNotice`/`setCancelledJob` updates to the job's own conversation/project.
+
+UNVERIFIED
+- I did not run the vitest or Playwright suites; the controller's exit-0 evidence is trusted. In particular, `frontend/e2e/a11y.spec.ts` was not among the controller's checks (only `appearance.spec.ts` was), so the fixture fix at `frontend/e2e/a11y.spec.ts:52` is derived from the fixture and the assertion at `:311-316`, not from an executed run.
+- I did not verify how a real screen reader announces the `aria-describedby` tooltip: the test's `toHaveAccessibleDescription` uses `dom-accessibility-api`, which ignores CSS, so the `display:none` tooltip at `styles.css:180-193` is resolved by the test even though real exposure depends on the `:focus-within` reveal at `styles.css:235-238`.
+- I did not measure the tooltip's rendered box at the 320px baseline width; the appearance gate covers 360px and does not focus the selector.
