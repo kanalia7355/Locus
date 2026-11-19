@@ -11,6 +11,7 @@ import type { Page } from "@playwright/test";
  * delete the marker in the same job.
  */
 
+/** Widths for responsive layout checks. */
 const WIDTHS = [
   { name: "desktop", width: 1280, height: 820 },
   { name: "tablet", width: 768, height: 900 },
@@ -62,6 +63,74 @@ async function askSomething(page: Page) {
   await page.getByRole("button", { name: "送信", exact: true }).click();
   await expect(answers).toHaveCount(before + 1);
 }
+
+/**
+ * A button that is enabled but always fails is worse than no button: copying
+ * the temporary password is how an administrator hands the account over, and
+ * the LAN screen must not offer that control when the clipboard API is absent
+ * (ProvisionUser.tsx does not render it in that case).
+ *
+ * Limitation: Playwright runs at http://127.0.0.1:5174, which is a SecureContext,
+ * so navigator.clipboard exists here and this test cannot reproduce the plain
+ * HTTP LAN case. ProvisionUser.test.tsx covers the non-SecureContext path.
+ */
+test("every enabled control on the one-time password screen works", async ({
+  page,
+}) => {
+  // Clipboard write needs a granted permission even in headless Chromium; the
+  // copy itself has to succeed here, or this check measures the wrong thing.
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], {
+    origin: "http://127.0.0.1:5174",
+  });
+  await page.setViewportSize(WIDTHS[0]);
+  await enter(page, 0);
+  await page.getByRole("button", { name: "利用者", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "利用者の追加" }),
+  ).toBeVisible();
+
+  await page.getByRole("button", { name: "追加", exact: true }).click();
+  await page.getByRole("textbox", { name: "利用者ID" }).fill("test-user-e2e");
+  await page.getByRole("button", { name: "作成", exact: true }).click();
+
+  const passwordRegion = page.getByRole("region", {
+    name: "一度だけ表示される仮パスワード",
+  });
+  await expect(passwordRegion).toBeVisible();
+  // The password itself is shown whether or not copying is available, so the
+  // administrator can still pass it on by selecting it.
+  await expect(passwordRegion.locator("code")).not.toHaveText("");
+
+  // There is no enabled button in this region that the test does not exercise.
+  const enabledLabels = await passwordRegion
+    .getByRole("button")
+    .evaluateAll((buttons) =>
+      buttons
+        .filter((button) => !(button as HTMLButtonElement).disabled)
+        .map((button) => (button.textContent ?? "").trim()),
+    );
+  expect(enabledLabels).toEqual(["コピー", "閉じる"]);
+
+  const copyButton = passwordRegion.getByRole("button", {
+    name: "コピー",
+    exact: true,
+  });
+  await expect(copyButton).toBeEnabled();
+  await copyButton.click();
+  // Wait for the result of the click instead of counting synchronously: the
+  // notice is set after the clipboard promise settles.
+  await expect(passwordRegion.getByText("コピーしました。")).toBeVisible();
+  await expect(passwordRegion.getByText(/できませんでした/)).toHaveCount(0);
+
+  const closeButton = passwordRegion.getByRole("button", {
+    name: "閉じる",
+    exact: true,
+  });
+  await expect(closeButton).toBeEnabled();
+  await closeButton.click();
+  await expect(passwordRegion).toHaveCount(0);
+  await expect(page.getByText(/できませんでした/)).toHaveCount(0);
+});
 
 test("no screen scrolls sideways at any supported width", async ({ page }) => {
   await page.setViewportSize(WIDTHS[0]);
@@ -167,17 +236,20 @@ test.fail(
   },
 );
 
-test.fail("the message box stays reachable", async ({ page }) => {
-  // Measured 2026-11-17: the composer sits at the end of the document and
-  // scrolls away with it. Fixed by T-PH6-111 — remove this marker in that job.
-  // One exchange is not enough to prove it: the page has to be tall enough that
-  // the end of the document is off screen while you are reading the start.
-  await page.setViewportSize(WIDTHS[0]);
-  await enter(page, 8);
-  for (let turn = 0; turn < 3; turn++) await askSomething(page);
-  await page.evaluate(() => (document.scrollingElement ?? document.body).scrollTo(0, 0));
-  await page.waitForTimeout(400);
-  await expect(
-    page.getByRole("textbox", { name: "メッセージ", exact: true }),
-  ).toBeInViewport();
-});
+test.fail(
+  "the message box stays reachable",
+  async ({ page }) => {
+    // Measured 2026-11-17: the composer sits at the end of the document and
+    // scrolls away with it. Fixed by T-PH6-111 — remove this marker in that job.
+    // One exchange is not enough to prove it: the page has to be tall enough that
+    // the end of the document is off screen while you are reading the start.
+    await page.setViewportSize(WIDTHS[0]);
+    await enter(page, 8);
+    for (let turn = 0; turn < 3; turn++) await askSomething(page);
+    await page.evaluate(() => (document.scrollingElement ?? document.body).scrollTo(0, 0));
+    await page.waitForTimeout(400);
+    await expect(
+      page.getByRole("textbox", { name: "メッセージ", exact: true }),
+    ).toBeInViewport();
+  },
+);
