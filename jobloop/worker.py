@@ -9,8 +9,12 @@ as unavailable rather than being guessed into either bucket.
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import signal
 import subprocess
+import sys
+from contextlib import suppress
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -97,6 +101,68 @@ def read_stream(stream: str) -> tuple[str, list[str], int]:
     return "".join(text), errors, tokens
 
 
+def kill_tree(process: subprocess.Popen[str]) -> None:
+    """Kill the session and everything it started.
+
+    `opencode run` is a launcher: it spawns `opencode serve --stdio`, which spawns
+    the tools. Killing only the direct child leaves that subtree running, and it
+    keeps the inherited stdout handle open — so the parent's own drain never
+    returns. Measured on 2026-11-20: `T-PH7-211`'s session timed out at 23:44,
+    its seven surviving processes went on writing scratch files into the
+    workspace until 00:06, and the controller sat wedged behind the pipe for
+    twenty-five minutes with the supervisor reporting nothing at all.
+    """
+    if sys.platform == "win32":
+        root = os.environ.get("SystemRoot", r"C:\Windows")
+        subprocess.run(  # noqa: S603 — fixed OS utility, no shell
+            [rf"{root}\System32\taskkill.exe", "/PID", str(process.pid), "/T", "/F"],
+            capture_output=True,
+            check=False,
+            timeout=60,
+        )
+    else:
+        with suppress(OSError):
+            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+    with suppress(OSError):
+        process.kill()
+
+
+def bounded(
+    command: list[str],
+    *,
+    cwd: str,
+    input: str,  # noqa: A002 — mirrors subprocess.run's signature for `runner`
+    timeout: float,
+    **options: Any,
+) -> subprocess.CompletedProcess[str]:
+    """`subprocess.run`, except a timeout takes the whole process tree with it.
+
+    Raises `subprocess.TimeoutExpired`, like the call it replaces.
+    """
+    options.pop("capture_output", None)
+    creation = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
+    process = subprocess.Popen(  # noqa: S603 — fixed CLI, no shell
+        command,
+        cwd=cwd,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        creationflags=creation,
+        start_new_session=sys.platform != "win32",
+        **options,
+    )
+    try:
+        out, err = process.communicate(input=input, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        kill_tree(process)
+        # The handles are closed now, so this drain cannot block for long; a
+        # second expiry is still possible and still means the same thing.
+        with suppress(subprocess.TimeoutExpired):
+            process.communicate(timeout=30)
+        raise
+    return subprocess.CompletedProcess(command, process.returncode, out, err)
+
+
 def run(
     model: str,
     prompt: str,
@@ -131,7 +197,7 @@ def run(
         "--archived",
         "--auto",
     ]
-    execute: Any = runner if callable(runner) else subprocess.run
+    execute: Any = runner if callable(runner) else bounded
     try:
         completed = execute(  # noqa: S603 — fixed CLI, no shell
             command,

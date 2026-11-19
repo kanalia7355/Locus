@@ -5,6 +5,7 @@ These tests use fake workers, so no provider is contacted.
 
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -259,6 +260,45 @@ def test_worker_reports_the_ending_the_cli_actually_had(tmp_path: Path) -> None:
         "a-free", "do it", cwd=tmp_path, timeout=5, executable="opencode", runner=answered
     )
     assert good.ending is worker.Ending.COMPLETED and "REPORT" in good.text
+
+
+def test_a_timed_out_session_stops_writing_and_does_not_wedge_the_controller(
+    tmp_path: Path,
+) -> None:
+    # Measured 2026-11-20: `opencode run` is a launcher, so killing only the
+    # direct child left seven processes running. They went on writing scratch
+    # files into `T-PH7-211`'s workspace for another twenty-two minutes, and
+    # because they held the inherited stdout handle the controller's own drain
+    # never returned — one cycle overshot its 90-minute budget by two hours with
+    # the supervisor reporting nothing.
+    marks = tmp_path / "grandchild.log"
+    grandchild = (
+        "import time\n"
+        f"p = open({str(marks)!r}, 'a')\n"
+        "while True:\n"
+        "    p.write('x'); p.flush(); time.sleep(0.05)\n"
+    )
+    launcher = (
+        "import subprocess, sys, time\n"
+        f"subprocess.Popen([sys.executable, '-c', {grandchild!r}])\n"
+        "time.sleep(600)\n"
+    )
+    started = time.monotonic()
+    with pytest.raises(subprocess.TimeoutExpired):
+        worker.bounded(
+            [sys.executable, "-c", launcher],
+            cwd=str(tmp_path),
+            input="",
+            timeout=3,
+            text=True,
+            encoding="utf-8",
+        )
+    spent = time.monotonic() - started
+    assert spent < 40, f"the drain blocked for {spent:.0f}s behind a surviving grandchild"
+    size = marks.stat().st_size if marks.exists() else 0
+    time.sleep(2)
+    after = marks.stat().st_size if marks.exists() else 0
+    assert after == size, "a killed session must not keep writing into the workspace"
 
 
 # --- gates -------------------------------------------------------------------
