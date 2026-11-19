@@ -629,3 +629,38 @@ reviewer=opencode/nemotron-3.5-lightning-free
 レビュー対象に触っていた場合は従来どおり停止する（再レビューでは取り返せない）。
 全モデルが同じことをしたら、そこで初めて人に聞く。詳細は `tasks/T-PH6-113.md`。
 
+
+## T-PH6-113 — review cycle limit reached (2026-11-20T00:22:48+09:00)
+
+**Question**: The reviewer still requires changes at the cycle limit.
+
+**Context**
+
+stematic-debugging to analyze the change
+
+Let me verify the key behavioral patterns in the implementation.
+## VERDICT
+
+**APPROVED**
+
+## FINDINGS
+
+- **none** — no material findings. The change is clean and correct.
+
+## UNVERIFIED
+
+- Nothing could not be checked. All files in the diff were read and analyzed.
+
+---
+
+### Summary of evaluation
+
+**1. Security and boundaries** — The change adds project-switching UX but does not weaken any permission check. The `can("retrieve")` guard remains in `send()`, and `activeProject.current` / `projectId` are updated atomically within `switchProject()`. The `can` function re-reads permissions from the new project after switch. No audit records or resource bounds are affected.
+
+**2. Correctness** — The `switchRequest.current` increment-then-switch pattern is a proper generation-token mechanism. `send()` captures `request = switchRequest.current` at onset; if a switch occurs mid-stream, `switchStreamed` skips events where `request !== switchRequest.current`, and the `finally`/`return` guards ensure in-flight requests either discard old-project data or return early. The draft-preservation logic (`pendingSwitch` / confirmation modal) is correctly gated on `draft.trim() || pendingJob`.
+
+**3. Acceptance** — All 5 new project-switching tests are implemented and cover: single-project name display, accessible description, draft cancellation, focus return, Tab trapping, and generating-answer handling. The e2e `a11y.spec.ts` change adds a second project for keyboard-order assertion — no behavior regression.
+
+**4. Test honesty** — The new tests are self-contained and would fail if the implementation regressed (e.g., if `switchRequest` filtering were removed, or the confirmation modal were omitted). No existing tests are weakened or removed.
+
+The diff is byte-identical to what the controller verified (101/101 tests pass, 0 findings in secret-scan/lint/typecheck). No changes to `allowed_paths` are needed — all modified files are under `frontend/`.
