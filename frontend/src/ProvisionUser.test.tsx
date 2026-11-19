@@ -1,15 +1,26 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 
 const requests: { path: string; options?: RequestInit }[] = [];
 const temporaryPassword = "Synthetic-test-password-01!";
 let failProvisioning = false;
 
+const originalClipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+
+function stubClipboard(value: unknown) {
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value });
+}
+
+function removeClipboard() {
+  Reflect.deleteProperty(navigator, "clipboard");
+}
+
 beforeEach(() => {
   requests.length = 0;
   failProvisioning = false;
   localStorage.clear();
+  stubClipboard({ writeText: vi.fn().mockResolvedValue(undefined) });
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
@@ -61,6 +72,14 @@ beforeEach(() => {
   );
 });
 
+afterEach(() => {
+  if (originalClipboard) {
+    Object.defineProperty(navigator, "clipboard", originalClipboard);
+  } else {
+    removeClipboard();
+  }
+});
+
 describe("administrator web user provisioning", () => {
   async function openUsersPage() {
     render(<App />);
@@ -71,10 +90,7 @@ describe("administrator web user provisioning", () => {
 
   it("creates a user and shows a copyable password only until dismissed", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(navigator, "clipboard", {
-      configurable: true,
-      value: { writeText },
-    });
+    stubClipboard({ writeText });
     await openUsersPage();
     fireEvent.click(screen.getByRole("button", { name: "追加" }));
     fireEvent.change(screen.getByRole("textbox", { name: "利用者ID" }), {
@@ -129,6 +145,43 @@ describe("administrator web user provisioning", () => {
         name: "一度だけ表示される仮パスワード",
       }),
     ).not.toBeInTheDocument();
+  });
+
+  it("does not show a copy button when clipboard is unavailable, but shows the password", async () => {
+    // Plain-HTTP LAN pages are not secure contexts: the property is absent,
+    // not merely undefined.
+    removeClipboard();
+    expect("clipboard" in navigator).toBe(false);
+    await openUsersPage();
+    fireEvent.click(screen.getByRole("button", { name: "追加" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "利用者ID" }), {
+      target: { value: "new-user" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "作成" }));
+
+    const passwordRegion = await screen.findByRole("region", {
+      name: "一度だけ表示される仮パスワード",
+    });
+    expect(passwordRegion).toHaveTextContent("一度だけ表示されます。");
+    expect(screen.getByLabelText("仮パスワード")).toHaveTextContent(
+      temporaryPassword,
+    );
+    // Copy button should NOT be present when clipboard is unavailable
+    expect(screen.queryByRole("button", { name: "コピー" })).not.toBeInTheDocument();
+    // Instead, the password is selectable and the screen says how to copy it
+    expect(
+      screen.getByText("コピーできません。パスワードを選択してコピーしてください。"),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "閉じる" }));
+    expect(
+      screen.queryByRole("region", {
+        name: "一度だけ表示される仮パスワード",
+      }),
+    ).not.toBeInTheDocument();
+    expect(localStorage.getItem("locus-sidebar") ?? "").not.toContain(
+      temporaryPassword,
+    );
   });
 
   it("does not discard a prior one-time password when a later request fails", async () => {

@@ -215,6 +215,9 @@ export const json = (method: string, data?: unknown): RequestInit => ({
 let keyCounter = 0;
 export function uniqueKey(): string {
   const c = globalThis.crypto;
+  // The only allowed use: this alias is feature-detected, and the fallbacks
+  // below keep plain-HTTP LAN deployments working.
+  // eslint-disable-next-line no-restricted-syntax -- SecureContext-only API; getRandomValues and the counter are the LAN fallbacks.
   if (typeof c?.randomUUID === "function") return c.randomUUID();
   if (typeof c?.getRandomValues === "function") {
     const bytes = c.getRandomValues(new Uint8Array(16));

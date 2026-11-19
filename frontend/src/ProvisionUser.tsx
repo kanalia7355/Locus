@@ -38,10 +38,26 @@ export function ProvisionUser({ onCreated }: { onCreated: () => void }) {
     }
   }
 
+  // navigator.clipboard is SecureContext-only: a plain-HTTP LAN page has no
+  // clipboard object, so read it once behind a capability check instead of
+  // assuming it and turning the copy button into one that always fails.
+  function clipboardApi(): Clipboard | null {
+    // eslint-disable-next-line no-restricted-properties -- 機能判定のための単一の参照。LAN のプレーン HTTP では undefined になる。
+    const clipboard: Clipboard | undefined = navigator.clipboard;
+    return typeof clipboard === "object" && clipboard !== null ? clipboard : null;
+  }
+
+  const canCopy = clipboardApi() !== null;
+
   async function copyPassword() {
     if (!temporaryPassword) return;
+    const clipboard = clipboardApi();
+    if (!clipboard) {
+      setCopyNotice("コピーできませんでした。パスワードを選択してコピーしてください。");
+      return;
+    }
     try {
-      await navigator.clipboard.writeText(temporaryPassword);
+      await clipboard.writeText(temporaryPassword);
       setCopyNotice("コピーしました。");
     } catch {
       setCopyNotice("コピーできませんでした。パスワードを選択してコピーしてください。");
@@ -102,9 +118,16 @@ export function ProvisionUser({ onCreated }: { onCreated: () => void }) {
           </p>
           <div className="provision-user-controls">
             <code aria-label="仮パスワード">{temporaryPassword}</code>
-            <button type="button" onClick={() => void copyPassword()}>
-              コピー
-            </button>
+            {canCopy && (
+              <button type="button" onClick={() => void copyPassword()}>
+                コピー
+              </button>
+            )}
+            {!canCopy && (
+              <span className="muted" aria-label="コピー不可">
+                コピーできません。パスワードを選択してコピーしてください。
+              </span>
+            )}
             <button
               type="button"
               onClick={() => {
