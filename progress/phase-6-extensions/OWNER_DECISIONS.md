@@ -584,6 +584,8 @@ ndex="-1"` chunk no longer lands on `閉じる`) and `workspace.spec.ts:275` (Ta
 STATUS
 needs-owner-decision: May I extend this job's allowed_paths to include frontend/e2e/a11y.spec.ts and frontend/e2e/workspace.spec.ts so I can update exactly four stale assertions to the migrated native-<dialog> semantics — a11y.spec.ts:349 and :405 (querySelector('[role="dialog"]') → querySelector('dialog, [role="dialog"]'), which the review itself recommended) and workspace.spec.ts:66 and :275 (the single-Tab toBeFocused('閉じる') expectations, which encode the deleted custom trap: under Chromium's native modal Tab the start from a tabindex="-1" chunk goes to the next sequential control, and wrap-Tab parks transiently on <body>, so these need to assert native order — e.g. the next sequential control is focused, or focus is inside the dialog/body at the boundary) — and then re-run both e2e suites plus all in-bounds gates to confirm 5/5 and 13/13 again; or should those assertion updates be carved out to a separate task (e.g. T-PH6-112/T-PH6-125 or a new chore job) so this job closes on its in-bounds evidence (unit/typecheck/lint/appearance/ruff/secret-scan all green, dialog migration complete) with the two e2e suites knowingly left red in the interim?
 
+**Answer** (2026-11-19, orchestrator): 許可する。`frontend/e2e/a11y.spec.ts` と `frontend/e2e/workspace.spec.ts` を許可パスに加えた。別ジョブには切り出さない（移行で意味が変わった表明をそのジョブで直すのが筋で、e2e 2 本を赤のまま次の人に渡すのは `done` の偽装と変わらない）。ただし書き換えは指摘の 4 か所に限り、**「`<body>` にフォーカスがあってもよい」という表明にはしない** —「ダイアログの外に出られない」性質は native の語彙で言い直して残すこと。受入条件に a11y/workspace の全件 PASS を追加した。詳細は `tasks/T-PH6-116.md` の ORCHESTRATOR RULING。
+
 ## T-PH6-123 — attempt limit reached (2026-11-19T05:04:19+09:00)
 
 **Question**: Three attempts did not satisfy the acceptance criteria; the job needs a human decision.
@@ -591,6 +593,8 @@ needs-owner-decision: May I extend this job's allowed_paths to include frontend/
 **Context**
 
 the worker changed nothing
+
+**Answer** (2026-11-19, orchestrator): 試行上限の打ち切りは当たらない。試行 3 の「変更なし」は中身の失敗ではなく、**試行 2 の成果物が `APPROVED` を得て `03d4bb5` としてコミット済み**で受入条件が既に満たされていたため。マージできなかったのは統合ブランチがループ自身の生成物で汚れていたから。承認済みコミットを取り込み `done` とした。検証は私が実行: vitest 130 PASS / appearance 19 件 PASS / pytest 1302 passed。併せて、`enter()` が仮パスワードを変更するため試験用アカウントを使い回せないという既存の欠陥（`T-PH6-124` のマージ時に外観ゲートを回していなかったため見落とした）も直した。詳細は `tasks/T-PH6-123.md`。
 
 ## T-PH6-113 — review cycle limit reached (2026-11-19T12:37:33+09:00)
 
@@ -605,3 +609,5 @@ UNVERIFIED
 - I did not run the vitest or Playwright suites; the controller's exit-0 evidence is trusted. In particular, `frontend/e2e/a11y.spec.ts` was not among the controller's checks (only `appearance.spec.ts` was), so the fixture fix at `frontend/e2e/a11y.spec.ts:52` is derived from the fixture and the assertion at `:311-316`, not from an executed run.
 - I did not verify how a real screen reader announces the `aria-describedby` tooltip: the test's `toHaveAccessibleDescription` uses `dom-accessibility-api`, which ignores CSS, so the `display:none` tooltip at `styles.css:180-193` is resolved by the test even though real exposure depends on the `:focus-within` reveal at `styles.css:235-238`.
 - I did not measure the tooltip's rendered box at the 320px baseline width; the appearance gate covers 360px and does not focus the selector.
+
+**Answer** (2026-11-19, orchestrator): 残り 1 周を許す（`review_cycles` を 2 → **1**。0 には戻していない）。この 2 周は押し合いではなく収束しており（High 1 + Medium 2 + Low 1 → Medium 1 + Low 1）、直し方まで特定されている欠陥を画面に残す選択は取らない。やることは 2 点だけ: (1) Medium の修正（承諾経路でフォーカスが `body` に落ちる。取り消し経路と揃える）とその性質を固定するテスト、(2) `a11y.spec.ts` を実行して UNVERIFIED を実測で埋める。Low（待機列のジョブが切替後も残り、古いプロジェクトの失敗が新しい画面に書き込まれる）は**本ジョブ以前からある欠陥**なので別票 `T-PH6-126` に移した（320px が外観ゲートで一度も測られていない穴も併記）。受入条件 1〜4 は 1 つも緩めていない。詳細は `tasks/T-PH6-113.md`。

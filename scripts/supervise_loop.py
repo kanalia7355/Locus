@@ -10,6 +10,13 @@ own command line.
 This supervisor restarts the loop after each ending and writes a heartbeat that
 cannot lie: a timestamp, the exit code, and what the queue looked like.
 
+`--phase` is repeatable, and each cycle walks the phases **one at a time**. That
+is deliberate: every phase merges into the same integration branch in the same
+checkout, so two of them running at once would be two processes doing git
+operations on one repository. A phase with nothing actionable exits in about two
+seconds, so walking all of them costs almost nothing and keeps the queue moving
+to the next phase the moment one runs dry.
+
 Stop it by creating `.jobloop/stop`. It is checked before every cycle, so the
 loop finishes the job it is on rather than being cut off mid-flight.
 """
@@ -40,7 +47,13 @@ def heartbeat(path: Path, line: str) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--phase", default="phase-6-extensions")
+    parser.add_argument(
+        "--phase",
+        action="append",
+        dest="phases",
+        metavar="PHASE",
+        help="repeatable; each cycle tries every phase in the order given",
+    )
     parser.add_argument("--minutes", type=float, default=90.0, help="budget for one cycle")
     parser.add_argument("--max-jobs", type=int, default=6)
     parser.add_argument("--pause", type=float, default=120.0, help="seconds between cycles")
@@ -54,43 +67,51 @@ def main() -> int:
         ROOT / (".venv/Scripts/python.exe" if sys.platform == "win32" else ".venv/bin/python")
     )
 
-    heartbeat(beat, f"supervisor started for {arguments.phase}")
+    phases = arguments.phases or ["phase-6-extensions"]
+    heartbeat(beat, f"supervisor started for {', '.join(phases)}")
     cycle = 0
     while not stop.is_file():
         cycle += 1
         if arguments.cycles and cycle > arguments.cycles:
             heartbeat(beat, f"stopping after {arguments.cycles} cycle(s)")
             break
-        started = time.monotonic()
-        result = subprocess.run(  # noqa: S603 — repository entry point, no shell
-            [
-                python,
-                "-m",
-                "jobloop",
-                "--phase",
-                arguments.phase,
-                "run",
-                "--minutes",
-                str(arguments.minutes),
-                "--max-jobs",
-                str(arguments.max_jobs),
-            ],
-            cwd=str(ROOT),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-        )
-        spent = time.monotonic() - started
-        tail = "; ".join((result.stdout or "").strip().splitlines()[-3:]) or "(no output)"
-        heartbeat(
-            beat, f"cycle {cycle} ended after {spent:.0f}s exit={result.returncode} :: {tail}"
-        )
-        if result.returncode != 0 and (result.stderr or "").strip():
-            heartbeat(
-                beat, f"cycle {cycle} stderr :: {result.stderr.strip().splitlines()[-1][:300]}"
+        for phase in phases:
+            if stop.is_file():
+                break
+            started = time.monotonic()
+            result = subprocess.run(  # noqa: S603 — repository entry point, no shell
+                [
+                    python,
+                    "-m",
+                    "jobloop",
+                    "--phase",
+                    phase,
+                    "run",
+                    "--minutes",
+                    str(arguments.minutes),
+                    "--max-jobs",
+                    str(arguments.max_jobs),
+                ],
+                cwd=str(ROOT),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                check=False,
             )
+            spent = time.monotonic() - started
+            tail = "; ".join((result.stdout or "").strip().splitlines()[-3:]) or "(no output)"
+            heartbeat(
+                beat,
+                f"cycle {cycle} {phase} ended after {spent:.0f}s "
+                f"exit={result.returncode} :: {tail}",
+            )
+            if result.returncode != 0 and (result.stderr or "").strip():
+                heartbeat(
+                    beat,
+                    f"cycle {cycle} {phase} stderr :: "
+                    f"{result.stderr.strip().splitlines()[-1][:300]}",
+                )
         if stop.is_file():
             break
         time.sleep(arguments.pause)
