@@ -132,6 +132,55 @@ test("every enabled control on the one-time password screen works", async ({
   await expect(page.getByText(/できませんでした/)).toHaveCount(0);
 });
 
+test("login: no field reports aria-invalid=true straight after the page loads", async ({ page }) => {
+  // Limitation of this check: test:appearance only runs chromium (see
+  // playwright.config.ts), so it cannot observe Firefox/Safari publishing an
+  // empty required control as invalid from load. It pins the explicit
+  // aria-invalid="false" initial value — the thing that keeps those engines
+  // from announcing a pristine form as invalid — not the engines' own UI.
+  await page.setViewportSize(WIDTHS[0]);
+  await page.goto("/");
+  await expect(page.locator('[aria-invalid="true"]')).toHaveCount(0);
+  const requiredFields = page.locator("input[required]");
+  await expect(requiredFields).toHaveCount(2);
+  for (const field of await requiredFields.all()) {
+    await expect(field).toHaveAttribute("aria-invalid", "false");
+  }
+});
+
+test("login: submitting an empty form shows the field errors and focuses the first field", async ({ page }) => {
+  // Measured 2026-11-19: before this job the empty submit was swallowed by
+  // native validation with nothing rendered and no coded focus move.
+  await page.setViewportSize(WIDTHS[0]);
+  await page.goto("/");
+  await page.getByRole("button", { name: "ログイン", exact: true }).click();
+  await expect(page.locator("#access-username-error")).toBeVisible();
+  await expect(page.locator("#access-username-error")).toContainText("利用者ID");
+  await expect(page.locator("#access-password-error")).toBeVisible();
+  await expect(page.locator("#access-password-error")).toContainText("パスワード");
+  await expect(page.getByLabel("利用者ID")).toBeFocused();
+  await expect(page.getByLabel("利用者ID")).toHaveAttribute("aria-invalid", "true");
+  await expect(page.getByLabel("利用者ID")).toHaveAttribute(
+    "aria-describedby",
+    "access-username-error",
+  );
+});
+
+test("login: the field error state does not scroll sideways at any supported width", async ({ page }) => {
+  await page.setViewportSize(WIDTHS[0]);
+  await page.goto("/");
+  await page.getByRole("button", { name: "ログイン", exact: true }).click();
+  for (const size of WIDTHS) {
+    await page.setViewportSize(size);
+    await page.waitForTimeout(250);
+    const overflow = await page.evaluate(() => {
+      const root = document.scrollingElement ?? document.documentElement;
+      return root.scrollWidth - root.clientWidth;
+    });
+    expect(overflow, `${size.name} scrolls sideways by ${overflow}px`).toBeLessThanOrEqual(1);
+  }
+});
+
 test("no screen scrolls sideways at any supported width", async ({ page }) => {
   await page.setViewportSize(WIDTHS[0]);
   await enter(page, 1);
@@ -385,7 +434,9 @@ test("the last utterance is not hidden under the grown input box", async ({
   // draft: scrolled to the end, the last exchange must sit entirely above
   // the composer.
   await page.setViewportSize(WIDTHS[0]);
-  await enter(page, 0);
+  // Its own account: index 0 is the administrator the one-time-password test
+  // logs in as, and `enter()` can only run once per account.
+  await enter(page, 12);
   for (let turn = 0; turn < 3; turn++) await askSomething(page);
   const box = page.getByRole("textbox", { name: "メッセージ", exact: true });
   await box.fill("一行目\n二行目\n三行目\n四行目\n五行目");

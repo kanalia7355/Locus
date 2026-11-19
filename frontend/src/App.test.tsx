@@ -4,6 +4,42 @@ import { App } from "./App";
 
 const initialViewportWidth = window.innerWidth;
 
+// jsdom's selector engine parses ":user-invalid" but never matches it, and
+// jsdom does not track that a control was touched. The implementation
+// (correctly) keys off the real pseudo-class, so only for this file emulate
+// its semantics: an element is :user-invalid once it is invalid AND the user
+// has interacted with it (blur/input/change) or submission was attempted
+// (invalid event). The real browser behaviour is covered by
+// e2e/appearance.spec.ts on chromium.
+const userInvalidTouched = new WeakSet<Element>();
+const markUserInvalidTouched = (event: Event) => {
+  if (event.target instanceof Element) userInvalidTouched.add(event.target);
+};
+document.addEventListener("blur", markUserInvalidTouched, true);
+document.addEventListener("input", markUserInvalidTouched, true);
+document.addEventListener("change", markUserInvalidTouched, true);
+document.addEventListener("invalid", markUserInvalidTouched, true);
+const nativeMatches = Element.prototype.matches;
+Element.prototype.matches = function matchesWithUserInvalid(
+  this: Element,
+  selector: string,
+): boolean {
+  if (selector === ":user-invalid") {
+    if (
+      !(
+        this instanceof HTMLInputElement ||
+        this instanceof HTMLTextAreaElement ||
+        this instanceof HTMLSelectElement
+      )
+    )
+      return false;
+    // validity.valid, not checkValidity(): checkValidity() fires an
+    // invalid event, which would re-enter this shim infinitely.
+    return userInvalidTouched.has(this) && !this.validity.valid;
+  }
+  return nativeMatches.call(this, selector);
+} as typeof Element.prototype.matches;
+
 function setViewportWidth(width: number) {
   Object.defineProperty(window, "innerWidth", {
     value: width,
@@ -658,6 +694,72 @@ data: ${JSON.stringify(data)}
 // here rather than imported.
 const FALLIBILITY_NOTICE =
   "Locusは間違えることがあります。重要な情報は確認してください。";
+
+// The login screen shows when /auth/me rejects (signed-out visitor). These
+// tests exercise the :user-invalid sync on the AccessForm fields.
+function mockSignedOut() {
+  vi.mocked(fetch).mockImplementation(async (input) => {
+    const path = String(input);
+    requests.push({ path });
+    return new Response(JSON.stringify({ detail: "認証されていません" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  });
+}
+
+describe("form field validation (:user-invalid)", () => {
+  it("does not report aria-invalid=true on any field before interaction", async () => {
+    mockSignedOut();
+    render(<App />);
+    const id = await screen.findByLabelText("利用者ID");
+    const password = screen.getByLabelText("パスワード", { exact: true });
+    expect(id).toHaveAttribute("aria-invalid", "false");
+    expect(password).toHaveAttribute("aria-invalid", "false");
+    expect(document.querySelector('[aria-invalid="true"]')).toBeNull();
+  });
+
+  it("marks an emptied field aria-invalid=true and ties the message with aria-describedby after blur", async () => {
+    mockSignedOut();
+    render(<App />);
+    const id = await screen.findByLabelText("利用者ID");
+    fireEvent.blur(id);
+    expect(id).toHaveAttribute("aria-invalid", "true");
+    expect(id).toHaveAttribute("aria-describedby", "access-username-error");
+    const message = document.getElementById("access-username-error");
+    expect(message).not.toBeNull();
+    expect(message).toHaveTextContent("利用者ID");
+    expect(message).toHaveTextContent("管理者が発行した利用者ID");
+  });
+
+  it("clears aria-invalid and aria-describedby once the field becomes valid", async () => {
+    mockSignedOut();
+    render(<App />);
+    const id = await screen.findByLabelText("利用者ID");
+    fireEvent.blur(id);
+    expect(id).toHaveAttribute("aria-invalid", "true");
+    fireEvent.change(id, { target: { value: "alice" } });
+    expect(id).toHaveAttribute("aria-invalid", "false");
+    expect(id).not.toHaveAttribute("aria-describedby");
+    expect(document.getElementById("access-username-error")).toBeNull();
+  });
+
+  it("focuses the first invalid field when submission fails validation", async () => {
+    mockSignedOut();
+    render(<App />);
+    const id = await screen.findByLabelText("利用者ID");
+    const password = screen.getByLabelText("パスワード", { exact: true });
+    fireEvent.click(screen.getByRole("button", { name: "ログイン" }));
+    expect(id).toHaveFocus();
+    expect(id).toHaveAttribute("aria-invalid", "true");
+    expect(password).toHaveAttribute("aria-invalid", "true");
+    expect(document.getElementById("access-username-error")).toBeVisible();
+    expect(document.getElementById("access-password-error")).toBeVisible();
+    expect(
+      requests.filter((request) => request.path.endsWith("/auth/login")),
+    ).toHaveLength(0);
+  });
+});
 
 describe("chat fallibility notice", () => {
   it("shows the exact notice above the conversation", async () => {

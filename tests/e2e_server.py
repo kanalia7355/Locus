@@ -20,7 +20,9 @@ def main() -> None:
         service = Service(Path(temp) / "test.sqlite3")
         service.create_project("synthetic-org", "synthetic-project", "検証用プロジェクト")
         service.create_project("synthetic-org", "synthetic-project-b", "追加の検証プロジェクト")
-        for index in range(12):
+        # One account per test that logs in: `enter()` rotates the temporary
+        # password, so a second test reusing an index never reaches that screen.
+        for index in range(13):
             username = f"test-researcher-{index}"
             service.provision(username, "Synthetic-test-password-01!", system_admin=index == 0)
             service.assign(
