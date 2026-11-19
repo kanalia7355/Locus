@@ -368,6 +368,20 @@ def test_a_commit_in_the_main_checkout_is_not_mistaken_for_an_escape(tmp_path: P
     assert Controller.dirt(repository) != before_dirt
 
 
+def test_a_job_left_in_review_is_picked_up_again(tmp_path: Path) -> None:
+    # Review is not a resting state. A run that ends mid-review leaves the job
+    # there, and `actionable` covers only todo/doing — so nothing ever collects
+    # it. Three jobs sat that way through 239 idle cycles on 2026-11-19.
+    directory = phase_with_task(tmp_path, TASK.replace("status: todo", "status: review"))
+    controller = controller_for(tmp_path, ["a-free", "b-free"])
+    assert not tasks.load_phase(directory).tasks[0].actionable
+    assert controller.select() is None, "nothing would be chosen for a new attempt"
+    # Without its workspace there is nothing to resume, so it is not claimed.
+    assert controller.stranded() == []
+    (controller.settings.workspace_root / "T-JOB-1").mkdir(parents=True)
+    assert [task.id for task in controller.stranded()] == ["T-JOB-1"]
+
+
 def test_a_job_naming_the_main_checkout_is_never_dispatched(tmp_path: Path) -> None:
     # Sanitising the brief is not enough: the worker opens its own job file.
     # On 2026-11-16 one read the absolute interpreter path out of `test_cmd`,

@@ -583,3 +583,11 @@ ndex="-1"` chunk no longer lands on `閉じる`) and `workspace.spec.ts:275` (Ta
 
 STATUS
 needs-owner-decision: May I extend this job's allowed_paths to include frontend/e2e/a11y.spec.ts and frontend/e2e/workspace.spec.ts so I can update exactly four stale assertions to the migrated native-<dialog> semantics — a11y.spec.ts:349 and :405 (querySelector('[role="dialog"]') → querySelector('dialog, [role="dialog"]'), which the review itself recommended) and workspace.spec.ts:66 and :275 (the single-Tab toBeFocused('閉じる') expectations, which encode the deleted custom trap: under Chromium's native modal Tab the start from a tabindex="-1" chunk goes to the next sequential control, and wrap-Tab parks transiently on <body>, so these need to assert native order — e.g. the next sequential control is focused, or focus is inside the dialog/body at the boundary) — and then re-run both e2e suites plus all in-bounds gates to confirm 5/5 and 13/13 again; or should those assertion updates be carved out to a separate task (e.g. T-PH6-112/T-PH6-125 or a new chore job) so this job closes on its in-bounds evidence (unit/typecheck/lint/appearance/ruff/secret-scan all green, dialog migration complete) with the two e2e suites knowingly left red in the interim?
+
+## T-PH6-123 — attempt limit reached (2026-11-19T05:04:19+09:00)
+
+**Question**: Three attempts did not satisfy the acceptance criteria; the job needs a human decision.
+
+**Context**
+
+the worker changed nothing

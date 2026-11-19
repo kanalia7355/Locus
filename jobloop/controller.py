@@ -730,10 +730,37 @@ class Controller:
 
     # --- bounded run ---------------------------------------------------------
 
+    def stranded(self) -> list[Task]:
+        """Jobs stuck in `review` with their work still sitting in a workspace.
+
+        Review is not a resting state: the cycle either approves and merges or
+        comes back for changes. A run that ends mid-review leaves the job there
+        with no way back into the queue.
+        """
+        return [
+            task
+            for task in self.jobs()
+            if task.status == "review"
+            and task.attempts < ATTEMPT_LIMIT
+            and (self.settings.workspace_root / task.id).is_dir()
+        ]
+
     def run(self, *, minutes: float, max_jobs: int = 20) -> list[Outcome]:
         deadline = self.clock() + minutes * 60
         outcomes: list[Outcome] = []
         while len(outcomes) < max_jobs and self.clock() < deadline:
+            # A job left in `review` is stranded: `actionable` covers only
+            # `todo` and `doing`, so nothing ever picks it up again. Three jobs
+            # sat that way through 239 idle cycles on 2026-11-19 while the
+            # supervisor reported the queue as empty. Resume them first — the
+            # work is in the workspace, so re-dispatching would throw it away.
+            stranded = self.stranded()
+            if stranded:
+                outcome = self.resume(stranded[0])
+                outcomes.append(outcome)
+                if outcome.state == "no-model":
+                    break
+                continue
             task = self.select()
             if task is None:
                 outcomes.append(Outcome("-", "idle", "no actionable job is left"))
