@@ -565,6 +565,105 @@ def test_no_second_model_means_no_review_and_no_commit(tmp_path: Path) -> None:
     assert "5-5" in decisions, "the prohibition on self-review must be cited"
 
 
+def reviewable_worktree(tmp_path: Path) -> Path:
+    """A committed worktree with one uncommitted change, as a review sees it."""
+    tree = tmp_path / "ws"
+    tree.mkdir()
+    git(tree, "init", "-b", "main")
+    git(tree, "config", "user.email", "t@example.invalid")
+    git(tree, "config", "user.name", "t")
+    (tree / "a.txt").write_text("one", encoding="utf-8")
+    git(tree, "add", "-A")
+    git(tree, "commit", "-m", "first")
+    (tree / "a.txt").write_text("under review", encoding="utf-8")
+    return tree
+
+
+def test_a_reviewer_that_writes_its_review_to_a_file_is_replaced_not_escalated(
+    tmp_path: Path,
+) -> None:
+    # Measured 2026-11-19: `T-PH6-113`'s reviewer left `review_output.md` and
+    # touched nothing else, and the job went to a person for a ruling that could
+    # only ever be "try another model". The verdict is still void — a model that
+    # ignored "create no file" is not one to take a verdict from, and `deliver`
+    # runs `git add -A`, so the stray file would be committed with the work.
+    phase_with_task(tmp_path)
+    tree = reviewable_worktree(tmp_path)
+    controller = controller_for(tmp_path, ["a-free", "b-free", "c-free"])
+    asked: list[str] = []
+
+    def dispatch(model: str, prompt: str, **_: object) -> worker.Result:
+        asked.append(model)
+        if model == "b-free":
+            (tree / "review_output.md").write_text("VERDICT\n- APPROVED", encoding="utf-8")
+            return worker.Result(worker.Ending.COMPLETED, "written to review_output.md", model)
+        return worker.Result(worker.Ending.COMPLETED, "VERDICT\n- CHANGES_REQUIRED", model)
+
+    controller.dispatch = dispatch  # type: ignore[assignment]
+    task = controller.select()
+    assert task is not None
+    outcome = controller.review(task, tree, "a-free", [])
+
+    assert asked == ["b-free", "c-free"], "the next model reviews it, with no human in between"
+    assert not (tree / "review_output.md").exists(), "the stray file must not reach the commit"
+    assert (tree / "a.txt").read_text(encoding="utf-8") == "under review", "work untouched"
+    assert outcome.state == "changes-required", "the replacement review is the one that counts"
+    body = (tmp_path / "progress" / "phase-test" / "tasks" / "T-JOB-1.md").read_text(
+        encoding="utf-8"
+    )
+    assert "REVIEWER WROTE TO DISK" in body, "a discarded verdict has to leave a trace"
+    assert "b-free" in body
+    assert not (controller.settings.phase_directory / "OWNER_DECISIONS.md").exists()
+
+
+def test_a_reviewer_that_edits_the_work_still_stops_the_job(tmp_path: Path) -> None:
+    # The neighbouring case that must keep stopping: a reviewer that changed the
+    # code under review has poisoned the review, and no re-review can undo that
+    # — the next model would be reviewing the reviewer's edit.
+    phase_with_task(tmp_path)
+    tree = reviewable_worktree(tmp_path)
+    controller = controller_for(tmp_path, ["a-free", "b-free", "c-free"])
+    asked: list[str] = []
+
+    def dispatch(model: str, prompt: str, **_: object) -> worker.Result:
+        asked.append(model)
+        (tree / "a.txt").write_text("the reviewer fixed it", encoding="utf-8")
+        return worker.Result(worker.Ending.COMPLETED, "VERDICT\n- APPROVED", model)
+
+    controller.dispatch = dispatch  # type: ignore[assignment]
+    task = controller.select()
+    assert task is not None
+    outcome = controller.review(task, tree, "a-free", [])
+
+    assert asked == ["b-free"], "no second model is tried on a poisoned worktree"
+    assert outcome.state == "escalated" and "modified the worktree" in outcome.detail
+    assert tasks.load_phase(controller.settings.phase_directory).tasks[0].status == "blocked"
+
+
+def test_every_reviewer_writing_to_disk_ends_as_a_question_not_a_loop(tmp_path: Path) -> None:
+    phase_with_task(tmp_path)
+    tree = reviewable_worktree(tmp_path)
+    controller = controller_for(tmp_path, ["a-free", "b-free", "c-free"])
+    asked: list[str] = []
+
+    def dispatch(model: str, prompt: str, **_: object) -> worker.Result:
+        asked.append(model)
+        (tree / f"{model}-notes.md").write_text("verdict", encoding="utf-8")
+        return worker.Result(worker.Ending.COMPLETED, "VERDICT\n- APPROVED", model)
+
+    controller.dispatch = dispatch  # type: ignore[assignment]
+    task = controller.select()
+    assert task is not None
+    outcome = controller.review(task, tree, "a-free", [])
+
+    assert asked == ["b-free", "c-free"], "each model is tried once, then the loop gives up"
+    assert outcome.state == "escalated"
+    decisions = (controller.settings.phase_directory / "OWNER_DECISIONS.md").read_text(
+        encoding="utf-8"
+    )
+    assert "wrote to the worktree" in decisions and "b-free" in decisions and "c-free" in decisions
+
+
 def test_only_the_controllers_own_records_are_swept_into_a_commit(tmp_path: Path) -> None:
     phase_with_task(tmp_path)
     controller = controller_for(tmp_path, ["a-free", "b-free"])

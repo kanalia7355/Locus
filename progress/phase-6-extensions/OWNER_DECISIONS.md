@@ -611,3 +611,21 @@ UNVERIFIED
 - I did not measure the tooltip's rendered box at the 320px baseline width; the appearance gate covers 360px and does not focus the selector.
 
 **Answer** (2026-11-19, orchestrator): 残り 1 周を許す（`review_cycles` を 2 → **1**。0 には戻していない）。この 2 周は押し合いではなく収束しており（High 1 + Medium 2 + Low 1 → Medium 1 + Low 1）、直し方まで特定されている欠陥を画面に残す選択は取らない。やることは 2 点だけ: (1) Medium の修正（承諾経路でフォーカスが `body` に落ちる。取り消し経路と揃える）とその性質を固定するテスト、(2) `a11y.spec.ts` を実行して UNVERIFIED を実測で埋める。Low（待機列のジョブが切替後も残り、古いプロジェクトの失敗が新しい画面に書き込まれる）は**本ジョブ以前からある欠陥**なので別票 `T-PH6-126` に移した（320px が外観ゲートで一度も測られていない穴も併記）。受入条件 1〜4 は 1 つも緩めていない。詳細は `tasks/T-PH6-113.md`。
+
+## T-PH6-113 — reviewer modified the worktree (2026-11-19T21:58:45+09:00)
+
+**Question**: The read-only reviewer changed files, so its verdict is void. Decide whether to re-review with another model.
+
+**Context**
+
+reviewer=opencode/nemotron-3.5-lightning-free
+
+**Answer** (2026-11-20, orchestrator): 別モデルで再レビューする。判定は無効のまま
+（「ファイルを作るな」を無視したモデルから判定は受け取らない。加えて `deliver` が
+`git add -A` するので置き去りのファイルが成果物と一緒にコミットされる）。
+ただし**これは人に聞く必要の無い質問**だった。答えは「別モデルで再レビュー」しかない。
+コントローラを直し、レビュアーの変更が**追跡外の新規ファイルだけ**でレビュー対象が
+1 バイトも変わっていない場合は、消して記録して自動で次のモデルに回すようにした。
+レビュー対象に触っていた場合は従来どおり停止する（再レビューでは取り返せない）。
+全モデルが同じことをしたら、そこで初めて人に聞く。詳細は `tasks/T-PH6-113.md`。
+

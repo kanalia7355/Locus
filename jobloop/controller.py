@@ -170,6 +170,33 @@ class Controller:
 
         return update_fields(task.path, dict(updates), timestamp=self.now())
 
+    @staticmethod
+    def reread(task: Task) -> Task:
+        """Re-read a job from disk, after `record` appended to the file it came from."""
+        from jobloop.tasks import parse
+
+        return parse(task.path)
+
+    @staticmethod
+    def untracked(worktree: Path) -> set[str]:
+        """Paths git does not track, so a reviewer's own output can be told apart."""
+        lines = git(
+            worktree, "status", "--porcelain=1", "--untracked-files=all", check=False
+        ).splitlines()
+        return {line[3:].strip() for line in lines if line.startswith("??")}
+
+    @staticmethod
+    def discard(worktree: Path, names: set[str]) -> None:
+        """Delete paths inside `worktree`, refusing anything that points out of it."""
+        for name in sorted(names):
+            target = (worktree / name).resolve()
+            if worktree.resolve() not in target.parents:
+                continue
+            if target.is_dir():
+                shutil.rmtree(target, ignore_errors=True)
+            elif target.exists():
+                target.unlink()
+
     def repair(self, task: Task, repair: selfrepair.Repair) -> None:
         """Undo one of the loop's own messes, and say in the job file that it did.
 
@@ -532,14 +559,39 @@ class Controller:
     # --- review --------------------------------------------------------------
 
     def review(self, task: Task, tree: Path, model: str, checks: list[gates.Gate]) -> Outcome:
-        reviewer = self.roster.pick_reviewer(model)
+        refused: tuple[str, ...] = ()
+        while True:
+            outcome, again = self.review_once(task, tree, model, checks, refused=refused)
+            if again is None:
+                return outcome
+            refused += (again,)
+            task = self.reread(task)
+
+    def review_once(
+        self,
+        task: Task,
+        tree: Path,
+        model: str,
+        checks: list[gates.Gate],
+        *,
+        refused: tuple[str, ...] = (),
+    ) -> tuple[Outcome, str | None]:
+        """One review pass. The second element names a reviewer to try after, if any."""
+        reviewer = self.roster.pick(exclude=(model, *refused))
         if not reviewer:
-            return self.escalate(
-                task,
-                "no independent reviewer available",
-                "No second free model is available, and self-review is prohibited "
-                "(CONSTRAINTS.md §5-5). Decide whether to wait for usage to reset.",
-                f"implementer={model}",
+            why = (
+                "Every other free model wrote to the worktree instead of replying, "
+                f"so no verdict stands ({', '.join(refused)}). "
+                "Decide whether to wait for usage to reset."
+                if refused
+                else "No second free model is available, and self-review is prohibited "
+                "(CONSTRAINTS.md §5-5). Decide whether to wait for usage to reset."
+            )
+            return (
+                self.escalate(
+                    task, "no independent reviewer available", why, f"implementer={model}"
+                ),
+                None,
             )
         # Roster ids already carry their provider (`opencode/...`, `ollama/...`), and
         # the reviewer field is the evidence that a *different* model reviewed this
@@ -551,6 +603,7 @@ class Controller:
         diff = git(tree, "diff", "HEAD", check=False)[:120000]
         evidence = "\n".join(f"- {gate.name}: {gate.detail[:300]}" for gate in checks)
         before = self.fingerprint(tree)
+        untracked = self.untracked(tree)
         verdict = self.dispatch(
             reviewer,
             prompts.reviewer_brief(
@@ -565,22 +618,49 @@ class Controller:
         )
         if verdict.rotate:
             self.roster.mark_exhausted(reviewer)
-            return Outcome(task.id, "rotated", f"{reviewer} is out of usage", model=model)
+            return Outcome(task.id, "rotated", f"{reviewer} is out of usage", model=model), None
         if self.fingerprint(tree) != before:
-            return self.escalate(
-                task,
-                "reviewer modified the worktree",
-                "The read-only reviewer changed files, so its verdict is void. "
-                "Decide whether to re-review with another model.",
-                f"reviewer={reviewer}",
+            stray = self.untracked(tree) - untracked
+            self.discard(tree, stray)
+            if stray and self.fingerprint(tree) == before:
+                # A reviewer that wrote its review to a file instead of replying
+                # has not touched the work: `T-PH6-113`'s reviewer left
+                # `review_output.md` and nothing else on 2026-11-19. The verdict
+                # is still void — a model that ignored "create no file" is not
+                # one to take a verdict from, and `deliver` runs `git add -A`, so
+                # a stray file would be committed with the work. Discard it,
+                # say so, and try the next model instead of waiting for a person.
+                self.record(
+                    task,
+                    f"REVIEWER WROTE TO DISK — verdict discarded ({self.now()})",
+                    f"`{reviewer}` created {', '.join(sorted(stray))} instead of replying.\n"
+                    "The read-only rule was broken, so its verdict is void. The files "
+                    "were deleted, the work under review was not touched, and the job "
+                    "is being re-reviewed by a different model.",
+                )
+                return Outcome(
+                    task.id, "reviewer-refused", f"{reviewer} wrote to disk", model=model
+                ), reviewer
+            return (
+                self.escalate(
+                    task,
+                    "reviewer modified the worktree",
+                    "The read-only reviewer changed files, so its verdict is void. "
+                    "Decide whether to re-review with another model.",
+                    f"reviewer={reviewer}",
+                ),
+                None,
             )
         if verdict.ending is not worker.Ending.COMPLETED:
-            return Outcome(
-                task.id,
-                "review-unavailable",
-                f"{reviewer}: {verdict.ending.value}",
-                model=model,
-                reviewer=reviewer,
+            return (
+                Outcome(
+                    task.id,
+                    "review-unavailable",
+                    f"{reviewer}: {verdict.ending.value}",
+                    model=model,
+                    reviewer=reviewer,
+                ),
+                None,
             )
         self.record(
             task,
@@ -594,20 +674,26 @@ class Controller:
                 task, status="doing", review_cycles=str(cycles), attempts=str(task.attempts + 1)
             )
             if cycles >= REVIEW_CYCLE_LIMIT or task.attempts >= ATTEMPT_LIMIT:
-                return self.escalate(
-                    task,
-                    "review cycle limit reached",
-                    "The reviewer still requires changes at the cycle limit.",
-                    verdict.text[-2000:],
+                return (
+                    self.escalate(
+                        task,
+                        "review cycle limit reached",
+                        "The reviewer still requires changes at the cycle limit.",
+                        verdict.text[-2000:],
+                    ),
+                    None,
                 )
-            return Outcome(
-                task.id,
-                "changes-required",
-                "reviewer requires changes",
-                model=model,
-                reviewer=reviewer,
+            return (
+                Outcome(
+                    task.id,
+                    "changes-required",
+                    "reviewer requires changes",
+                    model=model,
+                    reviewer=reviewer,
+                ),
+                None,
             )
-        return self.deliver(task, tree, model, reviewer, checks)
+        return self.deliver(task, tree, model, reviewer, checks), None
 
     # --- delivery ------------------------------------------------------------
 

@@ -43,6 +43,13 @@ BOUNDARY = """Hard boundary, enforced by the controller after you stop:
 - Your report belongs in your reply, not on disk. Do not create `REPORT.md`,
   notes, logs, plans or scratch files: any file outside `allowed_paths` stops the
   job, including one that only describes what you did.
+- **Never redirect a command's output into a file in order to read it.** Read it
+  from the terminal. `pytest -q > out.txt` then reading `out.txt` leaves a file
+  outside `allowed_paths`, and the job stops on it — the command having passed
+  does not save you. This is the single most common way a job is lost here: it
+  cost `T-PH6-108` nineteen files and `T-PH7-201` eleven (`ruff1.txt`,
+  `test_output.txt`, `verify1.txt` and the like). If output is too long to read,
+  narrow the command (`-x`, `-k`, a single path), do not write it down.
 - If the job cannot be done inside this boundary, or the specification is
   ambiguous, stop and say exactly what decision is needed. A stop with a clear
   question is a good outcome; a guess is not."""
@@ -169,6 +176,13 @@ Hard rules: do not create, modify or delete any file; do not run git commands
 that change state; do not commit, push or merge; do not spawn other workers. The
 controller verifies the worktree is byte-identical after you finish and discards
 your review if it is not.
+
+**Your review goes in your reply, not in a file.** Writing it to `review.md`,
+`review_output.md` or anything else voids it, however good it is — the worktree
+changed, so nothing you concluded can be trusted to describe what was reviewed.
+`T-PH6-113` lost a complete review that way on 2026-11-19. For the same reason,
+never redirect a command's output into a file to read it: read it from the
+terminal, and narrow the command if it is too long.
 
 Job: {task.id}
 Acceptance criteria are in `{task.path.as_posix()}` under TASK DEFINITION.
