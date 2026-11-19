@@ -20,6 +20,12 @@ from argon2 import PasswordHasher
 from argon2.exceptions import VerificationError
 from fastapi import HTTPException
 
+from app.formats import (
+    accepted_format_names,
+    format_catalog,
+    format_for,
+    max_content_bytes,
+)
 from app.scanner import UNAVAILABLE, ScanResult
 
 Json = dict[str, Any]
@@ -55,9 +61,9 @@ CHUNK_CHARS = 700
 # Ingestion bounds. `upload` enforces them and `inventory` reports against them,
 # so both must read the same values: a format or limit change that reached only
 # one of them would make the pre-ingestion report disagree with the write path.
+# Accepted formats and their per-format byte bounds are declared in the single
+# table in `app.formats`; both write paths and the formats API read that table.
 MAX_NAME_LENGTH = 160
-MAX_CONTENT_BYTES = 262144  # 256 KiB
-ACCEPTED_EXTENSIONS = {".txt", ".md", ".csv"}
 IN_FLIGHT_LIMIT = 32
 OWNER_IN_FLIGHT_LIMIT = 4
 DOCUMENT_LIMIT = 1000
@@ -77,7 +83,7 @@ def unsafe_document_name(name: str) -> bool:
 
 def unsupported_extension(name: str) -> bool:
     """True when the extension is outside the accepted text formats."""
-    return Path(name).suffix.lower() not in ACCEPTED_EXTENSIONS
+    return format_for(name) is None
 
 
 SYNTHETIC_TEXT = (
@@ -779,8 +785,8 @@ class Service:
                 "backend": "sqlite",
                 "mode": "local-only",
                 "external_enabled": False,
-                "accepted_formats": ["txt", "md", "csv"],
-                "max_file_bytes": 262144,
+                "accepted_formats": accepted_format_names(),
+                "max_file_bytes": max_content_bytes(),
                 "scanner_configured": self.scanner_configured,
                 "scanner_last_outcome": self.scanner_last_outcome,
                 "ingestion_queue_limit": 32,
@@ -788,6 +794,19 @@ class Service:
                 "ingestion_status_counts": counts,
                 "configuration_available": False,
             }
+
+    def formats(self, actor: Principal) -> Json:
+        """Accepted document formats, served from the single format table.
+
+        The catalog is not project-scoped; it is read through the same actor
+        machinery as the other read endpoints, so an authenticated caller sees
+        the format table the upload and inventory paths enforce.
+        """
+        return {
+            "formats": format_catalog(),
+            "accepted_extensions": accepted_format_names(),
+            "max_file_bytes": max_content_bytes(),
+        }
 
     def _project_member_mutation(
         self,
@@ -1152,11 +1171,12 @@ class Service:
                 total_bytes += size
                 # The first failing rule is the reported reason, in the order
                 # `upload` applies them.
+                document_format = format_for(name)
                 if unsafe_document_name(name):
                     reason = "invalid_name"
-                elif unsupported_extension(name):
+                elif document_format is None:
                     reason = "unsupported_format"
-                elif size > MAX_CONTENT_BYTES:
+                elif size > document_format.max_bytes:
                     reason = "too_large"
                 elif queued >= IN_FLIGHT_LIMIT or personal_queued >= OWNER_IN_FLIGHT_LIMIT:
                     reason = "queue_full"
@@ -2211,11 +2231,12 @@ class Service:
         kind: str,
         conversation: str | None = None,
     ) -> Json:
-        if unsafe_document_name(name) or unsupported_extension(name):
+        document_format = format_for(name)
+        if unsafe_document_name(name) or document_format is None:
             fail(422, "対応形式はUTF-8のtxt・md・csvです。安全なファイル名を指定してください")
         if (
             not content.strip()
-            or len(content.encode("utf-8")) > MAX_CONTENT_BYTES
+            or len(content.encode("utf-8")) > document_format.max_bytes
             or any(ord(c) < 32 and c not in "\n\r\t\f" for c in content)
         ):
             fail(422, "本文は空でないUTF-8テキスト、256 KiB以内にしてください")
