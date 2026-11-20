@@ -24,6 +24,7 @@ from typing import Any
 class Ending(StrEnum):
     COMPLETED = "completed"
     EXHAUSTED = "exhausted"
+    OUTAGE = "outage"
     UNAVAILABLE = "unavailable"
     TIMEOUT = "timeout"
 
@@ -41,6 +42,23 @@ EXHAUSTION_MARKERS = (
     "payment required",
     "too many requests",
 )
+# The provider did not run the job at all. Measured 2026-11-20 03:08–03:16: the
+# free endpoint answered `404 Upstream request failed: Endpoint is unavailable`
+# and five jobs went from untouched to `attempts 3/3` in eight minutes, each
+# escalated as "three attempts did not satisfy the acceptance criteria". None of
+# them had been attempted. An outage is the provider's failure, not the job's.
+OUTAGE_MARKERS = (
+    "endpoint is unavailable",
+    "upstream request failed",
+    "server_error",
+    "service unavailable",
+    "bad gateway",
+    "gateway timeout",
+    "connection refused",
+    "econnrefused",
+    "socket hang up",
+    "fetch failed",
+)
 AUTH_MARKERS = ("unauthorized", "authentication", "forbidden", "login", "api key")
 
 
@@ -56,13 +74,20 @@ class Result:
 
     @property
     def rotate(self) -> bool:
-        return self.ending is Ending.EXHAUSTED
+        """The model never got to the job, so the attempt must survive."""
+        return self.ending in {Ending.EXHAUSTED, Ending.OUTAGE}
+
+    @property
+    def why_rotate(self) -> str:
+        return "is out of usage" if self.ending is Ending.EXHAUSTED else "endpoint is unavailable"
 
 
 def classify(errors: list[str]) -> Ending:
     joined = " ".join(errors).lower()
     if any(marker in joined for marker in EXHAUSTION_MARKERS):
         return Ending.EXHAUSTED
+    if any(marker in joined for marker in OUTAGE_MARKERS):
+        return Ending.OUTAGE
     if any(marker in joined for marker in AUTH_MARKERS):
         return Ending.UNAVAILABLE
     return Ending.UNAVAILABLE

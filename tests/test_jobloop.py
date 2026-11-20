@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from jobloop import controller as controller_module
 from jobloop import gates, prompts, tasks, worker
 from jobloop.controller import Controller, Settings, git
 from jobloop.roster import Roster, eligible
@@ -260,6 +261,125 @@ def test_worker_reports_the_ending_the_cli_actually_had(tmp_path: Path) -> None:
         "a-free", "do it", cwd=tmp_path, timeout=5, executable="opencode", runner=answered
     )
     assert good.ending is worker.Ending.COMPLETED and "REPORT" in good.text
+
+
+def test_a_resume_whose_gates_fail_goes_back_for_an_attempt_instead_of_spinning(
+    tmp_path: Path,
+) -> None:
+    # `stranded()` resumes anything left in `review`, and a resume spends no
+    # attempt. If a failing gate left the status at `review`, every later cycle
+    # would resume the same job and re-run the same failing checks for ever.
+    directory = phase_with_task(tmp_path, TASK.replace("status: todo", "status: review"))
+    controller = controller_for(tmp_path, ["a-free", "b-free"])
+    tree = controller.settings.workspace_root / "T-JOB-1"
+    tree.mkdir(parents=True)
+    controller.dispatch = lambda *_args, **_kwargs: pytest.fail(  # type: ignore[assignment]
+        "a resume must not dispatch a worker"
+    )
+    import jobloop.gates as gates_module
+
+    original = gates_module.changed_files
+    gates_module.changed_files = lambda _tree: ["frontend/src/App.tsx"]  # out of scope
+    try:
+        outcome = controller.resume(tasks.load_phase(directory).tasks[0])
+    finally:
+        gates_module.changed_files = original
+    assert outcome.state == "gates-failed"
+    task = tasks.load_phase(directory).tasks[0]
+    assert task.status == "doing", "it must not stay resumable on a failing gate"
+    assert task.attempts == 0, "a resume still spends no attempt"
+    assert controller.stranded() == []
+
+
+def test_an_approval_written_the_way_models_write_it_is_read_as_an_approval() -> None:
+    # Measured 2026-11-20: `T-PH6-113`'s reviewer replied `**APPROVED**` with
+    # `none` under FINDINGS. The pattern did not allow the asterisks, so the
+    # approval was read as "changes required", the cycle limit tripped, and the
+    # job was blocked with the word APPROVED sitting in its own record.
+    for accepted in (
+        "VERDICT\n- `APPROVED`\n",
+        "## VERDICT\n\n**APPROVED**\n\n## FINDINGS\n- none\n",
+        "VERDICT\n- APPROVED\n",
+        "> APPROVED\n",
+        "### APPROVED.\n",
+    ):
+        assert controller_module.APPROVAL.search(accepted), accepted
+
+    for refused in (
+        "VERDICT\n- CHANGES_REQUIRED\n",
+        "- NOT APPROVED\n",
+        "**APPROVED** with reservations\n",
+        "I would have APPROVED this if the test existed\n",
+        "APPROVED_WITH_CHANGES\n",
+    ):
+        assert not controller_module.APPROVAL.search(refused), refused
+
+
+def test_a_provider_outage_rotates_and_never_spends_an_attempt(tmp_path: Path) -> None:
+    # Measured 2026-11-20 03:08–03:16: the free endpoint answered
+    # `404 Upstream request failed: Endpoint is unavailable` and five untouched
+    # jobs went to `attempts 3/3` in eight minutes, each escalated as "three
+    # attempts did not satisfy the acceptance criteria". None had been attempted.
+    outage = [
+        '{"type": "provider.invalid-request", "message": "Upstream request failed: '
+        'Endpoint is unavailable.", "status": 404}'
+    ]
+    assert worker.classify(outage) is worker.Ending.OUTAGE
+    assert worker.Result(worker.Ending.OUTAGE, "", "a-free").rotate, "the attempt must survive"
+    # Usage exhaustion keeps its own wording: both rotate, and the record has to
+    # say which happened, because only one of them means "come back tomorrow".
+    spent = worker.Result(worker.Ending.EXHAUSTED, "", "a-free")
+    assert spent.why_rotate != worker.Result(worker.Ending.OUTAGE, "", "a-free").why_rotate
+    # A model that merely writes the words has not caused an outage: `classify`
+    # only ever sees the CLI's own error text, and a real failure is not prose.
+    assert worker.classify(["the handler returns 404 when the endpoint is unavailable"]) is (
+        worker.Ending.OUTAGE
+    ), "matched on CLI text only, which is why the brief is never passed to it"
+
+    phase_with_task(tmp_path)
+    controller = controller_for(tmp_path, ["a-free", "b-free"])
+    controller.workspace = lambda task: tmp_path  # type: ignore[assignment]
+    controller.dispatch = lambda model, prompt, **_: worker.Result(  # type: ignore[assignment]
+        worker.Ending.OUTAGE, "", model, ["Upstream request failed: Endpoint is unavailable."]
+    )
+    outcome = controller.run_job(controller.select())
+    assert outcome.state == "rotated" and "endpoint is unavailable" in outcome.detail
+    task = tasks.load_phase(controller.settings.phase_directory).tasks[0]
+    assert task.attempts == 0, "an outage is the provider's failure, not the job's"
+    assert task.status != "blocked"
+    assert not (controller.settings.phase_directory / "OWNER_DECISIONS.md").exists()
+
+
+def test_redirected_command_output_is_removed_and_recorded_not_escalated(tmp_path: Path) -> None:
+    # Six jobs in three days were stopped by the same habit, three of them after
+    # the brief was changed to forbid it in so many words. The instruction does
+    # not take, so the loop stops losing jobs to it — loudly, never silently.
+    allowed = ["backend/app/service.py", "tests/test_api.py"]
+    assert gates.litter(["test_output.txt", "ruff1.log", "backend/app/service.py"], allowed) == [
+        "ruff1.log",
+        "test_output.txt",
+    ]
+    # The neighbouring cases that must still stop the job: real work in the wrong
+    # place is a deviation, whatever its name.
+    assert gates.litter(["fix_test.py"], allowed) == []
+    assert gates.litter(["progress/phase-8/material/model.json"], allowed) == []
+    assert gates.litter(["docs/plans/NOTES.txt"], allowed) == [], "a directory is never litter"
+    # And a file the job was told to produce is its output, not its litter.
+    assert gates.litter(["notes.txt"], [*allowed, "notes.txt"]) == []
+
+    # The controller only ever deletes what git does not track, so a committed
+    # `.txt` the job edited cannot be swept away by this.
+    tree = reviewable_worktree(tmp_path)
+    (tree / "committed.txt").write_text("real content", encoding="utf-8")
+    git(tree, "add", "committed.txt")
+    git(tree, "commit", "-m", "a tracked text file")
+    (tree / "committed.txt").write_text("edited by the job", encoding="utf-8")
+    (tree / "test_output.txt").write_text("pytest said things", encoding="utf-8")
+    loose = set(gates.litter(gates.changed_files(tree), allowed)) & Controller.untracked(tree)
+    assert loose == {"test_output.txt"}, "a tracked file is never swept"
+    Controller.discard(tree, loose)
+    assert not (tree / "test_output.txt").exists()
+    assert (tree / "committed.txt").read_text(encoding="utf-8") == "edited by the job"
 
 
 def test_a_timed_out_session_stops_writing_and_does_not_wedge_the_controller(

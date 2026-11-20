@@ -91,6 +91,37 @@ def within_scope(names: list[str], allowed: list[str]) -> Gate:
     return Gate("scope", True, True, f"{len(names)} changed path(s) within scope")
 
 
+# Suffixes a redirected command output arrives with. Not a general "temporary
+# file" list: a `.py`, a `.json` or anything inside a directory is real work in
+# the wrong place, and that has to keep stopping the job.
+LITTER_SUFFIXES = (".txt", ".log", ".out")
+
+
+def litter(names: list[str], allowed: list[str]) -> list[str]:
+    """Redirected command output a worker left at the worktree root.
+
+    Free models read a command's result by writing it to a file — six jobs in
+    three days (`T-PH6-108` 19 files, `T-PH7-201` 11, `T-PH7-211` 15, then
+    `T-PH6-116` 10, `T-PH8-303` 3 and `T-PH7-201` again 2 **after** the brief was
+    changed to forbid it in so many words on 2026-11-20). The instruction does
+    not take, so the loop stops losing jobs to it: this output is deleted and
+    recorded as the deviation it is, rather than costing a person a ruling.
+
+    Deliberately narrow. Only the worktree root, only output suffixes, and only
+    paths the job was not allowed anyway. A file in a directory, a `.py` helper
+    or anything under `allowed_paths` is never litter — a worker writing real
+    files outside its lane is a real deviation and still stops the job.
+    """
+    normalised = [name.replace("\\", "/") for name in allowed]
+    return sorted(
+        name
+        for name in names
+        if "/" not in name
+        and name.lower().endswith(LITTER_SUFFIXES)
+        and not any(name == entry for entry in normalised)
+    )
+
+
 def summarise(result: subprocess.CompletedProcess[str]) -> str:
     """Keep the exit code and the last lines of each stream as the evidence."""
     tail = "\n".join((result.stdout or "").strip().splitlines()[-12:])

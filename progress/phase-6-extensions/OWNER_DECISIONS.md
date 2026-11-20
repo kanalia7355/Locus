@@ -11,6 +11,8 @@
 
 ## テーマ 1 — 別の作業部屋（Runner）で AI やツールを動かすルール（Entry 1〜5）
 
+
+
 参照: `docs/plans/OWNER_CHECKLIST_2026-11-11.md` Entry 1〜5、`ADR-0012`、`ADR-0013`、`HBR-001`〜`HBR-015`
 
 ### E1 許可証（リース）の期限
@@ -70,6 +72,8 @@ LAN 内でも、踏み台になった端末・持ち込み端末・同一 LAN �
 
 ## テーマ 2 — 「資料は割と何でも対応したい」とウイルス検査
 
+
+
 参照: `DATA-006`、`DATA-007`、`progress/phase-5-prototype/PROGRESS.md` §3
 
 【回答】「opencode や claude, chatgpt などで許容されている形式データはすべて許容。
@@ -103,6 +107,8 @@ LAN 内でも、踏み台になった端末・持ち込み端末・同一 LAN �
 
 ## テーマ 3 — 同時利用時の待ち時間
 
+
+
 参照: `UI-006`、`progress/phase-4-closeout/tasks/T-PH4-105.md`
 
 【回答】「待機列を複数本に」（選択肢 c）
@@ -120,6 +126,8 @@ N の上限が決まるので、N は設定値のままにし、起動時に実�
 ---
 
 ## テーマ 4 — 共有フォルダ・オンラインストレージ連携
+
+
 
 参照: `DATA-008`、`PHASE2_STORAGE_ACL_RESEARCH.md`
 
@@ -140,6 +148,8 @@ N の上限が決まるので、N は設定値のままにし、起動時に実�
 ---
 
 ## テーマ 5 — 本番公開の準備
+
+
 
 参照: `PROD-002` `PROD-003`、`IAM-005` `IAM-016` `IAM-017`、`DATA-013` `DATA-015`
 
@@ -172,6 +182,8 @@ ID + パスワードのみの場合、パスワード流出がそのまま全資
 
 ## テーマ 6 — AI が自動でプログラムを書いて本番へ合流するルール
 
+
+
 参照: `LOOP-003/006/008/012〜014/018/020〜022`
 
 【回答】「人が見てない無監視状態で自動で動かしてよいし、チェック結果を認めて仕組化してよい。
@@ -193,6 +205,8 @@ main へマージさせていい。」「問題があればあとでその変更
 ---
 
 ## UI 方針
+
+
 
 【回答】「UI に関して `docs/plans/UI_OPENCODE_RESEARCH.md` を参考にしたいところではある。
 元々、chatgpt や claude のようなサービスと同様の UI で管理しやすいすっきりとした管理画面で
@@ -217,11 +231,15 @@ main へマージさせていい。」「問題があればあとでその変更
 
 ## この記録の使い方
 
+
+
 - ここで決まった項目は `PROGRESS.md` のジョブへ変換する。決定のない項目はジョブにしない。
 - 【申し送り】はオーナーの決定を覆すものではない。実装が取る補償手段を明示しているだけで、
   不要と指示されれば外す。
 
 ## T-PH6-103 — worker wrote outside its workspace (2026-11-16T16:33:55+09:00)
+
+
 
 **Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
 
@@ -246,6 +264,8 @@ timeout で停止させたワーカーの子プロセスが生き残って後か
 （ループ自身の改修をジョブにすると、走っているループが自分を書き換えることになる）。
 
 ## T-PH6-114 — 作図と、資料に根拠のない生成の扱い (2026-11-16T19:00:00+09:00)
+
+
 
 **Question**: 次の 3 点を決めてください。
 (1) 回答を部分ごとに「資料に基づく / 添付データから計算 / モデルの知識」と示す案でよいか。
@@ -282,6 +302,8 @@ timeout で停止させたワーカーの子プロセスが生き残って後か
 
 ## UI 指摘 — 実物を操作して (2026-11-17)
 
+
+
 **Answer**（記録のみ。質問ではなくオーナーからの指示）:
 
 1. 上部の帯を本文のスクロールから分離する（`T-PH6-109`。実測で確認済み:
@@ -295,6 +317,8 @@ timeout で停止させたワーカーの子プロセスが生き残って後か
 
 ## T-PH6-109 — worker wrote outside its workspace (2026-11-17T11:21:44+09:00)
 
+
+
 **Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
 
 **Context**
@@ -304,6 +328,8 @@ workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-109
 
 **Answer** (2026-11-17, orchestrator): 誤検知。ワーカーは自分のクローンの中にだけ書いており、メインチェックアウトにワーカー由来のファイルは無かった。原因は封じ込め判定が`HEAD` を含んでいたことで、ループ実行中のオーケストレーターのコミットで `HEAD` が動いた。判定を未コミットの状態だけに変更し、回帰テストで固定した。試行は消費していないので、ワークスペースを残したまま `resume-one` で再開する。詳細は各 task ファイルの裁定に記録。
 ## T-PH6-111 — worker wrote outside its workspace (2026-11-17T11:35:07+09:00)
+
+
 
 **Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
 
@@ -316,6 +342,8 @@ workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-111
 
 
 ## T-PH6-109 — worker stopped for a decision (2026-11-17T12:28:47+09:00)
+
+
 
 **Question**: appearance.spec.ts:146 の test.fail 印は、本件の修正で帯が固定されたことで「期待に反して成功」の失敗に変わっており、印のコメントは T-PH6-109 のジョブで印を消すよう指示しているが、appearance.spec.ts は本ジョブの allowed_paths 外なので消せない — この印の削除を本ジョブの許可パス拡張で行うのか、別途（オーナーまたは後続ジョブ）で消すのかを決めてください。
 
@@ -339,6 +367,8 @@ needs-owner-decision: appearance.spec.ts:146 の test.fail 印は、本件の修
 
 **Answer** (2026-11-17, orchestrator): オーナー判断ではなく範囲の問題なので私が裁定した。印はその修正が入った証拠なので、**消すのは同じジョブの仕事**。両ジョブの許可パスに `frontend/e2e/appearance.spec.ts` を加え、自分の修正に対応する `test.fail` 印 1 つだけを外すこと、外したあとそのテストが本物の合格として通ることを受入条件に足した。あわせて報告された eslint の `no-misleading-character-class` は**私が入れた欠陥**で、先に直した（T-PH6-111 のワーカーの指摘。ワーカー側の対応は不要）。
 ## T-PH6-111 — worker stopped for a decision (2026-11-17T12:42:08+09:00)
+
+
 
 **Question**: frontend/e2e/appearance.spec.ts は許可パス外なので触れませんでしたが、その中の test.fail("the message box stays reachable") には「Fixed by T-PH6-111 — remove this marker in that job」とあり、今回の修正でこのテストは合格に反転し、次回の --e2e 実行で browser-e2e ゲートが赤くなります。このマーカー1行の削除だけ許可パスに加えて私が消してよいか、それともマージ直後にオーナーが消すか（同じファイル21行目に基底コミット時点から存在する eslint エラー no-misleading-character-class も CI の frontend-lint を赤くしています。そちらの扱いも併せてご指定ください）、どちらで進めるべきかの判断をお願いしま
 
@@ -365,6 +395,8 @@ needs-owner-decision: frontend/e2e/appearance.spec.ts は許可パス外なの�
 
 
 ## T-PH6-109 — worker stopped for a decision (2026-11-17T13:30:48+09:00)
+
+
 
 **Question**: Should the job be closed as delivered while leaving `frontend/index.html` (`<title>研究資料室 · Locus</title>`) untouched, or should you authorize expanding the allowed paths by a one-line change to make that title Locus-only?
 
@@ -396,6 +428,8 @@ STATUS
 
 ## GOV-002 / UI 参照資料 — 2026-11-17 の指示
 
+
+
 【回答】「サブエージェント起動してガンガン進めていいので起票ガンガンしましょう」
 「UI 系に関しては opencode の UI や google が出している
 https://github.com/GoogleChrome/modern-web-guidance などを使用して進めてください」
@@ -419,6 +453,8 @@ https://github.com/GoogleChrome/modern-web-guidance などを使用して進め�
 
 ## T-PH6-109 — out-of-scope change (2026-11-17T16:42:16+09:00)
 
+
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job.
 
 **Context**
@@ -428,6 +464,8 @@ outside allowed_paths: ['test-results/.last-run.json']
 **Answer** (2026-11-17, orchestrator): オーナー判断ではない。範囲外として報告されたのは画面検査ゲート自身が書いた `test-results/.last-run.json` と、ワーカーがテスト出力を読むために作った作業ファイル。ゲートを `frontend/` から起動するよう直し（`.gitignore` が覆う場所に成果物が出る）、3 件とも試行を戻して再開する。範囲判定そのものは緩めない。
 ## T-PH6-113 — out-of-scope change (2026-11-17T16:55:38+09:00)
 
+
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job.
 
 **Context**
@@ -436,6 +474,8 @@ outside allowed_paths: ['frontend/test-output.txt', 'frontend/test-results.txt']
 
 **Answer** (2026-11-17, orchestrator): オーナー判断ではない。範囲外として報告されたのは画面検査ゲート自身が書いた `test-results/.last-run.json` と、ワーカーがテスト出力を読むために作った作業ファイル。ゲートを `frontend/` から起動するよう直し（`.gitignore` が覆う場所に成果物が出る）、3 件とも試行を戻して再開する。範囲判定そのものは緩めない。
 ## T-PH6-115 — out-of-scope change (2026-11-17T17:07:18+09:00)
+
+
 
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job.
 
@@ -448,6 +488,8 @@ outside allowed_paths: ['test-results/.last-run.json']
 
 ## T-PH6-109 — out-of-scope change (2026-11-17T21:13:29+09:00)
 
+
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job.
 
 **Context**
@@ -456,6 +498,8 @@ outside allowed_paths: ['test-results/.last-run.json']
 
 **Answer** (2026-11-17, orchestrator): 検査基盤の欠陥。ワークスペースに `.venv` を共有しておらず画面検査のサーバが起動できなかったこと、および Playwright の実行記録が`.gitignore` の外に出ていたことが原因。両方直して試行を戻した。範囲判定は緩めない。
 ## T-PH6-113 — out-of-scope change (2026-11-17T21:35:45+09:00)
+
+
 
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job.
 
@@ -466,6 +510,8 @@ outside allowed_paths: ['frontend/test-output.txt', 'frontend/test-results.txt']
 **Answer** (2026-11-17, orchestrator): 検査基盤の欠陥。ワークスペースに `.venv` を共有しておらず画面検査のサーバが起動できなかったこと、および Playwright の実行記録が`.gitignore` の外に出ていたことが原因。両方直して試行を戻した。範囲判定は緩めない。
 ## T-PH6-115 — out-of-scope change (2026-11-17T21:38:36+09:00)
 
+
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job.
 
 **Context**
@@ -474,6 +520,8 @@ outside allowed_paths: ['test-results/.last-run.json']
 
 **Answer** (2026-11-17, orchestrator): 検査基盤の欠陥。ワークスペースに `.venv` を共有しておらず画面検査のサーバが起動できなかったこと、および Playwright の実行記録が`.gitignore` の外に出ていたことが原因。両方直して試行を戻した。範囲判定は緩めない。
 ## T-PH6-124 — out-of-scope change (2026-11-17T22:28:50+09:00)
+
+
 
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job.
 
@@ -486,6 +534,8 @@ outside allowed_paths: ['frontend/errors.txt', 'frontend/filtered.txt', 'fronten
 
 ## T-PH6-109 — worker wrote outside its workspace (2026-11-17T23:59:23+09:00)
 
+
+
 **Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
 
 **Context**
@@ -496,6 +546,8 @@ workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-109
 **Answer** (2026-11-18, orchestrator): 誤検知。3 件ともワーカーは自分のクローンの中だけに書いており、メインチェックアウトにワーカー由来のファイルは無い。原因は私がループ実行中にメインチェックアウトで作業したこと（スクリーンショット取り込み、報告の追加、push まわりの修正）。`.jobloop/orchestrator-busy` がある間は判定を停止し、停止したことをジョブに記録する仕組みにした。試行は戻した。
 ## T-PH6-113 — worker wrote outside its workspace (2026-11-18T00:01:45+09:00)
 
+
+
 **Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
 
 **Context**
@@ -505,6 +557,8 @@ workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-113
 
 **Answer** (2026-11-18, orchestrator): 誤検知。3 件ともワーカーは自分のクローンの中だけに書いており、メインチェックアウトにワーカー由来のファイルは無い。原因は私がループ実行中にメインチェックアウトで作業したこと（スクリーンショット取り込み、報告の追加、push まわりの修正）。`.jobloop/orchestrator-busy` がある間は判定を停止し、停止したことをジョブに記録する仕組みにした。試行は戻した。
 ## T-PH6-115 — worker wrote outside its workspace (2026-11-18T00:04:13+09:00)
+
+
 
 **Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
 
@@ -518,6 +572,8 @@ workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-115
 
 ## T-PH6-111 — the job file names another checkout (2026-11-18T17:45:28+09:00)
 
+
+
 **Question**: The job file contains an absolute path to the main checkout, which a worker reads as the project root. Replace it with a relative path (use the bare name `python` in `test_cmd`) before dispatching.
 
 **Context**
@@ -528,6 +584,8 @@ file=T-PH6-111.md
 **Answer** (2026-11-19, orchestrator): ループが自分の証跡で自分を止めていた。名指ししていたのはコントローラが記録したゲート出力。記録時にパスを伏せるよう直し、既出分も伏せ字にした。
 ## T-PH6-108 — out-of-scope change (2026-11-18T21:38:18+09:00)
 
+
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job.
 
 **Context**
@@ -536,6 +594,8 @@ outside allowed_paths: ['debug_test.py', 'edit_service.py', 'edit_service2.py', 
 
 **Answer** (2026-11-19, orchestrator): 退行確認の対象 `tests/test_api.py` を許可パスに入れていなかった私の不備。追加した。ワーカーが作った 19 個の作業ファイルは逸脱なので規則は緩めず、受入条件に「出力は標準出力で読む、作業ファイルを作らない」を明記した。
 ## T-PH6-110 — out-of-scope change (2026-11-18T21:51:53+09:00)
+
+
 
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job.
 
@@ -546,6 +606,8 @@ outside allowed_paths: ['frontend/src/test-setup.ts']
 **Answer** (2026-11-19, orchestrator): jsdom に `window.matchMedia` が無いため、ダークモードの単体テストにはテスト設定の差し替えが要る。正当な要求で、許可パスに入れていなかったのは私の不備。`frontend/src/test-setup.ts` を追加した。
 ## T-PH6-116 — attempt limit reached (2026-11-18T23:59:49+09:00)
 
+
+
 **Question**: Three attempts did not satisfy the acceptance criteria; the job needs a human decision.
 
 **Context**
@@ -554,6 +616,8 @@ timeout: no reply within 1800s
 
 **Answer** (2026-11-19, orchestrator): 3 回とも中身の失敗ではなく時間切れ。ジョブが大きすぎた見積もりの誤りなので、`::backdrop`・入場アニメーション・`closedby` を別ジョブに切り出して縮めた。
 ## T-PH6-123 — integration branch is dirty (2026-11-19T00:59:31+09:00)
+
+
 
 **Question**: The main checkout has uncommitted changes, so the reviewed commit was not merged. Decide how to integrate it.
 
@@ -574,6 +638,8 @@ commit=03d4bb5adc1ca6953224860f17ff11e3bf46715b
 
 ## T-PH6-116 — worker stopped for a decision (2026-11-19T04:25:56+09:00)
 
+
+
 **Question**: May I extend this job's allowed_paths to include frontend/e2e/a11y.spec.ts and frontend/e2e/workspace.spec.ts so I can update exactly four stale assertions to the migrated native-<dialog> semantics — a11y.spec.ts:349 and :405 (querySelector('[role="dialog"]') → querySelector('dialog, [role="dialog"]'), which the review itself recommended) and workspace.spec.ts:66 and :275 (the single-Tab toBeFocus
 
 **Context**
@@ -588,6 +654,8 @@ needs-owner-decision: May I extend this job's allowed_paths to include frontend/
 
 ## T-PH6-123 — attempt limit reached (2026-11-19T05:04:19+09:00)
 
+
+
 **Question**: Three attempts did not satisfy the acceptance criteria; the job needs a human decision.
 
 **Context**
@@ -597,6 +665,8 @@ the worker changed nothing
 **Answer** (2026-11-19, orchestrator): 試行上限の打ち切りは当たらない。試行 3 の「変更なし」は中身の失敗ではなく、**試行 2 の成果物が `APPROVED` を得て `03d4bb5` としてコミット済み**で受入条件が既に満たされていたため。マージできなかったのは統合ブランチがループ自身の生成物で汚れていたから。承認済みコミットを取り込み `done` とした。検証は私が実行: vitest 130 PASS / appearance 19 件 PASS / pytest 1302 passed。併せて、`enter()` が仮パスワードを変更するため試験用アカウントを使い回せないという既存の欠陥（`T-PH6-124` のマージ時に外観ゲートを回していなかったため見落とした）も直した。詳細は `tasks/T-PH6-123.md`。
 
 ## T-PH6-113 — review cycle limit reached (2026-11-19T12:37:33+09:00)
+
+
 
 **Question**: The reviewer still requires changes at the cycle limit.
 
@@ -613,6 +683,8 @@ UNVERIFIED
 **Answer** (2026-11-19, orchestrator): 残り 1 周を許す（`review_cycles` を 2 → **1**。0 には戻していない）。この 2 周は押し合いではなく収束しており（High 1 + Medium 2 + Low 1 → Medium 1 + Low 1）、直し方まで特定されている欠陥を画面に残す選択は取らない。やることは 2 点だけ: (1) Medium の修正（承諾経路でフォーカスが `body` に落ちる。取り消し経路と揃える）とその性質を固定するテスト、(2) `a11y.spec.ts` を実行して UNVERIFIED を実測で埋める。Low（待機列のジョブが切替後も残り、古いプロジェクトの失敗が新しい画面に書き込まれる）は**本ジョブ以前からある欠陥**なので別票 `T-PH6-126` に移した（320px が外観ゲートで一度も測られていない穴も併記）。受入条件 1〜4 は 1 つも緩めていない。詳細は `tasks/T-PH6-113.md`。
 
 ## T-PH6-113 — reviewer modified the worktree (2026-11-19T21:58:45+09:00)
+
+
 
 **Question**: The read-only reviewer changed files, so its verdict is void. Decide whether to re-review with another model.
 
@@ -632,6 +704,8 @@ reviewer=opencode/nemotron-3.5-lightning-free
 
 ## T-PH6-113 — review cycle limit reached (2026-11-20T00:22:48+09:00)
 
+
+
 **Question**: The reviewer still requires changes at the cycle limit.
 
 **Context**
@@ -639,15 +713,29 @@ reviewer=opencode/nemotron-3.5-lightning-free
 stematic-debugging to analyze the change
 
 Let me verify the key behavioral patterns in the implementation.
+
+**Answer** (2026-11-20, orchestrator): **レビューは通っていた。** レビュアーは
+`**APPROVED**` / `FINDINGS: none` と答えており、承認を読み取る正規表現が
+**太字の `**` を許していなかった**ために「変更が必要」と誤読され、周回上限で止まった。
+コントローラを直した（箇条書き・引用・見出し・強調は許し、後ろに文が続く場合は許さない。
+`NOT APPROVED` や `APPROVED with reservations` は従来どおり変更が必要）。
+誤読で増えた `review_cycles` と `attempts` を戻し、`review` に戻した。
+詳細は `tasks/T-PH6-113.md`。
 ## VERDICT
+
+
 
 **APPROVED**
 
 ## FINDINGS
 
+
+
 - **none** — no material findings. The change is clean and correct.
 
 ## UNVERIFIED
+
+
 
 - Nothing could not be checked. All files in the diff were read and analyzed.
 
@@ -664,3 +752,39 @@ Let me verify the key behavioral patterns in the implementation.
 **4. Test honesty** — The new tests are self-contained and would fail if the implementation regressed (e.g., if `switchRequest` filtering were removed, or the confirmation modal were omitted). No existing tests are weakened or removed.
 
 The diff is byte-identical to what the controller verified (101/101 tests pass, 0 findings in secret-scan/lint/typecheck). No changes to `allowed_paths` are needed — all modified files are under `frontend/`.
+
+## T-PH6-116 — out-of-scope change (2026-11-20T00:39:40+09:00)
+
+
+
+**Question**: The worker needed paths outside allowed_paths; widen the scope or split the job. — 10 path(s) the worker wrote outside its scope: a11y-full.txt, a11y-output.txt, a11y-results.txt, appearance-output.txt, e2e-results.txt, ruff-check.txt…. Decide whether the job's scope was drawn too narrowly, or whether the worker should not have written them.
+
+**Context**
+
+outside allowed_paths: ['a11y-full.txt', 'a11y-output.txt', 'a11y-results.txt', 'appearance-output.txt', 'e2e-results.txt', 'ruff-check.txt', 'ruff-format.txt', 'secret-scan.txt', 'test-output.txt', 'workspace-full.txt']
+
+**Answer** (2026-11-20, orchestrator): スコープは狭くない。10 個はコマンド出力の
+リダイレクト先で、**brief に明記した翌日の違反**（`T-PH6-108` 19 個、`T-PH7-201` 11 個、
+`T-PH7-211` 15 個に続く 4 回目）。**指示では止まらない**と判断し、仕組みで止めた:
+ワークツリー直下の追跡外の `.txt` / `.log` / `.out` で許可パスにも無いものは、
+削除して逸脱として記録し、ジョブは止めない。ディレクトリの中・`.py`・許可パス内は
+従来どおりジョブを止める。10 個は削除し、成果物は残して `review` に戻した。
+前回の裁定（フォーカスの表明を緩めない）は変えていない。詳細は `tasks/T-PH6-116.md`。
+## T-PH6-104 — attempt limit reached (2026-11-20T03:08:39+09:00)
+
+
+
+**Question**: Three attempts did not satisfy the acceptance criteria; the job needs a human decision.
+
+**Context**
+
+unavailable: {"type": "provider.invalid-request", "message": "Upstream request failed: Endpoint is unavailable.", "status": 404, "response": {"body": "{\"error\":{\"type\":\"server_error\",\"message\":\"Upstream request failed: Endpoint is unavailable.\"}}"}}
+
+**Answer** (2026-11-20, orchestrator): 試行は 1 度も使われていない。3 回とも
+`provider.invalid-request / 404 Upstream request failed: Endpoint is unavailable`、
+つまり**無料エンドポイントが落ちていてモデルはジョブを受け取っていない**。
+03:08〜03:16 の 8 分で 5 件が未着手から `attempts 3/3` になった
+（`T-PH6-104` `T-PH7-211` `T-PH7-221` `T-PH7-223` `T-PH8-304`）。
+枠切れを試行に数えないのと同じ理由で供給側の障害も試行ではない。
+`Ending.OUTAGE` を追加し、試行を消費せず冷却して回すようにした。
+5 件すべて試行 0 に戻し `todo` に戻した。受入条件・許可パスは無変更。

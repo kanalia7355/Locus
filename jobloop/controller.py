@@ -96,6 +96,16 @@ def git(repository: Path, *arguments: str, check: bool = True) -> str:
     return result.stdout
 
 
+# A verdict is one line that says only APPROVED. Markdown emphasis is part of
+# how models write a heading answer, and refusing it threw away a real approval:
+# on 2026-11-20 `T-PH6-113`'s reviewer replied `**APPROVED**` with `none` under
+# FINDINGS, the old pattern did not match the asterisks, and the job was blocked
+# at the review cycle limit as though changes were still required.
+# Leading bullets and quote marks are allowed; trailing prose is not, so
+# "NOT APPROVED" or "APPROVED with reservations" still counts as changes.
+APPROVAL = re.compile(r"^[\s>#*_`-]*APPROVED[\s*_`.]*$", re.MULTILINE)
+
+
 def placeholder(text: str) -> str | bool:
     """True when a reported question is the brief's own placeholder, not a question."""
     stripped = text.strip()
@@ -416,9 +426,12 @@ class Controller:
                 "verified for this attempt.",
             )
         if result.rotate:
-            # Usage exhaustion is not a failed attempt (PROTOCOL §5.4).
+            # Neither usage exhaustion (PROTOCOL §5.4) nor a provider outage is a
+            # failed attempt: in both the model never received the job. Keeping
+            # the two apart matters only in what the record says — the model is
+            # put on cooldown either way, and the job keeps its attempt.
             self.roster.mark_exhausted(model)
-            return Outcome(task.id, "rotated", f"{model} is out of usage", model=model)
+            return Outcome(task.id, "rotated", f"{model} {result.why_rotate}", model=model)
         task = self.set_fields(task, status="doing", assignee="opencode", model=model)
         if result.ending is not worker.Ending.COMPLETED:
             return self.failed_attempt(
@@ -440,6 +453,23 @@ class Controller:
                 task, model, f"the worker echoed the status template: {question[:120]}"
             )
         names = gates.changed_files(tree)
+        dropped = set(gates.litter(names, task.allowed_paths)) & self.untracked(tree)
+        if dropped:
+            self.discard(tree, dropped)
+            names = [name for name in names if name not in dropped]
+            self.record(
+                task,
+                f"WORKER LITTER REMOVED ({self.now()})",
+                f"`{model}` redirected command output into "
+                f"{len(dropped)} file(s) at the worktree root instead of reading it: "
+                f"{', '.join(sorted(dropped))}.\n"
+                "The brief forbids this in so many words and the files were outside "
+                "`allowed_paths`, so this is a deviation, not a scope that was drawn too "
+                "narrowly. It is recorded here rather than stopping the job, because the "
+                "instruction has not taken with these models and six jobs have now been "
+                "lost to it. Nothing inside `allowed_paths` was touched, and no scope or "
+                "acceptance criterion was changed.",
+            )
         if not names:
             return self.failed_attempt(task, model, "the worker changed nothing")
         checks = [gates.within_scope(names, task.allowed_paths)]
@@ -534,6 +564,11 @@ class Controller:
         )
         failed = [gate for gate in checks if not gate.green]
         if failed:
+            # Hand it back for a real attempt. Leaving it in `review` would make
+            # the next cycle resume it again, re-running the same failing gates
+            # for ever without ever spending an attempt — a resume is a free
+            # re-check, not a second way to be stuck.
+            self.set_fields(task, status="doing")
             return Outcome(
                 task.id,
                 "gates-failed",
@@ -618,7 +653,10 @@ class Controller:
         )
         if verdict.rotate:
             self.roster.mark_exhausted(reviewer)
-            return Outcome(task.id, "rotated", f"{reviewer} is out of usage", model=model), None
+            return (
+                Outcome(task.id, "rotated", f"{reviewer} {verdict.why_rotate}", model=model),
+                None,
+            )
         if self.fingerprint(tree) != before:
             stray = self.untracked(tree) - untracked
             self.discard(tree, stray)
@@ -667,7 +705,7 @@ class Controller:
             f"REVIEW by {reviewer} ({self.now()})",
             verdict.text.strip()[:6000],
         )
-        approved = bool(re.search(r"^\s*-?\s*`?APPROVED`?\s*$", verdict.text, re.MULTILINE))
+        approved = bool(APPROVAL.search(verdict.text))
         if not approved:
             cycles = int(task.fields.get("review_cycles", "0")) + 1
             task = self.set_fields(
