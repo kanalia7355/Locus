@@ -575,6 +575,22 @@ def test_a_commit_in_the_main_checkout_is_not_mistaken_for_an_escape(tmp_path: P
     (repository / "escaped.py").write_text("x = 1", encoding="utf-8")
     assert Controller.dirt(repository) != before_dirt
 
+    # Containment is judged on what *appeared*. The operator committing
+    # mid-dispatch makes its own uncommitted work vanish, and comparing whole
+    # strings called that an escape too: `T-PH7-201` was blamed at 05:56 on
+    # 2026-11-22 for exactly that, with `appeared:` empty in its own record.
+    def appeared(before: str, now: str) -> list[str]:
+        return sorted(set(now.splitlines()) - set(before.splitlines()))
+
+    dirty = Controller.dirt(repository)
+    git(repository, "add", "-A")
+    git(repository, "commit", "-m", "the operator commits its ruling")
+    cleaned = Controller.dirt(repository)
+    assert cleaned != dirty, "the dirt really did change"
+    assert appeared(dirty, cleaned) == [], "nothing appeared, so nobody escaped"
+    (repository / "escaped-again.py").write_text("x = 2", encoding="utf-8")
+    assert appeared(cleaned, Controller.dirt(repository)) != [], "and a real escape still shows"
+
 
 def test_a_job_left_in_review_is_picked_up_again(tmp_path: Path) -> None:
     # Review is not a resting state. A run that ends mid-review leaves the job

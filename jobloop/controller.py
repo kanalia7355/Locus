@@ -540,14 +540,16 @@ class Controller:
         outside = self.dirt(self.settings.repository)
         result = self.dispatch(model, brief, cwd=tree, timeout=self.settings.worker_timeout)
         after = self.dirt(self.settings.repository)
-        if after != outside and not self.operator_busy():
-            # Say what changed and whether the marker was seen. On 2026-11-22
-            # `T-PH7-201` was blamed during a window when the marker was in
-            # place, and the record said nothing that could settle whether the
-            # marker was missed or the comparison was right — so the next
-            # reader had to guess. A containment accusation has to carry its
-            # own evidence.
-            moved = sorted(set(after.splitlines()) - set(outside.splitlines()))
+        # Judge on what *appeared*, not on inequality. An escaping worker leaves
+        # new uncommitted paths behind; nothing a worker does makes the
+        # operator's own pre-existing mess disappear. Comparing the whole string
+        # made the opposite direction an accusation too: on 2026-11-22
+        # `T-PH7-201` was blamed at 05:56 because the orchestrator *committed*
+        # mid-dispatch, so the dirt it had been carrying went away. The evidence
+        # added an hour earlier is what settled it — the record said
+        # `appeared:` and then nothing at all.
+        moved = sorted(set(after.splitlines()) - set(outside.splitlines()))
+        if moved and not self.operator_busy():
             return self.escalate(
                 task,
                 "worker wrote outside its workspace",

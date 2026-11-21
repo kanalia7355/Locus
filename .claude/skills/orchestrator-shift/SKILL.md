@@ -87,9 +87,12 @@ each line is a mistake already made.
   files (`pytest_out.txt`, `check_select3.py`) is scratch and is swept
   automatically. A module the change *imports* is real work, and means **your
   scope was drawn too narrowly** — that is your error to fix in the open.
-- **"worker wrote outside its workspace"** — check whether *you* were writing to
-  the main checkout during the dispatch. Four of these were yours, not the
-  worker's.
+- **"worker wrote outside its workspace"** — check whether *you* were touching
+  the main checkout during the dispatch. Five of these were yours, not the
+  worker's, and one was caused by **committing**: the dirt the shift had been
+  carrying disappeared, and the comparison read any change as an escape. It now
+  judges only on what *appeared*, and the stop record carries the marker state
+  and the appeared lines. Read those two before forming a view.
 - **A worker reporting that its own files are missing** — believe it and check.
   On 2026-11-21 that report was true and the controller was at fault: a
   workspace refresh had reset away five committed, reviewed changes. The
