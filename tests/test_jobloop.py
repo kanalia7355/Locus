@@ -1167,6 +1167,27 @@ def test_a_reviewer_that_cannot_be_run_is_passed_over_not_retried_for_ever(
     assert outcome.state == "changes-required", "and that review is the one that counts"
     assert "broken-free" not in controller.roster.available(), "put on cooldown, not re-picked"
 
+    # And when every model is only unreachable, the job waits — it is not
+    # accused of something it did not do. Folding "could not be run" into the
+    # same list as "wrote to the worktree" made the escalation say
+    # `ollama/gemma3:4b` had written to the worktree when it had only ever
+    # answered `unavailable` (seen 2026-11-22 08:32 on `T-PH6-104`).
+    phase_with_task(tmp_path / "all-broken")
+    alone = controller_for(tmp_path / "all-broken", ["a-free", "b-free"])
+    alone.dispatch = lambda model, prompt, **_: worker.Result(  # type: ignore[assignment]
+        worker.Ending.UNAVAILABLE, "", model, ["cannot route"]
+    )
+    waiting = alone.select()
+    assert waiting is not None
+    second = tmp_path / "ws2"
+    second.mkdir(parents=True, exist_ok=True)
+    result = alone.review(waiting, reviewable_worktree(second), "a-free", [])
+    assert result.state == "no-reviewer", result.detail
+    assert not (alone.settings.phase_directory / "OWNER_DECISIONS.md").exists()
+    body = waiting.path.read_text(encoding="utf-8")
+    assert "WAITING FOR A REVIEWER" in body
+    assert "wrote to the worktree" not in body, "no model is blamed for that here"
+
 
 def test_an_implementer_that_cannot_be_run_keeps_its_attempt(tmp_path: Path) -> None:
     phase_with_task(tmp_path)

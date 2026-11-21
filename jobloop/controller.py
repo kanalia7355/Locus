@@ -760,12 +760,29 @@ class Controller:
     # --- review --------------------------------------------------------------
 
     def review(self, task: Task, tree: Path, model: str, checks: list[gates.Gate]) -> Outcome:
+        # Two reasons to move on, kept apart on purpose. A model that broke the
+        # read-only rule is a person's problem; one the CLI could not run at all
+        # is a wait. Folding them into one list made the escalation say "wrote to
+        # the worktree instead of replying" about `ollama/gemma3:4b`, which had
+        # only ever answered `unavailable` — the record accusing a model of
+        # something it did not do (seen 2026-11-22 08:32 on `T-PH6-104`).
         refused: tuple[str, ...] = ()
+        unreachable: tuple[str, ...] = ()
         while True:
-            outcome, again = self.review_once(task, tree, model, checks, refused=refused)
+            outcome, again = self.review_once(
+                task,
+                tree,
+                model,
+                checks,
+                refused=refused + unreachable,
+                broke_the_rule=refused,
+            )
             if again is None:
                 return outcome
-            refused += (again,)
+            if outcome.state == "review-unavailable":
+                unreachable += (again,)
+            else:
+                refused += (again,)
             task = self.reread(task)
 
     def review_once(
@@ -776,19 +793,25 @@ class Controller:
         checks: list[gates.Gate],
         *,
         refused: tuple[str, ...] = (),
+        broke_the_rule: tuple[str, ...] = (),
     ) -> tuple[Outcome, str | None]:
-        """One review pass. The second element names a reviewer to try after, if any."""
+        """One review pass. The second element names a reviewer to try after, if any.
+
+        `refused` is every model already tried, for any reason; `broke_the_rule`
+        is the subset that wrote to the worktree. Only the second is a question
+        for a person — the rest is a wait.
+        """
         reviewer = self.roster.pick(exclude=(model, *refused))
         if not reviewer:
-            if refused:
+            if broke_the_rule:
                 # Every model was tried and each broke the read-only rule. That
                 # is a person's call: the models are reachable and still unusable.
                 return (
                     self.escalate(
                         task,
                         "no independent reviewer available",
-                        "Every other free model wrote to the worktree instead of replying, "
-                        f"so no verdict stands ({', '.join(refused)}). "
+                        "Every free model that could be run wrote to the worktree instead of "
+                        f"replying, so no verdict stands ({', '.join(broke_the_rule)}). "
                         "Decide whether to wait for usage to reset.",
                         f"implementer={model}",
                     ),

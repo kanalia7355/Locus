@@ -1334,3 +1334,11 @@ workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-116
 implementer=opencode/nemotron-3.5-lightning-free
 
 **Answer** (2026-11-22, orchestrator): **判断ではなく待ちだった。** 実測で `available models: none` — 無料モデルが全部冷却中で、冷却は時間で明ける。人が決めることは何も無い。前のシフトの「走らせられないモデルを冷却して次へ回す」は正しく働き、尽きたところで止まった — **止まり方だけが間違っていた**。`blocked` は人を呼ぶ状態で、自分で明ける条件に使うべきではない（4 件が同時に落ちた）。レビュアーが取れないときはエスカレートせず `review` のまま `WAITING FOR A REVIEWER` を記録し、次のサイクルに任せるようにした（`stranded()` が拾うので試行は消費しない）。レビューは行われず、何も承認せず、何もマージしない点は変えていない。全モデルが読み取り専用の規則を破った場合は従来どおり人に聞く。詳細は各 task ファイル。
+
+## T-PH6-104 — no independent reviewer available (2026-11-22T08:32:06+09:00)
+
+**Question**: Every other free model wrote to the worktree instead of replying, so no verdict stands (ollama/gemma3:4b). Decide whether to wait for usage to reset.
+
+**Context**
+
+implementer=opencode/nemotron-3.5-lightning-free
