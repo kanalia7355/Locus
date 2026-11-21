@@ -589,6 +589,23 @@ def test_a_job_left_in_review_is_picked_up_again(tmp_path: Path) -> None:
     (controller.settings.workspace_root / "T-JOB-1").mkdir(parents=True)
     assert [task.id for task in controller.stranded()] == ["T-JOB-1"]
 
+    # A spent attempt budget must not hide it. Requiring `attempts < 3` here made
+    # `review` plus `attempts 3/3` an invisible state, and three jobs sat in it
+    # with finished work: `T-PH6-104`, `T-PH8-303`, `T-PH8-302`. A resume spends
+    # no attempt, so the limit has nothing to say about it.
+    spent = phase_with_task(
+        tmp_path / "spent",
+        TASK.replace("status: todo", "status: review").replace("attempts: 0", "attempts: 3"),
+    )
+    other = Controller(
+        Settings(repository=tmp_path / "spent", phase="phase-test", python="python"),
+        Roster(models=["a-free"], state_file=tmp_path / "spent" / "r.json", now=0.0),
+        clock=lambda: 0.0,
+    )
+    (other.settings.workspace_root / "T-JOB-1").mkdir(parents=True)
+    assert not tasks.load_phase(spent).tasks[0].actionable, "no new attempt is allowed"
+    assert [task.id for task in other.stranded()] == ["T-JOB-1"], "but the review still finishes"
+
 
 def test_a_job_naming_the_main_checkout_is_never_dispatched(tmp_path: Path) -> None:
     # Sanitising the brief is not enough: the worker opens its own job file.

@@ -539,13 +539,24 @@ class Controller:
         # blocked on 2026-11-17 when the operator committed mid-run.
         outside = self.dirt(self.settings.repository)
         result = self.dispatch(model, brief, cwd=tree, timeout=self.settings.worker_timeout)
-        if self.dirt(self.settings.repository) != outside and not self.operator_busy():
+        after = self.dirt(self.settings.repository)
+        if after != outside and not self.operator_busy():
+            # Say what changed and whether the marker was seen. On 2026-11-22
+            # `T-PH7-201` was blamed during a window when the marker was in
+            # place, and the record said nothing that could settle whether the
+            # marker was missed or the comparison was right — so the next
+            # reader had to guess. A containment accusation has to carry its
+            # own evidence.
+            moved = sorted(set(after.splitlines()) - set(outside.splitlines()))
             return self.escalate(
                 task,
                 "worker wrote outside its workspace",
                 "The main checkout changed while the job ran, so this work is unreviewable. "
                 "Inspect and restore the checkout before the job is retried.",
-                f"model={model}\nworkspace={tree}",
+                f"model={model}\nworkspace={tree}\n"
+                f"marker={self.settings.state_directory / 'orchestrator-busy'} "
+                f"present={self.operator_busy()}\n"
+                f"appeared:\n" + "\n".join(moved[:25]),
             )
         if self.operator_busy():
             self.record(
@@ -1036,13 +1047,18 @@ class Controller:
         Review is not a resting state: the cycle either approves and merges or
         comes back for changes. A run that ends mid-review leaves the job there
         with no way back into the queue.
+
+        The attempt limit does not gate this, because a resume spends no attempt.
+        It used to, and that made `review` plus `attempts 3/3` an invisible
+        state: `T-PH6-104`, `T-PH8-303` and then `T-PH8-302` each sat in it with
+        finished work nobody would ever look at again. Resuming is still
+        bounded — if the gates fail, the job goes back to `doing`, and *there*
+        the attempt limit stops it.
         """
         return [
             task
             for task in self.jobs()
-            if task.status == "review"
-            and task.attempts < ATTEMPT_LIMIT
-            and (self.settings.workspace_root / task.id).is_dir()
+            if task.status == "review" and (self.settings.workspace_root / task.id).is_dir()
         ]
 
     def run(self, *, minutes: float, max_jobs: int = 20) -> list[Outcome]:
