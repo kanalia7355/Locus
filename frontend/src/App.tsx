@@ -221,7 +221,10 @@ function ScopePicker({
         const top = chip.top - height - 8;
         const left = Math.min(
           Math.max(chip.left, 8),
-          Math.max(8, window.innerWidth - list.getBoundingClientRect().width - 8),
+          Math.max(
+            8,
+            window.innerWidth - list.getBoundingClientRect().width - 8,
+          ),
         );
         list.style.top = `${top >= 8 ? top : chip.bottom + 8}px`;
         list.style.left = `${left}px`;
@@ -364,7 +367,11 @@ function ScopePicker({
           >
             <span>{option.label}</span>
             {option.value === value && (
-              <Check size={14} aria-hidden="true" className="scope-option-check" />
+              <Check
+                size={14}
+                aria-hidden="true"
+                className="scope-option-check"
+              />
             )}
           </li>
         ))}
@@ -431,9 +438,7 @@ function AccessForm({
   }
   return (
     <main className="access">
-      <div className="access-brand">
-        Locus
-      </div>
+      <div className="access-brand">Locus</div>
       <form onSubmit={submit} className="access-form" ref={attachForm}>
         <p className="eyebrow">ローカル検証環境 · 合成データ専用</p>
         <h1>{rotate ? "仮パスワードの変更" : "ログイン"}</h1>
@@ -796,16 +801,11 @@ function Workspace({
   }, [page, projectId, documents]);
 
   useEffect(() => {
-    if (
-      !attachments.some((item) => ingesting(item.status))
-    )
-      return;
+    if (!attachments.some((item) => ingesting(item.status))) return;
     const timer = setInterval(() => {
       void Promise.all(
         attachments
-          .filter(
-            (item) => item.id && ingesting(item.status),
-          )
+          .filter((item) => item.id && ingesting(item.status))
           .map(async (item) => {
             const doc = await api<Document>(
               `/documents/${item.id}?conversation_id=${conversationRef.current ?? ""}`,
@@ -831,6 +831,9 @@ function Workspace({
   pendingJobIdRef.current = pendingJobId ?? null;
   useEffect(() => {
     if (!pendingJobId || !pendingConversation || !pendingText) return;
+    // Only poll for jobs belonging to the current conversation.
+    // This prevents job state from carrying over when switching projects.
+    if (pendingConversation !== conversationRef.current) return;
     // A streamed dialogue reports its own progress and outcome over SSE.
     if (pendingStreaming) return;
     const job = {
@@ -1085,7 +1088,9 @@ function Workspace({
             streaming: true,
           });
         } else if (part.event === "delta") {
-          setStreamedAnswer((current) => current + String(part.data.text ?? ""));
+          setStreamedAnswer(
+            (current) => current + String(part.data.text ?? ""),
+          );
         } else if (part.event === "message") {
           setMessages((items) => [...items, part.data as unknown as Message]);
           streamed = true;
@@ -1289,6 +1294,7 @@ function Workspace({
             activeProject.current = e.target.value;
             libraryRequest.current++;
             newChat();
+            setPendingJob(null);
             setProjectId(e.target.value);
             setDocuments([]);
             setHistory([]);
@@ -1607,7 +1613,11 @@ function Workspace({
                     event.target.value = "";
                   }}
                 />
-                <ScopePicker value={scope} disabled={busy} onChange={setScope} />
+                <ScopePicker
+                  value={scope}
+                  disabled={busy}
+                  onChange={setScope}
+                />
                 <span className="send-state" role="status">
                   {busy ? "処理中…" : pendingJob ? "順番待ちあり" : ""}
                 </span>

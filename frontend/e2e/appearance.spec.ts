@@ -16,6 +16,7 @@ const WIDTHS = [
   { name: "desktop", width: 1280, height: 820 },
   { name: "tablet", width: 768, height: 900 },
   { name: "phone", width: 360, height: 740 },
+  { name: "phone-narrow", width: 320, height: 740 },
 ];
 
 // The owner settled this on 2026-11-17: no emoji anywhere in the product.
@@ -132,7 +133,9 @@ test("every enabled control on the one-time password screen works", async ({
   await expect(page.getByText(/できませんでした/)).toHaveCount(0);
 });
 
-test("login: no field reports aria-invalid=true straight after the page loads", async ({ page }) => {
+test("login: no field reports aria-invalid=true straight after the page loads", async ({
+  page,
+}) => {
   // Limitation of this check: test:appearance only runs chromium (see
   // playwright.config.ts), so it cannot observe Firefox/Safari publishing an
   // empty required control as invalid from load. It pins the explicit
@@ -148,25 +151,36 @@ test("login: no field reports aria-invalid=true straight after the page loads", 
   }
 });
 
-test("login: submitting an empty form shows the field errors and focuses the first field", async ({ page }) => {
+test("login: submitting an empty form shows the field errors and focuses the first field", async ({
+  page,
+}) => {
   // Measured 2026-11-19: before this job the empty submit was swallowed by
   // native validation with nothing rendered and no coded focus move.
   await page.setViewportSize(WIDTHS[0]);
   await page.goto("/");
   await page.getByRole("button", { name: "ログイン", exact: true }).click();
   await expect(page.locator("#access-username-error")).toBeVisible();
-  await expect(page.locator("#access-username-error")).toContainText("利用者ID");
+  await expect(page.locator("#access-username-error")).toContainText(
+    "利用者ID",
+  );
   await expect(page.locator("#access-password-error")).toBeVisible();
-  await expect(page.locator("#access-password-error")).toContainText("パスワード");
+  await expect(page.locator("#access-password-error")).toContainText(
+    "パスワード",
+  );
   await expect(page.getByLabel("利用者ID")).toBeFocused();
-  await expect(page.getByLabel("利用者ID")).toHaveAttribute("aria-invalid", "true");
+  await expect(page.getByLabel("利用者ID")).toHaveAttribute(
+    "aria-invalid",
+    "true",
+  );
   await expect(page.getByLabel("利用者ID")).toHaveAttribute(
     "aria-describedby",
     "access-username-error",
   );
 });
 
-test("login: the field error state does not scroll sideways at any supported width", async ({ page }) => {
+test("login: the field error state does not scroll sideways at any supported width", async ({
+  page,
+}) => {
   await page.setViewportSize(WIDTHS[0]);
   await page.goto("/");
   await page.getByRole("button", { name: "ログイン", exact: true }).click();
@@ -177,7 +191,10 @@ test("login: the field error state does not scroll sideways at any supported wid
       const root = document.scrollingElement ?? document.documentElement;
       return root.scrollWidth - root.clientWidth;
     });
-    expect(overflow, `${size.name} scrolls sideways by ${overflow}px`).toBeLessThanOrEqual(1);
+    expect(
+      overflow,
+      `${size.name} scrolls sideways by ${overflow}px`,
+    ).toBeLessThanOrEqual(1);
   }
 });
 
@@ -192,7 +209,10 @@ test("no screen scrolls sideways at any supported width", async ({ page }) => {
       const root = document.scrollingElement ?? document.documentElement;
       return root.scrollWidth - root.clientWidth;
     });
-    expect(overflow, `${size.name} scrolls sideways by ${overflow}px`).toBeLessThanOrEqual(1);
+    expect(
+      overflow,
+      `${size.name} scrolls sideways by ${overflow}px`,
+    ).toBeLessThanOrEqual(1);
   }
 });
 
@@ -209,7 +229,9 @@ test("nothing is rendered off the right edge", async ({ page }) => {
         return box.width > 0 && box.height > 0 && box.right > limit;
       })
       .slice(0, 5)
-      .map((node) => `${node.tagName.toLowerCase()}.${node.className}`.slice(0, 80));
+      .map((node) =>
+        `${node.tagName.toLowerCase()}.${node.className}`.slice(0, 80),
+      );
   });
   expect(escaping, "elements past the right edge").toEqual([]);
 });
@@ -223,7 +245,10 @@ test("the screens render without a console or page error", async ({ page }) => {
     // matching on "console error" alone would fail forever and teach everyone
     // to ignore this check. Only faults thrown by our own code count.
     const text = message.text();
-    if (message.type() === "error" && !text.startsWith("Failed to load resource")) {
+    if (
+      message.type() === "error" &&
+      !text.startsWith("Failed to load resource")
+    ) {
       problems.push(`console: ${text}`);
     }
   });
@@ -269,21 +294,23 @@ test("every icon-only control says what it does", async ({ page }) => {
   expect(nameless, "buttons with no accessible name").toEqual([]);
 });
 
-test(
-  "the top bar stays put while the conversation scrolls",
-  async ({ page }) => {
-    // Measured 2026-11-17: the whole document scrolled, so the product name,
-    // project switcher and sign-out left the screen. The shell is pinned to the
-    // viewport now, so the page must not move when the content scrolls.
-    await page.setViewportSize(WIDTHS[0]);
-    await enter(page, 6);
-    await askSomething(page);
-    await page.mouse.wheel(0, 1200);
-    await page.waitForTimeout(400);
-    const bar = await page.locator("header, .topbar").first().boundingBox();
-    expect(bar?.y ?? -1, "top bar scrolled off the screen").toBeGreaterThanOrEqual(0);
-  },
-);
+test("the top bar stays put while the conversation scrolls", async ({
+  page,
+}) => {
+  // Measured 2026-11-17: the whole document scrolled, so the product name,
+  // project switcher and sign-out left the screen. The shell is pinned to the
+  // viewport now, so the page must not move when the content scrolls.
+  await page.setViewportSize(WIDTHS[0]);
+  await enter(page, 6);
+  await askSomething(page);
+  await page.mouse.wheel(0, 1200);
+  await page.waitForTimeout(400);
+  const bar = await page.locator("header, .topbar").first().boundingBox();
+  expect(
+    bar?.y ?? -1,
+    "top bar scrolled off the screen",
+  ).toBeGreaterThanOrEqual(0);
+});
 
 test("the message box stays reachable", async ({ page }) => {
   // One exchange is not enough to prove it: the page has to be tall enough that
@@ -291,7 +318,9 @@ test("the message box stays reachable", async ({ page }) => {
   await page.setViewportSize(WIDTHS[0]);
   await enter(page, 8);
   for (let turn = 0; turn < 3; turn++) await askSomething(page);
-  await page.evaluate(() => (document.scrollingElement ?? document.body).scrollTo(0, 0));
+  await page.evaluate(() =>
+    (document.scrollingElement ?? document.body).scrollTo(0, 0),
+  );
   await page.waitForTimeout(400);
   await expect(
     page.getByRole("textbox", { name: "メッセージ", exact: true }),
@@ -482,10 +511,9 @@ test.describe("color-scheme in a dark browser context", () => {
     const background = await page.evaluate(
       () => getComputedStyle(document.documentElement).backgroundColor,
     );
-    expect(
-      background,
-      "the page painted with the light paper token",
-    ).not.toBe("rgb(255, 255, 255)");
+    expect(background, "the page painted with the light paper token").not.toBe(
+      "rgb(255, 255, 255)",
+    );
   });
 });
 
@@ -507,7 +535,10 @@ test("the scope popup dismisses on an outside click and is not covered", async (
     .getByLabel("パスワード", { exact: true })
     .fill("Changed-synthetic-password-01!");
   await page.getByRole("button", { name: "ログイン", exact: true }).click();
-  const textbox = page.getByRole("textbox", { name: "メッセージ", exact: true });
+  const textbox = page.getByRole("textbox", {
+    name: "メッセージ",
+    exact: true,
+  });
   await expect(textbox).toBeVisible();
 
   const chip = page.getByRole("button", { name: "参照範囲" });
@@ -596,10 +627,12 @@ test("a dark choice is dark from the first paint after reload", async ({
       scheme: getComputedStyle(document.documentElement).colorScheme,
     };
   });
-  expect(measured.meta, "the inline script did not write the stored choice into <meta>").toBe(
-    "dark",
-  );
-  expect(measured.scheme, "color-scheme when the first paint was requested").toBe(
-    "dark",
-  );
+  expect(
+    measured.meta,
+    "the inline script did not write the stored choice into <meta>",
+  ).toBe("dark");
+  expect(
+    measured.scheme,
+    "color-scheme when the first paint was requested",
+  ).toBe("dark");
 });
