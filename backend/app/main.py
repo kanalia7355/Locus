@@ -772,6 +772,14 @@ def create_app(
     def set_user_enabled(user_id: str, data: AccountEnabled, request: Request) -> dict[str, Any]:
         return svc.set_user_enabled(request.cookies.get(COOKIE), user_id, data.enabled)
 
+    @app.put("/api/admin/users/{user_id}/unlock")
+    def admin_unlock_user(user_id: str, request: Request) -> dict[str, str]:
+        svc.unlock(
+            user_id,
+            actor=svc.authenticate(request.cookies.get(COOKIE)),
+        )
+        return {"result": "unlocked"}
+
     @app.get("/api/admin/users")
     def users(user: Actor) -> list[dict[str, Any]]:
         return svc.users(user)
