@@ -1,4 +1,10 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 
@@ -25,13 +31,11 @@ Element.prototype.matches = function matchesWithUserInvalid(
   selector: string,
 ): boolean {
   if (selector === ":user-invalid") {
-    if (
-      !(
-        this instanceof HTMLInputElement ||
-        this instanceof HTMLTextAreaElement ||
-        this instanceof HTMLSelectElement
-      )
-    )
+    if (!(
+      this instanceof HTMLInputElement ||
+      this instanceof HTMLTextAreaElement ||
+      this instanceof HTMLSelectElement
+    ))
       return false;
     // validity.valid, not checkValidity(): checkValidity() fires an
     // invalid event, which would re-enter this shim infinitely.
@@ -92,10 +96,13 @@ describe("approved chat interaction baseline", () => {
     const originalFetch = vi.mocked(fetch).getMockImplementation()!;
     vi.mocked(fetch).mockImplementation(async (input, options) => {
       if (String(input).endsWith("/messages") && options?.method === "POST")
-        return new Response(JSON.stringify({ job_id: "job-1", status: "queued", text: "成膜" }), {
-          status: 202,
-          headers: { "Content-Type": "application/json" },
-        });
+        return new Response(
+          JSON.stringify({ job_id: "job-1", status: "queued", text: "成膜" }),
+          {
+            status: 202,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
       return originalFetch(input, options);
     });
     render(<App />);
@@ -103,7 +110,9 @@ describe("approved chat interaction baseline", () => {
     await waitFor(() => expect(field).toBeEnabled());
     fireEvent.change(field, { target: { value: "成膜" } });
     fireEvent.click(screen.getByRole("button", { name: "送信" }));
-    expect(await screen.findByText(/待ち位置は混雑により変動します/)).toBeVisible();
+    expect(
+      await screen.findByText(/待ち位置は混雑により変動します/),
+    ).toBeVisible();
   });
   it("renders a streamed answer while it arrives and keeps the committed message", async () => {
     let release: () => void = () => {};
@@ -123,10 +132,16 @@ data: ${JSON.stringify(data)}
         const encoder = new TextEncoder();
         const body = new ReadableStream({
           async start(controller) {
-            controller.enqueue(encoder.encode(frame("start", { job_id: "job-1" })));
-            controller.enqueue(encoder.encode(frame("delta", { text: "成膜条件は" })));
+            controller.enqueue(
+              encoder.encode(frame("start", { job_id: "job-1" })),
+            );
+            controller.enqueue(
+              encoder.encode(frame("delta", { text: "成膜条件は" })),
+            );
             await gate;
-            controller.enqueue(encoder.encode(frame("delta", { text: "180°Cです" })));
+            controller.enqueue(
+              encoder.encode(frame("delta", { text: "180°Cです" })),
+            );
             controller.enqueue(
               encoder.encode(
                 frame("message", {
@@ -156,7 +171,9 @@ data: ${JSON.stringify(data)}
     fireEvent.click(screen.getByRole("button", { name: "送信" }));
     // The first fragment is visible before the answer is committed.
     expect(await screen.findByText("成膜条件は")).toBeVisible();
-    expect(screen.getByRole("button", { name: "この質問を取り消す" })).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "この質問を取り消す" }),
+    ).toBeVisible();
     release();
     expect(await screen.findByText("成膜条件は180°Cです")).toBeVisible();
     await waitFor(() =>
@@ -220,7 +237,9 @@ data: ${JSON.stringify(data)}
       if (path.endsWith("/messages/stream")) {
         requests.push({ path, options });
         return new Response(
-          JSON.stringify({ detail: "逐次表示は利用できません。通常の送信に切り替えます" }),
+          JSON.stringify({
+            detail: "逐次表示は利用できません。通常の送信に切り替えます",
+          }),
           { status: 409, headers: { "Content-Type": "application/json" } },
         );
       }
@@ -408,7 +427,9 @@ data: ${JSON.stringify(data)}
 
     expect(await screen.findByText(/\| 項目 \| 条件A \|/)).toBeInTheDocument();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "資料に見つかった記述" })).toBeVisible();
+    expect(
+      screen.getByRole("heading", { name: "資料に見つかった記述" }),
+    ).toBeVisible();
   });
 
   it("keeps a draft when a file is rejected and allows individual removal", async () => {
@@ -919,12 +940,14 @@ describe("composer scope picker and fixed composer", () => {
     expect(chip).toHaveTextContent("共有資料");
     expect(chip).toHaveFocus();
     fireEvent.click(chip);
-    expect(
-      screen.getByRole("option", { name: "共有資料" }),
-    ).toHaveAttribute("aria-selected", "true");
-    expect(
-      screen.getByRole("option", { name: "個人資料" }),
-    ).toHaveAttribute("aria-selected", "false");
+    expect(screen.getByRole("option", { name: "共有資料" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByRole("option", { name: "個人資料" })).toHaveAttribute(
+      "aria-selected",
+      "false",
+    );
   });
 
   it("moves with the arrow keys, commits with Enter and closes with Escape", async () => {
@@ -1003,3 +1026,224 @@ describe("composer scope picker and fixed composer", () => {
     }
   });
 });
+
+describe("project switch with pending job", () => {
+  it("does not leave 待ち位置 after switching projects when job is queued", async () => {
+    const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (input, options) => {
+      const path = String(input);
+      requests.push({ path, options });
+      if (path.endsWith("/messages") && options?.method === "POST") {
+        return new Response(
+          JSON.stringify({ job_id: "job-1", status: "queued", text: "成膜" }),
+          { status: 202, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (path.endsWith("/projects")) {
+        return new Response(
+          JSON.stringify([
+            {
+              id: "project-A",
+              org_id: "org",
+              name: "プロジェクトA",
+              role: "researcher",
+              permissions: ["read", "retrieve", "upload"],
+            },
+            {
+              id: "project-B",
+              org_id: "org",
+              name: "プロジェクトB",
+              role: "researcher",
+              permissions: ["read", "retrieve", "upload"],
+            },
+          ]),
+        );
+      }
+      return originalFetch(input, options);
+    });
+
+    render(<App />);
+    // Send a message to queue a job
+    const field = await screen.findByRole("textbox", { name: "メッセージ" });
+    await waitFor(() => expect(field).toBeEnabled());
+    fireEvent.change(field, { target: { value: "テスト質問" } });
+    fireEvent.click(screen.getByRole("button", { name: "送信" }));
+    await screen.findByText("順番待ちあり");
+
+    // Switch to project-B (simulating project switch)
+    const projectSelect = screen.getByRole("combobox");
+    fireEvent.change(projectSelect, { target: { value: "project-B" } });
+
+    // After switch, "順番待ちあり" should NOT remain
+    await waitFor(() =>
+      expect(screen.queryByText("順番待ちあり")).not.toBeInTheDocument(),
+    );
+  });
+
+  it("does not show old job failure after switching projects", async () => {
+    const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (input, options) => {
+      const path = String(input);
+      requests.push({ path, options });
+      if (path.endsWith("/messages") && options?.method === "POST") {
+        return new Response(
+          JSON.stringify({ job_id: "job-1", status: "queued", text: "成膜" }),
+          { status: 202, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (path.endsWith("/projects")) {
+        return new Response(
+          JSON.stringify([
+            {
+              id: "project-A",
+              org_id: "org",
+              name: "プロジェクトA",
+              role: "researcher",
+              permissions: ["read", "retrieve", "upload"],
+            },
+            {
+              id: "project-B",
+              org_id: "org",
+              name: "プロジェクトB",
+              role: "researcher",
+              permissions: ["read", "retrieve", "upload"],
+            },
+          ]),
+        );
+      }
+      if (path.endsWith("/chat-jobs/job-1")) {
+        return new Response(
+          JSON.stringify({
+            id: "job-1",
+            status: "failed",
+            detail: "モデルエラー",
+            conversation_id: "conv-A",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return originalFetch(input, options);
+    });
+
+    render(<App />);
+    // Send a message to queue a job
+    const field = await screen.findByRole("textbox", { name: "メッセージ" });
+    await waitFor(() => expect(field).toBeEnabled());
+    fireEvent.change(field, { target: { value: "テスト質問" } });
+    fireEvent.click(screen.getByRole("button", { name: "送信" }));
+    await screen.findByText("順番待ちあり");
+
+    // Switch to project-B
+    const projectSelect = screen.getByRole("combobox");
+    fireEvent.change(projectSelect, { target: { value: "project-B" } });
+
+    // Wait for the job to be reported as failed in polling
+    await waitFor(() =>
+      expect(screen.queryByText("順番待ちあり")).not.toBeInTheDocument(),
+    );
+
+    // Old failure should not appear in new project
+    expect(screen.queryByText("回答を生成できません")).not.toBeInTheDocument();
+  });
+
+  it("keeps the confirmed answer with its conversation when switching projects", async () => {
+    const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (input, options) => {
+      const path = String(input);
+      requests.push({ path, options });
+      if (path.endsWith("/messages") && options?.method === "POST") {
+        return new Response(
+          JSON.stringify({
+            job_id: "job-1",
+            status: "queued",
+            text: "テスト質問",
+          }),
+          { status: 202, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (path.endsWith("/projects")) {
+        return new Response(
+          JSON.stringify([
+            {
+              id: "project-A",
+              org_id: "org",
+              name: "プロジェクトA",
+              role: "researcher",
+              permissions: ["read", "retrieve", "upload"],
+            },
+            {
+              id: "project-B",
+              org_id: "org",
+              name: "プロジェクトB",
+              role: "researcher",
+              permissions: ["read", "retrieve", "upload"],
+            },
+          ]),
+        );
+      }
+      if (path.endsWith("/chat-jobs/job-1")) {
+        return new Response(
+          JSON.stringify({
+            id: "job-1",
+            conversation_id: "conversation",
+            status: "done",
+            detail: "",
+            message_id: "message-2",
+            cancel_requested: false,
+            created: 0,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (path === "/api/conversations/conversation") {
+        return new Response(
+          JSON.stringify({
+            id: "conversation",
+            project_id: "project-A",
+            created: 0,
+            messages: [
+              {
+                id: "message-1",
+                text: "テスト質問",
+                scope: "all",
+                citations: [],
+                answer: null,
+              },
+              {
+                id: "message-2",
+                text: "回答",
+                scope: "all",
+                citations: [],
+                answer: "成膜条件は180°Cです。",
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return originalFetch(input, options);
+    });
+
+    render(<App />);
+    const field = await screen.findByRole("textbox", { name: "メッセージ" });
+    await waitFor(() => expect(field).toBeEnabled());
+    fireEvent.change(field, { target: { value: "テスト質問" } });
+    fireEvent.click(screen.getByRole("button", { name: "送信" }));
+    await screen.findByText("順番待ちあり");
+
+    // The queued answer is confirmed and stays with the conversation that asked.
+    await waitFor(
+      () =>
+        expect(screen.getByText("成膜条件は180°Cです。")).toBeInTheDocument(),
+      { timeout: 10000 },
+    );
+
+    // Switching projects must not carry the confirmed answer over.
+    const projectSelect = screen.getByRole("combobox");
+    fireEvent.change(projectSelect, { target: { value: "project-B" } });
+    await waitFor(() =>
+      expect(screen.queryByText("順番待ちあり")).not.toBeInTheDocument(),
+    );
+    expect(screen.queryByText("成膜条件は180°Cです。")).not.toBeInTheDocument();
+  });
+}, 20000);
