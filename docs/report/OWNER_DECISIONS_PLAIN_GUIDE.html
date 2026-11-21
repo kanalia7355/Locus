@@ -1,936 +1,854 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>オーナーに決めてほしいこと（やさしい説明）</title>
-  <style>
-    :root {
-      --bg: #f6f7f9;
-      --surface: #ffffff;
-      --surface-sub: #f0f2f5;
-      --text: #1f2937;
-      --text-muted: #4b5563;
-      --border: #d1d5db;
-      --accent: #2563eb;
-      --accent-soft: #eff6ff;
-      --warn-bg: #fffbeb;
-      --warn-border: #d97706;
-      --note-bg: #f3f4f6;
-      --shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-    }
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>オーナーに決めてほしいこと（やさしい説明）</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f6f7f9;
+    --surface: #ffffff;
+    --surface-alt: #eef1f5;
+    --text: #1f2937;
+    --text-muted: #4b5563;
+    --border: #d1d5db;
+    --accent: #2b5b84;
+    --accent-soft: #e8f0f8;
+    --warn-bg: #fdf6e7;
+    --warn-border: #d9a441;
+    --note-bg: #eef5f0;
+    --note-border: #4d8b63;
+    --code-bg: #eceff4;
+  }
 
-    @media (prefers-color-scheme: dark) {
-      :root:not([data-theme="light"]) {
-        --bg: #111827;
-        --surface: #1f2937;
-        --surface-sub: #273244;
-        --text: #f3f4f6;
-        --text-muted: #d1d5db;
-        --border: #374151;
-        --accent: #60a5fa;
-        --accent-soft: #1e293b;
-        --warn-bg: #292214;
-        --warn-border: #f59e0b;
-        --note-bg: #273244;
-        --shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
-      }
-    }
-
-    :root[data-theme="dark"] {
-      --bg: #111827;
-      --surface: #1f2937;
-      --surface-sub: #273244;
-      --text: #f3f4f6;
-      --text-muted: #d1d5db;
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14181e;
+      --surface: #1d232c;
+      --surface-alt: #262e39;
+      --text: #e5e9f0;
+      --text-muted: #aeb7c4;
       --border: #374151;
-      --accent: #60a5fa;
-      --accent-soft: #1e293b;
-      --warn-bg: #292214;
-      --warn-border: #f59e0b;
-      --note-bg: #273244;
-      --shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+      --accent: #7ab0e0;
+      --accent-soft: #223042;
+      --warn-bg: #2c2519;
+      --warn-border: #b88735;
+      --note-bg: #1b2a22;
+      --note-border: #5a9e72;
+      --code-bg: #2a323e;
     }
+  }
 
-    :root[data-theme="light"] {
-      --bg: #f6f7f9;
-      --surface: #ffffff;
-      --surface-sub: #f0f2f5;
-      --text: #1f2937;
-      --text-muted: #4b5563;
-      --border: #d1d5db;
-      --accent: #2563eb;
-      --accent-soft: #eff6ff;
-      --warn-bg: #fffbeb;
-      --warn-border: #d97706;
-      --note-bg: #f3f4f6;
-      --shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-    }
+  :root[data-theme="dark"] {
+    --bg: #14181e;
+    --surface: #1d232c;
+    --surface-alt: #262e39;
+    --text: #e5e9f0;
+    --text-muted: #aeb7c4;
+    --border: #374151;
+    --accent: #7ab0e0;
+    --accent-soft: #223042;
+    --warn-bg: #2c2519;
+    --warn-border: #b88735;
+    --note-bg: #1b2a22;
+    --note-border: #5a9e72;
+    --code-bg: #2a323e;
+  }
 
-    * {
-      box-sizing: border-box;
-    }
+  :root[data-theme="light"] {
+    --bg: #f6f7f9;
+    --surface: #ffffff;
+    --surface-alt: #eef1f5;
+    --text: #1f2937;
+    --text-muted: #4b5563;
+    --border: #d1d5db;
+    --accent: #2b5b84;
+    --accent-soft: #e8f0f8;
+    --warn-bg: #fdf6e7;
+    --warn-border: #d9a441;
+    --note-bg: #eef5f0;
+    --note-border: #4d8b63;
+    --code-bg: #eceff4;
+  }
 
-    body {
-      margin: 0;
-      padding: 0;
-      background-color: var(--bg);
-      color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif;
-      line-height: 1.75;
-      font-size: 16px;
-    }
+  * {
+    box-sizing: border-box;
+  }
 
-    .container {
-      max-width: 920px;
-      margin: 0 auto;
-      padding: 24px 16px 64px;
-    }
+  body {
+    margin: 0;
+    padding: 0;
+    background-color: var(--bg);
+    color: var(--text);
+    font-family: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif;
+    line-height: 1.75;
+    font-size: 16px;
+  }
 
-    header {
-      background-color: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 24px;
-      margin-bottom: 24px;
-      box-shadow: var(--shadow);
-    }
+  .container {
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 24px 16px 64px;
+  }
 
-    header h1 {
-      margin: 0 0 12px;
-      font-size: 1.6rem;
-      line-height: 1.4;
-    }
+  header.page-header {
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px;
+    margin-bottom: 24px;
+  }
 
-    header p {
-      margin: 0;
-      color: var(--text-muted);
-    }
+  h1 {
+    margin: 0 0 12px;
+    font-size: 1.65rem;
+    line-height: 1.35;
+    color: var(--text);
+  }
 
-    nav.toc {
-      background-color: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 20px 24px;
-      margin-bottom: 28px;
-      box-shadow: var(--shadow);
-    }
+  h2 {
+    margin: 36px 0 16px;
+    font-size: 1.3rem;
+    padding-bottom: 6px;
+    border-bottom: 2px solid var(--border);
+    color: var(--text);
+  }
 
-    nav.toc h2 {
-      margin: 0 0 12px;
-      font-size: 1.2rem;
-      border-bottom: 1px solid var(--border);
-      padding-bottom: 8px;
-    }
+  h3 {
+    margin: 0 0 12px;
+    font-size: 1.15rem;
+    line-height: 1.45;
+    color: var(--text);
+  }
 
-    nav.toc h3 {
-      margin: 16px 0 8px;
-      font-size: 1rem;
-      color: var(--text-muted);
-    }
+  h4 {
+    margin: 18px 0 6px;
+    font-size: 0.98rem;
+    color: var(--accent);
+  }
 
-    nav.toc ul {
-      margin: 0;
-      padding-left: 20px;
-    }
+  p {
+    margin: 0 0 10px;
+  }
 
-    nav.toc li {
-      margin-bottom: 6px;
-    }
+  ul, ol {
+    margin: 6px 0 12px;
+    padding-left: 22px;
+  }
 
-    a {
-      color: var(--accent);
-      text-decoration: none;
-    }
+  li {
+    margin-bottom: 6px;
+  }
 
-    a:hover {
-      text-decoration: underline;
-    }
+  a {
+    color: var(--accent);
+    text-decoration: none;
+  }
 
-    .section-title {
-      margin: 36px 0 16px;
-      font-size: 1.35rem;
-      border-left: 4px solid var(--accent);
-      padding-left: 12px;
-    }
+  a:hover {
+    text-decoration: underline;
+  }
 
-    .card {
-      background-color: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 22px 24px;
-      margin-bottom: 20px;
-      box-shadow: var(--shadow);
-    }
+  code {
+    background-color: var(--code-bg);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.88em;
+    word-break: break-all;
+  }
 
-    .card-header {
-      border-bottom: 1px solid var(--border);
-      padding-bottom: 12px;
-      margin-bottom: 16px;
-    }
+  .meta {
+    display: inline-block;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    background-color: var(--surface-alt);
+    padding: 3px 10px;
+    border-radius: 999px;
+    margin-bottom: 10px;
+  }
 
-    .card-meta {
-      font-size: 0.85rem;
-      color: var(--text-muted);
-      margin-bottom: 4px;
-    }
+  .toc {
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin-bottom: 28px;
+  }
 
-    .card-header h3 {
-      margin: 0;
-      font-size: 1.15rem;
-      line-height: 1.45;
-    }
+  .toc h2 {
+    margin-top: 0;
+    font-size: 1.15rem;
+  }
 
-    .block {
-      margin-bottom: 16px;
-    }
+  .toc-group {
+    margin-bottom: 14px;
+  }
 
-    .block:last-child {
-      margin-bottom: 0;
-    }
+  .toc-group:last-child {
+    margin-bottom: 0;
+  }
 
-    .block-label {
-      display: inline-block;
-      font-weight: bold;
-      font-size: 0.95rem;
-      background-color: var(--accent-soft);
-      color: var(--accent);
-      padding: 2px 10px;
-      border-radius: 4px;
-      margin-bottom: 6px;
-    }
+  .toc-title {
+    font-weight: 700;
+    margin-bottom: 6px;
+    color: var(--text);
+  }
 
-    .block-label.warn {
-      background-color: var(--warn-bg);
-      color: var(--warn-border);
-      border: 1px solid var(--warn-border);
-    }
+  .card {
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 22px 24px;
+    margin-bottom: 20px;
+  }
 
-    .block p {
-      margin: 4px 0 8px;
-    }
+  .card.handoff {
+    border-left: 4px solid var(--note-border);
+  }
 
-    .block ul {
-      margin: 6px 0 8px;
-      padding-left: 22px;
-    }
+  .summary-box {
+    background-color: var(--accent-soft);
+    border-left: 4px solid var(--accent);
+    padding: 12px 14px;
+    border-radius: 6px;
+    margin-bottom: 14px;
+  }
 
-    .block li {
-      margin-bottom: 6px;
-    }
+  .summary-box strong {
+    display: block;
+    font-size: 0.9rem;
+    color: var(--accent);
+    margin-bottom: 4px;
+  }
 
-    .option-box {
-      background-color: var(--surface-sub);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 12px 16px;
-      margin-top: 8px;
-      margin-bottom: 10px;
-    }
+  .notice-box {
+    background-color: var(--warn-bg);
+    border-left: 4px solid var(--warn-border);
+    padding: 12px 14px;
+    border-radius: 6px;
+    margin-top: 12px;
+  }
 
-    .option-box h4 {
-      margin: 0 0 6px;
-      font-size: 1rem;
-    }
+  .opinion-box {
+    background-color: var(--note-bg);
+    border-left: 4px solid var(--note-border);
+    padding: 12px 14px;
+    border-radius: 6px;
+    margin-top: 12px;
+  }
 
-    .option-box p {
-      margin: 4px 0;
-    }
+  .option-item {
+    background-color: var(--surface-alt);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 10px;
+  }
 
-    .table-wrap {
-      width: 100%;
-      overflow-x: auto;
-      margin: 12px 0;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      background-color: var(--surface);
-    }
+  .option-title {
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
 
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      min-width: 600px;
-      font-size: 0.92rem;
-    }
+  .table-wrap {
+    width: 100%;
+    overflow-x: auto;
+    margin: 14px 0;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
 
-    th, td {
-      padding: 10px 12px;
-      border-bottom: 1px solid var(--border);
-      border-right: 1px solid var(--border);
-      text-align: left;
-      vertical-align: top;
-    }
+  table {
+    width: 100%;
+    min-width: 620px;
+    border-collapse: collapse;
+    font-size: 0.93rem;
+  }
 
-    th:last-child, td:last-child {
-      border-right: none;
-    }
+  th, td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+    vertical-align: top;
+  }
 
-    tr:last-child td {
-      border-bottom: none;
-    }
+  th {
+    background-color: var(--surface-alt);
+    font-weight: 700;
+    white-space: nowrap;
+  }
 
-    th {
-      background-color: var(--surface-sub);
-      font-weight: bold;
-      white-space: nowrap;
-    }
+  tr:last-child td {
+    border-bottom: none;
+  }
 
-    code {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size: 0.88em;
-      background-color: var(--note-bg);
-      padding: 1px 5px;
-      border-radius: 4px;
-    }
-
-    .back-top {
-      display: inline-block;
-      margin-top: 8px;
-      font-size: 0.88rem;
-    }
-  </style>
+  .back-top {
+    margin-top: 14px;
+    font-size: 0.88rem;
+  }
+</style>
 </head>
 <body>
-  <div class="container">
-    <header id="top">
-      <h1>オーナーに決めてほしいこと（やさしい説明）</h1>
-      <p>
-        いま止まっている開発作業について「オーナーに決めてほしいこと（9件）」と、決定どおりに作るうえで開発側から伝えておきたい「申し送り（8件）」をまとめました。
-      </p>
-    </header>
+<div class="container" id="top">
 
-    <nav class="toc" aria-label="全体の目次">
-      <h2>全体の目次</h2>
+  <header class="page-header">
+    <h1>オーナーに決めてほしいこと（やさしい説明）</h1>
+    <p>開発チームからオーナーへの相談事項（10件）と、過去の決定にともなう申し送り（報告事項）をまとめました。</p>
+    <p>この資料は判断材料を整理したもので、開発チームや作成者が勝手に決めることはしていません。また、元の連絡文の一部が途中で切れている箇所については、推測で補わず「ここは分かりません」と書いています。</p>
+  </header>
 
-      <h3>1. 決めてほしいこと（作業が止まっているもの：9件）</h3>
+  <nav class="toc" aria-label="全体の目次">
+    <h2>全体の目次</h2>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>番号</th>
+            <th>段階（フェーズ）</th>
+            <th>決めてほしいことの概要</th>
+            <th>種別</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><a href="#t-ph6-116">T-PH6-116</a></td>
+            <td>phase-6-extensions</td>
+            <td>前から壊れていたテスト（自動チェック）をどう扱うか</td>
+            <td>決定待ち</td>
+          </tr>
+          <tr>
+            <td><a href="#t-ph6-126">T-PH6-126</a></td>
+            <td>phase-6-extensions</td>
+            <td>前回の作業で残った不要ファイルを消してよいか</td>
+            <td>決定待ち</td>
+          </tr>
+          <tr>
+            <td><a href="#t-ph6-104">T-PH6-104</a></td>
+            <td>phase-6-extensions</td>
+            <td>品質チェックのやり直し上限に達した件（Docker での実行）</td>
+            <td>決定待ち</td>
+          </tr>
+          <tr>
+            <td><a href="#handoff-group">申し送り一覧</a></td>
+            <td>phase-6-extensions</td>
+            <td>決定どおりに進めるうえで残る弱点や補いの対策（8件）</td>
+            <td>報告（申し送り）</td>
+          </tr>
+          <tr>
+            <td><a href="#t-ph7-201">T-PH7-201</a></td>
+            <td>phase-7-production</td>
+            <td>完成していたはずのプログラムが消えている件をどう進めるか</td>
+            <td>決定待ち</td>
+          </tr>
+          <tr>
+            <td><a href="#t-ph7-211">T-PH7-211</a></td>
+            <td>phase-7-production</td>
+            <td>作業前から失敗しているテスト1件を残したまま次へ進んでよいか</td>
+            <td>決定待ち</td>
+          </tr>
+          <tr>
+            <td><a href="#t-ph7-223">T-PH7-223</a></td>
+            <td>phase-7-production</td>
+            <td>作業環境の都合で落ちるテスト2件をどう扱うか</td>
+            <td>決定待ち</td>
+          </tr>
+          <tr>
+            <td><a href="#t-ph7-222">T-PH7-222</a></td>
+            <td>phase-7-production</td>
+            <td>関係ないファイルが原因で安全チェックが通らない件</td>
+            <td>決定待ち</td>
+          </tr>
+          <tr>
+            <td><a href="#t-ph8-303">T-PH8-303</a></td>
+            <td>phase-8-runner</td>
+            <td>品質チェックのやり直し上限に達した件（テスト影響の見積り不足）</td>
+            <td>決定待ち</td>
+          </tr>
+          <tr>
+            <td><a href="#t-ph8-302">T-PH8-302</a></td>
+            <td>phase-8-runner</td>
+            <td>品質チェックのやり直し上限に達した件（テストの書き方の不備）</td>
+            <td>決定待ち</td>
+          </tr>
+          <tr>
+            <td><a href="#t-ph8-301">T-PH8-301</a></td>
+            <td>phase-8-runner</td>
+            <td>設計書の更新許可と、「1か月」の期限をどちらに当てはめるか</td>
+            <td>決定待ち</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </nav>
+
+  <h2>1. 決めてほしいこと（phase-6-extensions）</h2>
+
+  <section class="card" id="t-ph6-116">
+    <span class="meta">phase-6-extensions / T-PH6-116 / 2026-11-21 12:56</span>
+    <h3>T-PH6-116：前から失敗している画面テストをどう扱うか</h3>
+
+    <div class="summary-box">
+      <strong>ひとことで言うと</strong>
+      今回の変更とは無関係に最初から失敗している画面テスト（自動チェック）を、このまま対象外にするか、特別に直すか、別の作業で直すかを決めてほしいです。
+    </div>
+
+    <h4>いまどうなっているの</h4>
+    <p><code>frontend/e2e/workspace.spec.ts</code> という画面確認用テストのうち、「sidebar, long names, mobile widths and reduced motion」という1件だけが失敗しています。今回の変更をすべてわきに避けた状態（スタッシュした状態）でも同じように失敗するため、以前から壊れていたものです。</p>
+    <p>原因は、以前の作業（T-PH6-111）で画面のスクロールする場所を <code>.main</code> から <code>.messages</code> に変えたのに、このテストがまだ古いルール（<code>.main</code> がスクロールすること）を求めているためです。しかし、オーナーの決まりで「決められた4か所以外の確認項目に触れてはいけない」と禁止されているため、担当者側で直せずに止まっています。</p>
+
+    <h4>決めないとどうなるの</h4>
+    <p>今回の作業（T-PH6-116）自体は他のテスト（134件の単体テスト、22件の見た目テストなど）に合格しており、許可された7つのファイルだけを変更した状態で止まっています。この失敗の扱いが決まるまで、作業の完了判定が進みません。</p>
+
+    <h4>選べるやり方</h4>
+    <div class="option-item">
+      <div class="option-title">（a）この作業では既存の失敗を対象外とし、13個中12個の合格（12/13）で完了とみなす</div>
       <ul>
-        <li><a href="#d-ph6-116">T-PH6-116：今回の作業と関係ない場所のテストが最初から失敗している件</a></li>
-        <li><a href="#d-ph6-126">T-PH6-126：前回の作業者が範囲外に作った不要なメモファイルを消してよいか</a></li>
-        <li><a href="#d-ph6-104">T-PH6-104：やり直し上限に達したまま修正が終わっていない件（安全な小部屋での動かし方）</a></li>
-        <li><a href="#d-ph7-201">T-PH7-201：作ったはずのプログラムが作業場から消えている件</a></li>
-        <li><a href="#d-ph7-211">T-PH7-211：今回の作業と関係ないテスト1件が失敗したまま完了にしてよいか</a></li>
-        <li><a href="#d-ph7-222">T-PH7-222：決められた範囲の外にあるファイル（attack_pattern.txt）を書いてしまった件</a></li>
-        <li><a href="#d-ph8-303">T-PH8-303：やり直し上限に達したまま修正が終わっていない件（影響見積りの不足）</a></li>
-        <li><a href="#d-ph8-301">T-PH8-301：決められた範囲の外にあるファイル（registry.py）を書き換えてしまった件</a></li>
-        <li><a href="#d-ph8-302">T-PH8-302：やり直し上限に達したまま修正が終わっていない件（テストの抜け道）</a></li>
+        <li><strong>よいところ：</strong> 決められた「4か所以外に触れない」というルールを守ったまま、今回の作業を完了にできます。</li>
+        <li><strong>よくないところ：</strong> 古くなったテスト1件の失敗は残ったままになります。</li>
       </ul>
-
-      <h3>2. 申し送り（決定どおりに作るうえで残る弱点や注意点：8件）</h3>
+    </div>
+    <div class="option-item">
+      <div class="option-title">（b）古くなった確認項目（<code>.main</code> を <code>.messages</code> に直すこと）の修正を、この作業で特別に認める</div>
       <ul>
-        <li><a href="#m-01">申し送りの基本的な考え方（共通ルール）</a></li>
-        <li><a href="#m-02">通行証の有効期限（TTL）が長いときに残るリスクと対策</a></li>
-        <li><a href="#m-03">社内ネットワーク（LAN）内での通信の安全性と対策</a></li>
-        <li><a href="#m-04">危ないファイルを開いたときの被害範囲と隔離の理由</a></li>
-        <li><a href="#m-05">同時に動かせる数（スロット）を増やすときの機械の限界</a></li>
-        <li><a href="#m-06">2段階認証（MFA）を不要にした代わりに守りを固める方法</a></li>
-        <li><a href="#m-07">作図のためにAIが書いたプログラムを動かすときの追加の安全対策</a></li>
-        <li><a href="#m-08">開発ルール文書（CLAUDE.md と AGENTS.md）の記述が実態と食い違っている件</a></li>
+        <li><strong>よいところ：</strong> この場でテストが13個すべて合格する状態にできます。</li>
+        <li><strong>よくないところ：</strong> 元の「4か所以外に触れるな」というオーナーの決まりに対して、例外を認めることになります。</li>
       </ul>
-    </nav>
-
-    <section aria-label="決めてほしいことの一覧表">
-      <h2 class="section-title">決めてほしいことの一覧</h2>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>作業番号</th>
-              <th>段階（フェーズ）</th>
-              <th>止まっている理由（ひとことで）</th>
-              <th>選択肢が示されているか</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><a href="#d-ph6-116">T-PH6-116</a></td>
-              <td>phase-6-extensions</td>
-              <td>関係ない古いテストが失敗しており、作業者側では直せない</td>
-              <td>あり（3つ）</td>
-            </tr>
-            <tr>
-              <td><a href="#d-ph6-126">T-PH6-126</a></td>
-              <td>phase-6-extensions</td>
-              <td>前回の作業者が範囲外に残した一時ファイルを消してよいか</td>
-              <td>あり（2つ）</td>
-            </tr>
-            <tr>
-              <td><a href="#d-ph6-104">T-PH6-104</a></td>
-              <td>phase-6-extensions</td>
-              <td>やり直し回数上限でもチェック担当が直しを求めている</td>
-              <td>なし</td>
-            </tr>
-            <tr>
-              <td><a href="#d-ph7-201">T-PH7-201</a></td>
-              <td>phase-7-production</td>
-              <td>前に作ったはずのファイルが消えており、作り直すか確認したい</td>
-              <td>あり（2つ）</td>
-            </tr>
-            <tr>
-              <td><a href="#d-ph7-211">T-PH7-211</a></td>
-              <td>phase-7-production</td>
-              <td>本体はできたが、無関係な既存テスト1件が失敗している</td>
-              <td>なし</td>
-            </tr>
-            <tr>
-              <td><a href="#d-ph7-222">T-PH7-222</a></td>
-              <td>phase-7-production</td>
-              <td>許可範囲外のファイル（<code>attack_pattern.txt</code>）を書いた</td>
-              <td>あり（2つ）</td>
-            </tr>
-            <tr>
-              <td><a href="#d-ph8-303">T-PH8-303</a></td>
-              <td>phase-8-runner</td>
-              <td>やり直し回数上限でもチェック担当が直しを求めている</td>
-              <td>なし</td>
-            </tr>
-            <tr>
-              <td><a href="#d-ph8-301">T-PH8-301</a></td>
-              <td>phase-8-runner</td>
-              <td>許可範囲外のファイル（<code>backend/app/agents/registry.py</code>）を書いた</td>
-              <td>あり（2つ）</td>
-            </tr>
-            <tr>
-              <td><a href="#d-ph8-302">T-PH8-302</a></td>
-              <td>phase-8-runner</td>
-              <td>やり直し回数上限でもチェック担当が直しを求めている</td>
-              <td>なし</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <h2 class="section-title">1. 決めてほしいこと（9件）</h2>
-
-    <article class="card" id="d-ph6-116">
-      <div class="card-header">
-        <div class="card-meta">段階：phase-6-extensions ／ 作業番号：T-PH6-116 ／ 記録時刻：2026-11-21T12:56:22+09:00</div>
-        <h3>今回の作業と関係ない場所のテストが最初から失敗している件</h3>
-      </div>
-
-      <div class="block">
-        <span class="block-label">ひとことで言うと</span>
-        <p>今回の変更とは関係なく最初から失敗している古い画面テストを、この作業の中でどう扱うか決めてほしいです。</p>
-      </div>
-
-      <div class="block">
-        <span class="block-label">いまどうなっているの</span>
-        <p>
-          画面の見た目や動きを確かめるテスト（<code>frontend/e2e/workspace.spec.ts</code> の中の「sidebar, long names, mobile widths and reduced motion」）が1件だけ失敗して止まっています。
-        </p>
-        <p>
-          今回の作業者の変更をすべて一時的に取り除いた元の状態でも同じように失敗するため、今回の作業が原因ではありません。以前の別の作業（T-PH6-111）が画面のスクロールする場所を <code>.main</code> から <code>.messages</code> に変えたのに、このテストがまだ古い場所（<code>.main</code>）がスクロールすることを求めているのが原因です。
-        </p>
-        <p>
-          しかし、オーナーの決定で「決められた4か所以外のテストのチェック項目に触れてはいけない」と禁止されているため、作業者側では直すことができません。
-        </p>
-      </div>
-
-      <div class="block">
-        <span class="block-label">決めないとどうなるの</span>
-        <p>この作業（T-PH6-116）がオーナーの判断待ちのまま止まり、完了できません。これ以外にこの決定を待っている作業があるかどうかは、元の文に書かれていないため分かりません。</p>
-      </div>
-
-      <div class="block">
-        <span class="block-label">選べるやり方</span>
-        <div class="option-box">
-          <h4>（a）この作業では既存の失敗を対象外とし、13個中12個の合格で完了とみなす</h4>
-          <p><strong>よいところ：</strong> 他のテストやチェックはすべて通っているため、今回の作業を完了にできます。</p>
-          <p><strong>よくないところ：</strong> 失敗しているテスト自体は直らないまま残ります（それ以外の詳しい影響は元の文に書かれておらず、分かりません）。</p>
-        </div>
-        <div class="option-box">
-          <h4>（b）この古くなったチェック項目（<code>.main</code> を <code>.messages</code> に直すこと）の修正を、この作業で特別に認める</h4>
-          <p><strong>よいところ：</strong> 古くなったテストを今回の作業の中で正しい状態に直せます。</p>
-          <p><strong>よくないところ：</strong> 「4か所以外に触れない」というこれまでのオーナーのルールを特別に緩めることになります。</p>
-        </div>
-        <div class="option-box">
-          <h4>（c）別の作業で直す</h4>
-          <p><strong>よいところ：</strong> 今回の作業では「4か所以外に触れない」というルールを守ったままにできます。</p>
-          <p><strong>よくないところ：</strong> このテストを直すための別の作業を改めて行う必要があります（今回の作業をすぐ完了にできるかは元の文からは分かりません）。</p>
-        </div>
-      </div>
-
-      <div class="block">
-        <span class="block-label warn">決める前に知っておくこと</span>
-        <ul>
-          <li>この問題以外の自動テストやチェック（型チェック、文法チェック、単体テスト 17ファイル/134件、見た目テスト 22件、アクセシビリティテスト（使いやすさの検査）5件、Python側のチェックなど）はすべて合格しています。問題のある <code>workspace.spec.ts</code> も 13個中 12個は合格しています。</li>
-          <li>許可された7つのファイル以外には手を加えておらず、余計なファイルも残っていません。</li>
-        </ul>
-      </div>
-      <a class="back-top" href="#top">目次に戻る</a>
-    </article>
-
-    <article class="card" id="d-ph6-126">
-      <div class="card-header">
-        <div class="card-meta">段階：phase-6-extensions ／ 作業番号：T-PH6-126 ／ 記録時刻：2026-11-21T13:21:44+09:00</div>
-        <h3>前回の作業者が範囲外に作った不要なメモファイルを消してよいか</h3>
-      </div>
-
-      <div class="block">
-        <span class="block-label">ひとことで言うと</span>
-        <p>前回の作業者が許可された範囲の外に作って残した一時ファイルを、今回の作業者が消してよいか決めてほしいです。</p>
-      </div>
-
-      <div class="block">
-        <span class="block-label">いまどうなっているの</span>
-        <p>
-          前回の挑戦のとき、作業者が許可された作業範囲（<code>allowed_paths</code>）の外に、作業用のメモやテスト出力などの一時ファイル（<code>frontend/appearance_output.txt</code>、<code>frontend/baseline.txt</code>、<code>frontend/check_*.py</code>、<code>frontend/debug_test.py</code>、<code>frontend/fix_tests.py</code>、<code>frontend/output.txt</code>、<code>frontend/test_*.py</code>、<code>frontend/vitest_*.txt</code>）を作ってしまいました。
-        </p>
-        <p>
-          今の作業者は、勝手に作業範囲の外のファイルを削除できないため、判断を待っています。
-        </p>
-      </div>
-
-      <div class="block">
-        <span class="block-label">決めないとどうなるの</span>
-        <p>この作業（T-PH6-126）がオーナーの判断待ちのまま止まり、範囲外に残った一時ファイルをどうするか決まりません。これ以外に何を待っているかは元の文に書かれておらず、分かりません。</p>
-      </div>
-
-      <div class="block">
-        <span class="block-label">選べるやり方</span>
-        <div class="option-box">
-          <h4>やり方1：この作業者が、範囲外の一時ファイルを削除してよいと認める</h4>
-          <p><strong>よいところ：</strong> 詳しい利点は元の文に書かれていませんが、この作業の中で不要な一時ファイルを片付けられます。</p>
-          <p><strong>よくないところ：</strong> 詳しい欠点は元の文に書かれていませんが、許可された範囲の外を特別に触らせることになります。</p>
-        </div>
-        <div class="option-box">
-          <h4>やり方2：後片付けができるように、作業範囲を広げるか、別の作業に分ける</h4>
-          <p><strong>よいところ：</strong> ルール上の作業範囲をきちんと広げてから、または別作業として整理して片付けられます（詳しい利点は元の文に書かれていません）。</p>
-          <p><strong>よくないところ：</strong> 詳しい欠点は元の文に書かれておらず、分かりません。</p>
-        </div>
-      </div>
-
-      <div class="block">
-        <span class="block-label warn">決める前に知っておくこと</span>
-        <ul>
-          <li>今回の修正自体のテスト（単体テスト 17ファイル/133件、型チェック、文法チェック、見た目テスト 19件、Python側のチェックなど）はすべて合格しています。</li>
-          <li>今回の修正では、画面を切り替えたときに予約中の作業を消す仕組みや、会話ごとに確認を分ける仕組みに頼っています。そのため、すでに別の会話へ移ったあとに前の作業が終わった場合は、いま見ている画面には書き込まず、履歴向けのお知らせを出す動きになっています（リスクとして報告されています）。</li>
-        </ul>
-      </div>
-      <a class="back-top" href="#top">目次に戻る</a>
-    </article>
-
-    <article class="card" id="d-ph6-104">
-      <div class="card-header">
-        <div class="card-meta">段階：phase-6-extensions ／ 作業番号：T-PH6-104 ／ 記録時刻：2026-11-21T15:51:12+09:00</div>
-        <h3>やり直し上限に達したまま修正が終わっていない件（安全な小部屋での動かし方）</h3>
-      </div>
-
-      <div class="block">
-        <span class="block-label">ひとことで言うと</span>
-        <p>やり直し回数の上限に達してもチェック担当から修正を求められており、どう進めるか決めてほしいです。</p>
-      </div>
-
-      <div class="block">
-        <span class="block-label">いまどうなっているの</span>
-        <p>
-          ファイルを安全に読み取るための隔離された小部屋（Docker コンテナ）の中で、プログラムを動かす土台（Python）の場所が正しく見つけられない問題がチェック担当から指摘されています。
-        </p>
-        <p>
-          標準のコンテナ（<code>ubuntu:22.04</code>）にはその場所が存在しないため、そのままではエラーで失敗してしまいます。また、すでに用意されているテストは本物の製品コードの経路を通っていないため、この失敗を見つけられません。
-        </p>
-        <p>
-          やり直しの回数上限に達したため、作業が止まっています。
-        </p>
-      </div>
-
-      <div class="block">
-        <span class="block-label">決めないとどうなるの</span>
-        <p>この作業（T-PH6-104）が完了せず止まったままになります。これ以外にどの作業が待っているかは、元の文からは分かりません。</p>
-      </div>
-
-      <div class="block">
-        <span class="block-label">選べるやり方</span>
-        <p>選択肢は示されていません。</p>
-      </div>
-
-      <div class="block">
-        <span class="block-label warn">決める前に知っておくこと</span>
-        <ul>
-          <li>チェック担当は「最小の直し方」として、コンテナの中に実在する Python の場所を使う（または設定・確認できるようにする）ことと、製品の Docker の動きを通しで確かめるテストを追加することを挙げています。</li>
-          <li>隔離機能の基準の一部（<code>DOCUMENT_EXTRACTION_BOUNDARY.md</code> §8 の 7〜8番）や、実際の Docker を使ったテスト、一部の自動テスト（<code>pytest</code>、文法チェック、秘密情報スキャン）、タイムアウトや大量出力時の実際の動作確認は、チェック担当側では実行されておらず、報告された証拠に頼っています。</li>
-        </ul>
-      </div>
-      <a class="back-top" href="#top">目次に戻る</a>
-    </article>
-
-    <article class="card" id="d-ph7-201">
-      <div class="card-header">
-        <div class="card-meta">段階：phase-7-production ／ 作業番号：T-PH7-201 ／ 記録時刻：2026-11-21T13:30:01+09:00</div>
-        <h3>作ったはずのプログラムが作業場から消えている件</h3>
-      </div>
-
-      <div class="block">
-        <span class="block-label">ひとことで言うと</span>
-        <p>前の報告では「完成してテストも通った」と書かれていたプログラムが今の作業場から消えているため、作り直すか、先に消えた原因や取り込みの判断を片付けるか決めてほしいです。</p>
-      </div>
-
-      <div class="block">
-        <span class="block-label">いまどうなっているの</span>
-        <p>
-          1〜3回目の作業報告では、作ったプログラムが存在し、テストも合格してレビューも承認済みと報告されていました。しかし、いま作業場（<code>loop/T-PH7-201-t-ph7-201</code>）を確認すると、肝心のプログラムもテストファイル（<code>tests/test_storage_connectors.py</code>）も存在せず、古い実行用の中間ファイル（<code>__pycache__</code>）だけが残っています。
-        </p>
-        <p>
-          そのため、必要なテストを実行しようとしてもファイルが見つからずエラーで失敗し、止まっています。また、この作業を本体に取り込むかどうかのオーナー判断もまだ開いたままになっています。
-        </p>
-      </div>
-
-      <div class="block">
-        <span class="block-label">決めないとどうなるの</span>
-        <p>作業（T-PH7-201）が進められず、完了できません。ほかにどの作業が待っているかは元の文に書かれていないため分かりません。</p>
-      </div>
-
-      <div class="block">
-        <span class="block-label">選べるやり方</span>
-        <div class="option-box">
-          <h4>やり方1：この作業の中で、作業者がプログラムを一から作り直す</h4>
-          <p><strong>よいところ：</strong> 元の文には詳しい利点は書かれていません（ここは分かりません）。</p>
-          <p><strong>よくないところ：</strong> 元の文には詳しい欠点は書かれていません（ここは分かりません）。</p>
-        </div>
-        <div class="option-box">
-          <h4>やり方2：作り直す前に、なぜファイルが消えたのかを解決し、保留中の取り込み判断を先に決める</h4>
-          <p><strong>よいところ：</strong> 元の文には詳しい利点は書かれていません（ここは分かりません）。</p>
-          <p><strong>よくないところ：</strong> 元の文には詳しい欠点は書かれていません（ここは分かりません）。</p>
-        </div>
-      </div>
-
-      <div class="block">
-        <span class="block-label warn">決める前に知っておくこと</span>
-        <ul>
-          <li>記録（<code>progress/phase-7-production/tasks/T-PH7-201.md</code>）には「未着手（todo）／試行回数 2」と書かれており、過去3回の「完成した」という報告とも、実際のファイルが無い現状とも食い違っています。</li>
-          <li>残っている古い中間ファイル（<code>__pycache__</code>）を、復元されたプログラムとして扱ってはいけません。作業者は範囲外のためそれには触れていません。</li>
-          <li>残っている他のテスト（45件）や文法チェック、秘密情報スキャンは通っています。</li>
-        </ul>
-      </div>
-      <a class="back-top" href="#top">目次に戻る</a>
-    </article>
-
-    <article class="card" id="d-ph7-211">
-      <div class="card-header">
-        <div class="card-meta">段階：phase-7-production ／ 作業番号：T-PH7-211 ／ 記録時刻：2026-11-21T16:04:11+09:00</div>
-        <h3>今回の作業と関係ないテスト1件が失敗したまま完了にしてよいか</h3>
-      </div>
-
-      <div class="block">
-        <span class="block-label">ひとことで言うと</span>
-        <p>今回の作業で求められた内容は満たせているものの、最初から壊れていた無関係なテストが1件失敗しているため、どう扱うか決めてほしいです。</p>
-      </div>
-
-      <div class="block">
-        <span class="block-label">いまどうなっているの</span>
-        <p>
-          データ保存の仕組み（SQLite）を特定のファイル（<code>storage.py</code>）だけに閉じ込めて、他の部分から切り離す作業は完了しています。
-        </p>
-        <p>
-          しかし、テスト（<code>tests/test_storage_seam.py</code>）を動かすと、6個中1個（<code>test_fake_no_integrity_error_allows_duplicate_user</code>）が失敗します。これは今回の変更を入れる前から起きていたバグで、テスト用の偽の保存エンジンの仕組みと Python の仕組みが噛み合っていないことが原因です。
-        </p>
-      </div>
-
-      <div class="block">
-        <span class="block-label">決めないとどうなるの</span>
-        <p>この作業（T-PH7-211）を完了（レビューへ進む）としてよいかの判断が止まったままになります。なお、失敗しているテスト自体は別の作業（<code>T-PH7-212</code>）で直される予定だと書かれています。</p>
-      </div>
-
-      <div class="block">
-        <span class="block-label">選べるやり方</span>
-        <p>選択肢は示されていません。</p>
-      </div>
-
-      <div class="block">
-        <span class="block-label warn">決める前に知っておくこと</span>
-        <ul>
-          <li>作業者側は「主要な要件はすべて満たされており、関連する他のテスト（21件、13件、31件など）と文法チェックも通っている。1件の既存失敗はこの作業の範囲外として文書化したので、レビューに出せる状態である」と報告しています。</li>
-          <li>失敗しているテストは、今回の作業者が変更する前の状態でもすでに失敗していた（2件失敗、4件合格）ことが確認されています。</li>
-        </ul>
-      </div>
-      <a class="back-top" href="#top">目次に戻る</a>
-    </article>
-
-    <article class="card" id="d-ph7-222">
-      <div class="card-header">
-        <div class="card-meta">段階：phase-7-production ／ 作業番号：T-PH7-222 ／ 記録時刻：2026-11-21T16:52:22+09:00</div>
-        <h3>決められた範囲の外にあるファイル（attack_pattern.txt）を書いてしまった件</h3>
-      </div>
-
-      <div class="block">
-        <span class="block-label">ひとことで言うと</span>
-        <p>作業者が許可された範囲の外にある <code>attack_pattern.txt</code> を書き込んでしまったため、範囲を広げるか、書いてはいけなかったとするか決めてほしいです。</p>
-      </div>
-
-      <div class="block">
-        <span class="block-label">いまどうなっているの</span>
-        <p>作業者が、決められた作業範囲（<code>allowed_paths</code>）に含まれていない <code>attack_pattern.txt</code> というファイルを書き込んだため、システムが停止してオーナーの判断を待っています。</p>
-      </div>
-
-      <div class="block">
-        <span class="block-label">決めないとどうなるの</span>
-        <p>作業（T-PH7-222）が止まったまま先に進めません。これ以外に何を待っているかは元の文に書かれていないため分かりません。</p>
-      </div>
-
-      <div class="block">
-        <span class="block-label">選べるやり方</span>
-        <div class="option-box">
-          <h4>やり方1：この作業の範囲設定が狭すぎたと判断し、範囲を広げる（または作業を分ける）</h4>
-          <p><strong>よいところ・よくないところ：</strong> 元の文に具体的な説明はなく、分かりません。</p>
-        </div>
-        <div class="option-box">
-          <h4>やり方2：作業者がそのファイルを書くべきではなかったと判断する</h4>
-          <p><strong>よいところ・よくないところ：</strong> 元の文に具体的な説明はなく、分かりません。</p>
-        </div>
-      </div>
-
-      <div class="block">
-        <span class="block-label warn">決める前に知っておくこと</span>
-        <ul>
-          <li><code>attack_pattern.txt</code> が何のためのファイルなのか、なぜ作業者がそれを書いたのかは、元の文に書かれておらず分かりません。</li>
-        </ul>
-      </div>
-      <a class="back-top" href="#top">目次に戻る</a>
-    </article>
-
-    <article class="card" id="d-ph8-303">
-      <div class="card-header">
-        <div class="card-meta">段階：phase-8-runner ／ 作業番号：T-PH8-303 ／ 記録時刻：2026-11-21T14:07:01+09:00</div>
-        <h3>やり直し上限に達したまま修正が終わっていない件（影響見積りの不足）</h3>
-      </div>
-
-      <div class="block">
-        <span class="block-label">ひとことで言うと</span>
-        <p>やり直し回数の上限に達してもチェック担当が修正を求め続けており、どう進めるか決めてほしいです。</p>
-      </div>
-
-      <div class="block">
-        <span class="block-label">いまどうなっているの</span>
-        <p>
-          合格条件（AC4）では「移行するときにどの既存テストが落ちるかの見積りを報告書（REPORT）に書くこと」が求められています。しかし、今回の作業で提出された範囲の書類には、具体的なテストファイルやテストケースごとの見積りが書かれていないため、チェック担当が合格を出せていません。
-        </p>
-        <p>
-          やり直し回数の上限に達したため、作業が止まっています。
-        </p>
-      </div>
-
-      <div class="block">
-        <span class="block-label">決めないとどうなるの</span>
-        <p>この作業（T-PH8-303）が完了せず止まったままになります。これ以外にどの作業が待っているかは元の文からは分かりません。</p>
-      </div>
-
-      <div class="block">
-        <span class="block-label">選べるやり方</span>
-        <p>選択肢は示されていません。</p>
-      </div>
-
-      <div class="block">
-        <span class="block-label warn">決める前に知っておくこと</span>
-        <ul>
-          <li>チェック担当は「最小の直し方」として、移行方法ごとに影響を受ける既存テストや調査の根拠を、この作業の対象範囲内の報告書（成果物）に書き加えることを挙げています。</li>
-          <li>別のメモファイル（<code>progress/phase-8-runner/tasks/T-PH8-303.md</code>）に書かれていたとしても、審査対象の範囲外であるため証拠として認められていません。</li>
-          <li>実際のプログラムへの正確な組み込み位置や、本番の8つの経路すべてでの動作までは、この作業では確かめられていません。</li>
-        </ul>
-      </div>
-      <a class="back-top" href="#top">目次に戻る</a>
-    </article>
-
-    <article class="card" id="d-ph8-301">
-      <div class="card-header">
-        <div class="card-meta">段階：phase-8-runner ／ 作業番号：T-PH8-301 ／ 記録時刻：2026-11-21T14:17:06+09:00</div>
-        <h3>決められた範囲の外にあるファイル（registry.py）を書き換えてしまった件</h3>
-      </div>
-
-      <div class="block">
-        <span class="block-label">ひとことで言うと</span>
-        <p>作業者が許可された範囲の外にある <code>backend/app/agents/registry.py</code> を書き換えてしまったため、範囲を広げるか、書いてはいけなかったとするか決めてほしいです。</p>
-      </div>
-
-      <div class="block">
-        <span class="block-label">いまどうなっているの</span>
-        <p>作業者が、決められた作業範囲（<code>allowed_paths</code>）の外にある <code>backend/app/agents/registry.py</code> を変更したため、システムが停止してオーナーの判断を待っています。</p>
-      </div>
-
-      <div class="block">
-        <span class="block-label">決めないとどうなるの</span>
-        <p>作業（T-PH8-301）が止まったまま先に進めません。これ以外に何を待っているかは元の文に書かれていないため分かりません。</p>
-      </div>
-
-      <div class="block">
-        <span class="block-label">選べるやり方</span>
-        <div class="option-box">
-          <h4>やり方1：この作業の範囲設定が狭すぎたと判断し、範囲を広げる（または作業を分ける）</h4>
-          <p><strong>よいところ・よくないところ：</strong> 元の文に具体的な説明はなく、分かりません。</p>
-        </div>
-        <div class="option-box">
-          <h4>やり方2：作業者がそのファイルを書き換えるべきではなかったと判断する</h4>
-          <p><strong>よいところ・よくないところ：</strong> 元の文に具体的な説明はなく、分かりません。</p>
-        </div>
-      </div>
-
-      <div class="block">
-        <span class="block-label warn">決める前に知っておくこと</span>
-        <ul>
-          <li>作業者が <code>backend/app/agents/registry.py</code> のどこを、なぜ書き換えたのかは、元の文に書かれておらず分かりません。</li>
-        </ul>
-      </div>
-      <a class="back-top" href="#top">目次に戻る</a>
-    </article>
-
-    <article class="card" id="d-ph8-302">
-      <div class="card-header">
-        <div class="card-meta">段階：phase-8-runner ／ 作業番号：T-PH8-302 ／ 記録時刻：2026-11-21T14:34:30+09:00</div>
-        <h3>やり直し上限に達したまま修正が終わっていない件（テストの抜け道）</h3>
-      </div>
-
-      <div class="block">
-        <span class="block-label">ひとことで言うと</span>
-        <p>やり直し回数の上限に達してもチェック担当からテストの修正を求められており、どう進めるか決めてほしいです。</p>
-      </div>
-
-      <div class="block">
-        <span class="block-label">いまどうなっているの</span>
-        <p>
-          通信の出口を制限するルール（<code>egress_mode IN ('local_only')</code> というチェック）がデータベースで正しく守られているかを確かめるテスト（AC1.4）に不備があります。
-        </p>
-        <p>
-          このテストはデータを登録するときに、本来必須である別の項目（<code>version</code>、<code>created_by</code>、<code>created</code>）を入れ忘れています。そのため、もし本当に確かめたい制限ルールが壊れていても「別の必須項目が空っぽであるエラー」が先に出てしまい、テストが合格に見えてしまいます（偽の安心感を与えてしまう状態）。
-        </p>
-        <p>
-          やり直し回数の上限に達したため、作業が止まっています。
-        </p>
-      </div>
-
-      <div class="block">
-        <span class="block-label">決めないとどうなるの</span>
-        <p>この作業（T-PH8-302）が完了せず止まったままになります。これ以外にどの作業が待っているかは元の文からは分かりません。</p>
-      </div>
-
-      <div class="block">
-        <span class="block-label">選べるやり方</span>
-        <p>選択肢は示されていません。</p>
-      </div>
-
-      <div class="block">
-        <span class="block-label warn">決める前に知っておくこと</span>
-        <ul>
-          <li>チェック担当は「最小の直し方」として、テストのデータ登録時に必要な項目（<code>version</code>、<code>created_by</code>、<code>created</code> など）をすべて入れ、制限ルール違反だけでエラーになるようにすることを挙げています。</li>
-          <li>チェック担当自身はテストやデータベースを実際に動かしてはおらず、設計図のチェックと報告された結果（15件合格など）をもとに判断しています。</li>
-        </ul>
-      </div>
-      <a class="back-top" href="#top">目次に戻る</a>
-    </article>
-
-    <h2 class="section-title">2. 申し送り（決定どおりに作るうえで残る弱点や注意点：8件）</h2>
-
-    <article class="card" id="m-01">
-      <div class="card-header">
-        <div class="card-meta">段階：phase-6-extensions ／ 申し送り</div>
-        <h3>申し送りの基本的な考え方（共通ルール）</h3>
-      </div>
-      <div class="block">
-        <p>オーナーに決めてもらった内容だけを実際の作業（ジョブ）に変えて進めます。決まっていないことは作業にしません。</p>
-        <p>ここに書かれている「申し送り」は、オーナーの決定に反対するものではありません。「オーナーの決定どおりに作るが、そのままではこういう弱点が残るので、開発側ではこういう対策を足して補います」という報告です。もし「その対策はいらない」と指示されれば外します。</p>
-      </div>
-      <a class="back-top" href="#top">目次に戻る</a>
-    </article>
-
-    <article class="card" id="m-02">
-      <div class="card-header">
-        <div class="card-meta">段階：phase-6-extensions ／ 申し送り</div>
-        <h3>通行証の有効期限（TTL）が長いときに残る弱点と対策</h3>
-      </div>
-      <div class="block">
-        <p><strong>残る弱点：</strong> 通行証の有効期限（TTL）を長くすると、もしその通行証が外に漏れてしまったときに、悪い人に使われ続けてしまう時間も長くなります。</p>
-        <p><strong>開発側が足す対策：</strong> あとから通行証を無効にできる仕組み（取消）と、いつ使われたかを残す仕組み（利用履歴の記録）を必須にして補います。なお、期限を短くしたいという指示があれば、設定でいつでも変えられます。</p>
-      </div>
-      <a class="back-top" href="#top">目次に戻る</a>
-    </article>
-
-    <article class="card" id="m-03">
-      <div class="card-header">
-        <div class="card-meta">段階：phase-6-extensions ／ 申し送り</div>
-        <h3>社内ネットワーク（LAN）内での通信の安全性と対策</h3>
-      </div>
-      <div class="block">
-        <p><strong>残る弱点：</strong> 開発側としては「社内ネットワーク（LAN）の中だから攻撃は起きない」という前提には同意していません。社内ネットワーク内であっても、ウイルスなどに感染して踏み台になったパソコン、外から持ち込まれた端末、同じネットワーク内の別の部署からのアクセスは起こりえます。</p>
-        <p><strong>開発側が足す対策：</strong> ただし、お金や手間（コスト）をかけるかどうかの判断はオーナーの役割なので、重い本人確認の仕組みは入れずに進めます。その代わり、ほとんど費用がかからずに効く次の2つだけは入れます。</p>
-        <ul>
-          <li>作業を実行する係（Runner）を登録するときの一回限りの合言葉</li>
-          <li>通行証（リース）を「誰が、いつ、どの実行係で使ったか」の記録</li>
-        </ul>
-        <p>この2つは、後から本人確認を強めたくなったときの土台にもなります。</p>
-      </div>
-      <a class="back-top" href="#top">目次に戻る</a>
-    </article>
-
-    <article class="card" id="m-04">
-      <div class="card-header">
-        <div class="card-meta">段階：phase-6-extensions ／ 申し送り</div>
-        <h3>危ないファイルを開いたときの被害範囲と隔離の理由</h3>
-      </div>
-      <div class="block">
-        <p><strong>残る弱点：</strong> 「危ないデータを入れるのは本人のせい」と言えるのは、被害がその人だけに収まるときだけです。Locus はみんなで使う共有ツールなので、悪意のあるファイルが開かれた瞬間に、被害がサーバ側（つまり全員の資料）へ広がるおそれがあります。</p>
-        <p><strong>開発側が足す対策：</strong> その危険を埋めるために隔離された安全な小部屋（サンドボックス）を使い、そのうえで「いろいろなファイルを広く受け入れる」という方針を実現します。</p>
-      </div>
-      <a class="back-top" href="#top">目次に戻る</a>
-    </article>
-
-    <article class="card" id="m-05">
-      <div class="card-header">
-        <div class="card-meta">段階：phase-6-extensions ／ 申し送り</div>
-        <h3>同時に動かせる数（スロット）を増やすときの機械の限界</h3>
-      </div>
-      <div class="block">
-        <p><strong>残る弱点：</strong> 同時に動かせる数（スロット N）を増やすと、コンピュータの作業場所（メモリ）や画像・計算用の部品（GPU）の消費も比例して増えます。実際に動かす機械の性能によって、動かせる上限が決まります。</p>
-        <p><strong>開発側が足す対策：</strong> 数（N）は設定で決められる形のままにしつつ、ソフトを起動するときに実際の機械の性能を測って、能力を超えそうなら警告を出すようにします。</p>
-      </div>
-      <a class="back-top" href="#top">目次に戻る</a>
-    </article>
-
-    <article class="card" id="m-06">
-      <div class="card-header">
-        <div class="card-meta">段階：phase-6-extensions ／ 申し送り</div>
-        <h3>2段階認証（MFA）を不要にした代わりに守りを固める方法</h3>
-      </div>
-      <div class="block">
-        <p><strong>方針の変更：</strong> 2段階認証（MFA）は 2026-11-09 の記録では「本番で必須」とされていましたが、今回のオーナーの判断で「不要」に変わりました。そのため、要件（<code>IAM-005</code>）は「実装しない（オーナー判断 2026-11-16）」に改めます。</p>
-        <p><strong>残る弱点：</strong> ID とパスワードだけになると、パスワードが1つ漏れただけで、すべての資料を見られてしまう危険があります。</p>
-        <p><strong>開発側が足す対策：</strong> 代わりに次の4つを標準で入れます。</p>
-        <ul>
-          <li>パスワードの最低限の強さ</li>
-          <li>ログインに連続で失敗したときの一時ロック</li>
-          <li><code>must_rotate</code>（アカウント発行時と、管理者がリセットしたあとの初回ログイン時に、必ずパスワードを変更させる仕組み。定期的な変更を強制するものではありません）</li>
-          <li>ログイン履歴を管理者が見られるようにすること</li>
-        </ul>
-      </div>
-      <a class="back-top" href="#top">目次に戻る</a>
-    </article>
-
-    <article class="card" id="m-07">
-      <div class="card-header">
-        <div class="card-meta">段階：phase-6-extensions ／ 申し送り</div>
-        <h3>作図のためにAIが書いたプログラムを動かすときの追加の安全対策</h3>
-      </div>
-      <div class="block">
-        <p><strong>残る弱点：</strong> 選択肢 B（プログラムを動かして図を描く機能）は、ファイルを読み取るだけの機能よりもさらに危険な境界になります。ファイル読み取りは「攻撃者が選んだデータを読む」のに対し、作図は「AI（モデル）が書いた命令を実際に動かす」ことになるためです。</p>
-        <p><strong>開発側が足す対策：</strong> ファイル読み取り用（<code>T-PH6-104</code>）の隔離仕組みをそのまま使い回すのではなく、作図用として次の条件を追加したうえで進めます（これらは <code>T-PH6-114</code> の合格条件に入れます）。</p>
-        <ul>
-          <li>実行するのは生成されたプログラムだけにして、利用者の元の資料は「見るだけ（読み取り専用）」で渡す</li>
-          <li>出てくる結果は「画像1枚」と「文字の出力（標準出力）」だけに限る</li>
-          <li>ネットワーク（外部との通信）は遮断する</li>
-          <li>動かせる時間とメモリの量は、作図用に別の枠で上限を決める</li>
-        </ul>
-      </div>
-      <a class="back-top" href="#top">目次に戻る</a>
-    </article>
-
-    <article class="card" id="m-08">
-      <div class="card-header">
-        <div class="card-meta">段階：phase-6-extensions ／ 申し送り</div>
-        <h3>開発ルール文書（CLAUDE.md と AGENTS.md）の記述が実態と食い違っている件</h3>
-      </div>
-      <div class="block">
-        <p><strong>残る弱点：</strong> 開発のルールを書いた文書（<code>CLAUDE.md</code> と <code>AGENTS.md</code>）には、いま「複数のAI作業者を同時に動かして開発しない」と書かれており、今回の指示と食い違っています。食い違いをそのままにしておくと、次に別の担当者が読んだときに、どちらが正しいのか分からなくなります。</p>
-        <p><strong>開発側からの提案：</strong> 実態に合わせて両方の文書を書き直すことを提案します（ルールの文面を変えるにはオーナーの承認が必要なため、ここでは提案にとどめています）。</p>
-      </div>
-      <a class="back-top" href="#top">目次に戻る</a>
-    </article>
-  </div>
+    </div>
+    <div class="option-item">
+      <div class="option-title">（c）別の作業（ジョブ）として直す</div>
+      <ul>
+        <li><strong>よいところ：</strong> 今回の作業範囲を広げずに、あとから正式にテストを直せます。</li>
+        <li><strong>よくないところ：</strong> 別作業を立てて直すまで、このテストの失敗は残ります（今回の作業を完了扱いにするかどうかは別途判断が必要です）。</li>
+      </ul>
+    </div>
+
+    <h4>決める前に知っておくこと</h4>
+    <ul>
+      <li>この報告の「背景（Context）」の文章は、先頭の一部が途中で切れているため、最初の数行に何が書かれていたかは「ここは分かりません」。</li>
+      <li>今回の作業で確認できた範囲（typecheck、lint、単体テスト134件、見た目テスト22件、アクセシビリティテスト5件、Python の形式・秘密情報チェック）はすべて合格しています。なお、単体テストは並列実行中に1回だけ不安定な失敗（<code>src/RoleEditing.test.tsx</code>）がありましたが、単独実行と再実行では合格しています。</li>
+    </ul>
+    <p class="back-top"><a href="#top">目次に戻る</a></p>
+  </section>
+
+  <section class="card" id="t-ph6-126">
+    <span class="meta">phase-6-extensions / T-PH6-126 / 2026-11-21 13:21</span>
+    <h3>T-PH6-126：前回の作業で残った不要ファイルを消してよいか</h3>
+
+    <div class="summary-box">
+      <strong>ひとことで言うと</strong>
+      前回の試行で許可範囲の外に作られてしまった不要なメモ・調査用ファイルを、今回の担当者が消してよいか、それとも掃除のために作業範囲を広げる・分けるべきかを決めてほしいです。
+    </div>
+
+    <h4>いまどうなっているの</h4>
+    <p>今回の担当者が作業する前の試行で、作業してよいと許可されたファイル一覧（<code>allowed_paths</code>）の外に、作業用の調査ファイルなどが残されてしまいました。具体的には以下のファイルです。</p>
+    <ul>
+      <li><code>frontend/appearance_output.txt</code></li>
+      <li><code>frontend/baseline.txt</code></li>
+      <li><code>frontend/check_*.py</code></li>
+      <li><code>frontend/debug_test.py</code></li>
+      <li><code>frontend/fix_tests.py</code></li>
+      <li><code>frontend/output.txt</code></li>
+      <li><code>frontend/test_*.py</code></li>
+      <li><code>frontend/vitest_*.txt</code></li>
+    </ul>
+    <p>今の担当者は許可範囲外のファイルに触れない決まりになっているため、これらを消してよいか判断を仰いで止まっています。</p>
+
+    <h4>決めないとどうなるの</h4>
+    <p>今回の作業（T-PH6-126）のプログラム修正とテスト（単体テスト133件、見た目テスト19件など）はすべて合格していますが、不要ファイルが残ったままのため完了に進めません。</p>
+
+    <h4>選べるやり方</h4>
+    <div class="option-item">
+      <div class="option-title">（1）今の担当者が、これら範囲外の不要ファイルを削除することを許可する</div>
+      <ul>
+        <li><strong>よいところ：</strong> 今の作業の流れのまま、不要ファイルを片付けてすっきりさせられます。</li>
+        <li><strong>よくないところ：</strong> 許可範囲（<code>allowed_paths</code>）の外のファイルを触る例外を許すことになります。</li>
+      </ul>
+    </div>
+    <div class="option-item">
+      <div class="option-title">（2）掃除ができるように、この作業の許可範囲を広げるか、掃除用の別作業に分ける</div>
+      <ul>
+        <li><strong>よいところ：</strong> 許可された範囲のルールを厳密に守ったまま掃除できます。</li>
+        <li><strong>よくないところ：</strong> 手続きや別作業が増え、完了までにひと手間かかります。</li>
+      </ul>
+    </div>
+
+    <h4>決める前に知っておくこと</h4>
+    <ul>
+      <li>元の文の「背景（Context）」の先頭が途中で切れているため、最初の部分は「ここは分かりません」。</li>
+      <li>今回の修正では、会話を切り替えたときに保留中の作業（<code>pendingJob</code>）を消去し、会話ごとに状況を確認する仕組みにしています。現在開いていない会話の作業が終わったときは、今の画面に書き込まずに履歴向けのお知らせを出す仕様になっており、この点がリスクとして申し送られています。</li>
+    </ul>
+    <p class="back-top"><a href="#top">目次に戻る</a></p>
+  </section>
+
+  <section class="card" id="t-ph6-104">
+    <span class="meta">phase-6-extensions / T-PH6-104 / 2026-11-21 15:51</span>
+    <h3>T-PH6-104：Docker を使う安全確認のやり直し回数上限に達した件</h3>
+
+    <div class="summary-box">
+      <strong>ひとことで言うと</strong>
+      別の担当者による品質チェック（レビュー）でやり直しの上限回数に達してもまだ修正を求められており、どう進めるか決めてほしいです。
+    </div>
+
+    <h4>いまどうなっているの</h4>
+    <p>ファイルを安全に読み取る仕組み（<code>extract_with_sandbox</code>）を Docker（ドッカー：プログラムを安全な箱の中で動かす仕組み）で動かす部分について、品質チェック担当から問題が指摘されています。</p>
+    <p>具体的には、箱（コンテナ、既定は <code>ubuntu:22.04</code>）の中で動かそうとしている Python（プログラムを動かす道具）の場所が、実際の箱の中には存在しないため、実行すると失敗してしまうという指摘です。また、失敗しても別の方法へ切り替わらず失敗扱いになり、本来ねらっていた「強い隔離」での確認が動きません。さらに、既存の Docker 統合テストも本番用の呼び出しルートを通っていません。</p>
+
+    <h4>決めないとどうなるの</h4>
+    <p>やり直し回数の上限に達しているため、これ以上自動で修正と再チェックを進められず、T-PH6-104 の作業が止まったままになります。</p>
+
+    <h4>選べるやり方</h4>
+    <p>元の文には、オーナー向けの具体的な選択肢は示されていません。</p>
+
+    <div class="opinion-box">
+      <h4>開発側の意見（品質チェック担当からの指摘）</h4>
+      <p>最小の修正として、次の2点を行うべきとされています。</p>
+      <ul>
+        <li>対象のコンテナ（安全な箱）の中に実際に存在する Python の場所や仕組みを使う（または設定・確認できるようにする）こと。</li>
+        <li>本番で使われるルート（<code>_run_docker</code> または <code>extract_with_sandbox(..., use_docker=True)</code>）を端から端まで通す追加テスト（必要なときだけ動かすテスト）を加えること。</li>
+      </ul>
+    </div>
+
+    <h4>決める前に知っておくこと</h4>
+    <ul>
+      <li>元の文の先頭が途中で切れているため、指摘されている行番号や正確な背景の冒頭部分は「ここは分かりません」。</li>
+      <li>品質チェック担当は、Docker 環境と設定ファイル（<code>.loop/runtime/qa-image.json</code>）が必要なため、実際の Docker 隔離テストや、時間切れ・大量出力時の実際の動作確認は行っていません。既存のテストの再実行も自分では行わず、管理システム側の報告に頼っています。</li>
+    </ul>
+    <p class="back-top"><a href="#top">目次に戻る</a></p>
+  </section>
+
+  <h2 id="handoff-group">2. 申し送り（決定に対する開発チームからの報告）</h2>
+
+  <section class="card handoff">
+    <span class="meta">phase-6-extensions / 申し送り</span>
+    <h3>オーナーの決定どおりに作るうえで残る弱点と、補いの対策（8件）</h3>
+    <p>以下はオーナーに何かを決めてもらう項目ではありません。「オーナーの決定どおりに作るが、その代わりこういう弱点が残るため、開発側ではこのような補いの対策を入れる」という報告です。なお、ここで決まった項目だけが作業計画（<code>PROGRESS.md</code>）の作業になり、決まっていない項目は作業にしません。また、もし補いの対策が不要と指示されれば外します。</p>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>テーマ</th>
+            <th>オーナーの決定に対して残る弱点・注意点</th>
+            <th>開発側が取る補いの対策・提案</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>1. 通行証の有効期間（TTL）</strong></td>
+            <td>有効期間（TTL）が長いほど、もし通行証が外に漏れたときに悪用される時間も長くなります。</td>
+            <td>「取り消し（revoke）」と「利用履歴の記録」を必須にして補います。短くする指示があれば、いつでも設定で変えられるようにします。</td>
+          </tr>
+          <tr>
+            <td><strong>2. 社内ネットワーク（LAN）内の安全性</strong></td>
+            <td>「LAN 内だから攻撃がない」という前提には、開発側として同意していません。乗っ取られた端末、持ち込み端末、同じ LAN の別部署から攻撃が届く可能性があります。</td>
+            <td>コスト判断はオーナーの領分なので、重い相互認証（お互いを厳しく確認し合う仕組み）は入れません。その代わり、費用がほぼゼロで効く「(1) 作業実行係（Runner）登録時の一回限り合言葉」と「(2) 一時許可（リース）の利用記録（誰のどの許可がいつどの係で使われたか）」を入れます。将来の本人確認強化の土台にもなります。</td>
+          </tr>
+          <tr>
+            <td><strong>3. 危ないファイルの受け入れ</strong></td>
+            <td>「危ないデータを入れるのは本人のせい」という考えは、被害が本人のパソコン内だけに閉じる場合にしか成り立ちません。Locus は共有ツールなので、悪意あるファイルが開かれた瞬間にサーバ側（全員の資料）へ被害が及ぶ可能性があります。</td>
+            <td>その危険を埋めるためにサンドボックス（安全な隔離された箱）を採用しており、それを前提として「広く受け入れる」形で実装します。</td>
+          </tr>
+          <tr>
+            <td><strong>4. 同時実行枠（スロット N）の数</strong></td>
+            <td>同時に動かす枠（スロット）を増やすと、メモリや GPU（画像や AI 計算に使う部品）の消費量が比例して増えます。実際に動かす機械の性能で上限が決まります。</td>
+            <td>N は設定値のままにしておき、起動時に実機の性能を測って上限を超えていたら警告を出すようにします。</td>
+          </tr>
+          <tr>
+            <td><strong>5. 二段階認証（MFA）を「不要」にした件</strong></td>
+            <td>2026-11-09 の記録では「本番必須」でしたが、今回の回答で不要に変わりました（<code>IAM-005</code> は「実装しない（オーナー判断 2026-11-16）」へ変更）。ID とパスワードだけだと、パスワードが漏れた瞬間に全資料を見られる弱点が残ります。</td>
+            <td>代わりに次の4つを標準にします：(1) パスワードの最低限の強さ、(2) 失敗回数による一時ロック、(3) 初回ログイン時や管理者リセット後に必ず変更させる仕組み（<code>must_rotate</code>、定期変更の強制ではない）、(4) ログイン履歴を管理者が見られること。</td>
+          </tr>
+          <tr>
+            <td><strong>6. 作図のためのコード実行（B）</strong></td>
+            <td>ファイルの中身を読むだけの解析（「データ」を読む）と違い、作図は AI モデルが書いた「命令」を実行するため、より危険な境界になります。</td>
+            <td><code>T-PH6-104</code> の安全境界を使い回さず、作図用（<code>T-PH6-114</code> の受入条件）に次を追加します：実行するのは生成されたコードだけで利用者の資料原本は読み取り専用で渡す、出力は画像1枚と文字出力に限る、ネットワークは遮断する、実行時間とメモリは別枠にする。</td>
+          </tr>
+          <tr>
+            <td><strong>7. ルール文書の食い違い</strong></td>
+            <td>開発ルール文書（<code>CLAUDE.md</code> と <code>AGENTS.md</code>）には「サブエージェント駆動開発・並列エージェント起動を行わない」と書かれており、今回の指示と食い違っています。放置すると別の担当が読んだときにどちらが正しいか分からなくなります。</td>
+            <td>実態に合わせて両方のファイルを更新することを提案します（ルール文面の変更にはオーナーの承認が要るため、ここでは提案にとどめています）。</td>
+          </tr>
+          <tr>
+            <td><strong>8. 作業計画への変換ルール</strong></td>
+            <td>申し送りはオーナーの決定をくつがえすものではなく、開発側が取る補いの手段を明示しているだけです。</td>
+            <td>決まった項目だけを <code>PROGRESS.md</code> の作業に変換します。決まっていない項目は作業にしません。補いの対策が不要と指示されれば外します。</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="back-top"><a href="#top">目次に戻る</a></p>
+  </section>
+
+  <h2>3. 決めてほしいこと（phase-7-production）</h2>
+
+  <section class="card" id="t-ph7-201">
+    <span class="meta">phase-7-production / T-PH7-201 / 2026-11-21 13:30</span>
+    <h3>T-PH7-201：完成していたはずの実装ファイルが消えている件</h3>
+
+    <div class="summary-box">
+      <strong>ひとことで言うと</strong>
+      過去の報告では「完成して合格した」と書かれていた T-PH7-201 のプログラムとテストが作業場所から消えてしまっており、作り直すか、先に消えた原因を調べるかを決めてほしいです。
+    </div>
+
+    <h4>いまどうなっているの</h4>
+    <p>1〜3回目の作業報告では、実装ファイルが存在し、チェックもすべて合格し、品質チェック担当の承認（APPROVED）も得たと報告されていました。しかし、いま作業用の枝（ブランチ <code>loop/T-PH7-201-t-ph7-201</code>）を確認すると、実装ファイルも必要なテストファイル（<code>tests/test_storage_connectors.py</code>）も無く、古い実行キャッシュ（<code>__pycache__</code>）だけが残っています。</p>
+    <p>また、記録ファイル（<code>progress/phase-7-production/tasks/T-PH7-201.md</code>）にはまだ「未着手（<code>status: todo</code> / <code>attempts: 2</code>）」と書かれており、以前の「未統合のブランチに関するオーナー決定」もまだ決まっていない状態です。</p>
+
+    <h4>決めないとどうなるの</h4>
+    <p>完了確認に必須のテストコマンドが、<code>tests/test_storage_connectors.py</code> が見つからないためにエラーで失敗し、先へ進めません。</p>
+
+    <h4>選べるやり方</h4>
+    <div class="option-item">
+      <div class="option-title">（1）今回の試行で、担当者が実装を一からやり直す</div>
+      <ul>
+        <li><strong>よいところ：</strong> 必要なファイルとテストをもう一度作り直して前に進められます。</li>
+        <li><strong>よくないところ：</strong> なぜ前回のファイルが消えたのか原因を解決しないまま作り直すことになります。</li>
+      </ul>
+    </div>
+    <div class="option-item">
+      <div class="option-title">（2）保留中のオーナー決定に答える前に、まずファイルが消えた原因を解決する</div>
+      <ul>
+        <li><strong>よいところ：</strong> 記録と実態が食い違っている理由や、作業が消えた原因をはっきりさせてから進められます。</li>
+        <li><strong>よくないところ：</strong> 原因調査が終わるまで、T-PH7-201 の実装と保留中の決定は止まったままになります。</li>
+      </ul>
+    </div>
+
+    <h4>決める前に知っておくこと</h4>
+    <ul>
+      <li>元の文の「背景（Context）」の先頭が途中で切れているため、最初の数行は「ここは分かりません」。</li>
+      <li>残っている古いキャッシュ（<code>__pycache__</code>）は実装の代わりにはならず、許可範囲外のため担当者も触っていません。</li>
+      <li>今ある他のテスト（45件）や、コード形式チェック・秘密情報チェックは合格しています。</li>
+    </ul>
+    <p class="back-top"><a href="#top">目次に戻る</a></p>
+  </section>
+
+  <section class="card" id="t-ph7-211">
+    <span class="meta">phase-7-production / T-PH7-211 / 2026-11-21 16:04</span>
+    <h3>T-PH7-211：作業前から失敗しているテスト1件を残して進んでよいか</h3>
+
+    <div class="summary-box">
+      <strong>ひとことで言うと</strong>
+      今回の作業目的はすべて達成できていますが、作業前から既に壊れていたテストが1件だけ失敗しているため、このままレビュー（品質チェック）へ進んでよいか判断してほしいです。
+    </div>
+
+    <h4>いまどうなっているの</h4>
+    <p>データベースの仕組みを整理して、<code>sqlite3</code> という部品を <code>storage.py</code> の中だけで使うようにする作業は完了しました。しかし、テストを実行すると <code>test_fake_no_integrity_error_allows_duplicate_user</code> というテストが1件だけ失敗します。</p>
+    <p>この失敗は今回の変更を入れる前から既に起きていたもので（作業前の確認でも失敗していました）、テスト用の偽の部品（<code>FakeNoIntegrityErrorEngine</code>）のバグが原因です。このバグ自体は後の作業（<code>T-PH7-212</code>）で直す予定になっています。</p>
+
+    <h4>決めないとどうなるの</h4>
+    <p>担当者は「レビュー準備完了（<code>ready-for-review</code>）」として提出していますが、1件のテスト失敗が残っているため、オーナーの判断を待って止まっています。</p>
+
+    <h4>選べるやり方</h4>
+    <p>選択肢は示されていません。</p>
+
+    <div class="opinion-box">
+      <h4>開発側の意見</h4>
+      <p>今回の核心となる要件（ストレージの抽象化、<code>import sqlite3</code> を <code>storage.py</code> のみに限定、<code>Service.conn</code> の互換性維持）はすべて満たされており、主要なテスト群も合格しています。失敗している1件は今回の範囲外で <code>T-PH7-212</code> で直される予定のため、レビュー準備完了（<code>ready-for-review</code>）であるという報告です。</p>
+    </div>
+
+    <h4>決める前に知っておくこと</h4>
+    <ul>
+      <li><code>tests/test_storage_seam.py</code> は6件中5件が合格し、この1件だけが失敗しています。その他の関連テスト（合計65件）とコードチェック（Ruff）はすべて合格しています。</li>
+    </ul>
+    <p class="back-top"><a href="#top">目次に戻る</a></p>
+  </section>
+
+  <section class="card" id="t-ph7-223">
+    <span class="meta">phase-7-production / T-PH7-223 / 2026-11-21 17:29</span>
+    <h3>T-PH7-223：作業環境の都合で落ちるテスト2件をどう扱うか</h3>
+
+    <div class="summary-box">
+      <strong>ひとことで言うと</strong>
+      完了条件のテストを実行すると、作業環境の都合によると見られる2件の失敗が出るため、テストをさらに書き換えるか、環境のせいとして完了扱いにするかなどを決めてほしいです。
+    </div>
+
+    <h4>いまどうなっているの</h4>
+    <p>完了確認用のテストをまとめて実行すると、60件は合格しますが、<code>tests/test_production_startup.py</code> の中の2件（<code>test_production_configured_app_succeeds</code> と <code>test_development_behavior_unchanged</code>）だけが失敗します。</p>
+    <p>この2件の失敗は、テスト同士で共有されているデータベースの状態や、テスト用ツールの通信の仕組み（httpx/TestClient）のバージョン差など、現在の作業環境の都合によるものと見られています。なお、<code>test_api.py</code>（22件）と <code>test_security.py</code>（16件）はすべて合格しています。</p>
+
+    <h4>決めないとどうなるの</h4>
+    <p>必須の確認コマンドが完全には合格しないため、作業がレビュー待ちに進めず止まっています。</p>
+
+    <h4>選べるやり方</h4>
+    <div class="option-item">
+      <div class="option-title">（a）<code>tests/test_production_startup.py</code> をさらに調整して、確認コマンド全体が合格するようにする</div>
+      <ul>
+        <li><strong>よいところ：</strong> 必須の確認コマンドがすべて合格する状態を作れる可能性があります（ただし必ず直るかは試してみないと分かりません）。</li>
+        <li><strong>よくないところ：</strong> 既にこのテストファイルを一部変更しており、さらに環境の違いに合わせて手を加えることになります。</li>
+      </ul>
+    </div>
+    <div class="option-item">
+      <div class="option-title">（b）この2件の失敗は環境によるものとして扱い、今の結果のまま「レビュー準備完了（<code>ready-for-review</code>）」として受け入れる</div>
+      <ul>
+        <li><strong>よいところ：</strong> テストをこれ以上いじらずに、次の品質チェックへ進めます。</li>
+        <li><strong>よくないところ：</strong> 2件のテストが失敗したまま進むことになります。</li>
+      </ul>
+    </div>
+    <div class="option-item">
+      <div class="option-title">（c）別のやり方を取る</div>
+      <ul>
+        <li><strong>よいところ・よくないところ：</strong> 具体的な別のやり方は元の文に書かれていないため、ここは分かりません。</li>
+      </ul>
+    </div>
+
+    <h4>決める前に知っておくこと</h4>
+    <ul>
+      <li>元の文の「質問（Question）」の末尾が途中で切れているため、最後の数語は「ここは分かりません」（ただし「状態（STATUS）」欄に質問の全文が書かれています）。</li>
+    </ul>
+    <p class="back-top"><a href="#top">目次に戻る</a></p>
+  </section>
+
+  <section class="card" id="t-ph7-222">
+    <span class="meta">phase-7-production / T-PH7-222 / 2026-11-21 17:59</span>
+    <h3>T-PH7-222：関係ないファイルが原因で秘密情報チェックが通らない件</h3>
+
+    <div class="summary-box">
+      <strong>ひとことで言うと</strong>
+      今回の作業とは無関係な <code>attack_pattern.txt</code> というファイルのせいで秘密情報スキャン（安全チェック）が失敗しているため、担当者に消させるか、オーナー・管理側で消すかを決めてほしいです。
+    </div>
+
+    <h4>いまどうなっているの</h4>
+    <p>作業場所のいちばん上の階層に、<code>attack_pattern.txt</code> という今回の作業とは無関係なファイル（バージョン管理されておらず、許可範囲外のファイル）が最初から置かれています。このファイルに対して <code>python scripts/secret_scan.py</code> という秘密情報チェックが5件の警告を出して失敗するため、完了前の関門を通れません。</p>
+    <p>担当者は許可された範囲外のファイルに触れない決まりのため、勝手に消せずに止まっています。</p>
+
+    <h4>決めないとどうなるの</h4>
+    <p>プログラム本体の実装やテストはできているのに、秘密情報チェックの関門で弾かれ続けて完了できません。</p>
+
+    <h4>選べるやり方</h4>
+    <div class="option-item">
+      <div class="option-title">（1）今回の担当者に <code>attack_pattern.txt</code> を削除する権限を与える</div>
+      <ul>
+        <li><strong>よいところ：</strong> 担当者がその場でファイルを消して、すぐに関門を通し直せます。</li>
+        <li><strong>よくないところ：</strong> 許可されたファイル範囲を広げる判断が必要です。</li>
+      </ul>
+    </div>
+    <div class="option-item">
+      <div class="option-title">（2）オーナーまたは管理システム（コントローラ）側でファイルを消してから、もう一度関門を通す</div>
+      <ul>
+        <li><strong>よいところ：</strong> 担当者の作業範囲を広げずに済みます。</li>
+        <li><strong>よくないところ：</strong> オーナーまたは管理システム側でファイルを消す手間がかかります。</li>
+      </ul>
+    </div>
+
+    <h4>決める前に知っておくこと</h4>
+    <ul>
+      <li>元の文の「背景（Context）」の先頭が途中で切れているため、テスト結果の冒頭部分は「ここは分かりません」。</li>
+      <li>設計書の行番号の記載（<code>service.py:163-477</code>）と実際のコードの行番号（おおよそ 174〜500行目）に少しずれがありますが、実装は現在のコードの構造に合わせて作られています。</li>
+    </ul>
+    <p class="back-top"><a href="#top">目次に戻る</a></p>
+  </section>
+
+  <h2>4. 決めてほしいこと（phase-8-runner）</h2>
+
+  <section class="card" id="t-ph8-303">
+    <span class="meta">phase-8-runner / T-PH8-303 / 2026-11-21 14:07</span>
+    <h3>T-PH8-303：テスト影響の見積りが報告書に書かれていない件（やり直し上限）</h3>
+
+    <div class="summary-box">
+      <strong>ひとことで言うと</strong>
+      品質チェック（レビュー）で「既存テストへの影響見積りが成果物に書かれていない」と指摘されたままやり直し回数上限に達したため、どう進めるか決めてほしいです。
+    </div>
+
+    <h4>いまどうなっているの</h4>
+    <p>この作業の受入条件（AC4）では、「§4 の移行問題でどの既存テストが落ちることになるかの見積りを報告書（REPORT）に書くこと」と定められています。しかし、レビュー対象となった成果物の中には機能への影響は書かれているものの、「具体的にどの既存テストが落ちるか」という見積りや調査根拠が含まれていませんでした。</p>
+
+    <h4>決めないとどうなるの</h4>
+    <p>やり直し回数の上限に達しているため、受入条件を満たしたかどうか確認できないまま作業が止まっています。</p>
+
+    <h4>選べるやり方</h4>
+    <p>選択肢は示されていません。</p>
+
+    <div class="opinion-box">
+      <h4>開発側の意見（品質チェック担当からの指摘）</h4>
+      <p>最小の修正として、移行計画ごとに「どの既存テストやテスト群に影響が出るか（調査根拠を含む）」の見積りを、この作業の対象範囲内の報告書・成果物に書き足すべきとされています。</p>
+    </div>
+
+    <h4>決める前に知っておくこと</h4>
+    <ul>
+      <li>元の文の「背景（Context）」の先頭が途中で切れているため、最初の数語は「ここは分かりません」。</li>
+      <li>品質チェック担当は、実際の本番コードの8つのルートすべてで制限が正しく働くかまでは動かして確認していません（今回の作業範囲にプログラム本体の変更は含まれていないため）。また、対象範囲外のタスクメモ（<code>T-PH8-303.md</code>）に書かれた内容は、レビュー対象の証拠としては認められていません。</li>
+    </ul>
+    <p class="back-top"><a href="#top">目次に戻る</a></p>
+  </section>
+
+  <section class="card" id="t-ph8-302">
+    <span class="meta">phase-8-runner / T-PH8-302 / 2026-11-21 14:34</span>
+    <h3>T-PH8-302：データベース制約テストの不備（やり直し上限）</h3>
+
+    <div class="summary-box">
+      <strong>ひとことで言うと</strong>
+      データベースの安全ルールを確かめるテストの書き方に不備があり、やり直し回数上限に達しても品質チェック（レビュー）を通らないため、どう進めるか決めてほしいです。
+    </div>
+
+    <h4>いまどうなっているの</h4>
+    <p>外部通信を禁止するルール（<code>egress_mode IN ('local_only')</code>）がデータベース側で正しく弾かれるかを確かめるテスト（AC1.4）に不備が見つかりました。テストの中でデータを登録しようとするとき、別の必須項目（<code>version</code>、<code>created_by</code>、<code>created</code>）を入れ忘れています。</p>
+    <p>そのため、もし肝心の外部通信禁止ルールが壊れて消えてしまっていても、別の「必須項目が足りないエラー」でテストが合格したように見えてしまい、安全が保たれているという誤った安心感を与えてしまいます。</p>
+
+    <h4>決めないとどうなるの</h4>
+    <p>やり直し回数の上限に達しているため、修正と再レビューが進まず作業が止まっています。</p>
+
+    <h4>選べるやり方</h4>
+    <p>選択肢は示されていません。</p>
+
+    <div class="opinion-box">
+      <h4>開発側の意見（品質チェック担当からの指摘）</h4>
+      <p>最小の修正として、テストのデータ登録時に必須項目（<code>version</code>、<code>created_by</code>、<code>created</code> など）をすべて正しく入れたうえで、<code>egress_mode='allowlisted'</code> だけをわざと違反させてエラーになることを確かめるように直すべきとされています。</p>
+    </div>
+
+    <h4>決める前に知っておくこと</h4>
+    <ul>
+      <li>元の文の「背景（Context）」の先頭が途中で切れているため、ファイル名の冒頭部分は「ここは分かりません」。</li>
+      <li>品質チェック担当は、自分でテストや SQLite を実際に動かして確認したわけではなく、設計構造の確認と管理システム側の報告をもとにこの指摘をしています。</li>
+    </ul>
+    <p class="back-top"><a href="#top">目次に戻る</a></p>
+  </section>
+
+  <section class="card" id="t-ph8-301">
+    <span class="meta">phase-8-runner / T-PH8-301 / 2026-11-21 17:53</span>
+    <h3>T-PH8-301：設計書更新の許可と、「1か月」の期限をどちらに当てはめるか</h3>
+
+    <div class="summary-box">
+      <strong>ひとことで言うと</strong>
+      設計書（ADR-0013）を書き換える許可を出すかと、以前のオーナー回答「一か月」が指す対象が(a)作業係の登録期間と(b)1ジョブ限りの証明書のどちらかを決めてほしいです。
+    </div>
+
+    <h4>いまどうなっているの</h4>
+    <p>2026-11-16 のオーナー回答（E1/E2）の内容を設計書（<code>docs/architecture/decisions/0013-job-approval-authorization-receipt.md</code>）の本文に反映させる必要がありますが、そのファイルが「編集を許可された一覧（<code>allowed_paths</code>）」に入っていないため、書き換えられずに止まっています。</p>
+    <p>さらに、オーナー回答 E1 の「一か月」という言葉が、次のどちらの有効期間（TTL）を指しているのかがはっきりしておらず、作業から必須の質問として確認を求められています。</p>
+
+    <h4>決めないとどうなるの</h4>
+    <p>設計書への反映ができず、また期限の対象や関連項目が未決定のまま残るため、ジョブを送り出す仕組みの実装（ディスパッチ）がロックされたまま進められません。</p>
+
+    <h4>選べるやり方</h4>
+    <p><strong>質問1（作業範囲について）：</strong> <code>docs/architecture/decisions/0013-job-approval-authorization-receipt.md</code> を編集許可一覧（<code>allowed_paths</code>）に追加してよいか。</p>
+    <p>元の文には、この許可についての詳しい選択肢やメリット・デメリットは書かれていません（許可するかしないかの判断となります）。</p>
+
+    <p><strong>質問2（2026-11-16 の回答「一か月」が指す対象について）：</strong></p>
+    <div class="option-item">
+      <div class="option-title">（a）Runner（作業を実行する係）の登録・信頼のための「リースの標準有効期間（既定寿命）」に1か月を割り当てる</div>
+      <ul>
+        <li><strong>よいところ・よくないところ：</strong> 元の文にはそれぞれの利点・欠点の比較は書かれていないため、ここは分かりません。</li>
+      </ul>
+    </div>
+    <div class="option-item">
+      <div class="option-title">（b）<code>HYBRID_STEP2_RECEIPT_CONTRACT.md</code> §2.1 の「1ジョブ1回限りのレシート（<code>job_id</code> に結びついた証明書）」の有効期間（TTL）に1か月を割り当てる</div>
+      <ul>
+        <li><strong>よいところ・よくないところ：</strong> 元の文にはそれぞれの利点・欠点の比較は書かれていないため、ここは分かりません。</li>
+      </ul>
+    </div>
+
+    <h4>決める前に知っておくこと</h4>
+    <ul>
+      <li>元の文の「質問（Question）」の末尾と「背景（Context）」の冒頭が途中で切れているため、E2 に関する説明の一部は「ここは分かりません」。</li>
+      <li>「一か月」が既定の有効期間であることは反映予定ですが、これとは別に「最大の有効期間」「時刻の基準」「時刻のずれの許容範囲」などもまだ決まっていないため、この2つを決めてもすぐにはジョブ配信機能のロックは解除されません。</li>
+      <li>一覧表の <code>TRUST</code> ID の名前は設計書の9行に合わせて仮の安定した名前を付けており、後から別のツールと名前が合わない場合は合わせ直す必要があります。</li>
+    </ul>
+    <p class="back-top"><a href="#top">目次に戻る</a></p>
+  </section>
+
+</div>
 </body>
 </html>

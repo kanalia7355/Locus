@@ -9,6 +9,7 @@ Each entry is a judgement the controller refused to make itself.
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job.
 
 **Context**
@@ -24,6 +25,7 @@ protected paths touched: ['docs/plans/HBR_DECISION_REGISTER.json']
 読む対象としての `docs/plans/...` は従来どおり。試行は 0 のまま `todo` に戻した。
 受入条件は無変更。詳細は各 `tasks/T-PH8-30X.md`。
 ## T-PH8-302 — out-of-scope change (2026-11-20T02:44:04+09:00)
+
 
 
 
@@ -51,6 +53,7 @@ protected paths touched: ['docs/plans/HBR_PROVIDER_EGRESS_DECISION.md']
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job. — 4 path(s) the worker wrote outside its scope: fix_parenthesis.py, fix_test.py, fix_test2.py, progress/phase-8-runner/material/HBR_CLASSIFICATION_MODEL.json. Decide whether the job's scope was drawn too narrowly, or whether the worker should not have written them.
 
 **Context**
@@ -66,6 +69,7 @@ outside allowed_paths: ['fix_parenthesis.py', 'fix_test.py', 'fix_test2.py', 'pr
 読む対象としての `docs/plans/...` は従来どおり。試行は 0 のまま `todo` に戻した。
 受入条件は無変更。詳細は各 `tasks/T-PH8-30X.md`。
 ## T-PH8-304 — attempt limit reached (2026-11-20T03:12:14+09:00)
+
 
 
 
@@ -92,6 +96,7 @@ unavailable: {"type": "provider.invalid-request", "message": "Upstream request f
 
 
 
+
 **Question**: The main checkout has uncommitted changes, so the reviewed commit was not merged. Decide how to integrate it.
 
 **Context**
@@ -114,6 +119,7 @@ M  frontend/src/styles.css
 
 **Answer** (2026-11-21, jobloop diagnose): この停止は**ループ側の欠陥**が原因で、その欠陥は既に直っている — every phase's records count as the loop's own bookkeeping。停止の時刻（2026-11-21T04:00）は修正より前なので、判断を覆したのではなく、**原因が無くなったので再開する**という記録である。欠陥が消費した試行 1 回分だけを戻す（それ以上は戻さない）。受入条件・許可パスは変更していない。
 ## T-PH8-302 — integration branch is dirty (2026-11-21T01:32:23+09:00)
+
 
 
 
@@ -145,6 +151,7 @@ M  frontend/src/styles.css
 
 
 
+
 **Question**: The reviewer still requires changes at the cycle limit.
 
 **Context**
@@ -168,6 +175,7 @@ UNVERIFIED
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job.
 
 **Context**
@@ -177,6 +185,7 @@ protected paths touched: ['docs/plans/HBR_ISOLATION_SELECTION.json', 'docs/plans
 **Answer** (2026-11-21, jobloop diagnose): この停止は**ループ側の欠陥**が原因で、その欠陥は既に直っている — scratch files are swept by `gates.litter`。停止の時刻（2026-11-21T03:32）は修正より前なので、判断を覆したのではなく、**原因が無くなったので再開する**という記録である。欠陥が消費した試行 1 回分だけを戻す（それ以上は戻さない）。受入条件・許可パスは変更していない。
 
 ## T-PH8-303 — review cycle limit reached (2026-11-21T14:07:01+09:00)
+
 
 **Question**: The reviewer still requires changes at the cycle limit.
 
@@ -191,13 +200,16 @@ UNVERIFIED
 
 ## T-PH8-301 — out-of-scope change (2026-11-21T14:17:06+09:00)
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job. — 1 path(s) the worker wrote outside its scope: backend/app/agents/registry.py. Decide whether the job's scope was drawn too narrowly, or whether the worker should not have written them.
 
 **Context**
 
 outside allowed_paths: ['backend/app/agents/registry.py']
 
+**Answer** (2026-11-21, jobloop diagnose): この停止は**ループ側の欠陥**が原因で、その欠陥は既に直っている — scratch files are swept by `gates.litter`。停止の時刻（2026-11-21T16:52）は修正より前なので、判断を覆したのではなく、**原因が無くなったので再開する**という記録である。欠陥が消費した試行 1 回分だけを戻す（それ以上は戻さない）。受入条件・許可パスは変更していない。
 ## T-PH8-302 — review cycle limit reached (2026-11-21T14:34:30+09:00)
+
 
 **Question**: The reviewer still requires changes at the cycle limit.
 
@@ -210,3 +222,29 @@ UNVERIFIED
 - I did not execute tests or SQLite statements myself, so I did not empirically confirm which constraint fires for the AC1.4 INSERT as written; the NOT NULL-vs-CHECK concern is based on schema inspection (`workspace_policies.version/created_by/created` are NOT NULL with no defaults) and SQLite constraint semantics.
 - I did not exhaustively verify quoted external design-doc references (`HYBRID_RUNNER_COMMUNICATION_DESIGN.md` §2/§3.2, `HYBRID_AGENT_ADAPTER_DESIGN.md` §7.4/Q4, `HYBRID_STEP2_AGENT_REGISTRY_DESIGN.md` §3.1, owner decisions) against their source text; I checked the decision document’s internal consistency, required sections/status markers, and named boundary references as presented.
 - I did not verify runtime cwd behavior for `tests/test_hbr_egress_boundary.py:73` beyond the controller’s reported passing test run.
+
+## T-PH8-301 — worker stopped for a decision (2026-11-21T17:53:06+09:00)
+
+**Question**: Can `allowed_paths` be widened to include `docs/architecture/decisions/0013-job-approval-authorization-receipt.md` so I can apply only the 2026-11-16 E1/E2 confirmed ADR-0013 body edits (default TTL = one month as a configurable setting with immediate revocation, rejection on next validation after revocation, and required usage history; no new approval permission, map to existing system_admin pre-
+
+**Context**
+
+one-receipt (`job_id`) authorization. It is unclear which object the 1-month term applies to.
+
+- **Risk I am leaving behind**
+  - `ADR0013-4` is marked resolved for the default-TTL aspect only because the job explicitly states 2026-11-16 E1 confirms it; however max TTL, time authority, skew tolerance, and the lease-vs-receipt subject remain unresolved. Dispatch remains locked by open entries (`dispatch_implementation_unlocked` returns `False`).
+  - The register’s TRUST IDs are mapped to the 9 `HYBRID_RUNNER_TRUST_DESIGN.md` §12 rows with stable names; if downstream tooling expects different exact TRUST ID strings, that mapping will need alignment (the job only gave `TRUST-ROTATION-INTERVAL` as an example).
+  - I could not update ADR-0013 body due `allowed_paths`; the required E1/E2 body edits are not applied.
+
+- **Owner question (required by job, 1 item)**
+  - 2026-11-16 のオーナー回答 E1（「一か月」）が指す「リース」は、(a) Runner 登録/信頼のリース既定寿命なのか、(b) `HYBRID_STEP2_RECEIPT_CONTRACT.md` §2.1 の 1 ジョブ 1 回レシート（`job_id` 束縛）の TTL なのか、どちらに 1 か月を割り当てるべきですか？
+
+## TEST
+- `python -m pytest tests/test_hbr_decision_register.py tests/test_agents_registry.py -q` → **19 passed in 7.53s**
+- `python -m ruff format tests/test_hbr_decision_register.py` → **1 file left unchanged**
+- `python -m ruff check backend tests scripts jobloop` → **All checks passed!**
+- `python -m ruff format --check backend tests scripts jobloop` → **171 files already formatted**
+- `python scripts/secret_scan.py` → **Offline secret scan: 0 findings**
+
+## STATUS
+needs-owner-decision: Can `allowed_paths` be widened to include `docs/architecture/decisions/0013-job-approval-authorization-receipt.md` so I can apply only the 2026-11-16 E1/E2 confirmed ADR-0013 body edits (default TTL = one month as a configurable setting with immediate revocation, rejection on next validation after revocation, and required usage history; no new approval permission, map to existing system_admin pre-authorization) while keeping `Status: **DRAFT.**` unchanged?
