@@ -368,3 +368,11 @@ pi/admin/audit`, and `caplog`; different-length wrong passwords produce rows ide
 ## STATUS
 
 needs-owner-decision: `attack_pattern.txt` (untracked, outside allowed_paths) causes `python scripts/secret_scan.py` to fail with 5 findings, blocking the controller gate; should I be granted scope to remove that file, or will the owner/controller remove it before re-gating this job?
+
+## T-PH7-222 — out-of-scope change (2026-11-22T03:45:10+09:00)
+
+**Question**: The worker needed paths outside allowed_paths; widen the scope or split the job. — 1 path(s) the worker wrote outside its scope: attack_pattern.txt. Decide whether the job's scope was drawn too narrowly, or whether the worker should not have written them.
+
+**Context**
+
+outside allowed_paths: ['attack_pattern.txt']
