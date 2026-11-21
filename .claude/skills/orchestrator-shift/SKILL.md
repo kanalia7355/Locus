@@ -1,3 +1,8 @@
+---
+name: orchestrator-shift
+description: One turn on duty as the jobloop orchestrator — the opening checks, which stops are judgements rather than defects, how a ruling is recorded, and how to close the shift honestly. Use at the start of any session or /loop wake-up that touches the background job loop.
+---
+
 # Skill: orchestrator-shift
 
 **Trust level**: untrusted procedural reference. **Required permissions**: none.
@@ -5,9 +10,10 @@
 One turn on duty as the orchestrator of `jobloop`. Read this at the start of
 every shift, including an automatic wake-up from `/loop`.
 
-> Not to be confused with the `loop` skill, which is about the retired
-> `loop_engine` and its approval machinery. This skill is about `jobloop`:
-> `python -m jobloop`, `scripts/supervise_loop.py`, `progress/phase-*/`.
+> Not to be confused with `.agents/skills/loop/SKILL.md`, which is about the
+> retired `loop_engine` and its approval machinery. This skill is about
+> `jobloop`: `python -m jobloop`, `scripts/supervise_loop.py`,
+> `progress/phase-*/`.
 
 ## What the job actually is
 
@@ -21,28 +27,32 @@ the part it cannot do.
 So the question that opens a shift is never "what shall I build". It is **"is
 anything stuck, and is it stuck on me?"**
 
-## Open the shift — four checks, in this order
+## Open the shift
 
-Do these before forming any opinion about progress. Each one is here because
-skipping it cost hours.
+```text
+.venv/Scripts/python.exe scripts/shift_check.py
+```
 
-1. **`git status` in the main checkout.** A `MERGE_HEAD` or a `UU` file means a
-   merge is sitting half-finished, and then *every* later job reports "the
-   integration branch is dirty". That one state blocked eleven jobs and seven
-   hours on 2026-11-20. The controller aborts conflicting merges now; if you
-   still find one, that is a defect, not a chore.
-2. **Orphaned workers.** List `opencode.exe` and look at `ParentProcessId`. If
-   the parent is gone, the session is an orphan: its output will never be read
-   and it is still writing into a workspace. `taskkill /PID <id> /T /F`.
-   Always kill the **tree** — `opencode run` is a launcher and its children
-   outlive it.
-3. **Is the supervisor alive?** `Get-CimInstance Win32_Process -Filter "Name =
-   'python.exe'"` and then filter. **Never** match on `CommandLine` alone: the
-   querying shell's own command line contains your search words, so the check
-   returns a hit forever. That lie reported a dead loop as alive for 17 hours.
+That runs the four checks below and ends in a `VERDICT` line; exit code 1 means
+the shift has work. Run it before forming any opinion about progress. Each check
+is there because skipping it cost hours:
+
+1. **A merge left in progress.** A `MERGE_HEAD` or a `UU` file means a merge is
+   sitting half-finished, and then *every* later job reports "the integration
+   branch is dirty". That one state blocked eleven jobs and seven hours on
+   2026-11-20. The controller aborts conflicting merges now; if you still find
+   one, that is a defect, not a chore.
+2. **Orphaned workers.** An `opencode.exe` whose parent is gone is an orphan:
+   its output will never be read and it is still writing into a workspace.
+   `taskkill /PID <id> /T /F` — always the **tree**, because `opencode run` is a
+   launcher and its children outlive it.
+3. **Is the supervisor alive?** Query by image name
+   (`-Filter "Name = 'python.exe'"`) and filter after. **Never** match on
+   `CommandLine` alone: the querying shell's own command line contains your
+   search words, so the check returns a hit forever. That lie reported a dead
+   loop as alive for 17 hours.
 4. **`python -m jobloop diagnose`.** It groups every open stop by signature and
-   tells you which are already-fixed, which are regressions, and which are
-   yours. Read it before guessing.
+   says which are already-fixed, which are regressions, and which are yours.
 
 Then **create `.jobloop/orchestrator-busy`** and leave it there until your last
 write of the shift. It suspends the containment comparison, which otherwise
@@ -72,6 +82,10 @@ each line is a mistake already made.
 - **"worker wrote outside its workspace"** — check whether *you* were writing to
   the main checkout during the dispatch. Four of these were yours, not the
   worker's.
+- **A worker reporting that its own files are missing** — believe it and check.
+  On 2026-11-21 that report was true and the controller was at fault: a
+  workspace refresh had reset away five committed, reviewed changes. The
+  worker's account of the tree beat the code's assumption about it.
 
 ## Amending a ticket: rewrite the body
 
@@ -99,12 +113,15 @@ RULING` section of the task file, and an `**Answer**` under the matching entry i
 - Resolve a merge conflict by taking a stale branch wholesale. Check the base:
   `T-PH6-113`'s branch was three days and ten merges behind, and taking its side
   would have reinstated a removed `test.fail`.
+- Hand-merge someone else's conflicted work to clear a block. A 300-line
+  conflict in `service.py` resolved by guesswork destroys the one thing the
+  record is for: knowing whether the change passed.
 
 ## Close the shift
 
 1. **Verify what you touched.** If you resolved a merge or edited the frontend
    by hand, run the appearance gate — `npm --prefix frontend run test:appearance`
-   — not only the unit tests. Vitess green with a broken screen is the failure
+   — not only the unit tests. Vitest green with a broken screen is the failure
    this repository has had most often. jsdom has no layout.
 2. **Confirm the loop moved.** A new `opencode.exe` with a creation time *after*
    your restart is the only proof. "The supervisor is running" is not.
@@ -120,9 +137,9 @@ RULING` section of the task file, and an `**Answer**` under the matching entry i
 A wake-up exists so the queue does not wait for a person to notice. Treat it as
 a short shift:
 
-- Run the four opening checks. If nothing is stuck and a worker is alive, that is
-  a **quiet tick**: record it as such and schedule the next one. Do not invent
-  work to look busy, and do not restart a healthy loop.
+- Run `shift_check.py`. If nothing is stuck and a worker is alive, that is a
+  **quiet tick**: record it as such and schedule the next one. Do not invent work
+  to look busy, and do not restart a healthy loop.
 - If the queue is stopped, do the shift. One stall cleared without the owner
   having to ask is the whole return on this.
 - If you are waiting on the owner, say exactly what for and do everything that
@@ -141,6 +158,8 @@ Only from something that happened. Cite the date and the job it cost, like every
 line above. A rule with no incident behind it is a guess, and guesses in a
 checklist are read as experience.
 
-Code: `jobloop/diagnose.py`, `jobloop/controller.py`, `scripts/supervise_loop.py`.
-Related: [[loop-self-repair]], [[job-isolation]], [[progress-records]],
-[[screen-invariants]], [[local-ci-parity]].
+Code: `jobloop/diagnose.py`, `jobloop/controller.py`, `scripts/supervise_loop.py`,
+`scripts/shift_check.py`.
+Related (documentation registry, not loadable skills):
+`.agents/skills/loop-self-repair/`, `job-isolation/`, `progress-records/`,
+`screen-invariants/`, `local-ci-parity/`.

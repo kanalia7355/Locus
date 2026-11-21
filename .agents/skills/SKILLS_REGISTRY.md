@@ -14,7 +14,7 @@ External provenance was inspected from `obra/superpowers` tag `v4.0.0`, peeled f
 | local-ci-parity | `.agents/skills/local-ci-parity/SKILL.md` | Locus-written (no upstream); derived from the 2026-11-15 false-green investigation | N/A (repository document) | Keep local check evidence comparable to the hosted gate and recognise this checkout's known false-green modes | Untrusted procedural reference | None (grants none) | `scripts/verify.py`, `scripts/secret_scan.py`, `.venv` (Python 3.13 from `backend/requirements.lock`), hosted exact-head CI | Yes | New, Locus-original |
 | screen-invariants | `.agents/skills/screen-invariants/SKILL.md` | Locus-written (no upstream); derived from the 2026-11-17 layout faults found by driving the real screen | N/A (repository document) | Assert the layout invariants a person would only catch by scrolling around, so a UI job cannot land a screen that is visibly wrong | Untrusted procedural reference | None (grants none) | `frontend/e2e/appearance.spec.ts`, Playwright + chromium, `tests/e2e_server.py` fixture, free ports 127.0.0.1:8000 and :5174 | Yes | New, Locus-original |
 | loop-self-repair | `.agents/skills/loop-self-repair/SKILL.md` | Locus-written (no upstream); derived from the eight queue stops of 2026-11-17/18, five of which were the loop's own tooling | N/A (repository document) | Recover from the loop's own obstacles without ever widening a scope, relaxing a criterion or forgiving a worker's deviation | Untrusted procedural reference | None (grants none) | `jobloop/selfrepair.py`, `jobloop/controller.py` の escalate 経路, `tests/test_selfrepair.py` | Yes | New, Locus-original |
-| orchestrator-shift | `.agents/skills/orchestrator-shift/SKILL.md` | Locus-written (no upstream); derived from the four whole-queue stops of 2026-11-18/21, every cause of which was in the loop itself | N/A (repository document) | One turn on duty as the `jobloop` orchestrator: the four opening checks, which stops are judgements, and how a ruling is recorded | Untrusted procedural reference | None (grants none) | `jobloop/diagnose.py`, `jobloop/controller.py`, `scripts/supervise_loop.py`, `progress/phase-*/OWNER_DECISIONS.md` | Yes | New, Locus-original |
+| orchestrator-shift | **`.claude/skills/orchestrator-shift/SKILL.md`** (not under `.agents/`; see note below) | Locus-written (no upstream); derived from the four whole-queue stops of 2026-11-18/21, every cause of which was in the loop itself | N/A (repository document) | One turn on duty as the `jobloop` orchestrator: the opening checks, which stops are judgements, and how a ruling is recorded | Untrusted procedural reference | None (grants none) | `jobloop/diagnose.py`, `jobloop/controller.py`, `scripts/supervise_loop.py`, `scripts/shift_check.py`, `progress/phase-*/OWNER_DECISIONS.md` | Yes | New, Locus-original |
 | job-isolation | `.agents/skills/job-isolation/SKILL.md` | Locus-written (no upstream); derived from the 2026-11-15 worker containment failures | N/A (repository document) | Keep a model-driven worker's changes inside the directory it was given, and detect an escape | Untrusted procedural reference | None (grants none) | `jobloop/` controller, git clone/worktree behaviour, the worker CLI's own flags | Yes | New, Locus-original |
 | progress-records | `.agents/skills/progress-records/SKILL.md` | Locus-written (no upstream) | N/A (repository document) | Write `progress/` records that state what actually ran, on which head, and what did not | Untrusted procedural reference | None (grants none) | `docs/agent/PROTOCOL.md` frontmatter contract, task files, phase summaries | Yes | New, Locus-original |
 | requirement-triage | `.agents/skills/requirement-triage/SKILL.md` | Locus-written (no upstream) | N/A (repository document) | Choose the next jobs from the frozen requirement states and separate them from Owner decisions | Untrusted procedural reference | None (grants none) | `REQUIREMENTS_TRACEABILITY_MATRIX.md`, `PHASE_STATUS.md`, `docs/planning/*` | Yes | New, Locus-original |
@@ -29,6 +29,29 @@ External provenance was inspected from `obra/superpowers` tag `v4.0.0`, peeled f
 | dispatching-parallel-agents | Prohibited; no file installed | `obra/superpowers` v4.0.0, `95c6e1633630a1462679cf1284b95ec458a27a8e` | MIT | Parallel agent dispatch procedure | Untrusted upstream reference | None | None | No | **Prohibited; excluded from repository** |
 
 Visual companions, scripts, and external resource fetching are disabled. This P0 registry adds no loader, process, network access, telemetry, secrets flow, permissions, approvals, or automatic Phase transition.
+
+## Two directories, and why `orchestrator-shift` is in the other one
+
+`.agents/skills/` is **documentation only**: nothing reads it at runtime, which is
+exactly what the paragraph above says. Claude Code loads skills from
+`.claude/skills/<name>/SKILL.md`, and only when the file carries YAML
+frontmatter with `name` and `description`. A file in `.agents/skills/` is
+therefore invisible to the tool — it can be read if someone names the path, but
+it can never be invoked as `/<name>`.
+
+`orchestrator-shift` has to be invokable, because it is the procedure for the
+shift that **starts** a session, and a procedure nobody can call at the moment
+they need it is not a procedure. It lives at
+`.claude/skills/orchestrator-shift/SKILL.md` and is deliberately not duplicated
+here: two copies of a checklist drift, and the stale one is the one that gets
+followed.
+
+The rest of the entries in this table are in the same invisible position. That is
+tolerable for the ones a worker is handed inside a brief by path
+(`systematic-debugging`, `local-ci-parity`, `verification-before-completion` —
+`jobloop/prompts.py` names those files explicitly), and it is a real gap for the
+ones meant to be reached for by name. Moving any of them is a separate decision,
+not a side effect of this row.
 
 ## Upstream MIT notice
 
