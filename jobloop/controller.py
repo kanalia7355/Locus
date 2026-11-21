@@ -344,15 +344,33 @@ class Controller:
         merged, and `App.tsx` conflicted — which is how a conflicted merge came
         to sit in the main checkout at all.
 
-        Only a clean workspace is refreshed. With work in progress there is
-        nothing safe to do here: resetting would throw the attempt away, so the
-        drift is recorded and left for the merge to catch.
+        Two things have to be true before anything is reset, and the first
+        version of this only checked one of them.
+
+        A clean tree is not enough. `deliver` commits the reviewed work *before*
+        it tries to merge, so a job that was blocked at the merge has its work in
+        a commit and a perfectly clean tree. Resetting that discarded five
+        reviewed commits on 2026-11-21 — `T-PH6-104`, `T-PH7-201`, `T-PH7-223`,
+        `T-PH8-301`, `T-PH8-302` — each of them work a free model had already
+        got through the gates and a reviewer. So: clean tree **and** no commit the
+        integration branch does not already have.
         """
         if self.dirt(worktree).strip():
             return
         git(worktree, "fetch", str(self.settings.repository), self.settings.integration_branch)
         behind = git(worktree, "rev-list", "--count", "HEAD..FETCH_HEAD", check=False).strip()
+        ahead = git(worktree, "rev-list", "--count", "FETCH_HEAD..HEAD", check=False).strip()
         if not behind or behind == "0":
+            return
+        if ahead and ahead != "0":
+            self.record(
+                task,
+                f"WORKSPACE NOT REBASED ({self.now()})",
+                f"The workspace is {behind} commit(s) behind "
+                f"`{self.settings.integration_branch}` but {ahead} commit(s) ahead of it, so it "
+                "was left alone: those commits are this job's own work and a reset would "
+                "destroy them. If they no longer apply, the merge will say so.",
+            )
             return
         # Clean tree, so nothing of the job's own is lost by taking the new base.
         git(worktree, "reset", "--hard", "FETCH_HEAD", check=False)

@@ -889,6 +889,47 @@ def test_a_stale_workspace_is_taken_to_the_current_branch_before_a_new_attempt(
     assert (tree / "a.txt").read_text(encoding="utf-8") == "the job is mid-attempt\n"
 
 
+def test_a_workspace_holding_its_own_commit_is_never_reset(tmp_path: Path) -> None:
+    # `deliver` commits the reviewed work *before* it tries to merge, so a job
+    # blocked at the merge has its work in a commit and a perfectly clean tree.
+    # Checking only the tree discarded five reviewed commits on 2026-11-21.
+    phase_with_task(tmp_path)
+    repository = tmp_path
+    git(repository, "init", "-b", "loop/local-development", check=False)
+    git(repository, "config", "user.email", "t@example.invalid")
+    git(repository, "config", "user.name", "t")
+    (repository / ".gitignore").write_text(".jobloop/\n", encoding="utf-8")
+    (repository / "a.txt").write_text("base\n", encoding="utf-8")
+    git(repository, "add", "-A")
+    git(repository, "commit", "-m", "base")
+
+    controller = controller_for(tmp_path, ["a-free", "b-free"])
+    task = tasks.load_phase(controller.settings.phase_directory).tasks[0]
+    tree = controller.workspace(task)
+
+    # The job finishes its work and the controller commits it, as `deliver` does.
+    (tree / "delivered.py").write_text("x = 1\n", encoding="utf-8")
+    git(tree, "config", "user.email", "t@example.invalid")
+    git(tree, "config", "user.name", "t")
+    git(tree, "add", "-A")
+    git(tree, "commit", "-m", "the reviewed work")
+    reviewed = git(tree, "rev-parse", "HEAD").strip()
+    assert not Controller.dirt(tree).strip(), "a committed job leaves a clean tree"
+
+    # Meanwhile the integration branch moves on, so the workspace is behind.
+    (repository / "a.txt").write_text("moved on\n", encoding="utf-8")
+    git(repository, "add", "-A")
+    git(repository, "commit", "-m", "the branch moved")
+
+    controller.workspace(task)
+    assert git(tree, "rev-parse", "HEAD").strip() == reviewed, "the job's commit must survive"
+    assert (tree / "delivered.py").is_file()
+    body = (tmp_path / "progress" / "phase-test" / "tasks" / "T-JOB-1.md").read_text(
+        encoding="utf-8"
+    )
+    assert "WORKSPACE NOT REBASED" in body, "and the reader has to be told why it is stale"
+
+
 def test_a_reviewer_that_writes_its_review_to_a_file_is_replaced_not_escalated(
     tmp_path: Path,
 ) -> None:
