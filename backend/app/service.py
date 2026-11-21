@@ -35,6 +35,9 @@ from app.scanner import UNAVAILABLE, ScanResult
 
 Json = dict[str, Any]
 PASSWORDS = PasswordHasher(time_cost=2, memory_cost=19456, parallelism=1)
+# Login history retention: 1 year (matches the 1-year audit retention decision).
+# Pruning is limited to login_events only; no other tables are auto-deleted.
+LOGIN_HISTORY_RETENTION_SECONDS = 365 * 24 * 60 * 60
 NON_ADMIN = frozenset({"read", "retrieve", "upload", "publish"})
 ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     "system_admin": frozenset(),
@@ -484,6 +487,11 @@ class Service:
             CREATE TABLE IF NOT EXISTS audit (
                 id TEXT PRIMARY KEY, at REAL NOT NULL, actor_id TEXT NOT NULL,
                 operation TEXT NOT NULL, target_id TEXT NOT NULL, outcome TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS login_events (
+                id TEXT PRIMARY KEY, at REAL NOT NULL,
+                user_id TEXT, username_digest TEXT NOT NULL,
+                outcome TEXT NOT NULL, peer TEXT NOT NULL, user_agent TEXT
             );
             CREATE TABLE IF NOT EXISTS login_throttle (
                 user_id TEXT NOT NULL,
@@ -970,7 +978,25 @@ class Service:
         )
         return token
 
-    def login(self, username: str, password: str, peer: str) -> tuple[str, Json]:
+    def login(
+        self,
+        username: str,
+        password: str,
+        peer: str,
+        user_agent: str | None = None,
+    ) -> tuple[str, Json]:
+        """Record a login event before either succeeding or failing.
+
+        Outcomes (ordered by check priority):
+          'unknown_user'   – no such account
+          'disabled'       – account is disabled
+          'locked'         – account is under login lock
+          'temp_expired'   – must-rotate temp password has expired
+          'bad_password'   – password does not match
+          'success'        – all checks pass
+        The event is written with db.execute() + explicit commit so it persists
+        even when the subsequent fail(401) raises HTTPException.
+        """
         with self.db() as db:
             # Instant burst limits (60s window) remain in memory.
             self._limit("peer:" + peer, 20)
@@ -979,7 +1005,39 @@ class Service:
             now = time.time()
             user = db.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
 
-            # Always perform password verification work to avoid leaking account existence.
+            # Determine outcome (ordered by check priority).
+            outcome: str | None = None
+            throttle_key = user["id"] if user is not None else digest(username)
+
+            # Check throttle lock (absolute deadline, auto-expires).
+            row = db.execute(
+                "SELECT failures, locked_until, last_failure FROM login_throttle WHERE user_id=?",
+                (throttle_key,),
+            ).fetchone()
+            failures = int(row["failures"]) if row else 0
+            locked_until = float(row["locked_until"]) if row else 0.0
+
+            if row and locked_until > now:
+                outcome = "locked"
+
+            # Unknown account.
+            if user is None and outcome is None:
+                outcome = "unknown_user"
+
+            # Disabled account.
+            if user is not None and not user["enabled"] and outcome is None:
+                outcome = "disabled"
+
+            # Expired temporary password.
+            if (
+                user is not None
+                and outcome is None
+                and user["must_rotate"]
+                and (user["temp_used"] or float(user["temp_expires"]) < now)
+            ):
+                outcome = "temp_expired"
+
+            # Password verification (always performed to avoid leaking account existence).
             valid = False
             if user is not None:
                 try:
@@ -992,36 +1050,39 @@ class Service:
                 except VerificationError:
                     pass
 
-            throttle_key = user["id"] if user is not None else digest(username)
-            row = db.execute(
-                "SELECT failures, locked_until, last_failure FROM login_throttle WHERE user_id=?",
-                (throttle_key,),
-            ).fetchone()
-            failures = int(row["failures"]) if row else 0
-            locked_until = float(row["locked_until"]) if row else 0.0
-            last_failure = float(row["last_failure"]) if row else 0.0
+            if outcome is None and not valid:
+                outcome = "bad_password"
 
-            # DB-backed lock: absolute deadline, auto-expires, never extended while locked.
-            if row and locked_until > now:
-                # Preserve the lock state on any attempt during lock (including correct password).
-                db.execute(
-                    "INSERT OR REPLACE INTO login_throttle "
-                    "(user_id, failures, locked_until, last_failure) VALUES (?,?,?,?)",
-                    (throttle_key, failures, locked_until, last_failure),
-                )
-                db.commit()
-                fail(401, "利用者IDまたはパスワードを確認してください")
+            # Success if nothing else matched.
+            if outcome is None:
+                outcome = "success"
 
-            login_ok = (
-                user is not None
-                and valid
-                and bool(user["enabled"])
-                and not (
-                    user["must_rotate"] and (user["temp_used"] or float(user["temp_expires"]) < now)
-                )
+            # Record the login event before any fail()/return.
+            # user_id: known account ID, or NULL for unknown_user.
+            # username_digest is always stored as digest(username) (never raw input).
+            # user_agent is capped at 256 chars; NULL when absent.
+            # Persisted before fail(401) with an explicit commit so the row survives
+            # the HTTPException that exits the db() context.
+            ua = user_agent[:256] if user_agent else None
+            db.execute(
+                "INSERT INTO login_events VALUES (?,?,?,?,?,?,?)",
+                (
+                    uid(),
+                    now,
+                    throttle_key if user is not None else None,
+                    digest(username),
+                    outcome,
+                    peer,
+                    ua,
+                ),
             )
+            # Retention pruning: delete rows older than the 1-year window.
+            # Scoped to login_events only; no other table is auto-deleted.
+            cutoff = now - LOGIN_HISTORY_RETENTION_SECONDS
+            db.execute("DELETE FROM login_events WHERE at < ?", (cutoff,))
+            db.commit()
 
-            if login_ok:
+            if outcome == "success":
                 # Successful login resets long-term failure tracking.
                 db.execute(
                     "INSERT OR REPLACE INTO login_throttle "
@@ -1033,6 +1094,10 @@ class Service:
                 token = self._session(db, user["id"], bool(user["must_rotate"]))
                 self._audit(db, user["id"], "session.start", user["id"])
                 return token, self._public_user(user)
+
+            # Already-locked attempts must not extend the lock (T-PH7-221).
+            if outcome == "locked":
+                fail(401, "利用者IDまたはパスワードを確認してください")
 
             # Failed login: increment failures; apply a fixed-duration lock at threshold.
             failures += 1
@@ -3435,6 +3500,33 @@ class Service:
         with self.db() as db:
             return [
                 dict(row) for row in db.execute("SELECT * FROM audit ORDER BY at DESC LIMIT 200")
+            ]
+
+    def get_login_history(self, actor: Principal, limit: int = 200) -> list[Json]:
+        if not actor.system_admin:
+            fail(403, "管理権限が必要です")
+        limit = max(1, min(limit, 200))
+        with self.db() as db:
+            rows = db.execute(
+                "SELECT id, at, user_id, outcome, peer, user_agent FROM login_events "
+                "ORDER BY at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+            return [
+                {
+                    "at": row["at"],
+                    "outcome": row["outcome"],
+                    "peer": row["peer"],
+                    "user_agent": row["user_agent"],
+                    "username": (
+                        db.execute(
+                            "SELECT username FROM users WHERE id=?", (row["user_id"],)
+                        ).fetchone()["username"]
+                        if row["user_id"]
+                        else None
+                    ),
+                }
+                for row in rows
             ]
 
     def users(self, actor: Principal) -> list[Json]:
