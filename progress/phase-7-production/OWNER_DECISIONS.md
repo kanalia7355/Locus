@@ -251,3 +251,11 @@ STATUS
 
 ### STATUS: `ready-for-review`
 The core requirements are satisfied: storage engine abstraction is in place, `import sqlite3` is fixed to `storage.py` only, `Service.conn` compatibility is maintained, and all key test suites pass. The one pre-existing test failure is documented and outside the scope of this job.
+
+## T-PH7-222 — out-of-scope change (2026-11-21T16:52:22+09:00)
+
+**Question**: The worker needed paths outside allowed_paths; widen the scope or split the job. — 1 path(s) the worker wrote outside its scope: attack_pattern.txt. Decide whether the job's scope was drawn too narrowly, or whether the worker should not have written them.
+
+**Context**
+
+outside allowed_paths: ['attack_pattern.txt']
