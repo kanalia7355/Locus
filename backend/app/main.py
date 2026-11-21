@@ -326,7 +326,10 @@ def create_app(
     @app.post("/api/auth/login")
     def login(data: Login, request: Request, response: Response) -> dict[str, Any]:
         token, user = svc.login(
-            data.username, data.password, request.client.host if request.client else "unknown"
+            data.username,
+            data.password,
+            request.client.host if request.client else "unknown",
+            request.headers.get("User-Agent"),
         )
         cookie(response, token)
         return user
@@ -793,6 +796,10 @@ def create_app(
     @app.get("/api/admin/audit")
     def audit(user: Actor) -> list[dict[str, Any]]:
         return svc.audit(user)
+
+    @app.get("/api/admin/login-history")
+    def login_history(user: Actor, limit: int = 200) -> list[dict[str, Any]]:
+        return svc.get_login_history(user, limit=limit)
 
     @app.post("/api/admin/workspaces", status_code=201)
     def create_agent_workspace(request: Request) -> dict[str, Any]:
