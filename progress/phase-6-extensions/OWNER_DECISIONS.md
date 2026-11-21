@@ -931,3 +931,64 @@ M  frontend/src/styles.css
  M progress/phase-8-runner/tasks/T-PH8-303.md
 
 **Answer** (2026-11-21, jobloop diagnose): この停止は**ループ側の欠陥**が原因で、その欠陥は既に直っている — every phase's records count as the loop's own bookkeeping。停止の時刻（2026-11-21T04:00）は修正より前なので、判断を覆したのではなく、**原因が無くなったので再開する**という記録である。欠陥が消費した試行 1 回分だけを戻す（それ以上は戻さない）。受入条件・許可パスは変更していない。
+
+## T-PH6-116 — worker stopped for a decision (2026-11-21T12:56:22+09:00)
+
+**Question**: frontend/e2e/workspace.spec.ts の「sidebar, long names, mobile widths and reduced motion」が、私の変更とは無関係に既に赤です（変更をすべてスタッシュしたクリーンな HEAD で再現）。原因は T-PH6-111 が .messages をスクロール領域に変えて .main はスクロールしなくなったのに、このテストが .main の scrollTop > 0 を求めていることです。オーナー裁定が「4 か所以外の表明に触れるな」と禁じているため、私の側では直せません。この既存失敗をどう扱いますか。（a）このジョブでは既存失敗を対象外とし 12/13 で完了とみなす、（b）この陳腐化した表明（.main → .messages）の修正をこのジョブで特別に認める、（c）別ジョブで直す。
+
+**Context**
+
+` colour is the old token until T-PH6-125 restyles it. (3) The appearance checks depend on file execution order (test-researcher-1 rotated by an earlier check) and on the fixture layout. (4) A pre-existing, unrelated workspace e2e failure remains — see STATUS.
+
+TEST
+- `npm --prefix frontend run typecheck` → PASS (exit 0).
+- `npm --prefix frontend run lint` → PASS (exit 0).
+- `npm --prefix frontend run test` → 17 files / 134 tests passed. (One earlier run while lint ran in parallel had a single flaky failure in `src/RoleEditing.test.tsx`; it passed in isolation and on the repeat full run.)
+- `npm --prefix frontend run test:appearance` → 22 passed (exit 0).
+- `npx playwright test e2e/a11y.spec.ts` from `frontend/` → 5 passed.
+- `npx playwright test e2e/workspace.spec.ts` from `frontend/` → 12 passed, 1 failed: `sidebar, long names, mobile widths and reduced motion` — `the content did not scroll`, `.main` scrollTop 0. Reproduced identically with all my changes stashed on clean HEAD, so it is pre-existing and unrelated (T-PH6-111 made `.messages` the scroller; the test still asserts `.main` scrolls).
+- Guard measurement: with the `.focus-guard` spans removed, `e2e/a11y.spec.ts` → 2 failed (focus left the dialog); with them restored → 5 passed.
+- `python -m ruff check backend tests scripts jobloop` → All checks passed.
+- `python -m ruff format --check backend tests scripts jobloop` → 170 files already formatted.
+- `python scripts/secret_scan.py` → Offline secret scan: 0 findings.
+- `git status --porcelain` → only the seven allowed paths modified; no stray files.
+
+STATUS
+needs-owner-decision: frontend/e2e/workspace.spec.ts の「sidebar, long names, mobile widths and reduced motion」が、私の変更とは無関係に既に赤です（変更をすべてスタッシュしたクリーンな HEAD で再現）。原因は T-PH6-111 が .messages をスクロール領域に変えて .main はスクロールしなくなったのに、このテストが .main の scrollTop > 0 を求めていることです。オーナー裁定が「4 か所以外の表明に触れるな」と禁じているため、私の側では直せません。この既存失敗をどう扱いますか。（a）このジョブでは既存失敗を対象外とし 12/13 で完了とみなす、（b）この陳腐化した表明（.main → .messages）の修正をこのジョブで特別に認める、（c）別ジョブで直す。
+
+## T-PH6-126 — worker stopped for a decision (2026-11-21T13:21:44+09:00)
+
+**Question**: whether this worker may delete the out-of-scope scratch files the previous attempt wrote outside `allowed_paths` (frontend/appearance_output.txt, frontend/baseline.txt, frontend/check_*.py, frontend/debug_test.py, frontend/fix_tests.py, frontend/output.txt, frontend/test_*.py, frontend/vitest_*.txt), or whether the job scope should be widened/split so such cleanup can be performed.
+
+**Context**
+
+ut the file actually lives at `docs/planning/UI_IMPLEMENTATION_BASELINE.md`; no documentation change was needed or made.
+- Risk being left behind: the fix relies on clearing `pendingJob` on switch plus conversation-scoping the poll; for a job whose conversation is no longer current, the completion path surfaces the history-oriented notice instead of writing into the current view.
+
+TEST
+- Commands run and results:
+  - `npm --prefix frontend run test` — PASS (17 test files, 133 tests passed, 0 failed).
+  - `npm --prefix frontend run typecheck` — PASS.
+  - `npm --prefix frontend run lint` — PASS (`eslint . --max-warnings 0`).
+  - `npm --prefix frontend run test:appearance` — PASS (19 passed, including the new 320px widths checks).
+  - `npx prettier --check frontend/src/App.tsx frontend/src/App.test.tsx frontend/e2e/appearance.spec.ts` — PASS.
+  - `.venv/Scripts/python.exe -m ruff check backend tests scripts jobloop` — PASS (All checks passed).
+  - `.venv/Scripts/python.exe -m ruff format --check backend tests scripts jobloop` — PASS (168 files already formatted).
+  - `.venv/Scripts/python.exe scripts/secret_scan.py` — PASS (Offline secret scan: 0 findings).
+- Failures observed during this attempt and how they were resolved: lint failed with `react-hooks/exhaustive-deps` missing dependency `pendingJob.conversation` (introduced by the previous attempt) → fixed by using the derived `pendingConversation`; the third synthetic test initially failed (no queued job created by mock, wrong conversation API path, missing test timeout) → fixed, then the full suite passed.
+
+STATUS
+- needs-owner-decision: whether this worker may delete the out-of-scope scratch files the previous attempt wrote outside `allowed_paths` (frontend/appearance_output.txt, frontend/baseline.txt, frontend/check_*.py, frontend/debug_test.py, frontend/fix_tests.py, frontend/output.txt, frontend/test_*.py, frontend/vitest_*.txt), or whether the job scope should be widened/split so such cleanup can be performed.
+
+## T-PH6-104 — review cycle limit reached (2026-11-21T15:51:12+09:00)
+
+**Question**: The reviewer still requires changes at the cycle limit.
+
+**Context**
+
+er (default `ubuntu:22.04`, line 160). On a typical Docker host this path will not exist in the container, causing the container command to fail. The `FileNotFoundError` handler (lines 240-245) only catches a missing host `docker` binary, so a container-side exec failure returns a failed Docker `SandboxResult` (`success=False`, `sandbox="docker"`) instead of falling back or producing extraction output. Concrete failure: `extract_with_sandbox(..., use_docker=True)` with Docker available but using this command shape will quarantine/fail extraction rather than exercising the intended strong-containment extractor path. The opt-in integration tests in `tests/integration/test_live_sandbox_docker.py:71-75,138-142` do not cover this because they invoke `docker run` directly (against `receipt["image_id"]`) rather than the product `_run_docker`/`extract_with_sandbox` path. Smallest fix: use a Python interpreter path/image contract that exists inside the target container (or make it configurable/validated), and add an opt-in test that exercises the product Docker path (`_run_docker` or `extract_with_sandbox(..., use_docker=True)`) end-to-end.
+
+UNVERIFIED
+- Docker containment criteria `DOCUMENT_EXTRACTION_BOUNDARY.md` §8 items 7-8 were not executed; `tests/integration/test_live_sandbox_docker.py` is opt-in (`LOCUS_LIVE_DOCKER=1`) and requires a working Docker engine plus `.loop/runtime/qa-image.json`. I did not run them and cannot confirm runtime behavior of the Docker flags/environment in that image.
+- I did not re-run `python -m pytest tests/test_sandbox_boundary.py tests/test_api.py -q`, `ruff check`, `ruff format --check`, or `scripts/secret_scan.py`; I relied on the controller evidence provided in the job message.
+- I did not perform live dynamic verification of timeout/output-flood behavior beyond static inspection of `backend/app/sandbox.py`, `backend/app/service.py`, and the monkeypatched test logic; controller evidence reports the subprocess/default-path suite passing.

@@ -175,3 +175,38 @@ UNVERIFIED
 protected paths touched: ['docs/plans/HBR_ISOLATION_SELECTION.json', 'docs/plans/HBR_ISOLATION_SELECTION.md']
 
 **Answer** (2026-11-21, jobloop diagnose): この停止は**ループ側の欠陥**が原因で、その欠陥は既に直っている — scratch files are swept by `gates.litter`。停止の時刻（2026-11-21T03:32）は修正より前なので、判断を覆したのではなく、**原因が無くなったので再開する**という記録である。欠陥が消費した試行 1 回分だけを戻す（それ以上は戻さない）。受入条件・許可パスは変更していない。
+
+## T-PH8-303 — review cycle limit reached (2026-11-21T14:07:01+09:00)
+
+**Question**: The reviewer still requires changes at the cycle limit.
+
+**Context**
+
+videnced in the reviewed change set. AC4 requires `REPORT に、§4 の移行問題でどの既存テストが落ちることになるかの見積りを書く` for each migration approach (impact declaration, without changing tests). The material docs/JSON describe functional breakage (`migration[].breaks`, §4 impact text) but do not enumerate which existing tests would fall per plan, and no corresponding estimate with test file/case-level scope and investigation basis is present in these reviewed artifacts. Concrete failure: acceptance cannot be confirmed because reviewers/owners cannot see the required per-plan existing-test impact estimate tied to §4/migration breaks. Smallest fix: add the required §4 estimate (per migration plan, naming affected existing tests/suites/cases or clearly scoped test areas, with a brief basis such as grep conditions) to the job’s in-scope deliverable/report artifact so it is part of the reviewed evidence.
+
+UNVERIFIED
+- Exact gate hook points in current runtime code: `test_gate_location_exists` and spot checks confirm referenced files/symbols exist (`backend/app/service.py` defines `send`, `_document`, `_can_read`, `_citations` and uses `chat_jobs`; `backend/app/agents/registry.py` defines the `runner_artifacts` schema), but I did not verify that each path’s gate can be placed at the precise pre-assembly/pre-dispatch/persistence point named in prose.
+- End-to-end enforcement sufficiency: `tests/test_hbr_classification_contract.py` validates the JSON contract, DAG acyclicity, and synthetic inherit-max cases (`confidential`+`public`→`confidential`, any `none`→deny, additional max cases), but not runtime classification enforcement across the 8 production paths (no backend/frontend implementation changes are in scope).
+- Task-level `REPORT` content outside the provided diff/allowed-path changes (e.g. `C:/Users/hirot/Locus/progress/phase-8-runner/tasks/T-PH8-303.md`) was not treated as accepted evidence for this reviewed change set; I assessed AC4 against the delivered/reviewed in-scope artifacts above.
+
+## T-PH8-301 — out-of-scope change (2026-11-21T14:17:06+09:00)
+
+**Question**: The worker needed paths outside allowed_paths; widen the scope or split the job. — 1 path(s) the worker wrote outside its scope: backend/app/agents/registry.py. Decide whether the job's scope was drawn too narrowly, or whether the worker should not have written them.
+
+**Context**
+
+outside allowed_paths: ['backend/app/agents/registry.py']
+
+## T-PH8-302 — review cycle limit reached (2026-11-21T14:34:30+09:00)
+
+**Question**: The reviewer still requires changes at the cycle limit.
+
+**Context**
+
+y.py:13-18,45-48` — The AC1.4 test claims to verify the `egress_mode IN ('local_only')` CHECK constraint, but the INSERT omits required NOT NULL columns (`version`, `created_by`, `created` per `backend/app/agents/registry.py:84-99`). In SQLite this can raise `IntegrityError` for a NOT NULL violation before/independently of the `egress_mode` CHECK, so the test can pass even if the `egress_mode` CHECK were removed. Concrete failure scenario: the egress_mode CHECK is weakened/removed while NOT NULL constraints remain; `test_egress_mode_allowlisted_is_rejected_via_sqlite` still passes, giving false confidence that the DB-layer boundary holds. Smallest fix: include all required columns in the INSERT (e.g., provide `version`, `created_by`, `created`, and other required fields/defaults as needed) so the only intentional violation is `egress_mode='allowlisted'`, and optionally assert the error indicates the CHECK/constraint being tested.
+
+UNVERIFIED
+- Controller-reported gates (`scope`, `task-verification` 15 passed, `python-lint`, `python-format`, `secret-scan`) were not re-run; I relied on the provided evidence and static inspection of the diff/files.
+- I did not execute tests or SQLite statements myself, so I did not empirically confirm which constraint fires for the AC1.4 INSERT as written; the NOT NULL-vs-CHECK concern is based on schema inspection (`workspace_policies.version/created_by/created` are NOT NULL with no defaults) and SQLite constraint semantics.
+- I did not exhaustively verify quoted external design-doc references (`HYBRID_RUNNER_COMMUNICATION_DESIGN.md` §2/§3.2, `HYBRID_AGENT_ADAPTER_DESIGN.md` §7.4/Q4, `HYBRID_STEP2_AGENT_REGISTRY_DESIGN.md` §3.1, owner decisions) against their source text; I checked the decision document’s internal consistency, required sections/status markers, and named boundary references as presented.
+- I did not verify runtime cwd behavior for `tests/test_hbr_egress_boundary.py:73` beyond the controller’s reported passing test run.
