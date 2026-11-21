@@ -1049,6 +1049,15 @@ class Controller:
         deadline = self.clock() + minutes * 60
         outcomes: list[Outcome] = []
         while len(outcomes) < max_jobs and self.clock() < deadline:
+            # `.jobloop/stop` is checked between jobs, not only between cycles.
+            # The supervisor checks it per cycle, and a cycle lasts up to its
+            # whole minute budget: on 2026-11-22 a shift that needed the queue
+            # paused waited eight minutes and gave up, because the run was
+            # mid-cycle with fifty minutes left. A job already dispatched still
+            # finishes — this stops the *next* one.
+            if (self.settings.repository / ".jobloop" / "stop").is_file():
+                outcomes.append(Outcome("-", "paused", "`.jobloop/stop` is present"))
+                break
             # A job left in `review` is stranded: `actionable` covers only
             # `todo` and `doing`, so nothing ever picks it up again. Three jobs
             # sat that way through 239 idle cycles on 2026-11-19 while the

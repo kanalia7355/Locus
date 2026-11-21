@@ -320,10 +320,22 @@ def python_gates(worktree: Path, names: list[str], *, python: str, timeout: floa
         # recorded report — another job's prose, in a file this attempt never
         # touched, and not a credential at all. CI still scans everything; a
         # gate has to answer "did *this change* introduce a secret".
+        #
+        # The *controller's* copy of the script, pointed at the worktree with
+        # `--root`. The workspace's own copy is whatever base that clone was
+        # made from, so fixing the instrument there fixes nothing until the
+        # clone moves — and a job editing `scripts/` could change the instrument
+        # that judges it.
         gates.append(
             run_argv(
                 "secret-scan",
-                [python, "scripts/secret_scan.py", *sorted(names)],
+                [
+                    python,
+                    str(Path(__file__).resolve().parents[1] / "scripts" / "secret_scan.py"),
+                    "--root",
+                    str(worktree),
+                    *sorted(names),
+                ],
                 cwd=worktree,
                 timeout=timeout,
             )

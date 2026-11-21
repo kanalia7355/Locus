@@ -41,7 +41,6 @@ HANDLED = {
         "2026-11-19",
         "a reviewer that only wrote a file is rotated to the next model",
     ),
-    "the merge conflicted": ("2026-11-21", "the merge is aborted and the job redoes its work"),
     "integration branch is dirty": (
         "2026-11-21",
         "every phase's records count as the loop's own bookkeeping",
@@ -55,6 +54,11 @@ JUDGEMENT = {
     "review cycle limit reached",
     "no independent reviewer available",
     "worker wrote outside its workspace",
+    # The abort is automatic; whether the job redoes its work on the moved
+    # branch is not. Listing this as "handled" made every correct escalation
+    # read as a regression of its own fix on 2026-11-22.
+    "the merge conflicted",
+    "the merge broke the loop",
 }
 
 

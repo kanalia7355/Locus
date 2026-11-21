@@ -14,6 +14,7 @@ Each entry is a judgement the controller refused to make itself.
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job. — 11 path(s) the worker wrote outside its scope: all_tests.txt, ruff1.txt, ruff2.txt, ruff_check.txt, ruff_format.txt, secret1.txt…. Decide whether the job's scope was drawn too narrowly, or whether the worker should not have written them.
 
 **Context**
@@ -32,6 +33,7 @@ outside allowed_paths: ['all_tests.txt', 'ruff1.txt', 'ruff2.txt', 'ruff_check.t
 
 
 ## T-PH7-211 — worker wrote outside its workspace (2026-11-20T00:11:06+09:00)
+
 
 
 
@@ -73,6 +75,7 @@ workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH7-211
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job. — 2 path(s) the worker wrote outside its scope: test_output.txt, test_output_raw.txt. Decide whether the job's scope was drawn too narrowly, or whether the worker should not have written them.
 
 **Context**
@@ -84,6 +87,7 @@ outside allowed_paths: ['test_output.txt', 'test_output_raw.txt']
 （`T-PH6-116` の回答に詳細）。削除し、許可パス内の成果物は残して `review` に戻した。
 試行は消費しない。詳細は `tasks/T-PH7-201.md`。
 ## T-PH7-211 — attempt limit reached (2026-11-20T03:09:59+09:00)
+
 
 
 
@@ -121,6 +125,7 @@ unavailable: {"type": "provider.invalid-request", "message": "Upstream request f
 
 
 
+
 **Question**: Three attempts did not satisfy the acceptance criteria; the job needs a human decision.
 
 **Context**
@@ -136,6 +141,7 @@ unavailable: {"type": "provider.invalid-request", "message": "Upstream request f
 `Ending.OUTAGE` を追加し、試行を消費せず冷却して回すようにした。
 5 件すべて試行 0 に戻し `todo` に戻した。受入条件・許可パスは無変更。
 ## T-PH7-223 — attempt limit reached (2026-11-20T03:16:24+09:00)
+
 
 
 
@@ -163,6 +169,7 @@ unavailable: {"type": "provider.invalid-request", "message": "Upstream request f
 5 件すべて試行 0 に戻し `todo` に戻した。受入条件・許可パスは無変更。
 
 ## T-PH7-201 — integration branch is dirty (2026-11-21T00:20:41+09:00)
+
 
 
 
@@ -201,6 +208,7 @@ M  frontend/src/styles.css
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job. — 12 path(s) the worker wrote outside its scope: test_conn.py, test_conn2.py, test_conn3.py, test_cursor.py, test_cursor2.py, test_cursor3.py…. Decide whether the job's scope was drawn too narrowly, or whether the worker should not have written them.
 
 **Context**
@@ -218,6 +226,7 @@ outside allowed_paths: ['test_conn.py', 'test_conn2.py', 'test_conn3.py', 'test_
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job. — 1 path(s) the worker wrote outside its scope: debug_test.py. Decide whether the job's scope was drawn too narrowly, or whether the worker should not have written them.
 
 **Context**
@@ -226,6 +235,7 @@ outside allowed_paths: ['debug_test.py']
 
 **Answer** (2026-11-21, jobloop diagnose): この停止は**ループ側の欠陥**が原因で、その欠陥は既に直っている — scratch files are swept by `gates.litter`。停止の時刻（2026-11-21T03:32）は修正より前なので、判断を覆したのではなく、**原因が無くなったので再開する**という記録である。欠陥が消費した試行 1 回分だけを戻す（それ以上は戻さない）。受入条件・許可パスは変更していない。
 ## T-PH7-223 — integration branch is dirty (2026-11-21T04:00:20+09:00)
+
 
 
 
@@ -270,6 +280,7 @@ M  frontend/src/styles.css
 
 
 
+
 **Question**: the T-PH7-201 implementation files are missing from this working tree (only stale `__pycache__` bytecode remains; HEAD `849b49b` on `loop/T-PH7-201-t-ph7-201` never contained them and the branch is clean) even though attempts 1–3 reported them present and green and the integration decision is still open — how should this job proceed now: should the worker redo the implementation in this attempt, o
 
 **Context**
@@ -294,6 +305,7 @@ STATUS
 
 **Answer** (2026-11-22, orchestrator): **作り直してほしい。ただしゼロからではない。** 実装ファイルが無いのは私の欠陥（`refresh` がレビュー済みコミットを reset で消した）。消えた `e6f9287`（7 ファイル 1,071 行）は reflog から取り戻し、`rescued/T-PH7-201` に固定したので全部読める。そのまま戻さないのは、土台が古く `T-PH6-103` が `service.py` を大きく触っており、cherry-pick が約 300 行の衝突になったため（**他人の成果物の衝突を推測で混ぜると、ゲートを通ったかが分からなくなる**）。ワークスペースは現在の統合ブランチに揃えた。詳細は `tasks/T-PH7-201.md`。
 ## T-PH7-211 — worker stopped for a decision (2026-11-21T16:04:11+09:00)
+
 
 
 
@@ -334,6 +346,7 @@ The core requirements are satisfied: storage engine abstraction is in place, `im
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job. — 1 path(s) the worker wrote outside its scope: attack_pattern.txt. Decide whether the job's scope was drawn too narrowly, or whether the worker should not have written them.
 
 **Context**
@@ -342,6 +355,7 @@ outside allowed_paths: ['attack_pattern.txt']
 
 **Answer** (2026-11-21, jobloop diagnose): この停止は**ループ側の欠陥**が原因で、その欠陥は既に直っている — scratch files are swept by `gates.litter`。停止の時刻（2026-11-21T16:52）は修正より前なので、判断を覆したのではなく、**原因が無くなったので再開する**という記録である。欠陥が消費した試行 1 回分だけを戻す（それ以上は戻さない）。受入条件・許可パスは変更していない。
 ## T-PH7-223 — worker stopped for a decision (2026-11-21T17:29:15+09:00)
+
 
 
 
@@ -369,6 +383,7 @@ needs-owner-decision: The required verification command `python -m pytest tests/
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job. — 1 path(s) the worker wrote outside its scope: attack_pattern.txt. Decide whether the job's scope was drawn too narrowly, or whether the worker should not have written them.
 
 **Context**
@@ -378,6 +393,7 @@ outside allowed_paths: ['attack_pattern.txt']
 **Answer** (2026-11-21, jobloop diagnose): この停止は**ループ側の欠陥**が原因で、その欠陥は既に直っている — scratch files are swept by `gates.litter`。停止の時刻（2026-11-21T17:45）は修正より前なので、判断を覆したのではなく、**原因が無くなったので再開する**という記録である。欠陥が消費した試行 1 回分だけを戻す（それ以上は戻さない）。受入条件・許可パスは変更していない。
 
 ## T-PH7-222 — worker stopped for a decision (2026-11-21T17:59:41+09:00)
+
 
 
 
@@ -393,6 +409,7 @@ pi/admin/audit`, and `caplog`; different-length wrong passwords produce rows ide
 
 **Answer** (2026-11-22, orchestrator): **ループが消す。あなたの問題ではない。** 掃除を派遣の前にも走らせるよう直したので `attack_pattern.txt` は既に消えている（`T-PH6-126` の回答に詳細）。許可パス外のファイルを勝手に消さなかったのは規則どおりで、**聞いたこと自体は正しい**。聞かずに済む仕組みが無かったのが欠陥だった。`review` に戻した（試行は消費しない）。詳細は `tasks/T-PH7-222.md`。
 ## TEST
+
 
 
 
@@ -421,9 +438,11 @@ pi/admin/audit`, and `caplog`; different-length wrong passwords produce rows ide
 
 
 
+
 needs-owner-decision: `attack_pattern.txt` (untracked, outside allowed_paths) causes `python scripts/secret_scan.py` to fail with 5 findings, blocking the controller gate; should I be granted scope to remove that file, or will the owner/controller remove it before re-gating this job?
 
 ## T-PH7-222 — out-of-scope change (2026-11-22T03:45:10+09:00)
+
 
 
 
@@ -436,6 +455,7 @@ outside allowed_paths: ['attack_pattern.txt']
 
 **Answer** (2026-11-22, orchestrator): **同上。掃除の判定が緩すぎた。** `attack_pattern.txt` が残ったのは、その語幹がこのジョブ自身のテストの `def test_attack_pattern_visible(...)` に含まれていたため — **参照ではなく名前の偶然の一致**である。判定を直し、ファイルは消えている。`review` に戻した（試行は消費しない）。詳細は `tasks/T-PH7-222.md`。
 ## T-PH7-201 — attempt limit reached (2026-11-22T04:20:08+09:00)
+
 
 
 
@@ -454,6 +474,7 @@ Offline secret scan: 1 findings
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job. — 8 path(s) the worker wrote outside its scope: debug_output.txt, git_status.txt, test_fake_detail.txt, test_orig.txt, test_output.txt, test_output2.txt…. Decide whether the job's scope was drawn too narrowly, or whether the worker should not have written them.
 
 **Context**
@@ -465,6 +486,7 @@ outside allowed_paths: ['debug_output.txt', 'git_status.txt', 'test_fake_detail.
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job. — 1 path(s) the worker wrote outside its scope: certs/server.crt. Decide whether the job's scope was drawn too narrowly, or whether the worker should not have written them.
 
 **Context**
@@ -472,3 +494,24 @@ outside allowed_paths: ['debug_output.txt', 'git_status.txt', 'test_fake_detail.
 outside allowed_paths: ['certs/server.crt']
 
 **Answer** (2026-11-22, orchestrator): `T-PH7-211` と同じ原因。掃除の参照判定が**掃除候補そのものの本文まで読んでいた**ため、作業ファイルが互いを保証し合って消えなかった（実測と詳細は `T-PH7-211` の回答）。参照を探すのは許可パス内の本文だけに限定し、語幹での一致も import が拡張子を省くソースだけに絞った（両方を検査で固定）。使い捨ての `debug_*.py` は削除済み。**前のシフトの差し戻しは有効** — `tests/test_production_startup.py` はこのジョブが作ったファイルなので落ちている 2 件は自分のテストであり、`certs/` をリポジトリに残さないこと（一時ディレクトリに作る）。`doing` のまま続ける。詳細は `tasks/T-PH7-223.md`。
+
+## T-PH7-201 — attempt limit reached (2026-11-22T05:10:57+09:00)
+
+
+**Question**: Three attempts did not satisfy the acceptance criteria; the job needs a human decision.
+
+**Context**
+
+secret-scan: exit 1
+Potential secret: progress\phase-7-production\tasks\T-PH7-222.md, lines [228]
+Offline secret scan: 1 findings
+
+**Answer** (2026-11-22, orchestrator): **また試行を落としたのはループなので 1 回戻す。道具が古かった。** 04:35 にゲートを直したのに 05:10 に同じ指摘で止まった原因を測って特定した: **ゲートはワークスペースにある `scripts/secret_scan.py` の複製を実行していた**。コントローラ側は直っていて変更パスを引数で渡していたが、受け取る側が古い版で引数を解さず全体走査に落ち、そのワークスペースの `T-PH7-222.md` 複製にはallowlist の印も無かった。ゲートは**コントローラ自身の写し**を実行し `--root <worktree>` で対象を切り替えるようにした（道具を 1 か所直せば全ジョブに効き、ジョブが自分を裁く道具を書き換えられない）。古いままのワークスペースを `--root` で指して 0 findings を実測。試行を戻して `todo`。前のシフトの指示は有効。詳細は `tasks/T-PH7-201.md`。
+
+## T-PH7-211 — attempt limit reached (2026-11-22T05:40:59+09:00)
+
+**Question**: Three attempts did not satisfy the acceptance criteria; the job needs a human decision.
+
+**Context**
+
+timeout: no reply within 1800s

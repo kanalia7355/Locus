@@ -8,7 +8,24 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+
+def chosen_root() -> Path:
+    """The tree to scan: `--root <path>` if given, otherwise this checkout.
+
+    A job's gate runs the controller's own copy of this script so that fixing
+    the instrument fixes every job at once — and so a job cannot change the
+    instrument that judges it. The tree being scanned is then not the tree the
+    script lives in, which is what `--root` says. Without it, the gate ran the
+    *workspace's* stale copy: a fix made at 04:35 on 2026-11-22 still failed
+    `T-PH7-201` at 05:10 because that workspace's copy predated it.
+    """
+    argv = sys.argv[1:]
+    if "--root" in argv:
+        return Path(argv[argv.index("--root") + 1]).resolve()
+    return Path(__file__).resolve().parents[1]
+
+
+ROOT = chosen_root()
 EXCLUDED = (
     r"(^|[/\\])(\.git|\.venv|node_modules|dist|storage|test-results|playwright-report|"
     r"\.mypy_cache|\.ruff_cache|\.pytest_cache|__pycache__)([/\\]|$)|"
@@ -43,7 +60,11 @@ def main() -> int:
     # matters: on 2026-11-22 a full-tree gate failed `T-PH7-201` for a finding in
     # `T-PH7-222`'s recorded report — a different job's prose, in a file the
     # attempt never touched.
-    wanted = [argument for argument in sys.argv[1:] if not argument.startswith("-")]
+    argv = sys.argv[1:]
+    if "--root" in argv:
+        index = argv.index("--root")
+        argv = argv[:index] + argv[index + 2 :]
+    wanted = [argument for argument in argv if not argument.startswith("-")]
     if wanted:
         present = ["./" + name.replace("\\", "/") for name in wanted if (ROOT / name).is_file()]
         if not present:

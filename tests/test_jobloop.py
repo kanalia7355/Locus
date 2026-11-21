@@ -933,9 +933,16 @@ def test_the_secret_scan_gate_asks_about_this_change_only(tmp_path: Path) -> Non
         module.python_gates(tmp_path, changed, python="python", timeout=5)
     finally:
         module.run_argv = original
-    secret = next(argv for argv in seen if "scripts/secret_scan.py" in argv)
+    secret = next(argv for argv in seen if any("secret_scan.py" in part for part in argv))
     assert secret[-2:] == ["backend/app/service.py", "tests/test_api.py"], secret
     assert "progress" not in " ".join(secret), "no other job's records are in scope"
+    # The controller's own copy, aimed at the worktree. The workspace's copy is
+    # whatever base that clone was made from: a fix at 04:35 on 2026-11-22 still
+    # failed `T-PH7-201` at 05:10 because its clone predated the fix.
+    script = next(part for part in secret if "secret_scan.py" in part)
+    assert Path(script).is_file(), script
+    assert str(tmp_path) not in script, "the instrument must not come from the workspace"
+    assert secret[secret.index("--root") + 1] == str(tmp_path), secret
 
 
 def test_scratch_is_swept_before_a_worker_can_trip_over_it(tmp_path: Path) -> None:
