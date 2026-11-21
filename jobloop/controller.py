@@ -13,6 +13,7 @@ import re
 import shutil
 import subprocess
 import time
+from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -462,6 +463,19 @@ class Controller:
         if not head:
             return ""
         return hashlib.sha256((head + Controller.dirt(worktree)).encode("utf-8")).hexdigest()
+
+    def note(self, line: str) -> None:
+        """Append one heartbeat line, in the supervisor's own format and file.
+
+        Same file so that "when did anything last happen" has one answer; the
+        writes are single short lines in append mode, which is what a log can
+        take from two processes.
+        """
+        beat = self.settings.state_directory / "supervisor.log"
+        with suppress(OSError):
+            beat.parent.mkdir(parents=True, exist_ok=True)
+            with beat.open("a", encoding="utf-8") as handle:
+                handle.write(f"{self.now()} run :: {line}\n")
 
     def operator_busy(self) -> bool:
         """True while a person is editing the main checkout alongside the loop.
@@ -1092,7 +1106,14 @@ class Controller:
             if task is None:
                 outcomes.append(Outcome("-", "idle", "no actionable job is left"))
                 break
+            # One line per job, so a cycle is not silent for its whole budget.
+            # The supervisor writes only when a cycle ends, and a cycle can run
+            # for an hour: every shift so far has had to work out from process
+            # lists and file timestamps whether a long quiet stretch meant work
+            # or a wedge. "last heartbeat 33 min ago" should not be ambiguous.
+            self.note(f"{task.id}: dispatching ({task.weight or 'unweighted'})")
             outcome = self.run_job(task)
+            self.note(outcome.line[:300])
             outcomes.append(outcome)
             if outcome.state == "no-model":
                 break
