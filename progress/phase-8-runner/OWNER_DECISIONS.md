@@ -10,6 +10,7 @@ Each entry is a judgement the controller refused to make itself.
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job.
 
 **Context**
@@ -25,6 +26,7 @@ protected paths touched: ['docs/plans/HBR_DECISION_REGISTER.json']
 読む対象としての `docs/plans/...` は従来どおり。試行は 0 のまま `todo` に戻した。
 受入条件は無変更。詳細は各 `tasks/T-PH8-30X.md`。
 ## T-PH8-302 — out-of-scope change (2026-11-20T02:44:04+09:00)
+
 
 
 
@@ -54,6 +56,7 @@ protected paths touched: ['docs/plans/HBR_PROVIDER_EGRESS_DECISION.md']
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job. — 4 path(s) the worker wrote outside its scope: fix_parenthesis.py, fix_test.py, fix_test2.py, progress/phase-8-runner/material/HBR_CLASSIFICATION_MODEL.json. Decide whether the job's scope was drawn too narrowly, or whether the worker should not have written them.
 
 **Context**
@@ -69,6 +72,7 @@ outside allowed_paths: ['fix_parenthesis.py', 'fix_test.py', 'fix_test2.py', 'pr
 読む対象としての `docs/plans/...` は従来どおり。試行は 0 のまま `todo` に戻した。
 受入条件は無変更。詳細は各 `tasks/T-PH8-30X.md`。
 ## T-PH8-304 — attempt limit reached (2026-11-20T03:12:14+09:00)
+
 
 
 
@@ -97,6 +101,7 @@ unavailable: {"type": "provider.invalid-request", "message": "Upstream request f
 
 
 
+
 **Question**: The main checkout has uncommitted changes, so the reviewed commit was not merged. Decide how to integrate it.
 
 **Context**
@@ -119,6 +124,7 @@ M  frontend/src/styles.css
 
 **Answer** (2026-11-21, jobloop diagnose): この停止は**ループ側の欠陥**が原因で、その欠陥は既に直っている — every phase's records count as the loop's own bookkeeping。停止の時刻（2026-11-21T04:00）は修正より前なので、判断を覆したのではなく、**原因が無くなったので再開する**という記録である。欠陥が消費した試行 1 回分だけを戻す（それ以上は戻さない）。受入条件・許可パスは変更していない。
 ## T-PH8-302 — integration branch is dirty (2026-11-21T01:32:23+09:00)
+
 
 
 
@@ -152,6 +158,7 @@ M  frontend/src/styles.css
 
 
 
+
 **Question**: The reviewer still requires changes at the cycle limit.
 
 **Context**
@@ -176,6 +183,7 @@ UNVERIFIED
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job.
 
 **Context**
@@ -185,6 +193,7 @@ protected paths touched: ['docs/plans/HBR_ISOLATION_SELECTION.json', 'docs/plans
 **Answer** (2026-11-21, jobloop diagnose): この停止は**ループ側の欠陥**が原因で、その欠陥は既に直っている — scratch files are swept by `gates.litter`。停止の時刻（2026-11-21T03:32）は修正より前なので、判断を覆したのではなく、**原因が無くなったので再開する**という記録である。欠陥が消費した試行 1 回分だけを戻す（それ以上は戻さない）。受入条件・許可パスは変更していない。
 
 ## T-PH8-303 — review cycle limit reached (2026-11-21T14:07:01+09:00)
+
 
 
 **Question**: The reviewer still requires changes at the cycle limit.
@@ -198,7 +207,9 @@ UNVERIFIED
 - End-to-end enforcement sufficiency: `tests/test_hbr_classification_contract.py` validates the JSON contract, DAG acyclicity, and synthetic inherit-max cases (`confidential`+`public`→`confidential`, any `none`→deny, additional max cases), but not runtime classification enforcement across the 8 production paths (no backend/frontend implementation changes are in scope).
 - Task-level `REPORT` content outside the provided diff/allowed-path changes (e.g. `C:/Users/hirot/Locus/progress/phase-8-runner/tasks/T-PH8-303.md`) was not treated as accepted evidence for this reviewed change set; I assessed AC4 against the delivered/reviewed in-scope artifacts above.
 
+**Answer** (2026-11-22, orchestrator): **2 度目の猶予で、これが最後。** 2026-11-21 に「やることは 1 つだけ」と裁定した AC4（各移行案で落ちる既存テストの見積り）が今回も出ていない。レビュアーの指摘は前回とまったく同じで正しい。`## REPORT` の中に`### 移行で落ちる既存テストの見積り` を作り、案ごとに**表**で書くこと（`breaks` と行が対応すること。「落ちるテストは無い」なら根拠を示すこと。**テストは 1 つも変更しない** — 見積りであって修正ではない）。併せて `paths.export.gate_location` の JSON と設計の食い違いを揃える。`review_cycles` を 2 → 1。**次に AC4 が無ければ猶予は与えない。**詳細は `tasks/T-PH8-303.md`。
 ## T-PH8-301 — out-of-scope change (2026-11-21T14:17:06+09:00)
+
 
 
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job. — 1 path(s) the worker wrote outside its scope: backend/app/agents/registry.py. Decide whether the job's scope was drawn too narrowly, or whether the worker should not have written them.
@@ -209,6 +220,7 @@ outside allowed_paths: ['backend/app/agents/registry.py']
 
 **Answer** (2026-11-21, jobloop diagnose): この停止は**ループ側の欠陥**が原因で、その欠陥は既に直っている — scratch files are swept by `gates.litter`。停止の時刻（2026-11-21T16:52）は修正より前なので、判断を覆したのではなく、**原因が無くなったので再開する**という記録である。欠陥が消費した試行 1 回分だけを戻す（それ以上は戻さない）。受入条件・許可パスは変更していない。
 ## T-PH8-302 — review cycle limit reached (2026-11-21T14:34:30+09:00)
+
 
 
 **Question**: The reviewer still requires changes at the cycle limit.
@@ -223,7 +235,9 @@ UNVERIFIED
 - I did not exhaustively verify quoted external design-doc references (`HYBRID_RUNNER_COMMUNICATION_DESIGN.md` §2/§3.2, `HYBRID_AGENT_ADAPTER_DESIGN.md` §7.4/Q4, `HYBRID_STEP2_AGENT_REGISTRY_DESIGN.md` §3.1, owner decisions) against their source text; I checked the decision document’s internal consistency, required sections/status markers, and named boundary references as presented.
 - I did not verify runtime cwd behavior for `tests/test_hbr_egress_boundary.py:73` beyond the controller’s reported passing test run.
 
+**Answer** (2026-11-22, orchestrator): レビュアーが正しい。High 2 件はどちらも**検査が証明になっていない**という指摘で、(1) 受入条件 1 の 5 つの敵対的表明のうち 3 つが無い、(2) CHECK を確かめるつもりの INSERT が NOT NULL 列を省いているので CHECK を外しても通ってしまう。残り 1 周を許し、やることをこの 2 点に絞った。`review_cycles` を 2 → 1。詳細は `tasks/T-PH8-302.md`。
 ## T-PH8-301 — worker stopped for a decision (2026-11-21T17:53:06+09:00)
+
 
 **Question**: Can `allowed_paths` be widened to include `docs/architecture/decisions/0013-job-approval-authorization-receipt.md` so I can apply only the 2026-11-16 E1/E2 confirmed ADR-0013 body edits (default TTL = one month as a configurable setting with immediate revocation, rejection on next validation after revocation, and required usage history; no new approval permission, map to existing system_admin pre-
 
@@ -239,7 +253,9 @@ one-receipt (`job_id`) authorization. It is unclear which object the 1-month ter
 - **Owner question (required by job, 1 item)**
   - 2026-11-16 のオーナー回答 E1（「一か月」）が指す「リース」は、(a) Runner 登録/信頼のリース既定寿命なのか、(b) `HYBRID_STEP2_RECEIPT_CONTRACT.md` §2.1 の 1 ジョブ 1 回レシート（`job_id` 束縛）の TTL なのか、どちらに 1 か月を割り当てるべきですか？
 
+**Answer** (2026-11-22, orchestrator): **認めない。** 理由は許可パスの都合ではなく、**その内容がまだ確定していない**こと。レシートの TTL は矛盾したままで（11-10 Entry 1「既定 24 時間・最大 7 日」vs 11-16 E1「一か月」、最大 TTL 未回答、対象がリースかレシートか不明）、**オーナーに確認中の 2 件のうちの 1 件**である。設計の正本（ADR）に未確定の値を既定として書き込むと、次に読む人には決定済みに見える — `T-PH6-104` の設計で禁じた「記録が嘘をつく」形と同じ。未確定の項目は `material/` 側に**未決と明示して**並べること。ADR 本文の更新はオーナーが TTL を確定したあとの別ジョブ。許可パスは変更しない。詳細は `tasks/T-PH8-301.md`。
 ## TEST
+
 - `python -m pytest tests/test_hbr_decision_register.py tests/test_agents_registry.py -q` → **19 passed in 7.53s**
 - `python -m ruff format tests/test_hbr_decision_register.py` → **1 file left unchanged**
 - `python -m ruff check backend tests scripts jobloop` → **All checks passed!**
@@ -247,4 +263,5 @@ one-receipt (`job_id`) authorization. It is unclear which object the 1-month ter
 - `python scripts/secret_scan.py` → **Offline secret scan: 0 findings**
 
 ## STATUS
+
 needs-owner-decision: Can `allowed_paths` be widened to include `docs/architecture/decisions/0013-job-approval-authorization-receipt.md` so I can apply only the 2026-11-16 E1/E2 confirmed ADR-0013 body edits (default TTL = one month as a configurable setting with immediate revocation, rejection on next validation after revocation, and required usage history; no new approval permission, map to existing system_admin pre-authorization) while keeping `Status: **DRAFT.**` unchanged?

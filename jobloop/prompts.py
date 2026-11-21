@@ -43,6 +43,10 @@ BOUNDARY = """Hard boundary, enforced by the controller after you stop:
 - Your report belongs in your reply, not on disk. Do not create `REPORT.md`,
   notes, logs, plans or scratch files: any file outside `allowed_paths` stops the
   job, including one that only describes what you did.
+- If you find files in this workspace that a previous attempt left outside
+  `allowed_paths`, **they are not your problem and not your deviation**. The
+  controller removes them before you start and again after you stop. Do not
+  delete them, do not ask about them, do not mention them in your report.
 - **Never redirect a command's output into a file in order to read it.** Read it
   from the terminal. `pytest -q > out.txt` then reading `out.txt` leaves a file
   outside `allowed_paths`, and the job stops on it — the command having passed

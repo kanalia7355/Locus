@@ -187,6 +187,38 @@ class Controller:
 
         return parse(task.path)
 
+    def sweep(self, task: Task, tree: Path) -> set[str]:
+        """Delete the scratch a worker left behind, and say so. Returns what went.
+
+        Called twice per attempt, and the first call is the one that matters.
+        Running it only after a dispatch left the previous attempt's scratch
+        sitting in the workspace, where the *next* worker found files it was
+        forbidden to touch and stopped to ask about them — `T-PH6-126` asked
+        about 26 of them and `T-PH7-222` about an `attack_pattern.txt` that was
+        failing the secret scan. Both questions were the loop's to answer, and
+        the answer is to have swept before the worker ever saw them.
+        """
+        names = gates.changed_files(tree)
+        readable = self.texts(tree, [*names, *self.in_scope_files(tree, task.allowed_paths)])
+        dropped = set(gates.litter(names, task.allowed_paths, contents=readable))
+        dropped &= self.untracked(tree)
+        if not dropped:
+            return set()
+        self.discard(tree, dropped)
+        self.record(
+            task,
+            f"WORKER LITTER REMOVED ({self.now()})",
+            f"{len(dropped)} file(s) outside `allowed_paths` that nothing in the change "
+            f"refers to were deleted: {', '.join(sorted(dropped))}.\n"
+            "These are command output and one-off probes — a worker reading a result by "
+            "writing it to a file. The brief forbids it in so many words, so this is a "
+            "deviation and not a scope drawn too narrowly; it is recorded here rather than "
+            "stopping the job because the instruction has not taken with these models and "
+            "nine jobs have been lost to it. Nothing inside `allowed_paths` was touched, "
+            "and no scope or acceptance criterion was changed.",
+        )
+        return dropped
+
     @staticmethod
     def in_scope_files(worktree: Path, allowed: list[str]) -> list[str]:
         """Every file the job may write, expanded from `allowed_paths`.
@@ -490,6 +522,10 @@ class Controller:
         if not model:
             return Outcome(task.id, "no-model", "every eligible free model is on cooldown")
         tree = self.workspace(task)
+        # Before the brief is built, not only after the worker returns: the next
+        # worker must not find a previous attempt's scratch and stop to ask about
+        # files it is forbidden to touch.
+        self.sweep(task, tree)
         attempt = task.attempts + 1
         brief = prompts.implementer_brief(
             task,
@@ -546,26 +582,7 @@ class Controller:
             return self.failed_attempt(
                 task, model, f"the worker echoed the status template: {question[:120]}"
             )
-        names = gates.changed_files(tree)
-        readable = self.texts(tree, [*names, *self.in_scope_files(tree, task.allowed_paths)])
-        dropped = set(gates.litter(names, task.allowed_paths, contents=readable))
-        dropped &= self.untracked(tree)
-        if dropped:
-            self.discard(tree, dropped)
-            names = [name for name in names if name not in dropped]
-            self.record(
-                task,
-                f"WORKER LITTER REMOVED ({self.now()})",
-                f"`{model}` redirected command output into "
-                f"{len(dropped)} file(s) at the worktree root instead of reading it: "
-                f"{', '.join(sorted(dropped))}.\n"
-                "The brief forbids this in so many words and the files were outside "
-                "`allowed_paths`, so this is a deviation, not a scope that was drawn too "
-                "narrowly. It is recorded here rather than stopping the job, because the "
-                "instruction has not taken with these models and six jobs have now been "
-                "lost to it. Nothing inside `allowed_paths` was touched, and no scope or "
-                "acceptance criterion was changed.",
-            )
+        names = [name for name in gates.changed_files(tree) if name not in self.sweep(task, tree)]
         if not names:
             return self.failed_attempt(task, model, "the worker changed nothing")
         checks = [gates.within_scope(names, task.allowed_paths)]

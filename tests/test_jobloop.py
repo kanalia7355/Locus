@@ -889,6 +889,36 @@ def test_a_stale_workspace_is_taken_to_the_current_branch_before_a_new_attempt(
     assert (tree / "a.txt").read_text(encoding="utf-8") == "the job is mid-attempt\n"
 
 
+def test_scratch_is_swept_before_a_worker_can_trip_over_it(tmp_path: Path) -> None:
+    # Sweeping only after a dispatch left the previous attempt's scratch in the
+    # workspace, and the next worker stopped to ask about files it was forbidden
+    # to touch: `T-PH6-126` about 26 of them, `T-PH7-222` about an
+    # `attack_pattern.txt` that was failing the secret scan. Both questions were
+    # the loop's own to answer.
+    phase_with_task(tmp_path)
+    tree = reviewable_worktree(tmp_path)
+    (tree / "check_select3.py").write_text("print('probe')\n", encoding="utf-8")
+    (tree / "pytest_out.txt").write_text("1 failed\n", encoding="utf-8")
+    controller = controller_for(tmp_path, ["a-free", "b-free"])
+    controller.workspace = lambda task: tree  # type: ignore[assignment]
+    seen: list[str] = []
+
+    def dispatch(model: str, prompt: str, **_: object) -> worker.Result:
+        # What the worker sees when it starts, which is the whole point.
+        seen.extend(sorted(path.name for path in tree.iterdir() if path.is_file()))
+        return worker.Result(worker.Ending.COMPLETED, "REPORT\n- did the work", model)
+
+    controller.dispatch = dispatch  # type: ignore[assignment]
+    controller.run_job(tasks.load_phase(controller.settings.phase_directory).tasks[0])
+
+    assert "check_select3.py" not in seen and "pytest_out.txt" not in seen
+    assert "a.txt" in seen, "and the work itself is still there"
+    body = (tmp_path / "progress" / "phase-test" / "tasks" / "T-JOB-1.md").read_text(
+        encoding="utf-8"
+    )
+    assert "WORKER LITTER REMOVED" in body, "a silent sweep teaches the next worker nothing"
+
+
 def test_a_workspace_holding_its_own_commit_is_never_reset(tmp_path: Path) -> None:
     # `deliver` commits the reviewed work *before* it tries to merge, so a job
     # blocked at the merge has its work in a commit and a perfectly clean tree.
