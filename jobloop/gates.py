@@ -122,22 +122,44 @@ def litter(names: list[str], allowed: list[str], *, contents: dict[str, str]) ->
     ]
     if any(name not in contents for name in inside):
         return []
-    referenced = "\n".join(contents.values())
+
+    # Only in-scope text may vouch for a loose path. Reading the whole of
+    # `contents` let the scratch vouch for itself: `T-PH7-211`'s worker saved
+    # `git status` output into `git_status.txt`, that listing named all eight of
+    # its sibling scratch files, and the set protected itself from the sweep.
+    def within(name: str) -> bool:
+        return any(
+            name == entry or name.startswith(entry.rstrip("/") + "/") for entry in normalised
+        )
+
+    referenced = "\n".join(text for name, text in contents.items() if within(name))
     loose = [name for name in names if name not in inside and not name.startswith(PROTECTED)]
     return sorted(name for name in loose if not mentioned(name, referenced))
+
+
+# Extensions whose files are referred to without the extension, because the
+# language names a module and not a file. Everything else — output, data, notes —
+# has to be named in full to count as referenced.
+IMPORTABLE = (".py", ".ts", ".tsx", ".js", ".jsx", ".mjs")
 
 
 def mentioned(name: str, text: str) -> bool:
     """Whether `text` refers to `name` by path, by file name or as a module.
 
-    The stem is checked too, because an import names the module and not the
-    file: `from app.connectors.base import Connector` contains neither
-    `backend/app/connectors/base.py` nor `base.py`. Matching the stem makes
-    common-word names like `base` or `main` un-sweepable, which is the direction
-    to err in — a kept file stops the job and a person looks at it.
+    The bare stem counts only for importable sources, because an import names
+    the module: `from app.connectors.base import Connector` contains neither
+    `backend/app/connectors/base.py` nor `base.py`, and that file is real work.
+
+    For anything else the full file name is required. Accepting the stem there
+    protected `attack_pattern.txt` on 2026-11-22 — not because anything read it,
+    but because the job's own test happened to contain a function called
+    `test_attack_pattern_visible`. A coincidence of naming is not a reference,
+    and the job stopped for a file nobody wanted.
     """
+    if name in text or Path(name).name in text:
+        return True
     stem = Path(name).stem
-    return name in text or Path(name).name in text or (len(stem) > 2 and stem in text)
+    return name.lower().endswith(IMPORTABLE) and len(stem) > 2 and stem in text
 
 
 def summarise(result: subprocess.CompletedProcess[str]) -> str:
@@ -293,10 +315,15 @@ def python_gates(worktree: Path, names: list[str], *, python: str, timeout: floa
             )
         )
     if names:
+        # The job's own changed files, not the whole tree. A full-tree scan
+        # failed `T-PH7-201` on 2026-11-22 for a finding in `T-PH7-222`'s
+        # recorded report — another job's prose, in a file this attempt never
+        # touched, and not a credential at all. CI still scans everything; a
+        # gate has to answer "did *this change* introduce a secret".
         gates.append(
             run_argv(
                 "secret-scan",
-                [python, "scripts/secret_scan.py"],
+                [python, "scripts/secret_scan.py", *sorted(names)],
                 cwd=worktree,
                 timeout=timeout,
             )

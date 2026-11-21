@@ -82,13 +82,33 @@ def processes() -> list[tuple[int, int, str, str, bool]]:
     return found
 
 
+def running(pid: int) -> bool:
+    """Whether a process id exists at all, whatever its image name is."""
+    if sys.platform != "win32":
+        return True
+    found = run(
+        "powershell",
+        "-NoProfile",
+        "-Command",
+        f"(Get-CimInstance Win32_Process -Filter 'ProcessId = {pid}' | Measure-Object).Count",
+    )
+    return "0" not in found.split()
+
+
 def orphans(live: list[tuple[int, int, str, str, bool]]) -> str:
-    """A job session whose parent is gone writes where nobody reads."""
-    alive = {pid for pid, _, _, _, _ in live}
+    """A job session whose parent is gone writes where nobody reads.
+
+    The parent is looked up by id, not searched for in the list above. Testing
+    membership of a list filtered to `python.exe`/`opencode.exe` called every
+    live worker an orphan, because npm launches `opencode` through a `cmd.exe`
+    shim that the filter never collected. On 2026-11-22 that false positive told
+    the orchestrator to `taskkill` a worker that was eleven minutes into its job
+    — a check that destroys work is worse than no check.
+    """
     loose = [
         (pid, created)
-        for pid, parent, name, created, session in live
-        if session and parent not in alive
+        for pid, parent, _, created, session in live
+        if session and not running(parent)
     ]
     if not loose:
         return "ok    no orphaned worker"

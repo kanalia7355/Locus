@@ -11,6 +11,7 @@ Each entry is a judgement the controller refused to make itself.
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job.
 
 **Context**
@@ -26,6 +27,7 @@ protected paths touched: ['docs/plans/HBR_DECISION_REGISTER.json']
 読む対象としての `docs/plans/...` は従来どおり。試行は 0 のまま `todo` に戻した。
 受入条件は無変更。詳細は各 `tasks/T-PH8-30X.md`。
 ## T-PH8-302 — out-of-scope change (2026-11-20T02:44:04+09:00)
+
 
 
 
@@ -57,6 +59,7 @@ protected paths touched: ['docs/plans/HBR_PROVIDER_EGRESS_DECISION.md']
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job. — 4 path(s) the worker wrote outside its scope: fix_parenthesis.py, fix_test.py, fix_test2.py, progress/phase-8-runner/material/HBR_CLASSIFICATION_MODEL.json. Decide whether the job's scope was drawn too narrowly, or whether the worker should not have written them.
 
 **Context**
@@ -72,6 +75,7 @@ outside allowed_paths: ['fix_parenthesis.py', 'fix_test.py', 'fix_test2.py', 'pr
 読む対象としての `docs/plans/...` は従来どおり。試行は 0 のまま `todo` に戻した。
 受入条件は無変更。詳細は各 `tasks/T-PH8-30X.md`。
 ## T-PH8-304 — attempt limit reached (2026-11-20T03:12:14+09:00)
+
 
 
 
@@ -102,6 +106,7 @@ unavailable: {"type": "provider.invalid-request", "message": "Upstream request f
 
 
 
+
 **Question**: The main checkout has uncommitted changes, so the reviewed commit was not merged. Decide how to integrate it.
 
 **Context**
@@ -124,6 +129,7 @@ M  frontend/src/styles.css
 
 **Answer** (2026-11-21, jobloop diagnose): この停止は**ループ側の欠陥**が原因で、その欠陥は既に直っている — every phase's records count as the loop's own bookkeeping。停止の時刻（2026-11-21T04:00）は修正より前なので、判断を覆したのではなく、**原因が無くなったので再開する**という記録である。欠陥が消費した試行 1 回分だけを戻す（それ以上は戻さない）。受入条件・許可パスは変更していない。
 ## T-PH8-302 — integration branch is dirty (2026-11-21T01:32:23+09:00)
+
 
 
 
@@ -159,6 +165,7 @@ M  frontend/src/styles.css
 
 
 
+
 **Question**: The reviewer still requires changes at the cycle limit.
 
 **Context**
@@ -184,6 +191,7 @@ UNVERIFIED
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job.
 
 **Context**
@@ -193,6 +201,7 @@ protected paths touched: ['docs/plans/HBR_ISOLATION_SELECTION.json', 'docs/plans
 **Answer** (2026-11-21, jobloop diagnose): この停止は**ループ側の欠陥**が原因で、その欠陥は既に直っている — scratch files are swept by `gates.litter`。停止の時刻（2026-11-21T03:32）は修正より前なので、判断を覆したのではなく、**原因が無くなったので再開する**という記録である。欠陥が消費した試行 1 回分だけを戻す（それ以上は戻さない）。受入条件・許可パスは変更していない。
 
 ## T-PH8-303 — review cycle limit reached (2026-11-21T14:07:01+09:00)
+
 
 
 
@@ -212,6 +221,7 @@ UNVERIFIED
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job. — 1 path(s) the worker wrote outside its scope: backend/app/agents/registry.py. Decide whether the job's scope was drawn too narrowly, or whether the worker should not have written them.
 
 **Context**
@@ -220,6 +230,7 @@ outside allowed_paths: ['backend/app/agents/registry.py']
 
 **Answer** (2026-11-21, jobloop diagnose): この停止は**ループ側の欠陥**が原因で、その欠陥は既に直っている — scratch files are swept by `gates.litter`。停止の時刻（2026-11-21T16:52）は修正より前なので、判断を覆したのではなく、**原因が無くなったので再開する**という記録である。欠陥が消費した試行 1 回分だけを戻す（それ以上は戻さない）。受入条件・許可パスは変更していない。
 ## T-PH8-302 — review cycle limit reached (2026-11-21T14:34:30+09:00)
+
 
 
 
@@ -239,6 +250,7 @@ UNVERIFIED
 ## T-PH8-301 — worker stopped for a decision (2026-11-21T17:53:06+09:00)
 
 
+
 **Question**: Can `allowed_paths` be widened to include `docs/architecture/decisions/0013-job-approval-authorization-receipt.md` so I can apply only the 2026-11-16 E1/E2 confirmed ADR-0013 body edits (default TTL = one month as a configurable setting with immediate revocation, rejection on next validation after revocation, and required usage history; no new approval permission, map to existing system_admin pre-
 
 **Context**
@@ -256,6 +268,7 @@ one-receipt (`job_id`) authorization. It is unclear which object the 1-month ter
 **Answer** (2026-11-22, orchestrator): **認めない。** 理由は許可パスの都合ではなく、**その内容がまだ確定していない**こと。レシートの TTL は矛盾したままで（11-10 Entry 1「既定 24 時間・最大 7 日」vs 11-16 E1「一か月」、最大 TTL 未回答、対象がリースかレシートか不明）、**オーナーに確認中の 2 件のうちの 1 件**である。設計の正本（ADR）に未確定の値を既定として書き込むと、次に読む人には決定済みに見える — `T-PH6-104` の設計で禁じた「記録が嘘をつく」形と同じ。未確定の項目は `material/` 側に**未決と明示して**並べること。ADR 本文の更新はオーナーが TTL を確定したあとの別ジョブ。許可パスは変更しない。詳細は `tasks/T-PH8-301.md`。
 ## TEST
 
+
 - `python -m pytest tests/test_hbr_decision_register.py tests/test_agents_registry.py -q` → **19 passed in 7.53s**
 - `python -m ruff format tests/test_hbr_decision_register.py` → **1 file left unchanged**
 - `python -m ruff check backend tests scripts jobloop` → **All checks passed!**
@@ -264,4 +277,37 @@ one-receipt (`job_id`) authorization. It is unclear which object the 1-month ter
 
 ## STATUS
 
+
 needs-owner-decision: Can `allowed_paths` be widened to include `docs/architecture/decisions/0013-job-approval-authorization-receipt.md` so I can apply only the 2026-11-16 E1/E2 confirmed ADR-0013 body edits (default TTL = one month as a configurable setting with immediate revocation, rejection on next validation after revocation, and required usage history; no new approval permission, map to existing system_admin pre-authorization) while keeping `Status: **DRAFT.**` unchanged?
+
+## T-PH8-302 — review cycle limit reached (2026-11-22T03:51:10+09:00)
+
+
+**Question**: The reviewer still requires changes at the cycle limit.
+
+**Context**
+
+— `tests/test_hbr_egress_boundary.py:13-18,45-48` — The AC1.4 test is not bound to the `egress_mode` CHECK constraint it claims to verify. It inserts only `(id, egress_mode)` into `workspace_policies`, omitting NOT NULL columns without defaults (`version`, `created_by`, `created`; see `backend/app/agents/registry.py:84-100`). SQLite can raise `IntegrityError` for a NOT NULL violation independently of `CHECK(egress_mode IN ('local_only'))`, so the test can still pass if the egress CHECK is weakened/removed. Concrete failure scenario: `egress_mode` CHECK is relaxed while NOT NULL constraints remain; `test_egress_mode_allowlisted_is_rejected_via_sqlite` remains green, giving false confidence the DB boundary holds. Smallest fix: include all required columns in the INSERT so the only intentional violation is `egress_mode='allowlisted'`, and optionally assert the exception/message indicates the CHECK constraint.
+
+UNVERIFIED
+- Controller-reported gates (`scope`, `task-verification` 15 passed, `python-lint`, `python-format`, `secret-scan`) were not re-run; I relied on the provided evidence and static inspection of the diff/files.
+- I did not execute the new tests or SQLite statements, so I did not empirically confirm which constraint causes the IntegrityError for the AC1.4 INSERT as written; the NOT NULL-vs-CHECK concern is based on schema inspection (`backend/app/agents/registry.py:84-100`).
+- I did not exhaustively verify quoted design-doc references in `progress/phase-8-runner/material/HBR_PROVIDER_EGRESS_DECISION.md` (`HYBRID_RUNNER_COMMUNICATION_DESIGN.md` §2/§3.2, `HYBRID_AGENT_ADAPTER_DESIGN.md` §7.4/Q4, `HYBRID_STEP2_AGENT_REGISTRY_DESIGN.md` §3.1) against source text; I spot-checked relevant sections and confirmed the document’s required structure/status markers (`選定: 未決`, all endpoint rows `DESIGN ONLY — NOT APPROVED`).
+- I did not verify runtime cwd independence for `tests/test_hbr_egress_boundary.py:73` beyond the controller’s passing task-verification evidence.
+
+**Answer** (2026-11-22, orchestrator): **同じ指摘が 3 周続いたので、実装側で手を入れる。** INSERT が NOT NULL 列（`version` `created_by` `created`）を省いているため`egress_mode` の CHECK を外してもテストが緑になる、というレビュアーの指摘は 3 周とも正しい。指示を 2 度出して 2 度適用されなかったので、3 度目は出さない。修正は機械的なので**オーケストレータが実装し、レビューは別の無料モデルが行う**（オーナー許可 2026-11-17。実装したモデルが自分のジョブをレビューしない規則は守られる）。受入条件は 1 つも変えていない。詳細は `tasks/T-PH8-302.md`。
+## T-PH8-303 — review cycle limit reached (2026-11-22T03:52:41+09:00)
+
+
+**Question**: The reviewer still requires changes at the cycle limit.
+
+**Context**
+
+all for the §4 migration problem, and the 2026-11-22 orchestrator ruling explicitly requires a `## REPORT` heading `### 移行で落ちる既存テストの見積り` with a per-migration-plan table (`id`, 落ちると見積もるテスト, 根拠) corresponding to each `migration[].breaks` entry. The reviewed artifacts contain migration break descriptions, but no per-plan existing-test estimate/table and no investigation basis. Concrete failure: acceptance cannot be confirmed because reviewers/owners cannot identify the expected existing test blast radius per migration plan from the delivered evidence. Smallest fix: add the required `### 移行で落ちる既存テストの見積り` table to the task `## REPORT` (and/or an in-scope material artifact if that is the delivery target), mapping each `migration-plan-1`/`migration-plan-2` row to affected existing tests or explicitly "none found" with grep/search basis; do not modify existing tests.
+
+UNVERIFIED
+- Exact gate hook points in current runtime code. I confirmed the referenced files exist (`backend/app/service.py`, `backend/app/agents/registry.py`) and symbols named by the design exist (`send`, `_document`, `_can_read`, `_citations` in `service.py`; `chat_jobs` usage in `service.py`; `runner_artifacts` schema in `registry.py`), but I did not verify that each `gate_location` is the correct pre-assembly/pre-dispatch/persistence enforcement point in live behavior.
+- End-to-end inherit-max enforcement. `tests/test_hbr_classification_contract.py` validates the JSON contract, `gate_location` file existence, inherits DAG acyclicity, and synthetic `_max_classification` cases (`confidential`+`public`→`confidential`, any `none`→deny, additional max cases), but there is no runtime/backend implementation in scope to prove enforcement across the 8 production paths.
+- Task-level `REPORT` content outside the reviewed diff/allowed paths was inspected only for context; I did not treat it as accepted evidence satisfying AC4 because the required estimate table/heading is not present in the reviewed deliverable set.
+
+**Answer** (2026-11-22, orchestrator): **AC4 が 4 周目の不履行。猶予は与えないが、取り下げもしない。** 「どの既存テストが落ちるか」は既存テスト群を読んで影響範囲を推定する**調査**で、成果物を書く作業とは種類が違う。4 周同じところで落ちているのは**私の渡し方が間違っている**証拠でもあるので、**調査はオーケストレータが行い、レビューは別の無料モデルが行う**。`paths.export.gate_location` の食い違いも私が決めて揃える。受入条件は 1 つも変えていない — 渡す相手を変えただけである。詳細は `tasks/T-PH8-303.md`。

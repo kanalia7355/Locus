@@ -37,6 +37,19 @@ def reviewed_public_reference(name: str, entry: dict[str, object]) -> bool:
 
 
 def main() -> int:
+    # Named paths scan only those, which is how a job's gate asks "did *this
+    # change* introduce a secret". Without arguments the whole publishable
+    # inventory is scanned, which is what CI and a person want. The difference
+    # matters: on 2026-11-22 a full-tree gate failed `T-PH7-201` for a finding in
+    # `T-PH7-222`'s recorded report — a different job's prose, in a file the
+    # attempt never touched.
+    wanted = [argument for argument in sys.argv[1:] if not argument.startswith("-")]
+    if wanted:
+        present = ["./" + name.replace("\\", "/") for name in wanted if (ROOT / name).is_file()]
+        if not present:
+            print("Offline secret scan: none of the named paths exist")
+            return 0
+        return scan(present)
     executable = shutil.which("git")
     inventory = (
         subprocess.run(  # noqa: S603 — fixed read-only Git source inventory
@@ -60,6 +73,10 @@ def main() -> int:
         if not paths:
             print("Offline secret scan: no publishable source files")
             return 0
+    return scan(paths)
+
+
+def scan(paths: list[str]) -> int:
     # The scanner reads sources with the interpreter's default encoding and
     # silently skips files it cannot decode. On a non-UTF-8 locale (Windows
     # cp932) that hid every finding in a file containing Japanese text, so the
@@ -90,8 +107,7 @@ def main() -> int:
     if result.returncode:
         print("Secret scanner failed; review local tool setup.")
         return result.returncode
-    report = json.loads(result.stdout)
-    findings = report["results"]
+    findings = json.loads(result.stdout)["results"]
     findings = {
         name: remaining
         for name, entries in findings.items()

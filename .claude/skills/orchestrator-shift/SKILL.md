@@ -54,6 +54,14 @@ is there because skipping it cost hours:
 4. **`python -m jobloop diagnose`.** It groups every open stop by signature and
    says which are already-fixed, which are regressions, and which are yours.
 
+**If the shift has rulings to write, pause the loop first**: `.jobloop/stop`,
+then wait for the `jobloop … run` process to disappear (the supervisor finishes
+its current cycle rather than being cut off). `orchestrator-busy` suspends the
+containment *comparison*; it does not stop dispatch. On 2026-11-22 a shift wrote
+ten rulings while the loop kept working, and the loop re-blocked `T-PH7-211` and
+spent `T-PH6-104`'s extended attempt on top of rulings that had just landed.
+Remove `.jobloop/stop` before you leave, and confirm a new worker starts.
+
 Then **create `.jobloop/orchestrator-busy`** and leave it there until your last
 write of the shift. It suspends the containment comparison, which otherwise
 reads your commits as a worker escaping. Removing it one minute after a push

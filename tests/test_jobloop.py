@@ -380,6 +380,30 @@ def test_redirected_command_output_is_removed_and_recorded_not_escalated(tmp_pat
     assert gates.litter(["notes.txt"], [*allowed, "notes.txt"], contents=work) == [], (
         "a file the job was told to produce is its output, not its litter"
     )
+    # A name that merely collides with an identifier is not a reference.
+    # Measured 2026-11-22: `attack_pattern.txt` survived the sweep because the
+    # job's own test contained `def test_attack_pattern_visible(...)`, and the
+    # job then stopped for a file nothing read.
+    collision = {"tests/test_api.py": "def test_attack_pattern_visible(service):\n    pass\n"}
+    assert gates.litter(["attack_pattern.txt"], allowed, contents=collision) == [
+        "attack_pattern.txt"
+    ]
+    # Named in full, it is the change's own data and must be kept.
+    reads = {"tests/test_api.py": 'open("attack_pattern.txt").read()\n'}
+    assert gates.litter(["attack_pattern.txt"], allowed, contents=reads) == []
+
+    # Scratch may not vouch for scratch. Measured 2026-11-22: `T-PH7-211`'s
+    # worker saved `git status` output into `git_status.txt`, that listing named
+    # its eight sibling scratch files, and the whole set survived the sweep.
+    circular = {
+        "backend/app/service.py": "nothing to do with any of it\n",
+        "git_status.txt": "?? debug_output.txt\n?? test_output.txt\n?? git_status.txt\n",
+    }
+    assert gates.litter(
+        ["backend/app/service.py", "git_status.txt", "debug_output.txt", "test_output.txt"],
+        allowed,
+        contents=circular,
+    ) == ["debug_output.txt", "git_status.txt", "test_output.txt"]
     # An in-scope file that could not be read might be the one that references
     # the loose path, so nothing is swept at all. Stopping the job is
     # recoverable; deleting a worker's real file is not.
@@ -887,6 +911,31 @@ def test_a_stale_workspace_is_taken_to_the_current_branch_before_a_new_attempt(
     git(repository, "commit", "-m", "again")
     controller.workspace(task)
     assert (tree / "a.txt").read_text(encoding="utf-8") == "the job is mid-attempt\n"
+
+
+def test_the_secret_scan_gate_asks_about_this_change_only(tmp_path: Path) -> None:
+    # A full-tree scan failed `T-PH7-201` on 2026-11-22 for a finding in
+    # `T-PH7-222`'s recorded report: another job's prose, in a file the attempt
+    # never touched, and prose about passwords rather than a password. A gate
+    # that fails a job for someone else's file is attributing blame at random.
+    changed = ["backend/app/service.py", "tests/test_api.py"]
+    import jobloop.gates as module
+
+    seen: list[list[str]] = []
+
+    def record(name: str, argv: list[str], **_: object) -> gates.Gate:
+        seen.append(argv)
+        return gates.Gate(name, True, True, "")
+
+    original = module.run_argv
+    module.run_argv = record  # type: ignore[assignment]
+    try:
+        module.python_gates(tmp_path, changed, python="python", timeout=5)
+    finally:
+        module.run_argv = original
+    secret = next(argv for argv in seen if "scripts/secret_scan.py" in argv)
+    assert secret[-2:] == ["backend/app/service.py", "tests/test_api.py"], secret
+    assert "progress" not in " ".join(secret), "no other job's records are in scope"
 
 
 def test_scratch_is_swept_before_a_worker_can_trip_over_it(tmp_path: Path) -> None:
