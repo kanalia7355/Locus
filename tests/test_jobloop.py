@@ -355,17 +355,38 @@ def test_redirected_command_output_is_removed_and_recorded_not_escalated(tmp_pat
     # the brief was changed to forbid it in so many words. The instruction does
     # not take, so the loop stops losing jobs to it — loudly, never silently.
     allowed = ["backend/app/service.py", "tests/test_api.py"]
-    assert gates.litter(["test_output.txt", "ruff1.log", "backend/app/service.py"], allowed) == [
-        "ruff1.log",
-        "test_output.txt",
-    ]
-    # The neighbouring cases that must still stop the job: real work in the wrong
-    # place is a deviation, whatever its name.
-    assert gates.litter(["fix_test.py"], allowed) == []
-    assert gates.litter(["progress/phase-8/material/model.json"], allowed) == []
-    assert gates.litter(["docs/plans/NOTES.txt"], allowed) == [], "a directory is never litter"
-    # And a file the job was told to produce is its output, not its litter.
-    assert gates.litter(["notes.txt"], [*allowed, "notes.txt"]) == []
+    work = {"backend/app/service.py": "from app.formats import table\n"}
+    # Redirected output and one-off probes: nothing in the change mentions them.
+    assert gates.litter(
+        [
+            "test_output.txt",
+            "frontend/appearance_output.txt",
+            "check_select3.py",
+            "debug_test.py",
+            "backend/app/service.py",
+        ],
+        allowed,
+        contents=work,
+    ) == ["check_select3.py", "debug_test.py", "frontend/appearance_output.txt", "test_output.txt"]
+
+    # The neighbouring cases that must still stop the job.
+    named = {"backend/app/service.py": "from app.connectors.base import Connector\n"}
+    assert gates.litter(["backend/app/connectors/base.py"], allowed, contents=named) == [], (
+        "a module the change imports is real work, and a scope drawn too narrowly"
+    )
+    assert gates.litter(["docs/plans/NOTES.md"], allowed, contents=work) == [], (
+        "a protected path is never swept, whatever it is called"
+    )
+    assert gates.litter(["notes.txt"], [*allowed, "notes.txt"], contents=work) == [], (
+        "a file the job was told to produce is its output, not its litter"
+    )
+    # An in-scope file that could not be read might be the one that references
+    # the loose path, so nothing is swept at all. Stopping the job is
+    # recoverable; deleting a worker's real file is not.
+    assert gates.litter(["backend/app/service.py", "helper.py"], allowed, contents={}) == [], (
+        "an unread change disables sweeping entirely"
+    )
+    assert gates.litter(["helper.py"], allowed, contents={}) == ["helper.py"]
 
     # The controller only ever deletes what git does not track, so a committed
     # `.txt` the job edited cannot be swept away by this.
@@ -375,7 +396,10 @@ def test_redirected_command_output_is_removed_and_recorded_not_escalated(tmp_pat
     git(tree, "commit", "-m", "a tracked text file")
     (tree / "committed.txt").write_text("edited by the job", encoding="utf-8")
     (tree / "test_output.txt").write_text("pytest said things", encoding="utf-8")
-    loose = set(gates.litter(gates.changed_files(tree), allowed)) & Controller.untracked(tree)
+    changed = gates.changed_files(tree)
+    loose = set(
+        gates.litter(changed, allowed, contents=Controller.texts(tree, changed))
+    ) & Controller.untracked(tree)
     assert loose == {"test_output.txt"}, "a tracked file is never swept"
     Controller.discard(tree, loose)
     assert not (tree / "test_output.txt").exists()
@@ -737,6 +761,132 @@ def reviewable_worktree(tmp_path: Path) -> Path:
     git(tree, "commit", "-m", "first")
     (tree / "a.txt").write_text("under review", encoding="utf-8")
     return tree
+
+
+def test_a_conflicting_merge_is_aborted_and_never_left_in_the_checkout(tmp_path: Path) -> None:
+    # The worst stop this loop has had. On 2026-11-20 `T-PH6-113`'s reviewed work
+    # no longer applied, the merge conflicted, and `MERGE_HEAD` plus two `UU`
+    # files were left in the main checkout. Every later job then reported "the
+    # integration branch is dirty": eleven jobs blocked, seven hours idle, and
+    # the job itself recorded as `done` with its change nowhere in the branch.
+    phase_with_task(tmp_path)
+    repository = tmp_path
+    git(repository, "init", "-b", "loop/local-development", check=False)
+    git(repository, "config", "user.email", "t@example.invalid")
+    git(repository, "config", "user.name", "t")
+    (repository / "shared.txt").write_text("base\n", encoding="utf-8")
+    # The loop's own state is ignored here as it is in the real repository;
+    # otherwise it reads as a person's uncommitted edit and stops the merge
+    # before the conflict this test is about.
+    (repository / ".gitignore").write_text(".jobloop/\n", encoding="utf-8")
+    git(repository, "add", "-A")
+    git(repository, "commit", "-m", "base")
+
+    # Outside the repository, like a real workspace: a clone inside it would be
+    # an untracked directory and the merge would stop on that instead.
+    tree = tmp_path.parent / f"{tmp_path.name}-ws"
+    git(repository, "clone", "--local", str(repository), str(tree))
+    git(tree, "config", "user.email", "t@example.invalid")
+    git(tree, "config", "user.name", "t")
+    git(tree, "checkout", "-B", "loop/T-JOB-1")
+    (tree / "shared.txt").write_text("the job's line\n", encoding="utf-8")
+
+    # The branch moved underneath the job, in the same place.
+    (repository / "shared.txt").write_text("someone else's line\n", encoding="utf-8")
+    git(repository, "add", "-A")
+    git(repository, "commit", "-m", "the branch moved")
+
+    controller = controller_for(tmp_path, ["a-free", "b-free"])
+    controller.settings.push = False
+    outcome = controller.deliver(
+        tasks.load_phase(controller.settings.phase_directory).tasks[0], tree, "a-free", "b-free", []
+    )
+
+    assert outcome.state == "escalated" and "merge conflicted" in outcome.detail
+    assert not (repository / ".git" / "MERGE_HEAD").exists(), "no merge may be left in progress"
+    assert not git(repository, "diff", "--name-only", "--diff-filter=U", check=False).strip()
+    assert (repository / "shared.txt").read_text(encoding="utf-8") == "someone else's line\n"
+    task = tasks.load_phase(controller.settings.phase_directory).tasks[0]
+    assert task.status == "blocked", "and certainly not `done`"
+
+
+def test_every_phases_records_count_as_the_loops_own_bookkeeping(tmp_path: Path) -> None:
+    # One supervisor walks several phases through one checkout, so phase-7's
+    # records from the previous pass are uncommitted when phase-6 comes to merge.
+    # Sweeping only the running phase read those as a person's edit and blocked
+    # five jobs on 2026-11-20/21.
+    phase_with_task(tmp_path)
+    controller = controller_for(tmp_path, ["a-free", "b-free"])
+    status_text = ""
+    added: list[tuple[str, ...]] = []
+
+    def fake_git(repository: Path, *arguments: str, check: bool = True) -> str:
+        if arguments[0] == "status":
+            return status_text
+        added.append(arguments)
+        return ""
+
+    import jobloop.controller as module
+
+    original = module.git
+    module.git = fake_git  # type: ignore[assignment]
+    try:
+        task = tasks.load_phase(controller.settings.phase_directory).tasks[0]
+        status_text = (
+            " M progress/phase-test/tasks/T-JOB-1.md\n"
+            " M progress/phase-7-production/OWNER_DECISIONS.md\n"
+            " M docs/report/OWNER_DECISIONS_PLAIN_GUIDE.html"
+        )
+        assert controller.commit_progress_records(task) == "", (
+            "another phase's records are the loop's own, not a person's"
+        )
+        assert any("commit" in arguments for arguments in added)
+        # A person's edit still stops the merge.
+        added.clear()
+        status_text = " M progress/phase-test/tasks/T-JOB-1.md\n M backend/app/service.py"
+        assert "backend/app/service.py" in controller.commit_progress_records(task)
+        assert not any("commit" in arguments for arguments in added)
+    finally:
+        module.git = original
+
+
+def test_a_stale_workspace_is_taken_to_the_current_branch_before_a_new_attempt(
+    tmp_path: Path,
+) -> None:
+    # A clone is made once and kept, so a job that waits days starts from a base
+    # that has moved. That drift is what made `T-PH6-113`'s merge conflict.
+    phase_with_task(tmp_path)
+    repository = tmp_path
+    git(repository, "init", "-b", "loop/local-development", check=False)
+    git(repository, "config", "user.email", "t@example.invalid")
+    git(repository, "config", "user.name", "t")
+    (repository / "a.txt").write_text("base\n", encoding="utf-8")
+    git(repository, "add", "-A")
+    git(repository, "commit", "-m", "base")
+
+    controller = controller_for(tmp_path, ["a-free", "b-free"])
+    task = tasks.load_phase(controller.settings.phase_directory).tasks[0]
+    tree = controller.workspace(task)
+    assert (tree / "a.txt").read_text(encoding="utf-8") == "base\n"
+
+    (repository / "a.txt").write_text("moved on\n", encoding="utf-8")
+    git(repository, "add", "-A")
+    git(repository, "commit", "-m", "the branch moved")
+
+    controller.workspace(task)
+    assert (tree / "a.txt").read_text(encoding="utf-8") == "moved on\n"
+    body = (tmp_path / "progress" / "phase-test" / "tasks" / "T-JOB-1.md").read_text(
+        encoding="utf-8"
+    )
+    assert "WORKSPACE REBASED" in body, "a reset the job did not ask for has to be recorded"
+
+    # Work in progress is never thrown away for the sake of a fresh base.
+    (tree / "a.txt").write_text("the job is mid-attempt\n", encoding="utf-8")
+    (repository / "b.txt").write_text("and the branch moved again\n", encoding="utf-8")
+    git(repository, "add", "-A")
+    git(repository, "commit", "-m", "again")
+    controller.workspace(task)
+    assert (tree / "a.txt").read_text(encoding="utf-8") == "the job is mid-attempt\n"
 
 
 def test_a_reviewer_that_writes_its_review_to_a_file_is_replaced_not_escalated(

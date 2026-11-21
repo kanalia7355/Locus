@@ -91,35 +91,53 @@ def within_scope(names: list[str], allowed: list[str]) -> Gate:
     return Gate("scope", True, True, f"{len(names)} changed path(s) within scope")
 
 
-# Suffixes a redirected command output arrives with. Not a general "temporary
-# file" list: a `.py`, a `.json` or anything inside a directory is real work in
-# the wrong place, and that has to keep stopping the job.
-LITTER_SUFFIXES = (".txt", ".log", ".out")
+def litter(names: list[str], allowed: list[str], *, contents: dict[str, str]) -> list[str]:
+    """Scratch files a worker left behind: not referenced, not in scope, not kept.
 
+    Free models work by writing: command output into `pytest_out.txt`, one-off
+    probes into `check_select3.py`, a retry into `fix_test2.py`. Nine jobs in
+    four days were stopped by it, three of them *after* the brief was changed to
+    forbid it in so many words. The instruction does not take, so the loop stops
+    losing jobs to it — the files are deleted and recorded as the deviation they
+    are, rather than costing a person a ruling each time.
 
-def litter(names: list[str], allowed: list[str]) -> list[str]:
-    """Redirected command output a worker left at the worktree root.
+    The discriminator is reference, not file extension. A file the delivered
+    change never mentions cannot be part of the change: nothing imports
+    `check_select3.py`, which is exactly what makes it scratch. A path that *is*
+    named by something in scope is real work in the wrong place — a scope drawn
+    too narrowly — and must keep stopping the job.
 
-    Free models read a command's result by writing it to a file — six jobs in
-    three days (`T-PH6-108` 19 files, `T-PH7-201` 11, `T-PH7-211` 15, then
-    `T-PH6-116` 10, `T-PH8-303` 3 and `T-PH7-201` again 2 **after** the brief was
-    changed to forbid it in so many words on 2026-11-20). The instruction does
-    not take, so the loop stops losing jobs to it: this output is deleted and
-    recorded as the deviation it is, rather than costing a person a ruling.
-
-    Deliberately narrow. Only the worktree root, only output suffixes, and only
-    paths the job was not allowed anyway. A file in a directory, a `.py` helper
-    or anything under `allowed_paths` is never litter — a worker writing real
-    files outside its lane is a real deviation and still stops the job.
+    `contents` holds the text of the in-scope files — the changed ones and the
+    rest of `allowed_paths`, since an import can come from a file the job was
+    allowed to touch but did not change. Every changed in-scope path must have an
+    entry: a missing one means a file could not be read, and then nothing is
+    swept at all, because the unread file might be the one that references the
+    loose path. Stopping a job is recoverable; deleting a worker's file is not.
     """
     normalised = [name.replace("\\", "/") for name in allowed]
-    return sorted(
+    inside = [
         name
         for name in names
-        if "/" not in name
-        and name.lower().endswith(LITTER_SUFFIXES)
-        and not any(name == entry for entry in normalised)
-    )
+        if any(name == entry or name.startswith(entry.rstrip("/") + "/") for entry in normalised)
+    ]
+    if any(name not in contents for name in inside):
+        return []
+    referenced = "\n".join(contents.values())
+    loose = [name for name in names if name not in inside and not name.startswith(PROTECTED)]
+    return sorted(name for name in loose if not mentioned(name, referenced))
+
+
+def mentioned(name: str, text: str) -> bool:
+    """Whether `text` refers to `name` by path, by file name or as a module.
+
+    The stem is checked too, because an import names the module and not the
+    file: `from app.connectors.base import Connector` contains neither
+    `backend/app/connectors/base.py` nor `base.py`. Matching the stem makes
+    common-word names like `base` or `main` un-sweepable, which is the direction
+    to err in — a kept file stops the job and a person looks at it.
+    """
+    stem = Path(name).stem
+    return name in text or Path(name).name in text or (len(stem) > 2 and stem in text)
 
 
 def summarise(result: subprocess.CompletedProcess[str]) -> str:

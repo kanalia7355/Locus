@@ -75,6 +75,7 @@ def main() -> int:
         if arguments.cycles and cycle > arguments.cycles:
             heartbeat(beat, f"stopping after {arguments.cycles} cycle(s)")
             break
+        worked = False
         for phase in phases:
             if stop.is_file():
                 break
@@ -99,6 +100,7 @@ def main() -> int:
                 errors="replace",
                 check=False,
             )
+            worked = worked or "idle - no actionable job is left" not in (result.stdout or "")
             spent = time.monotonic() - started
             tail = "; ".join((result.stdout or "").strip().splitlines()[-3:]) or "(no output)"
             heartbeat(
@@ -114,6 +116,22 @@ def main() -> int:
                 )
         if stop.is_file():
             break
+        if not worked:
+            # Every phase found nothing to do, which with a queue full of blocked
+            # jobs is the shape every multi-hour stall has taken. Ask why, in one
+            # place: stops whose cause has since been repaired are restarted, and
+            # a signature holding two or more jobs with no repair becomes a job.
+            diagnosis = subprocess.run(  # noqa: S603 — repository entry point, no shell
+                [python, "-m", "jobloop", "diagnose", "--file"],
+                cwd=str(ROOT),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                check=False,
+            )
+            told = "; ".join((diagnosis.stdout or "").strip().splitlines()) or "(nothing said)"
+            heartbeat(beat, f"cycle {cycle} idle everywhere :: {told[:600]}")
         time.sleep(arguments.pause)
     heartbeat(beat, "supervisor stopped")
     return 0

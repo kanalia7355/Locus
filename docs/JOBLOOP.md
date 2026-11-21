@@ -15,6 +15,7 @@ python -m jobloop status      # what the loop sees: jobs, attempts, models
 python -m jobloop plan        # which job it would pick next
 python -m jobloop run-one     # one job through one full cycle
 python -m jobloop run --minutes 60 [--max-jobs 8] [--push]
+python -m jobloop diagnose [--file]   # why the queue is stopped, across every phase
 ```
 
 Options: `--phase <slug>` (default `phase-4-closeout`), `--branch <integration>`
@@ -90,10 +91,43 @@ Each of these stops the job, sets `status: blocked`, and appends a question to
 - three attempts did not satisfy the acceptance criteria;
 - the review cycle limit was reached with changes still required;
 - no second model was available, so the review would have been a self-review;
-- the reviewer modified the worktree;
-- the integration branch was dirty when a reviewed commit was ready.
+- the reviewer modified the worktree **and changed a file under review** — a
+  reviewer that only wrote its review to disk is rotated to the next model
+  instead, with the stray file deleted and the discarded verdict recorded;
+- the integration branch was dirty when a reviewed commit was ready — every
+  phase's own records are swept first, not just the running phase's;
+- the merge conflicted. The merge is aborted, so a half-finished merge is never
+  left in the checkout: that single failure mode blocked eleven jobs on
+  2026-11-20 because every later job then read the branch as dirty;
+- the merge left the loop's own suite failing, for a job that changed `jobloop/`
+  or `scripts/`. The merge is rolled back before it is pushed.
+
+Not escalated, because the model never received the job: usage exhaustion and a
+provider outage (`404 Endpoint is unavailable`) both put the model on cooldown
+and keep the attempt. Not escalated either: scratch files a worker left outside
+its scope that nothing in the change refers to — they are deleted and recorded.
 
 The run keeps going with other jobs, and prints the pending decisions at the end.
+
+## When the queue stops anyway
+
+`python -m jobloop diagnose` groups every open stop across all phases by
+signature and says, for each, which of three things it is:
+
+- **already fixed** — `jobloop/diagnose.py: HANDLED` names a repair and the stop
+  predates it. With `--file`, those jobs go back to `todo` and get back the one
+  attempt the defect consumed. The record says why, which is also what stops it
+  happening twice: the next pass finds the entry answered.
+- **a regression** — handled, and it happened anyway, so the repair is
+  incomplete. With `--file`, a job is written into `progress/phase-9-loop-health`
+  carrying the evidence and criteria that cannot be met by hiding the symptom.
+- **a judgement** — a reviewer that still requires changes, a worker's real
+  question. Nothing is touched: there is no repair to make.
+
+The supervisor runs `diagnose --file` after any cycle where every phase found
+nothing to do, which is the shape every multi-hour stall has taken. `HANDLED`
+and `JUDGEMENT` are written by a person; the loop reads that table and cannot
+declare its own defects fixed.
 
 ## Skills the loop depends on
 

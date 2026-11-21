@@ -188,6 +188,51 @@ class Controller:
         return parse(task.path)
 
     @staticmethod
+    def in_scope_files(worktree: Path, allowed: list[str]) -> list[str]:
+        """Every file the job may write, expanded from `allowed_paths`.
+
+        The reference check reads these and not only the changed files: a worker
+        can add a module outside its scope and import it from a file it was
+        allowed to touch but did not change, and that import has to count.
+        """
+        found: list[str] = []
+        for entry in allowed:
+            target = worktree / entry.replace("\\", "/").rstrip("/")
+            if target.is_file():
+                found.append(entry.replace("\\", "/").rstrip("/"))
+            elif target.is_dir():
+                found.extend(
+                    path.relative_to(worktree).as_posix()
+                    for path in target.rglob("*")
+                    if path.is_file() and ".git" not in path.parts
+                )
+        return found
+
+    @staticmethod
+    def texts(worktree: Path, names: list[str]) -> dict[str, str]:
+        """Read the changed files, so a path can be told from a reference to it.
+
+        Unreadable or binary files come back empty: a file whose text cannot be
+        read simply mentions nothing, which is the safe direction — the loop then
+        treats a loose path as real work and stops the job rather than deleting it.
+        """
+        found: dict[str, str] = {}
+        for name in names:
+            path = worktree / name
+            if not path.exists():
+                # Deleted in this change: it has no text, and it cannot be the
+                # file that references anything.
+                found[name] = ""
+                continue
+            if not path.is_file() or path.stat().st_size > 2_000_000:
+                continue
+            try:
+                found[name] = path.read_bytes().decode("utf-8", errors="replace")
+            except OSError:
+                continue
+        return found
+
+    @staticmethod
     def untracked(worktree: Path) -> set[str]:
         """Paths git does not track, so a reviewer's own output can be told apart."""
         lines = git(
@@ -273,6 +318,7 @@ class Controller:
         """A per-job local clone of the integration branch, outside the repository."""
         path = self.settings.workspace_root / task.id
         if path.is_dir():
+            self.refresh(task, path)
             return path
         path.parent.mkdir(parents=True, exist_ok=True)
         git(
@@ -288,6 +334,36 @@ class Controller:
         git(path, "checkout", "-B", self.branch_for(task))
         self.share_installed_dependencies(path)
         return path
+
+    def refresh(self, task: Task, worktree: Path) -> None:
+        """Bring an existing workspace up to the integration branch.
+
+        A clone is made once and then kept, so a job that waits days in the queue
+        starts from a base that has moved under it. `T-PH6-113`'s workspace was
+        three days and ten merges behind when its reviewed work was finally
+        merged, and `App.tsx` conflicted — which is how a conflicted merge came
+        to sit in the main checkout at all.
+
+        Only a clean workspace is refreshed. With work in progress there is
+        nothing safe to do here: resetting would throw the attempt away, so the
+        drift is recorded and left for the merge to catch.
+        """
+        if self.dirt(worktree).strip():
+            return
+        git(worktree, "fetch", str(self.settings.repository), self.settings.integration_branch)
+        behind = git(worktree, "rev-list", "--count", "HEAD..FETCH_HEAD", check=False).strip()
+        if not behind or behind == "0":
+            return
+        # Clean tree, so nothing of the job's own is lost by taking the new base.
+        git(worktree, "reset", "--hard", "FETCH_HEAD", check=False)
+        git(worktree, "checkout", "-B", self.branch_for(task), check=False)
+        self.record(
+            task,
+            f"WORKSPACE REBASED ({self.now()})",
+            f"The workspace was {behind} commit(s) behind "
+            f"`{self.settings.integration_branch}` and had no work in progress, so it was "
+            "reset onto the current branch. Nothing of this job's own was discarded.",
+        )
 
     @staticmethod
     def branch_for(task: Task) -> str:
@@ -453,7 +529,9 @@ class Controller:
                 task, model, f"the worker echoed the status template: {question[:120]}"
             )
         names = gates.changed_files(tree)
-        dropped = set(gates.litter(names, task.allowed_paths)) & self.untracked(tree)
+        readable = self.texts(tree, [*names, *self.in_scope_files(tree, task.allowed_paths)])
+        dropped = set(gates.litter(names, task.allowed_paths, contents=readable))
+        dropped &= self.untracked(tree)
         if dropped:
             self.discard(tree, dropped)
             names = [name for name in names if name not in dropped]
@@ -757,7 +835,6 @@ class Controller:
         # Nothing staged means a previous run already committed this reviewed
         # work; its existing head is what gets merged.
         head = git(tree, "rev-parse", "HEAD").strip()
-        self.set_fields(task, status="done", attempts=str(task.attempts + 1))
         status = self.commit_progress_records(task)
         if status:
             return self.escalate(
@@ -771,14 +848,46 @@ class Controller:
         # The workspace is a separate clone, so its commit is fetched before it
         # can be merged.
         git(self.settings.repository, "fetch", str(tree), branch)
-        git(
+        merged = git(
             self.settings.repository,
             "merge",
             "--no-ff",
             "-m",
             f"merge(job): {task.id}",
             "FETCH_HEAD",
+            check=False,
         )
+        if (self.settings.repository / ".git" / "MERGE_HEAD").exists():
+            # A conflicted merge left in the checkout is the worst stop this loop
+            # has: every later job then reports "the integration branch is dirty"
+            # and the queue dies whole. `T-PH6-113` did exactly that on
+            # 2026-11-20 and took eleven jobs and seven hours with it.
+            git(self.settings.repository, "merge", "--abort", check=False)
+            return self.escalate(
+                task,
+                "the merge conflicted",
+                "The reviewed work no longer applies to the integration branch, so the merge "
+                "was aborted and nothing was committed. Decide whether the job redoes its "
+                "work on the current branch.",
+                f"commit={head}\nbranch={branch}\n{merged[-800:]}",
+            )
+        broken = self.loop_still_works()
+        if broken:
+            # A job that repairs the loop can also break it, and a broken
+            # controller takes every later job with it. The merge is not pushed
+            # until its own suite passes in the checkout it will run from.
+            git(self.settings.repository, "reset", "--hard", "HEAD~1", check=False)
+            return self.escalate(
+                task,
+                "the merge broke the loop",
+                "The merged change left the loop's own suite failing, so the merge was rolled "
+                "back. The fix has to keep the controller working.",
+                f"commit={head}\n{broken[:900]}",
+            )
+        # `done` is written only once the work is actually in the branch. It used
+        # to be set before the merge, so a conflict left a job recorded as done
+        # whose change was nowhere.
+        self.set_fields(task, status="done", attempts=str(task.attempts + 1))
         if self.settings.push:
             git(self.settings.repository, "push", "origin", self.settings.integration_branch)
         return Outcome(
@@ -789,6 +898,33 @@ class Controller:
             reviewer=reviewer,
             gates=checks,
         )
+
+    def loop_still_works(self) -> str:
+        """Empty unless the merge just landed changed the loop and broke it.
+
+        Only runs when the merge touched `jobloop/` or `scripts/`, which is what
+        a `phase-9-loop-health` job does by definition. The gates already ran in
+        the workspace, but a merge is a different tree: it combines this change
+        with everything that landed while the job was out, and that combination
+        is what the next cycle will actually import.
+        """
+        changed = git(
+            self.settings.repository, "diff", "--name-only", "HEAD~1", "HEAD", check=False
+        ).splitlines()
+        touched = [
+            name for name in changed if name.replace("\\", "/").startswith(("jobloop/", "scripts/"))
+        ]
+        if not touched:
+            return ""
+        check = gates.run_command(
+            "loop-suite",
+            "python -m pytest tests/test_jobloop.py tests/test_diagnose.py "
+            "tests/test_selfrepair.py -q",
+            cwd=self.settings.repository,
+            timeout=self.settings.gate_timeout,
+            python=self.settings.python,
+        )
+        return "" if check.green else f"{', '.join(touched)}\n{check.detail[:700]}"
 
     def commit_progress_records(self, task: Task) -> str:
         """Commit the controller's own records; report anything else still dirty.
@@ -804,7 +940,12 @@ class Controller:
         lines = [line for line in status.splitlines() if line.strip()]
         if not lines:
             return ""
-        records = f"progress/{self.settings.phase}/"
+        # Every phase's records are the loop's own, not just the phase being run.
+        # One supervisor now walks several phases through one checkout, so
+        # phase-7's bookkeeping from the previous pass is sitting uncommitted
+        # when phase-6 comes to merge — and it was read as "a person is editing
+        # this checkout". That alone blocked five jobs on 2026-11-20/21.
+        records = "progress/"
         # The loop regenerates this page whenever it raises a question, so it
         # is the loop's own record, not a person's edit. Leaving it out made a
         # reviewed commit unmergeable on 2026-11-19.

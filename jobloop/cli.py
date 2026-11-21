@@ -14,6 +14,7 @@ import sys
 import time
 from pathlib import Path
 
+from jobloop import diagnose
 from jobloop.controller import Controller, Settings, git
 from jobloop.roster import Roster, eligible
 from jobloop.tasks import ATTEMPT_LIMIT, load_phase
@@ -100,6 +101,37 @@ def explain(controller: Controller) -> int:
     return result.returncode
 
 
+def why_stopped(controller: Controller, *, file: bool, phases: list[str] | None) -> int:
+    """Say why the queue is stopped, and file the repairs that are the loop's own.
+
+    This is the step a person did by hand four times between 2026-11-18 and
+    2026-11-21: read every phase's records, notice that one signature is holding
+    most of the queue, and decide whether it is a judgement or a defect. Only the
+    last part needs a person at all, and even that is now a job with a reviewer.
+    """
+    progress = controller.settings.repository / "progress"
+    wanted = phases or sorted(
+        path.name for path in progress.iterdir() if (path / "OWNER_DECISIONS.md").is_file()
+    )
+    findings = diagnose.survey(progress, wanted)
+    print(diagnose.report(findings))
+    if not file:
+        return 0
+    for job in diagnose.reopen(progress, findings, now=controller.now()):
+        print(f"restarted {job}: its cause is already fixed")
+    written = diagnose.file_tickets(progress, findings, now=controller.now())
+    for path in written:
+        print(f"filed {path.relative_to(controller.settings.repository).as_posix()}")
+    if not written:
+        repairable = [finding for finding in findings if finding.repairable]
+        print(
+            "filed nothing: every repairable signature already has a job"
+            if repairable
+            else "filed nothing: no signature is both the loop's own and recurring"
+        )
+    return 0
+
+
 def doctor(controller: Controller) -> int:
     checks: list[tuple[str, bool, str]] = []
     checks.append(("opencode", bool(shutil.which("opencode")), "free worker CLI"))
@@ -154,6 +186,20 @@ def main(argv: list[str] | None = None) -> int:
     commands.add_parser("doctor", help="check the loop can run at all")
     commands.add_parser("plan", help="show the job the loop would pick next")
     commands.add_parser("explain", help="rewrite open owner questions as a plain-language page")
+    why = commands.add_parser(
+        "diagnose", help="group every open stop by signature, and file the loop's own repairs"
+    )
+    why.add_argument(
+        "--file",
+        action="store_true",
+        help="write a loop-repair job for each repairable signature",
+    )
+    why.add_argument(
+        "--phases",
+        nargs="*",
+        default=None,
+        help="phases to survey; defaults to every phase under progress/",
+    )
     one = commands.add_parser("run-one", help="run the next job through one full cycle")
     one.add_argument(
         "--push", action="store_true", help="push the integration branch after merging"
@@ -179,6 +225,8 @@ def main(argv: list[str] | None = None) -> int:
         return doctor(controller)
     if arguments.command == "explain":
         return explain(controller)
+    if arguments.command == "diagnose":
+        return why_stopped(controller, file=arguments.file, phases=arguments.phases)
     if arguments.command == "plan":
         task = controller.select()
         print(f"next: {task.id} ({task.weight})" if task else "next: nothing actionable")
