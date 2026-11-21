@@ -1,0 +1,139 @@
+{
+  "profiles": [
+    {
+      "id": "W-D",
+      "state": "INACTIVE_UNVERIFIED",
+      "required_test_families": [
+        "CFG",
+        "FS",
+        "PROC",
+        "NET",
+        "RES",
+        "XFER",
+        "AUTH",
+        "OUT",
+        "CXL",
+        "CLEAN",
+        "B6",
+        "EVID"
+      ],
+      "residual_risks": [
+        "Shared-kernel and host-administrator residual risk: process restrictions or containers on a Windows desktop rely on the host kernel and local administrator TCB; a hostile or compromised host administrator, kernel, firmware, or trusted runtime can defeat the boundary (HYBRID_ISOLATION_PROFILES.md §2.1)."
+      ],
+      "evidence_fields": [
+        "evidence_contract_version",
+        "profile_id",
+        "Target fingerprint",
+        "Runner and artifact identities",
+        "Effective configuration",
+        "Test inventory and run",
+        "Independent observations",
+        "Results and change record",
+        "Review"
+      ]
+    },
+    {
+      "id": "W-S",
+      "state": "INACTIVE_UNVERIFIED",
+      "required_test_families": [
+        "CFG",
+        "FS",
+        "PROC",
+        "NET",
+        "RES",
+        "XFER",
+        "AUTH",
+        "OUT",
+        "CXL",
+        "CLEAN",
+        "B6",
+        "EVID"
+      ],
+      "residual_risks": [
+        "Shared-kernel or hypervisor and host-administrator residual risk: multi-tenant server isolation depends on the chosen host kernel/runtime or hypervisor and on server administrators; a compromised host kernel, hypervisor, firmware, or host administrator remains outside the claimed boundary (HYBRID_ISOLATION_PROFILES.md §2.1)."
+      ],
+      "evidence_fields": [
+        "evidence_contract_version",
+        "profile_id",
+        "Target fingerprint",
+        "Runner and artifact identities",
+        "Effective configuration",
+        "Test inventory and run",
+        "Independent observations",
+        "Results and change record",
+        "Review"
+      ]
+    },
+    {
+      "id": "L-D",
+      "state": "INACTIVE_UNVERIFIED",
+      "required_test_families": [
+        "CFG",
+        "FS",
+        "PROC",
+        "NET",
+        "RES",
+        "XFER",
+        "AUTH",
+        "OUT",
+        "CXL",
+        "CLEAN",
+        "B6",
+        "EVID"
+      ],
+      "residual_risks": [
+        "Shared-kernel and host-administrator residual risk: namespaces/containers share the host kernel and a local administrator can defeat desktop controls (HYBRID_ISOLATION_PROFILES.md §2.1); Linux file-based custody cannot claim protection against the host administrator, who can read or export file-based keys (HYBRID_RUNNER_TRUST_DESIGN.md §3.3)."
+      ],
+      "evidence_fields": [
+        "evidence_contract_version",
+        "profile_id",
+        "Target fingerprint",
+        "Runner and artifact identities",
+        "Effective configuration",
+        "Test inventory and run",
+        "Independent observations",
+        "Results and change record",
+        "Review"
+      ]
+    },
+    {
+      "id": "L-S",
+      "state": "INACTIVE_UNVERIFIED",
+      "required_test_families": [
+        "CFG",
+        "FS",
+        "PROC",
+        "NET",
+        "RES",
+        "XFER",
+        "AUTH",
+        "OUT",
+        "CXL",
+        "CLEAN",
+        "B6",
+        "EVID"
+      ],
+      "residual_risks": [
+        "Shared-kernel or hypervisor and host-administrator residual risk: multi-tenant Linux isolation depends on host kernel/runtime or hypervisor assumptions and server administrators (HYBRID_ISOLATION_PROFILES.md §2.1); Linux file-based custody cannot claim protection against the host administrator, who can read or export file-based keys (HYBRID_RUNNER_TRUST_DESIGN.md §3.3)."
+      ],
+      "evidence_fields": [
+        "evidence_contract_version",
+        "profile_id",
+        "Target fingerprint",
+        "Runner and artifact identities",
+        "Effective configuration",
+        "Test inventory and run",
+        "Independent observations",
+        "Results and change record",
+        "Review"
+      ]
+    }
+  ],
+  "selected": null,
+  "independent_reviewer": null,
+  "open_questions": [
+    "どの隔離候補（W-D/W-S/L-D/L-S）を配備対象として選ぶか。",
+    "各候補に残る共有カーネル／ハイパーバイザ／ローカル管理者の残余リスク（L-D/L-S では HYBRID_RUNNER_TRUST_DESIGN.md §3.3 のファイル保管リスクを含む）を受諾するか。",
+    "HYBRID_ISOLATION_PROFILES.md §7 項目 4 にある独立検証者（実装・設定の作成者と分離）を誰に任命するか。"
+  ]
+}
