@@ -26,6 +26,11 @@ from app.formats import (
     format_for,
     max_content_bytes,
 )
+from app.password_rules import (
+    LOCK_DURATION_SECONDS,
+    LOCK_FAILURE_THRESHOLD,
+    check_password_strength,
+)
 from app.scanner import UNAVAILABLE, ScanResult
 
 Json = dict[str, Any]
@@ -480,6 +485,13 @@ class Service:
                 id TEXT PRIMARY KEY, at REAL NOT NULL, actor_id TEXT NOT NULL,
                 operation TEXT NOT NULL, target_id TEXT NOT NULL, outcome TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS login_throttle (
+                user_id TEXT NOT NULL,
+                failures INTEGER NOT NULL DEFAULT 0,
+                locked_until REAL NOT NULL DEFAULT 0,
+                last_failure REAL NOT NULL DEFAULT 0,
+                PRIMARY KEY (user_id)
+            );
         """)
         chat_job_columns = {
             row["name"] for row in self.conn.execute("PRAGMA table_info(chat_jobs)")
@@ -515,10 +527,12 @@ class Service:
             try:
                 yield self.conn
             except BaseException:
-                self.conn.rollback()
+                if self.conn.in_transaction:
+                    self.conn.rollback()
                 raise
             else:
-                self.conn.commit()
+                if self.conn.in_transaction:
+                    self.conn.commit()
 
     def recover_jobs(self) -> None:
         """Called only at application-worker startup, never by provisioning CLI connections."""
@@ -579,8 +593,9 @@ class Service:
     ) -> str:
         if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{2,63}", username):
             fail(422, "利用者IDは3〜64文字の英数字・_.-で指定してください")
-        if not 14 <= len(password) <= 128:
-            fail(422, "仮パスワードは14〜128文字で指定してください")
+        ok, reason = check_password_strength(password, username)
+        if not ok:
+            fail(422, reason)
         user_id = uid()
         try:
             db.execute(
@@ -610,7 +625,14 @@ class Service:
             if not current.system_admin:
                 fail(403, "管理権限が必要です")
             self._limit("admin-provision:" + current.id, 10)
-            temporary_password = secrets.token_urlsafe(24)
+            # Generate a temporary password that meets the strength rules:
+            # 14-128 chars, 3+ of 4 character types, no user ID substring,
+            # no 5+ repeated chars, no consecutive 5 ASCII chars.
+            while True:
+                temporary_password = secrets.token_urlsafe(24)
+                ok, reason = check_password_strength(temporary_password, username)
+                if ok:
+                    break
             user_id = self._provision(db, username, temporary_password, audit_actor=current.id)
         return {
             "id": user_id,
@@ -950,32 +972,83 @@ class Service:
 
     def login(self, username: str, password: str, peer: str) -> tuple[str, Json]:
         with self.db() as db:
+            # Instant burst limits (60s window) remain in memory.
             self._limit("peer:" + peer, 20)
             self._limit("user:" + digest(username), 5)
+
+            now = time.time()
             user = db.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
+
+            # Always perform password verification work to avoid leaking account existence.
             valid = False
-            try:
-                valid = PASSWORDS.verify(
-                    user["password_hash"] if user else self.dummy_hash, password
+            if user is not None:
+                try:
+                    valid = PASSWORDS.verify(user["password_hash"], password)
+                except VerificationError:
+                    valid = False
+            else:
+                try:
+                    PASSWORDS.verify(self.dummy_hash, password)
+                except VerificationError:
+                    pass
+
+            throttle_key = user["id"] if user is not None else digest(username)
+            row = db.execute(
+                "SELECT failures, locked_until, last_failure FROM login_throttle WHERE user_id=?",
+                (throttle_key,),
+            ).fetchone()
+            failures = int(row["failures"]) if row else 0
+            locked_until = float(row["locked_until"]) if row else 0.0
+            last_failure = float(row["last_failure"]) if row else 0.0
+
+            # DB-backed lock: absolute deadline, auto-expires, never extended while locked.
+            if row and locked_until > now:
+                # Preserve the lock state on any attempt during lock (including correct password).
+                db.execute(
+                    "INSERT OR REPLACE INTO login_throttle "
+                    "(user_id, failures, locked_until, last_failure) VALUES (?,?,?,?)",
+                    (throttle_key, failures, locked_until, last_failure),
                 )
-            except VerificationError:
-                pass
-            if (
-                not user
-                or not valid
-                or not user["enabled"]
-                or (
-                    user["must_rotate"]
-                    and (user["temp_used"] or user["temp_expires"] < time.time())
-                )
-            ):
-                # Do not expose whether an account exists.
+                db.commit()
                 fail(401, "利用者IDまたはパスワードを確認してください")
-            if user["must_rotate"]:
-                db.execute("UPDATE users SET temp_used=1 WHERE id=?", (user["id"],))
-            token = self._session(db, user["id"], bool(user["must_rotate"]))
-            self._audit(db, user["id"], "session.start", user["id"])
-            return token, self._public_user(user)
+
+            login_ok = (
+                user is not None
+                and valid
+                and bool(user["enabled"])
+                and not (
+                    user["must_rotate"] and (user["temp_used"] or float(user["temp_expires"]) < now)
+                )
+            )
+
+            if login_ok:
+                # Successful login resets long-term failure tracking.
+                db.execute(
+                    "INSERT OR REPLACE INTO login_throttle "
+                    "(user_id, failures, locked_until, last_failure) VALUES (?,?,?,?)",
+                    (throttle_key, 0, 0.0, now),
+                )
+                if user["must_rotate"]:
+                    db.execute("UPDATE users SET temp_used=1 WHERE id=?", (user["id"],))
+                token = self._session(db, user["id"], bool(user["must_rotate"]))
+                self._audit(db, user["id"], "session.start", user["id"])
+                return token, self._public_user(user)
+
+            # Failed login: increment failures; apply a fixed-duration lock at threshold.
+            failures += 1
+            if failures >= LOCK_FAILURE_THRESHOLD:
+                locked_until = now + LOCK_DURATION_SECONDS
+            else:
+                locked_until = 0.0
+            last_failure = now
+            db.execute(
+                "INSERT OR REPLACE INTO login_throttle "
+                "(user_id, failures, locked_until, last_failure) VALUES (?,?,?,?)",
+                (throttle_key, failures, locked_until, last_failure),
+            )
+            db.commit()
+            # Do not expose whether the account exists, password was wrong, or account is locked.
+            fail(401, "利用者IDまたはパスワードを確認してください")
 
     @staticmethod
     def _public_user(user: sqlite3.Row) -> Json:
@@ -1020,23 +1093,36 @@ class Service:
     def rotate(
         self, principal: Principal, current: str, new: str, *, session_token: str | None = None
     ) -> str:
-        if len(new) < 14 or len(new) > 128 or current == new:
-            fail(422, "異なる14〜128文字のパスワードを設定してください")
+        self._limit("rotate:" + principal.id, 5)
         with self.db() as db:
             if session_token is not None:
                 session_actor = self._authenticate(db, session_token, allow_rotation=True)
                 if session_actor.id != principal.id:
                     fail(401, "ログインしてください")
-            self._limit("rotate:" + principal.id, 5)
             user = db.execute("SELECT * FROM users WHERE id=?", (principal.id,)).fetchone()
             if not user or not user["enabled"]:
                 fail(401, "ログインしてください")
+
+            username = user["username"]
+            ok, reason = check_password_strength(new, username)
+            if not ok:
+                fail(422, reason)
+            if len(current) < 14 or len(current) > 128 or current == new:
+                fail(422, "異なる14〜128文字のパスワードを設定してください")
+
             try:
                 PASSWORDS.verify(user["password_hash"], current)
             except VerificationError:
                 fail(401, "現在のパスワードを確認してください")
-            if user["must_rotate"] and user["temp_expires"] <= time.time():
+
+            now = time.time()
+            if (
+                user["must_rotate"]
+                and user["temp_expires"] is not None
+                and user["temp_expires"] <= now
+            ):
                 fail(401, "仮パスワードが失効しています。ローカル管理者へ連絡してください")
+
             db.execute(
                 "UPDATE users SET password_hash=?,must_rotate=0,temp_expires=NULL WHERE id=?",
                 (PASSWORDS.hash(new), principal.id),
@@ -1084,8 +1170,9 @@ class Service:
                 or not user["enabled"]
             ):
                 fail(401, "利用者IDまたは回復コードを確認してください")
-            if not 14 <= len(new_password) <= 128:
-                fail(422, "異なる14〜128文字のパスワードを設定してください")
+            ok, reason = check_password_strength(new_password, username)
+            if not ok:
+                fail(422, reason)
             try:
                 PASSWORDS.verify(user["password_hash"], new_password)
             except VerificationError:
@@ -1103,6 +1190,21 @@ class Service:
             )
             db.execute("DELETE FROM sessions WHERE user_id=?", (user["id"],))
             self._audit(db, "recovery", "credential.recover", user["id"])
+
+    def unlock(self, user_id: str, *, actor: Principal) -> None:
+        """Admin unlock of a user's login lockout.
+
+        Clears the lock immediately; the caller must be system_admin.
+        Records the action in _audit.
+        """
+        if not actor.system_admin:
+            fail(403, "管理権限が必要です")
+        with self.db() as db:
+            db.execute(
+                "UPDATE login_throttle SET locked_until=0, failures=0 WHERE user_id=?",
+                (user_id,),
+            )
+            self._audit(db, actor.id, "account.unlock", user_id)
 
     def inventory(
         self, actor: Principal, project: str, candidates: list[dict[str, int | str]]
