@@ -151,6 +151,12 @@ a short shift:
 - Run `shift_check.py`. If nothing is stuck and a worker is alive, that is a
   **quiet tick**: record it as such and schedule the next one. Do not invent work
   to look busy, and do not restart a healthy loop.
+- **Read the heartbeat tail even on a quiet verdict.** "Nothing is waiting on a
+  decision" is not "something is moving". On 2026-11-22 the verdict said
+  `quiet tick` while `T-PH6-104` and `T-PH8-302` had spent an hour being handed
+  a reviewer that answered `unavailable` — an outcome that escalates nothing, so
+  `diagnose` had nothing to show. `shift_check` now fails on an outcome that
+  repeats, but the next kind of churn will be one it does not know yet.
 - If the queue is stopped, do the shift. One stall cleared without the owner
   having to ask is the whole return on this.
 - If you are waiting on the owner, say exactly what for and do everything that

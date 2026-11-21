@@ -106,6 +106,12 @@ def git(repository: Path, *arguments: str, check: bool = True) -> str:
 # "NOT APPROVED" or "APPROVED with reservations" still counts as changes.
 APPROVAL = re.compile(r"^[\s>#*_`-]*APPROVED[\s*_`.]*$", re.MULTILINE)
 
+# How long a model that could not be run at all is passed over. Much shorter
+# than the exhaustion cooldown: a spent free allowance comes back tomorrow, a
+# CLI that cannot route to a provider may come back in minutes, and the point
+# here is only to stop the roster handing out the same broken first choice.
+UNAVAILABLE_COOLDOWN = 900.0
+
 
 def placeholder(text: str) -> str | bool:
     """True when a reported question is the brief's own placeholder, not a question."""
@@ -590,6 +596,18 @@ class Controller:
             self.roster.mark_exhausted(model)
             return Outcome(task.id, "rotated", f"{model} {result.why_rotate}", model=model)
         task = self.set_fields(task, status="doing", assignee="opencode", model=model)
+        if result.ending is worker.Ending.UNAVAILABLE:
+            # The CLI could not run this model at all — a crash, an auth
+            # problem, a provider it cannot route to. The job was never
+            # attempted, so it keeps its attempt, and the model goes on a short
+            # cooldown so the next pass reaches a different one.
+            self.roster.mark_exhausted(model, seconds=UNAVAILABLE_COOLDOWN)
+            return Outcome(
+                task.id,
+                "rotated",
+                f"{model} could not be run: {'; '.join(result.errors[:2])}"[:300],
+                model=model,
+            )
         if result.ending is not worker.Ending.COMPLETED:
             return self.failed_attempt(
                 task, model, f"{result.ending.value}: {'; '.join(result.errors[:3])}"
@@ -830,6 +848,13 @@ class Controller:
                 None,
             )
         if verdict.ending is not worker.Ending.COMPLETED:
+            # Cool it down and try the next model, in this same pass. Without
+            # the cooldown the roster picked the same first-ranked model every
+            # time: on 2026-11-22 `ollama/gemma3:4b` answered `unavailable` for
+            # `T-PH6-104` and `T-PH8-302` on every cycle for an hour, while two
+            # working `opencode` models sat untried. Nothing escalated, so the
+            # queue looked healthy and `diagnose` saw nothing at all.
+            self.roster.mark_exhausted(reviewer, seconds=UNAVAILABLE_COOLDOWN)
             return (
                 Outcome(
                     task.id,
@@ -838,7 +863,7 @@ class Controller:
                     model=model,
                     reviewer=reviewer,
                 ),
-                None,
+                reviewer,
             )
         self.record(
             task,

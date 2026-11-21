@@ -134,9 +134,41 @@ def supervisor(live: list[tuple[int, int, str, str, bool]]) -> str:
     return f"ok    {len(running)} loop process(es) alive{age}"
 
 
+def churn() -> str:
+    """Work that repeats without finishing, which no open stop reports.
+
+    A job can be resumed every cycle and get no further: on 2026-11-22
+    `T-PH6-104` and `T-PH8-302` were handed a reviewer that answered
+    `unavailable`, which escalates nothing, so `diagnose` saw an empty queue of
+    stops and this script printed `quiet tick` while two jobs span for an hour.
+    "Nothing is waiting on a decision" is not the same as "something is moving".
+    """
+    beat = ROOT / ".jobloop" / "supervisor.log"
+    if not beat.is_file():
+        return "ok    no repeating outcome in the log"
+    recent = beat.read_text(encoding="utf-8", errors="replace").strip().splitlines()[-40:]
+    # `rotated` is left out: a model on cooldown is a bounded, normal reaction
+    # and it now self-limits. These three mean a pass ended where it started.
+    counted: dict[str, int] = {}
+    for line in recent:
+        for mark in ("review-unavailable", "gates-failed", "nothing-to-resume"):
+            if mark in line:
+                for part in line.split("::")[-1].split(";"):
+                    if mark in part:
+                        job = part.strip().split(":")[0].strip()
+                        counted[f"{job} {mark}"] = counted.get(f"{job} {mark}", 0) + 1
+    # Twice is already a repeat. The threshold was three, and the churn that
+    # prompted this check sat at two for an hour — read by a person, not by this.
+    repeating = {key: count for key, count in counted.items() if count >= 2}
+    if not repeating:
+        return "ok    no repeating outcome in the log"
+    named = ", ".join(f"{key} x{count}" for key, count in sorted(repeating.items())[:4])
+    return f"FAIL  the same outcome keeps repeating: {named}"
+
+
 def main() -> int:
     live = processes()
-    checks = [stranded_merge(), orphans(live), supervisor(live)]
+    checks = [stranded_merge(), orphans(live), supervisor(live), churn()]
     busy = (ROOT / ".jobloop" / "orchestrator-busy").exists()
     checks.append(
         "WARN  .jobloop/orchestrator-busy is set — containment is unverified while it is"

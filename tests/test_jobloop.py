@@ -1110,6 +1110,48 @@ def test_a_reviewer_that_edits_the_work_still_stops_the_job(tmp_path: Path) -> N
     assert tasks.load_phase(controller.settings.phase_directory).tasks[0].status == "blocked"
 
 
+def test_a_reviewer_that_cannot_be_run_is_passed_over_not_retried_for_ever(
+    tmp_path: Path,
+) -> None:
+    # Measured 2026-11-22: `ollama/gemma3:4b` ranks first and answered
+    # `unavailable`, so the roster handed it out again on every cycle for an
+    # hour while two working `opencode` models sat untried. `T-PH6-104` and
+    # `T-PH8-302` churned, nothing escalated, and `diagnose` saw a healthy queue.
+    phase_with_task(tmp_path)
+    tree = reviewable_worktree(tmp_path)
+    controller = controller_for(tmp_path, ["a-free", "broken-free", "c-free"])
+    asked: list[str] = []
+
+    def dispatch(model: str, prompt: str, **_: object) -> worker.Result:
+        asked.append(model)
+        if model == "broken-free":
+            return worker.Result(worker.Ending.UNAVAILABLE, "", model, ["cannot route"])
+        return worker.Result(worker.Ending.COMPLETED, "VERDICT\n- CHANGES_REQUIRED", model)
+
+    controller.dispatch = dispatch  # type: ignore[assignment]
+    task = controller.select()
+    assert task is not None
+    outcome = controller.review(task, tree, "a-free", [])
+
+    assert asked == ["broken-free", "c-free"], "the next model is reached in the same pass"
+    assert outcome.state == "changes-required", "and that review is the one that counts"
+    assert "broken-free" not in controller.roster.available(), "put on cooldown, not re-picked"
+
+
+def test_an_implementer_that_cannot_be_run_keeps_its_attempt(tmp_path: Path) -> None:
+    phase_with_task(tmp_path)
+    controller = controller_for(tmp_path, ["a-free", "b-free"])
+    controller.workspace = lambda task: tmp_path  # type: ignore[assignment]
+    controller.dispatch = lambda model, prompt, **_: worker.Result(  # type: ignore[assignment]
+        worker.Ending.UNAVAILABLE, "", model, ["the CLI crashed"]
+    )
+    outcome = controller.run_job(controller.select())
+    assert outcome.state == "rotated" and "could not be run" in outcome.detail
+    task = tasks.load_phase(controller.settings.phase_directory).tasks[0]
+    assert task.attempts == 0, "a model that never ran the job has not failed it"
+    assert not (controller.settings.phase_directory / "OWNER_DECISIONS.md").exists()
+
+
 def test_every_reviewer_writing_to_disk_ends_as_a_question_not_a_loop(tmp_path: Path) -> None:
     phase_with_task(tmp_path)
     tree = reviewable_worktree(tmp_path)
