@@ -1,0 +1,208 @@
+{
+  "ADR0013-1": {
+    "id": "ADR0013-1",
+    "question": "ADR-0013 項目1: 発行機構は何か（Control Plane 内部権威か外部か）、ジョブごとの人間承認かポリシー駆動か、approver ≠ actor を既定にするか。",
+    "state": "open",
+    "source": null,
+    "value": null,
+    "blocks": ["T-PH8-307", "T-PH8-308", "T-PH8-312", "T-PH8-314"]
+  },
+  "ADR0013-2": {
+    "id": "ADR0013-2",
+    "question": "ADR-0013 項目2: 信頼契約（署名/検証方式、正規化直列化、リプレイ束縛、レシート上の runner_instance_id 束縛）をどう定めるか。",
+    "state": "open",
+    "source": null,
+    "value": null,
+    "blocks": ["T-PH8-307", "T-PH8-308", "T-PH8-312"]
+  },
+  "ADR0013-3": {
+    "id": "ADR0013-3",
+    "question": "ADR-0013 項目3: 失効機構と許容 stale 上限（オンライン照会/署名付き失効リスト/短命レシート/ハイブリッド）をどう定めるか。",
+    "state": "open",
+    "source": null,
+    "value": null,
+    "blocks": ["T-PH8-307", "T-PH8-312"]
+  },
+  "ADR0013-4": {
+    "id": "ADR0013-4",
+    "question": "ADR-0013 項目4: ジョブレシートの既定 TTL と最大 TTL、絶対時刻か期限アンカーか、時刻権威、クロックスキュー許容をどう定めるか。",
+    "state": "resolved",
+    "source": [
+      "docs/plans/OWNER_DECISIONS_2026-11-10-ENTRIES.md#Entry 1 — Receipt TTL — **選択肢(a)を承認する**",
+      "2026-11-16 オーナー回答 E1（「一か月」）— job text / owner response recorded in task context; no separate file in docs/plans"
+    ],
+    "value": "既定 TTL = 一か月（2026-11-16 E1）。設定値とし、取消は即時反映、取消済みは次の検証で拒否、利用履歴の記録を必須とする。最大 TTL・時刻権威・クロックスキュー許容は未決（ADR0013-4-MAX 等）。",
+    "blocks": ["T-PH8-307"]
+  },
+  "ADR0013-4-MAX": {
+    "id": "ADR0013-4-MAX",
+    "question": "既定を 1 か月にした結果、最大 TTL（Entry 1 では 7 日）をどう改めるか",
+    "state": "open",
+    "source": null,
+    "value": null,
+    "blocks": ["T-PH8-307"]
+  },
+  "ADR0013-5": {
+    "id": "ADR0013-5",
+    "question": "ADR-0013 項目5: actor/delegation 連携と approver 権限の機械（grantor 権限喪失が E2 で enqueued job を失効させるか等）をどう定めるか。",
+    "state": "open",
+    "source": null,
+    "value": null,
+    "blocks": ["T-PH8-307", "T-PH8-312"]
+  },
+  "ADR0013-6": {
+    "id": "ADR0013-6",
+    "question": "ADR-0013 項目6: エラー分類/ステータスコードと監査操作名（agent.receipt.* 等）をどう定めるか。",
+    "state": "open",
+    "source": null,
+    "value": null,
+    "blocks": ["T-PH8-307", "T-PH8-314"]
+  },
+  "ADR0013-7": {
+    "id": "ADR0013-7",
+    "question": "ADR-0013 項目7: 新規 approver 権限を追加するか、その ceiling 扱いをどうするか。",
+    "state": "resolved",
+    "source": [
+      "docs/plans/OWNER_DECISIONS_2026-11-10-ENTRIES.md#Entry 2 — ジョブ承認専用権限 — **選択肢(a)を承認する**",
+      "2026-11-16 オーナー回答 E2（新規承認権限なし、既存 system_admin の事前許可に対応付ける）— job text / owner response recorded in task context; no separate file in docs/plans"
+    ],
+    "value": "新規の承認権限は追加しない。既存 system_admin の事前許可に対応付ける（2026-11-16 E2）。",
+    "blocks": []
+  },
+  "ADR0013-8": {
+    "id": "ADR0013-8",
+    "question": "ADR-0013 項目8: 保持期間・秘匿化を PH2-A-11 とどう整合させるか。",
+    "state": "open",
+    "source": null,
+    "value": null,
+    "blocks": ["T-PH8-307", "T-PH8-314"]
+  },
+  "AD-1": {
+    "id": "AD-1",
+    "question": "AD-1: 資格情報の presence/health 検証を行うか、行うなら受入形式は何か。",
+    "state": "open",
+    "source": null,
+    "value": null,
+    "blocks": ["T-PH8-317"]
+  },
+  "AD-2": {
+    "id": "AD-2",
+    "question": "AD-2: CLI 自身のサンドボックスを資格情報境界として認めるか、OS レベル機構を要求するか。",
+    "state": "open",
+    "source": null,
+    "value": null,
+    "blocks": ["T-PH8-316"]
+  },
+  "AD-3": {
+    "id": "AD-3",
+    "question": "AD-3: broker を採用する場合、どの sub-architecture（BR-1/BR-2/BR-3）を採用するか。",
+    "state": "open",
+    "source": null,
+    "value": null,
+    "blocks": ["T-PH8-316"]
+  },
+  "AD-4": {
+    "id": "AD-4",
+    "question": "AD-4: exportable な bytes である API-key 方式を、専用 runner identity で許容するか。",
+    "state": "open",
+    "source": null,
+    "value": null,
+    "blocks": ["T-PH8-316"]
+  },
+  "AD-5": {
+    "id": "AD-5",
+    "question": "AD-5: どのアダプタをどの環境で有効化するか（adapter enablement list）。",
+    "state": "open",
+    "source": null,
+    "value": null,
+    "blocks": ["T-PH8-317"]
+  },
+  "AD-6": {
+    "id": "AD-6",
+    "question": "AD-6: broker 採用時の provider credential lifetime/rotation policy をどう定めるか。",
+    "state": "open",
+    "source": null,
+    "value": null,
+    "blocks": ["T-PH8-316"]
+  },
+  "AD-7": {
+    "id": "AD-7",
+    "question": "AD-7: CLI 自身の外向きプロバイダ宛先を egress として承認するか。",
+    "state": "open",
+    "source": null,
+    "value": null,
+    "blocks": ["T-PH8-302", "T-PH8-316"]
+  },
+  "TRUST-TLS-POLICY": {
+    "id": "TRUST-TLS-POLICY",
+    "question": "TRUST §12: TLS version floor and cipher suites (both platforms) を、vetted platform-standard policy + measurement でどう確定するか。",
+    "state": "open",
+    "source": null,
+    "value": null,
+    "blocks": ["T-PH8-311"]
+  },
+  "TRUST-RUNNER-KEY-PROFILE": {
+    "id": "TRUST-RUNNER-KEY-PROFILE",
+    "question": "TRUST §12: Runner key algorithm and size を、両プラットフォームで keystore-generatable な vetted standard でどう確定するか。",
+    "state": "open",
+    "source": null,
+    "value": null,
+    "blocks": ["T-PH8-309", "T-PH8-310"]
+  },
+  "TRUST-CERT-ISSUER-PROFILE": {
+    "id": "TRUST-CERT-ISSUER-PROFILE",
+    "question": "TRUST §12: Certificate/issuer key profile and validity を、vetted standard + measured rotation data でどう確定するか。",
+    "state": "open",
+    "source": null,
+    "value": null,
+    "blocks": ["T-PH8-309", "T-PH8-311"]
+  },
+  "TRUST-ROTATION-OVERLAP": {
+    "id": "TRUST-ROTATION-OVERLAP",
+    "question": "TRUST §12: Rotation interval and overlap window を measurement（DP-040）でどう確定するか。",
+    "state": "open",
+    "source": null,
+    "value": null,
+    "blocks": ["T-PH8-309", "T-PH8-310"]
+  },
+  "TRUST-ENROLLMENT-CHALLENGE-TTL": {
+    "id": "TRUST-ENROLLMENT-CHALLENGE-TTL",
+    "question": "TRUST §12: Enrollment challenge TTL and one-use window を measured operational need でどう確定するか。",
+    "state": "open",
+    "source": null,
+    "value": null,
+    "blocks": ["T-PH8-309"]
+  },
+  "TRUST-REVOCATION-SLA": {
+    "id": "TRUST-REVOCATION-SLA",
+    "question": "TRUST §12: Revocation propagation / status SLA を measurement でどう確定するか（offline grace なし）。",
+    "state": "open",
+    "source": null,
+    "value": null,
+    "blocks": ["T-PH8-309", "T-PH8-312"]
+  },
+  "TRUST-TIME-SOURCE-SKEW": {
+    "id": "TRUST-TIME-SOURCE-SKEW",
+    "question": "TRUST §12: Trusted time source and skew rule を standard practice + measurement でどう確定するか。",
+    "state": "open",
+    "source": null,
+    "value": null,
+    "blocks": ["T-PH8-307", "T-PH8-311", "T-PH8-312"]
+  },
+  "TRUST-AUDIT-RETENTION": {
+    "id": "TRUST-AUDIT-RETENTION",
+    "question": "TRUST §12: Audit retention and protection class for trust events を既存 audit-protection track (ADR-0012 B7) + owner でどう確定するか。",
+    "state": "open",
+    "source": null,
+    "value": null,
+    "blocks": ["T-PH8-314"]
+  },
+  "TRUST-EVIDENCE-FRESHNESS": {
+    "id": "TRUST-EVIDENCE-FRESHNESS",
+    "question": "TRUST §12: Evidence freshness/expiry for §11 condition 2 results を既存 DP-053a binding rules + verifier appointment でどう確定するか。",
+    "state": "open",
+    "source": null,
+    "value": null,
+    "blocks": ["T-PH8-304", "T-PH8-305", "T-PH8-310"]
+  }
+}
