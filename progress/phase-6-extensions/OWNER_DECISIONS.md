@@ -1138,3 +1138,17 @@ UNVERIFIED
 outside allowed_paths: ['frontend/baseline.txt']
 
 **Answer** (2026-11-22, orchestrator): **掃除の実装が甘かったので直した。あなたの逸脱ではない。** 掃除は「変更がそのファイルを参照しているか」で判定していたが、拡張子を落とした語幹でも参照とみなしていた。語幹での一致を認めるのは `.py` `.ts` など**import が拡張子を省く言語のソースだけ**にし、それ以外はファイル名を拡張子ごと書いてある場合のみ参照とみなすようにした（検査で固定）。`frontend/baseline.txt` は既に消えている。`review` に戻した（試行は消費しない）。詳細は `tasks/T-PH6-126.md`。
+
+## T-PH6-116 — the merge conflicted (2026-11-22T04:59:45+09:00)
+
+**Question**: The reviewed work no longer applies to the integration branch, so the merge was aborted and nothing was committed. Decide whether the job redoes its work on the current branch.
+
+**Context**
+
+commit=7d15aa5db7c46ab5438a7a17c68428c3af8f152b
+branch=loop/T-PH6-116-t-ph6-116
+Auto-merging frontend/e2e/appearance.spec.ts
+Auto-merging frontend/src/App.test.tsx
+CONFLICT (content): Merge conflict in frontend/src/App.test.tsx
+Auto-merging frontend/src/App.tsx
+Automatic merge failed; fix conflicts and then commit the result.
