@@ -1122,7 +1122,13 @@ class Controller:
             # work is in the workspace, so re-dispatching would throw it away.
             stranded = self.stranded()
             if stranded:
+                # The resume branch needs the heartbeat too. Instrumenting only
+                # the dispatch left a cycle that spends its whole budget on
+                # resumes just as silent as before: measured 2026-11-22, the
+                # phase-7 cycle ran 39 minutes without a line while resuming.
+                self.note(f"{stranded[0].id}: resuming")
                 outcome = self.resume(stranded[0])
+                self.note(outcome.line[:300])
                 outcomes.append(outcome)
                 if outcome.state == "no-model":
                     break
