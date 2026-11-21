@@ -525,7 +525,15 @@ class Controller:
     def run_job(self, task: Task) -> Outcome:
         leak = self.points_outside(task)
         if leak:
-            head = task.path.read_bytes().decode("utf-8").split("\n---\n", 1)[0]
+            # Normalise the endings before looking for the frontmatter. Task
+            # files are CRLF, so `"\n---\n"` never matched and `head` became the
+            # whole file: every path anywhere in the body was reported as being
+            # in the frontmatter, `selfrepair` refused to redact it (redacting a
+            # `test_cmd` would leave a broken command), and the job stopped.
+            # `T-PH7-201` was blocked on 2026-11-22 by a path in a *ruling* —
+            # prose written for a person — because of this one `\r`.
+            whole = task.path.read_bytes().decode("utf-8").replace("\r\n", "\n")
+            head = whole.split("\n---\n", 1)[0]
             return self.escalate(
                 task,
                 "the job file names another checkout",
@@ -772,17 +780,45 @@ class Controller:
         """One review pass. The second element names a reviewer to try after, if any."""
         reviewer = self.roster.pick(exclude=(model, *refused))
         if not reviewer:
-            why = (
-                "Every other free model wrote to the worktree instead of replying, "
-                f"so no verdict stands ({', '.join(refused)}). "
-                "Decide whether to wait for usage to reset."
-                if refused
-                else "No second free model is available, and self-review is prohibited "
-                "(CONSTRAINTS.md §5-5). Decide whether to wait for usage to reset."
+            if refused:
+                # Every model was tried and each broke the read-only rule. That
+                # is a person's call: the models are reachable and still unusable.
+                return (
+                    self.escalate(
+                        task,
+                        "no independent reviewer available",
+                        "Every other free model wrote to the worktree instead of replying, "
+                        f"so no verdict stands ({', '.join(refused)}). "
+                        "Decide whether to wait for usage to reset.",
+                        f"implementer={model}",
+                    ),
+                    None,
+                )
+            # Nothing is available right now, which is a wait and not a decision:
+            # the cooldowns expire by themselves. Escalating set `blocked`, and
+            # on 2026-11-22 that left four jobs needing a human for a condition
+            # that resolves on its own — `T-PH6-104`, `T-PH7-211`, `T-PH8-302`,
+            # `T-PH8-303`, all while `available models: none`. The job stays in
+            # `review` so the next cycle resumes it, and the record says so.
+            # `review` is what `stranded()` looks for, so the next cycle resumes
+            # this without spending an attempt. Left at `doing` it would be
+            # re-dispatched as a fresh attempt and the work thrown away.
+            task = self.set_fields(task, status="review")
+            self.record(
+                task,
+                f"WAITING FOR A REVIEWER ({self.now()})",
+                f"`{model}` implemented this, and no other free model is off cooldown, so "
+                "there is nobody to review it. Self-review is prohibited (CONSTRAINTS.md "
+                "§5-5). This is a wait, not a decision: the job stays in `review` and the "
+                "next cycle tries again once a model is back. Nothing was approved, "
+                "nothing was merged.",
             )
             return (
-                self.escalate(
-                    task, "no independent reviewer available", why, f"implementer={model}"
+                Outcome(
+                    task.id,
+                    "no-reviewer",
+                    "every free model is on cooldown; the job stays in review",
+                    model=model,
                 ),
                 None,
             )

@@ -623,6 +623,27 @@ def test_a_job_left_in_review_is_picked_up_again(tmp_path: Path) -> None:
     assert [task.id for task in other.stranded()] == ["T-JOB-1"], "but the review still finishes"
 
 
+def test_a_path_in_the_body_is_told_apart_from_one_in_the_frontmatter(tmp_path: Path) -> None:
+    # The distinction decides whether the loop may redact it or must stop: a
+    # `test_cmd` naming another checkout has to be fixed by a person, while the
+    # same path in a recorded ruling is prose and can be redacted. Task files
+    # are CRLF, so `"\n---\n"` never matched, `head` became the whole file, and
+    # every path anywhere read as frontmatter. `T-PH7-201` was blocked on
+    # 2026-11-22 by a path inside a ruling because of that one `\r`.
+    root = str(tmp_path)
+    directory = phase_with_task(tmp_path, TASK + f"\n## ORCHESTRATOR RULING\n\nsee {root}\n")
+    path = directory / "tasks" / "T-JOB-1.md"
+    path.write_bytes(path.read_bytes().decode("utf-8").replace("\n", "\r\n").encode("utf-8"))
+    controller = controller_for(tmp_path, ["a-free", "b-free"])
+    controller.dispatch = lambda *_args, **_kwargs: pytest.fail("must not dispatch")  # type: ignore[assignment]
+    outcome = controller.run_job(tasks.load_phase(directory).tasks[0])
+    assert outcome.state == "self-repaired", outcome.detail
+    assert root not in path.read_bytes().decode("utf-8"), "the body occurrence is redacted"
+    # The neighbouring case — the same path in the frontmatter, which must keep
+    # stopping the job — is pinned by
+    # `test_a_job_naming_the_main_checkout_is_never_dispatched`.
+
+
 def test_a_job_naming_the_main_checkout_is_never_dispatched(tmp_path: Path) -> None:
     # Sanitising the brief is not enough: the worker opens its own job file.
     # On 2026-11-16 one read the absolute interpreter path out of `test_cmd`,
@@ -792,18 +813,27 @@ def test_three_failed_attempts_stop_and_ask_the_owner(tmp_path: Path) -> None:
 
 
 def test_no_second_model_means_no_review_and_no_commit(tmp_path: Path) -> None:
+    # The guarantees here are unchanged: no review happens, nothing is approved,
+    # nothing is committed, and the prohibition on self-review is cited. What
+    # changed on 2026-11-22 is where the job waits. Escalating set `blocked`,
+    # which needs a person — for a condition that resolves by itself when a
+    # cooldown expires. Four jobs sat in it while `available models: none`.
     phase_with_task(tmp_path)
     controller = controller_for(tmp_path, ["only-free"])
     task = controller.select()
     assert task is not None
     # The implementer used the only model, so there is nobody left to review it.
     outcome = controller.review(task, tmp_path, "only-free", [])
-    assert outcome.state == "escalated" and "reviewer" in outcome.detail
-    assert tasks.load_phase(controller.settings.phase_directory).tasks[0].status == "blocked"
-    decisions = (controller.settings.phase_directory / "OWNER_DECISIONS.md").read_text(
-        encoding="utf-8"
+    assert outcome.state == "no-reviewer" and "cooldown" in outcome.detail
+    waiting = tasks.load_phase(controller.settings.phase_directory).tasks[0]
+    assert waiting.status == "review", "it waits where the next cycle will find it"
+    assert waiting.status != "done", "and it is certainly not approved"
+    assert not (controller.settings.phase_directory / "OWNER_DECISIONS.md").exists(), (
+        "a wait is not a question for the owner"
     )
-    assert "5-5" in decisions, "the prohibition on self-review must be cited"
+    body = task.path.read_text(encoding="utf-8")
+    assert "WAITING FOR A REVIEWER" in body, "the wait has to be visible in the record"
+    assert "5-5" in body, "the prohibition on self-review must still be cited"
 
 
 def reviewable_worktree(tmp_path: Path) -> Path:

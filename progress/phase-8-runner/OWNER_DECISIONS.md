@@ -12,6 +12,7 @@ Each entry is a judgement the controller refused to make itself.
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job.
 
 **Context**
@@ -27,6 +28,7 @@ protected paths touched: ['docs/plans/HBR_DECISION_REGISTER.json']
 読む対象としての `docs/plans/...` は従来どおり。試行は 0 のまま `todo` に戻した。
 受入条件は無変更。詳細は各 `tasks/T-PH8-30X.md`。
 ## T-PH8-302 — out-of-scope change (2026-11-20T02:44:04+09:00)
+
 
 
 
@@ -60,6 +62,7 @@ protected paths touched: ['docs/plans/HBR_PROVIDER_EGRESS_DECISION.md']
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job. — 4 path(s) the worker wrote outside its scope: fix_parenthesis.py, fix_test.py, fix_test2.py, progress/phase-8-runner/material/HBR_CLASSIFICATION_MODEL.json. Decide whether the job's scope was drawn too narrowly, or whether the worker should not have written them.
 
 **Context**
@@ -75,6 +78,7 @@ outside allowed_paths: ['fix_parenthesis.py', 'fix_test.py', 'fix_test2.py', 'pr
 読む対象としての `docs/plans/...` は従来どおり。試行は 0 のまま `todo` に戻した。
 受入条件は無変更。詳細は各 `tasks/T-PH8-30X.md`。
 ## T-PH8-304 — attempt limit reached (2026-11-20T03:12:14+09:00)
+
 
 
 
@@ -107,6 +111,7 @@ unavailable: {"type": "provider.invalid-request", "message": "Upstream request f
 
 
 
+
 **Question**: The main checkout has uncommitted changes, so the reviewed commit was not merged. Decide how to integrate it.
 
 **Context**
@@ -129,6 +134,7 @@ M  frontend/src/styles.css
 
 **Answer** (2026-11-21, jobloop diagnose): この停止は**ループ側の欠陥**が原因で、その欠陥は既に直っている — every phase's records count as the loop's own bookkeeping。停止の時刻（2026-11-21T04:00）は修正より前なので、判断を覆したのではなく、**原因が無くなったので再開する**という記録である。欠陥が消費した試行 1 回分だけを戻す（それ以上は戻さない）。受入条件・許可パスは変更していない。
 ## T-PH8-302 — integration branch is dirty (2026-11-21T01:32:23+09:00)
+
 
 
 
@@ -166,6 +172,7 @@ M  frontend/src/styles.css
 
 
 
+
 **Question**: The reviewer still requires changes at the cycle limit.
 
 **Context**
@@ -192,6 +199,7 @@ UNVERIFIED
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job.
 
 **Context**
@@ -201,6 +209,7 @@ protected paths touched: ['docs/plans/HBR_ISOLATION_SELECTION.json', 'docs/plans
 **Answer** (2026-11-21, jobloop diagnose): この停止は**ループ側の欠陥**が原因で、その欠陥は既に直っている — scratch files are swept by `gates.litter`。停止の時刻（2026-11-21T03:32）は修正より前なので、判断を覆したのではなく、**原因が無くなったので再開する**という記録である。欠陥が消費した試行 1 回分だけを戻す（それ以上は戻さない）。受入条件・許可パスは変更していない。
 
 ## T-PH8-303 — review cycle limit reached (2026-11-21T14:07:01+09:00)
+
 
 
 
@@ -222,6 +231,7 @@ UNVERIFIED
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job. — 1 path(s) the worker wrote outside its scope: backend/app/agents/registry.py. Decide whether the job's scope was drawn too narrowly, or whether the worker should not have written them.
 
 **Context**
@@ -230,6 +240,7 @@ outside allowed_paths: ['backend/app/agents/registry.py']
 
 **Answer** (2026-11-21, jobloop diagnose): この停止は**ループ側の欠陥**が原因で、その欠陥は既に直っている — scratch files are swept by `gates.litter`。停止の時刻（2026-11-21T16:52）は修正より前なので、判断を覆したのではなく、**原因が無くなったので再開する**という記録である。欠陥が消費した試行 1 回分だけを戻す（それ以上は戻さない）。受入条件・許可パスは変更していない。
 ## T-PH8-302 — review cycle limit reached (2026-11-21T14:34:30+09:00)
+
 
 
 
@@ -251,6 +262,7 @@ UNVERIFIED
 
 
 
+
 **Question**: Can `allowed_paths` be widened to include `docs/architecture/decisions/0013-job-approval-authorization-receipt.md` so I can apply only the 2026-11-16 E1/E2 confirmed ADR-0013 body edits (default TTL = one month as a configurable setting with immediate revocation, rejection on next validation after revocation, and required usage history; no new approval permission, map to existing system_admin pre-
 
 **Context**
@@ -269,6 +281,7 @@ one-receipt (`job_id`) authorization. It is unclear which object the 1-month ter
 ## TEST
 
 
+
 - `python -m pytest tests/test_hbr_decision_register.py tests/test_agents_registry.py -q` → **19 passed in 7.53s**
 - `python -m ruff format tests/test_hbr_decision_register.py` → **1 file left unchanged**
 - `python -m ruff check backend tests scripts jobloop` → **All checks passed!**
@@ -278,9 +291,11 @@ one-receipt (`job_id`) authorization. It is unclear which object the 1-month ter
 ## STATUS
 
 
+
 needs-owner-decision: Can `allowed_paths` be widened to include `docs/architecture/decisions/0013-job-approval-authorization-receipt.md` so I can apply only the 2026-11-16 E1/E2 confirmed ADR-0013 body edits (default TTL = one month as a configurable setting with immediate revocation, rejection on next validation after revocation, and required usage history; no new approval permission, map to existing system_admin pre-authorization) while keeping `Status: **DRAFT.**` unchanged?
 
 ## T-PH8-302 — review cycle limit reached (2026-11-22T03:51:10+09:00)
+
 
 
 **Question**: The reviewer still requires changes at the cycle limit.
@@ -299,6 +314,7 @@ UNVERIFIED
 ## T-PH8-303 — review cycle limit reached (2026-11-22T03:52:41+09:00)
 
 
+
 **Question**: The reviewer still requires changes at the cycle limit.
 
 **Context**
@@ -311,3 +327,24 @@ UNVERIFIED
 - Task-level `REPORT` content outside the reviewed diff/allowed paths was inspected only for context; I did not treat it as accepted evidence satisfying AC4 because the required estimate table/heading is not present in the reviewed deliverable set.
 
 **Answer** (2026-11-22, orchestrator): **AC4 が 4 周目の不履行。猶予は与えないが、取り下げもしない。** 「どの既存テストが落ちるか」は既存テスト群を読んで影響範囲を推定する**調査**で、成果物を書く作業とは種類が違う。4 周同じところで落ちているのは**私の渡し方が間違っている**証拠でもあるので、**調査はオーケストレータが行い、レビューは別の無料モデルが行う**。`paths.export.gate_location` の食い違いも私が決めて揃える。受入条件は 1 つも変えていない — 渡す相手を変えただけである。詳細は `tasks/T-PH8-303.md`。
+
+## T-PH8-302 — no independent reviewer available (2026-11-22T07:52:12+09:00)
+
+
+**Question**: No second free model is available, and self-review is prohibited (CONSTRAINTS.md §5-5). Decide whether to wait for usage to reset.
+
+**Context**
+
+implementer=claude-opus-5 (orchestrator)
+
+**Answer** (2026-11-22, orchestrator): **判断ではなく待ちだった。** 実測で `available models: none` — 無料モデルが全部冷却中で、冷却は時間で明ける。人が決めることは何も無い。前のシフトの「走らせられないモデルを冷却して次へ回す」は正しく働き、尽きたところで止まった — **止まり方だけが間違っていた**。`blocked` は人を呼ぶ状態で、自分で明ける条件に使うべきではない（4 件が同時に落ちた）。レビュアーが取れないときはエスカレートせず `review` のまま `WAITING FOR A REVIEWER` を記録し、次のサイクルに任せるようにした（`stranded()` が拾うので試行は消費しない）。レビューは行われず、何も承認せず、何もマージしない点は変えていない。全モデルが読み取り専用の規則を破った場合は従来どおり人に聞く。詳細は各 task ファイル。
+## T-PH8-303 — no independent reviewer available (2026-11-22T07:52:15+09:00)
+
+
+**Question**: No second free model is available, and self-review is prohibited (CONSTRAINTS.md §5-5). Decide whether to wait for usage to reset.
+
+**Context**
+
+implementer=claude-opus-5 (orchestrator)
+
+**Answer** (2026-11-22, orchestrator): **判断ではなく待ちだった。** 実測で `available models: none` — 無料モデルが全部冷却中で、冷却は時間で明ける。人が決めることは何も無い。前のシフトの「走らせられないモデルを冷却して次へ回す」は正しく働き、尽きたところで止まった — **止まり方だけが間違っていた**。`blocked` は人を呼ぶ状態で、自分で明ける条件に使うべきではない（4 件が同時に落ちた）。レビュアーが取れないときはエスカレートせず `review` のまま `WAITING FOR A REVIEWER` を記録し、次のサイクルに任せるようにした（`stranded()` が拾うので試行は消費しない）。レビューは行われず、何も承認せず、何もマージしない点は変えていない。全モデルが読み取り専用の規則を破った場合は従来どおり人に聞く。詳細は各 task ファイル。
