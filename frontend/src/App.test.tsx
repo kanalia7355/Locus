@@ -1372,4 +1372,30 @@ describe("source provenance modal", () => {
       expect(screen.queryByRole("dialog", { name: "出典の原文" })).toBeNull(),
     );
   });
+
+  it("closedby='any' and backdrop click do not break dialog state", async () => {
+    mockCitationFetch();
+    const dialog = await openSourceDialog();
+    // jsdom does not implement native closedby light-dismiss, so this test
+    // cannot prove the native closedby path and the JS fallback run in the same
+    // interaction. It verifies: the attribute is present, the JS backdrop-click
+    // fallback closes cleanly, and reopen/close state remains usable afterward.
+    // Native closedby behavior is covered by browser e2e.
+    expect(dialog).toBeTruthy();
+    expect(dialog).toHaveAttribute("open", "");
+    expect(dialog).toHaveAttribute("closedby", "any");
+    fireEvent.click(dialog, { clientX: -1, clientY: -1 });
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "出典の原文" })).toBeNull(),
+    );
+    // After closing, re-opening should work cleanly
+    const dialog2 = await openSourceDialog();
+    expect(dialog2).toBeTruthy();
+    expect(dialog2).toHaveAttribute("open", "");
+    // Clicking the close button should still work
+    fireEvent.click(screen.getByRole("button", { name: "閉じる" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "出典の原文" })).toBeNull(),
+    );
+  });
 });

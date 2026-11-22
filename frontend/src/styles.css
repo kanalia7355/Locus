@@ -1049,6 +1049,11 @@ dialog::backdrop {
   overflow: hidden;
   overscroll-behavior: contain;
   background-color: var(--color-backdrop);
+  /* ---- animation ---- */
+  /* @starting-style + transition-behavior: allow-discrete entry animation.
+     exit is immediate (no `overlay` keyword) for Firefox/Safari compatibility. */
+  transition-behavior: allow-discrete;
+  transition: opacity 150ms ease, transform 150ms ease;
 }
 /* Focus sentinels at the dialog's edges (see dialogControls in App.tsx). They
    must stay focusable, so they are clipped rather than display:none. */
@@ -1070,6 +1075,20 @@ dialog::backdrop {
   width: min(800px, calc(100dvw - 32px));
   max-height: 86dvh;
   overflow-y: auto;
+  /* ---- animation ---- */
+  /* @starting-style + transition-behavior: allow-discrete entry animation.
+     exit is immediate (no `overlay` keyword) for Firefox/Safari compatibility. */
+  transition-behavior: allow-discrete;
+  transition: opacity 150ms ease, transform 150ms ease;
+}
+@starting-style {
+  .source-modal {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+.source-modal[open] {
+  /* Browser animates from @starting-style to final styles. */
 }
 .source-modal .section-toolbar {
   justify-content: space-between;

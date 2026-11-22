@@ -749,3 +749,52 @@ test("the page behind the source modal does not scroll", async ({ page }) => {
   );
   expect(documentTop, "the document itself scrolled behind the modal").toBe(0);
 });
+
+test("focus is restored to initial position after entry animation", async ({ page }) => {
+  // Acceptance: after the dialog entry animation completes, focus is on the
+  // initial position ("閉じる"), not merely somewhere inside the dialog.
+  await page.setViewportSize(WIDTHS[0]);
+  await enter(page, 13);
+  await askSomething(page);
+  await openSourceModal(page);
+  await expect(
+    page
+      .getByRole("dialog", { name: "出典の原文" })
+      .getByRole("button", { name: "閉じる" }),
+    "focus should be on the initial close button after entry animation",
+  ).toBeFocused();
+});
+
+test("prefers-reduced-motion disables dialog entry animation", async ({ page }) => {
+  // Acceptance: with prefers-reduced-motion: reduce, the dialog entry animation
+  // must not run. Emulate the media query before the page loads.
+  await page.setViewportSize(WIDTHS[0]);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await enter(page, 14);
+  await askSomething(page);
+  const modal = await openSourceModal(page);
+  await expect(modal).toBeVisible();
+  const durations = await modal.evaluate((el) => {
+    const style = getComputedStyle(el);
+    return {
+      transition: style.transitionDuration,
+      animation: style.animationDuration,
+    };
+  });
+  const isZero = (value: string) =>
+    value
+      .split(",")
+      .map((part) => part.trim())
+      .every((part) => {
+        const parsed = parseFloat(part);
+        return Number.isFinite(parsed) && parsed === 0;
+      });
+  expect(
+    isZero(durations.transition),
+    `transition-duration should be zero under prefers-reduced-motion; got "${durations.transition}"`,
+  ).toBe(true);
+  expect(
+    isZero(durations.animation),
+    `animation-duration should be zero under prefers-reduced-motion; got "${durations.animation}"`,
+  ).toBe(true);
+});
