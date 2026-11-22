@@ -696,6 +696,18 @@ class Controller:
         if not tree.is_dir():
             return Outcome(task.id, "no-workspace", f"{tree} does not exist")
         model = task.model or "unknown"
+        # Check for a reviewer before re-running anything. A resume runs the
+        # job's whole gate suite, and with the pool empty that work is thrown
+        # away at the next step: on 2026-11-22 `T-PH8-302` re-ran its gates
+        # twice every two minutes for an hour to reach a reviewer that was
+        # never there. Waiting should cost nothing.
+        if not self.roster.pick(exclude=(model,)):
+            return Outcome(
+                task.id,
+                "no-reviewer",
+                "every free model is on cooldown; not re-running the gates to find that out",
+                model=model,
+            )
         names = gates.changed_files(tree)
         if not names:
             return Outcome(task.id, "nothing-to-resume", "the workspace has no changes")
@@ -1189,7 +1201,10 @@ class Controller:
                 outcome = self.resume(stranded[0])
                 self.note(outcome.line[:300])
                 outcomes.append(outcome)
-                if outcome.state == "no-model":
+                if outcome.state in {"no-model", "no-reviewer"}:
+                    # Nothing else in this cycle can get further either: both
+                    # mean the roster is empty. Carrying on resumed the same job
+                    # again and again inside one cycle.
                     break
                 continue
             task = self.select()
@@ -1205,6 +1220,6 @@ class Controller:
             outcome = self.run_job(task)
             self.note(outcome.line[:300])
             outcomes.append(outcome)
-            if outcome.state == "no-model":
+            if outcome.state in {"no-model", "no-reviewer"}:
                 break
         return outcomes

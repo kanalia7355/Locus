@@ -151,7 +151,7 @@ def churn() -> str:
     # and it now self-limits. These three mean a pass ended where it started.
     counted: dict[str, int] = {}
     for line in recent:
-        for mark in ("review-unavailable", "gates-failed", "nothing-to-resume"):
+        for mark in ("review-unavailable", "gates-failed", "nothing-to-resume", "no-reviewer"):
             if mark in line:
                 for part in line.split("::")[-1].split(";"):
                     if mark in part:

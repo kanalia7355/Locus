@@ -263,6 +263,33 @@ def test_worker_reports_the_ending_the_cli_actually_had(tmp_path: Path) -> None:
     assert good.ending is worker.Ending.COMPLETED and "REPORT" in good.text
 
 
+def test_waiting_for_a_reviewer_does_not_re_run_the_gates(tmp_path: Path) -> None:
+    # A resume runs the job's whole gate suite, and with the roster empty that
+    # work is thrown away one step later. Measured 2026-11-22: `T-PH8-302`
+    # re-ran its gates twice every two minutes for an hour to reach a reviewer
+    # that was never there. Waiting has to cost nothing.
+    directory = phase_with_task(tmp_path, TASK.replace("status: todo", "status: review"))
+    controller = controller_for(tmp_path, ["only-free"])
+    (controller.settings.workspace_root / "T-JOB-1").mkdir(parents=True)
+    import jobloop.gates as module
+
+    original = module.changed_files
+    module.changed_files = lambda _tree: pytest.fail("the gates must not run")  # type: ignore[assignment]
+    try:
+        task = tasks.load_phase(directory).tasks[0]
+        controller.set_fields(task, model="only-free")
+        outcome = controller.resume(tasks.load_phase(directory).tasks[0])
+    finally:
+        module.changed_files = original
+    assert outcome.state == "no-reviewer", outcome.detail
+    assert tasks.load_phase(directory).tasks[0].status == "review", "it stays resumable"
+
+    # And one such answer ends the cycle: nothing else in it can get further.
+    controller.dispatch = lambda *_a, **_k: pytest.fail("no dispatch either")  # type: ignore[assignment]
+    outcomes = controller.run(minutes=1, max_jobs=5)
+    assert [outcome.state for outcome in outcomes] == ["no-reviewer"], outcomes
+
+
 def test_a_resume_whose_gates_fail_goes_back_for_an_attempt_instead_of_spinning(
     tmp_path: Path,
 ) -> None:
