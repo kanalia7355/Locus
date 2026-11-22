@@ -106,6 +106,41 @@ each line is a mistake already made.
   workspace refresh had reset away five committed, reviewed changes. The
   worker's account of the tree beat the code's assumption about it.
 
+- **"worker wrote outside its workspace" with only `progress/` in the appeared
+  lines** — that is the owner writing a draft while the job ran, not a worker.
+  On 2026-11-22 `T-PH6-127` was stopped by
+  `?? progress/phase-storage-connect/tasks/T-STC-005.md`. The busy marker cannot
+  cover this: the owner does not run shifts. The comparison now ignores
+  `progress/` and the regenerated guide page, so a stop like this should not
+  reach you again — if one does, read the appeared lines before blaming anyone.
+
+## Before a new phase joins the walk
+
+The owner drafts phases and asks for them to be included. Their *design* is
+usually sound; their **frontmatter is not plumbed**, and the loop reads the
+frontmatter. Check these four before adding a `--phase`, because
+`phase-storage-connect` on 2026-11-22 had all four and would have burned five
+tickets to the attempt limit without a single merge:
+
+1. **`test_cmd` must start with a bare `python`.** Only that is bound to the
+   controller's interpreter (`gates.INTERPRETER`). All five tickets named
+   `.venv313/Scripts/python.exe`, which `.gitignore` excludes — so it does not
+   exist in a per-job clone and *every* verification would have failed. Prove it
+   the same way: look for the path inside an existing workspace.
+2. **`depends_on` must exist in the frontmatter.** Prose saying "T-STC-001 must
+   be done first" and a dependency column in the phase table are both invisible
+   to the controller.
+3. **No protected path in `allowed_paths`.** `pyproject.toml` was listed as an
+   escape hatch for adding a dependency. It can never be written, and a ticket
+   that says otherwise gets obeyed — that is how three phase-8 jobs were lost.
+4. **The plan and the ticket must not contradict each other.** The phase plan
+   promised Drive change-tracking by page token; the ticket declined it. Correct
+   the plan to the ticket, because a worker given two instructions follows the
+   ticket body.
+
+Then run `python -m jobloop --phase <new> status` and read the `waits for`
+column. That one line is the whole check that 1-3 took.
+
 ## Amending a ticket: rewrite the body
 
 When a ticket is wrong, **edit the text that is wrong**. Appending an amendment
