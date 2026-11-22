@@ -9,8 +9,10 @@ Read `.agents/skills/orchestrator-shift/SKILL.md` for why each check is here.
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TextIO
@@ -183,6 +185,13 @@ def churn() -> str:
     # a check that fails on correct behaviour trains the reader to ignore it.
     counted: dict[str, int] = {}
     for line in recent:
+        # Count the per-job lines only. A cycle's closing line repeats every
+        # outcome it saw, so each event was counted twice and `T-PH6-104` was
+        # reported as `x6` for three occurrences on 2026-11-22. An inflated
+        # count is not a false alarm by itself, but it makes the number useless
+        # for deciding whether something is getting worse.
+        if " run :: " not in line:
+            continue
         for mark in ("review-unavailable", "gates-failed", "nothing-to-resume"):
             if mark in line:
                 for part in line.split("::")[-1].split(";"):
@@ -198,9 +207,42 @@ def churn() -> str:
     return f"FAIL  the same outcome keeps repeating: {named}"
 
 
+def quota() -> str:
+    """Whether the queue is waiting on a decision or just on the free allowances.
+
+    The two look identical from the outside — cycles ending in two seconds,
+    nothing moving — and on 2026-11-22 the owner had to ask which it was. The
+    answer is in the roster: a model that spent its allowance is rested for six
+    hours. This reads the recorded cooldowns, so it says *recorded*, not
+    *offered*: a model the CLI has stopped listing can sit in that file looking
+    ready for ever.
+    """
+    state = ROOT / ".jobloop" / "roster.json"
+    if not state.is_file():
+        return "ok    no model cooldowns recorded"
+    try:
+        recorded = json.loads(state.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return "ok    no model cooldowns recorded"
+    now = time.time()
+    resting = {
+        name: entry["cooldown_until"] - now
+        for name, entry in recorded.items()
+        if isinstance(entry, dict) and entry.get("cooldown_until", 0) - now > 0
+    }
+    if not resting:
+        return "ok    no model is resting"
+    ready = len(recorded) - len(resting)
+    soonest = min(resting.values()) / 60
+    return (
+        f"ok    {len(resting)} of {len(recorded)} recorded models resting, "
+        f"{ready} ready, soonest back in {soonest:.0f} min"
+    )
+
+
 def main() -> int:
     live = processes()
-    checks = [stranded_merge(), orphans(live), supervisor(live), churn()]
+    checks = [stranded_merge(), orphans(live), supervisor(live), churn(), quota()]
     busy = (ROOT / ".jobloop" / "orchestrator-busy").exists()
     checks.append(
         "WARN  .jobloop/orchestrator-busy is set — containment is unverified while it is"

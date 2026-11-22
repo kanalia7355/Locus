@@ -45,6 +45,51 @@ def heartbeat(path: Path, line: str) -> None:
     print(f"{now()} {line}", flush=True)
 
 
+def tail_of(output: str) -> str:
+    """The last few lines of a cycle's output, minus what is already in the log.
+
+    `Controller.note` writes its own timestamped `run ::` lines to this same
+    file, so folding the child's last three lines in verbatim repeated them: the
+    cycle line for `T-STC-001` on 2026-11-22 carried its `no-model` outcome
+    three times over. What belongs here is whatever the child said that the log
+    does not already have.
+    """
+    lines = [
+        line.strip()
+        for line in output.strip().splitlines()
+        if line.strip() and " run :: " not in line
+    ]
+    return "; ".join(lines[-3:]) or "(no output)"
+
+
+def stream(argv: list[str]) -> tuple[int, str]:
+    """Run a cycle, showing its output live and returning it as well.
+
+    `capture_output=True` hid every per-job line from the console until the
+    cycle ended — and a cycle's budget is forty-five minutes, so on 2026-11-22
+    the owner watched the window sit silent for ten minutes and asked whether
+    the loop had died. Teaching `Controller.note` to print did not help on its
+    own: the print went into this pipe, not to the terminal. The output has to
+    be read a line at a time and echoed as it arrives.
+    """
+    collected: list[str] = []
+    with subprocess.Popen(  # noqa: S603 — repository entry point, no shell
+        argv,
+        cwd=str(ROOT),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        bufsize=1,
+    ) as child:
+        assert child.stdout is not None
+        for line in child.stdout:
+            collected.append(line.rstrip("\n"))
+            print(line.rstrip("\n"), flush=True)
+    return child.returncode, "\n".join(collected)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -80,7 +125,7 @@ def main() -> int:
             if stop.is_file():
                 break
             started = time.monotonic()
-            result = subprocess.run(  # noqa: S603 — repository entry point, no shell
+            code, output = stream(
                 [
                     python,
                     "-m",
@@ -92,28 +137,14 @@ def main() -> int:
                     str(arguments.minutes),
                     "--max-jobs",
                     str(arguments.max_jobs),
-                ],
-                cwd=str(ROOT),
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                check=False,
+                ]
             )
-            worked = worked or "idle - no actionable job is left" not in (result.stdout or "")
+            worked = worked or "idle - no actionable job is left" not in output
             spent = time.monotonic() - started
-            tail = "; ".join((result.stdout or "").strip().splitlines()[-3:]) or "(no output)"
             heartbeat(
                 beat,
-                f"cycle {cycle} {phase} ended after {spent:.0f}s "
-                f"exit={result.returncode} :: {tail}",
+                f"cycle {cycle} {phase} ended after {spent:.0f}s exit={code} :: {tail_of(output)}",
             )
-            if result.returncode != 0 and (result.stderr or "").strip():
-                heartbeat(
-                    beat,
-                    f"cycle {cycle} {phase} stderr :: "
-                    f"{result.stderr.strip().splitlines()[-1][:300]}",
-                )
         if stop.is_file():
             break
         if not worked:

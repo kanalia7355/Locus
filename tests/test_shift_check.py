@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import sys
 from pathlib import Path
 
 import pytest
@@ -62,3 +63,55 @@ def test_every_report_line_goes_through_say() -> None:
     """
     source = (ROOT / "scripts" / "shift_check.py").read_text(encoding="utf-8")
     assert "print(" not in source
+
+
+def load_supervisor() -> object:
+    spec = importlib.util.spec_from_file_location(
+        "supervise_loop", ROOT / "scripts" / "supervise_loop.py"
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_cycle_line_does_not_repeat_what_the_log_already_has() -> None:
+    """`Controller.note` writes its own `run ::` lines to the same file.
+
+    Folding the child's last three lines in verbatim repeated them: on
+    2026-11-22 the cycle line for `T-STC-001` carried its `no-model` outcome
+    three times over, which is also why a churn count read `x6` for three
+    events.
+    """
+    tail_of = load_supervisor().tail_of  # type: ignore[attr-defined]
+    output = "\n".join(
+        [
+            "2026-11-22T19:22:28+09:00 run :: T-STC-001: dispatching (medium)",
+            "2026-11-22T19:22:28+09:00 run :: T-STC-001: no-model - every model is resting",
+            "T-STC-001: no-model - every eligible free model is on cooldown",
+            "pushed loop/local-development",
+        ]
+    )
+    shown = tail_of(output)
+    assert "run ::" not in shown, shown
+    assert "pushed loop/local-development" in shown
+    assert shown.count("no-model") == 1, shown
+    assert tail_of("   \n\n") == "(no output)"
+
+
+def test_stream_returns_the_output_and_the_exit_code(
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    """The tee has to keep both halves: what the console sees and what the log gets.
+
+    `capture_output=True` kept the per-job lines out of the console for a whole
+    cycle, and teaching `Controller.note` to print did not help on its own
+    because the print went into the pipe. This is the plumbing that was missing.
+    """
+    module = load_supervisor()
+    code, output = module.stream(  # type: ignore[attr-defined]
+        [sys.executable, "-c", "print('first'); print('second'); raise SystemExit(3)"]
+    )
+    assert code == 3
+    assert output.splitlines() == ["first", "second"]
+    assert "first" in capfd.readouterr().out, "the console is the point"

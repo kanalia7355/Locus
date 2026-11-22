@@ -1489,3 +1489,42 @@ def test_containment_is_judged_on_paths_and_never_on_diff_content(tmp_path: Path
         "progress/my notes.md"
     )
     assert Controller.changed_path("?? progress/my notes.md") == "progress/my notes.md"
+
+
+def test_a_resume_sees_work_that_is_already_committed(tmp_path: Path) -> None:
+    """A clean tree is not an empty workspace.
+
+    `T-PH6-104` sat at `nothing-to-resume - the workspace has no changes` on
+    every cycle from 19:11 on 2026-11-22, with a reviewed commit intact in its
+    clone: an earlier merge had failed, so the work was committed rather than
+    dirty, and `changed_files` only reports what is uncommitted. The same shape
+    wasted `T-PH6-123`'s attempts and `T-PH6-116`'s whole budget.
+    """
+    phase_with_task(tmp_path)
+    controller = controller_for(tmp_path, ["a-free", "b-free"])
+    repository = controller.settings.repository
+    git(repository, "init", "-b", controller.settings.integration_branch)
+    git(repository, "config", "user.email", "t@example.invalid")
+    git(repository, "config", "user.name", "t")
+    (repository / "seed.txt").write_text("seed\n", encoding="utf-8")
+    git(repository, "add", "-A")
+    git(repository, "commit", "-m", "base")
+
+    tree = controller.settings.workspace_root / "T-JOB-1"
+    tree.parent.mkdir(parents=True, exist_ok=True)
+    git(tree.parent, "clone", "--quiet", str(repository), tree.name)
+    git(tree, "config", "user.email", "w@example.invalid")
+    git(tree, "config", "user.name", "w")
+
+    # Nothing at all: still nothing to resume, and it says so about both.
+    assert controller.committed_but_unmerged(tree) == []
+
+    # The worker's work, committed rather than left dirty.
+    (tree / "backend").mkdir()
+    (tree / "backend" / "app").mkdir()
+    (tree / "backend" / "app" / "service.py").write_text("x = 1\n", encoding="utf-8")
+    git(tree, "add", "-A")
+    git(tree, "commit", "-m", "the reviewed work")
+
+    assert gates.changed_files(tree) == [], "git status sees nothing, which was the trap"
+    assert controller.committed_but_unmerged(tree) == ["backend/app/service.py"]

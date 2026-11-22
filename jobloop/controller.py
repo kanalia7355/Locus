@@ -818,7 +818,19 @@ class Controller:
             )
         names = gates.changed_files(tree)
         if not names:
-            return Outcome(task.id, "nothing-to-resume", "the workspace has no changes")
+            # A clean tree is not an empty workspace. The work may already be
+            # *committed* and waiting to merge, which is what a job in `review`
+            # usually is: `T-PH6-104` sat at `nothing-to-resume - the workspace
+            # has no changes` on every cycle from 19:11 on 2026-11-22 with
+            # `8ca0bda` reviewed and intact in its clone, because the merge had
+            # failed earlier and `changed_files` only reports what is uncommitted.
+            # The same shape wasted `T-PH6-123`'s attempts and `T-PH6-116`'s
+            # whole budget. Ask git what the integration branch does not have.
+            names = self.committed_but_unmerged(tree)
+            if not names:
+                return Outcome(
+                    task.id, "nothing-to-resume", "the workspace has no changes and no new commit"
+                )
         checks = [gates.within_scope(names, task.allowed_paths)]
         if checks[0].green:
             checks.append(
@@ -863,6 +875,21 @@ class Controller:
             )
         task = self.set_fields(task, status="review")
         return self.review(task, tree, model, checks)
+
+    def committed_but_unmerged(self, tree: Path) -> list[str]:
+        """Paths changed by commits the integration branch does not have yet.
+
+        A workspace whose work is committed looks empty to `changed_files`, which
+        reads `git status`. The question a resume actually needs to ask is what
+        this clone has that the branch does not, and that is a commit range.
+        """
+        with suppress(RuntimeError):
+            git(tree, "fetch", str(self.settings.repository), self.settings.integration_branch)
+            ahead = git(tree, "rev-list", "--count", "FETCH_HEAD..HEAD", check=False).strip()
+            if ahead and ahead != "0":
+                listed = git(tree, "diff", "--name-only", "FETCH_HEAD..HEAD", check=False)
+                return [name.strip() for name in listed.splitlines() if name.strip()]
+        return []
 
     def failed_attempt(self, task: Task, model: str, detail: str) -> Outcome:
         attempts = task.attempts + 1
