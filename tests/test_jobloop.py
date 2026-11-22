@@ -1528,3 +1528,15 @@ def test_a_resume_sees_work_that_is_already_committed(tmp_path: Path) -> None:
 
     assert gates.changed_files(tree) == [], "git status sees nothing, which was the trap"
     assert controller.committed_but_unmerged(tree) == ["backend/app/service.py"]
+
+    # Measured from the merge base, not between the two tips. A tree comparison
+    # also reports every file the branch gained since the clone was made: the
+    # first version of this used `FETCH_HEAD..HEAD` and the scope gate failed
+    # `T-PH6-104` at 19:30 on 2026-11-22 for `.claude/skills/README.md` and
+    # `backend/app/connectors/`, which its worker had never seen.
+    (repository / "unrelated.py").write_text("y = 2\n", encoding="utf-8")
+    git(repository, "add", "-A")
+    git(repository, "commit", "-m", "someone else's merged work")
+    assert controller.committed_but_unmerged(tree) == ["backend/app/service.py"], (
+        "another job's merged files are not this job's change"
+    )

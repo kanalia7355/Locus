@@ -882,12 +882,24 @@ class Controller:
         A workspace whose work is committed looks empty to `changed_files`, which
         reads `git status`. The question a resume actually needs to ask is what
         this clone has that the branch does not, and that is a commit range.
+
+        Measured from the **merge base**, not from `FETCH_HEAD`. A diff between
+        two tips is a tree comparison, so `FETCH_HEAD..HEAD` also reports every
+        file the branch has gained since this clone was made — with the sign
+        flipped. The first version of this method did exactly that and the scope
+        gate failed `T-PH6-104` at 19:30 on 2026-11-22 for
+        `.claude/skills/README.md` and `backend/app/connectors/`, files its
+        worker had never seen. From the common ancestor the answer is the job's
+        own three files.
         """
         with suppress(RuntimeError):
             git(tree, "fetch", str(self.settings.repository), self.settings.integration_branch)
             ahead = git(tree, "rev-list", "--count", "FETCH_HEAD..HEAD", check=False).strip()
             if ahead and ahead != "0":
-                listed = git(tree, "diff", "--name-only", "FETCH_HEAD..HEAD", check=False)
+                base = git(tree, "merge-base", "FETCH_HEAD", "HEAD", check=False).strip()
+                if not base:
+                    return []
+                listed = git(tree, "diff", "--name-only", f"{base}..HEAD", check=False)
                 return [name.strip() for name in listed.splitlines() if name.strip()]
         return []
 
