@@ -204,6 +204,7 @@ def create_app(
     start_worker: bool = True,
     model_catalog: ModelCatalog | None = None,
     local_model: LocalModel | None = None,
+    remote_model: Any | None = None,
 ) -> FastAPI:
     if os.getenv("APP_ENV", "development") != "development":
         raise RuntimeError(
@@ -220,6 +221,7 @@ def create_app(
     )
     catalog = model_catalog or ModelCatalog()
     runtime = local_model or LocalModel()
+    chat_runtime = remote_model or runtime
 
     stop = asyncio.Event()
 
@@ -441,8 +443,12 @@ def create_app(
     def message(conversation: str, data: Message, request: Request, user: Actor) -> Any:
         if not data.text.strip():
             fail(422, "メッセージを入力してください")
-        with runtime.settings_lock:
-            model, version, seconds = runtime.model, runtime.version, runtime.timeout_seconds
+        with chat_runtime.settings_lock:
+            model, version, seconds = (
+                chat_runtime.model,
+                chat_runtime.version,
+                chat_runtime.timeout_seconds,
+            )
 
         def generate(text: str, citations: list[dict[str, Any]]) -> tuple[str, str]:
             if not model:
@@ -450,7 +456,7 @@ def create_app(
                 # configured; the guard keeps that invariant enforced at the type level.
                 fail(422, "ローカルモデルが有効になっていません")
             try:
-                return runtime.generate(model, text, citations, timeout_seconds=seconds)
+                return chat_runtime.generate(model, text, citations, timeout_seconds=seconds)
             except HTTPException as exc:
                 # Only the busy-slot signal becomes a queued dialogue; other
                 # failures keep their existing synchronous behavior.
@@ -467,7 +473,9 @@ def create_app(
                 data.scope,
                 data.attachment_ids,
                 generate=generate if model else None,
-                validate=(lambda: runtime.validate(model, version, seconds)) if model else None,
+                validate=(lambda: chat_runtime.validate(model, version, seconds))
+                if model
+                else None,
                 token=token,
             )
         except ModelBusy:
@@ -481,7 +489,9 @@ def create_app(
                 data.attachment_ids,
                 token=token,
                 generate=generate,
-                validate=(lambda: runtime.validate(model, version, seconds)) if model else None,
+                validate=(lambda: chat_runtime.validate(model, version, seconds))
+                if model
+                else None,
             )
             return JSONResponse(
                 {"job_id": job_id, "status": "queued", "text": data.text},
@@ -499,10 +509,14 @@ def create_app(
         """
         if not data.text.strip():
             fail(422, "メッセージを入力してください")
-        with runtime.settings_lock:
-            model, version, seconds = runtime.model, runtime.version, runtime.timeout_seconds
+        with chat_runtime.settings_lock:
+            model, version, seconds = (
+                chat_runtime.model,
+                chat_runtime.version,
+                chat_runtime.timeout_seconds,
+            )
         token = request.cookies.get(COOKIE)
-        if not model or token is None or not runtime.available():
+        if not model or token is None or not chat_runtime.available():
             # Advisory check only: a slot taken right after it joins the waiting
             # line below, after the stream has already started.
             fail(409, "逐次表示は利用できません。通常の送信に切り替えます")
@@ -527,7 +541,7 @@ def create_app(
             if not model:
                 fail(422, "ローカルモデルが有効になっていません")
             try:
-                return runtime.generate(
+                return chat_runtime.generate(
                     model,
                     text,
                     citations,
@@ -567,7 +581,7 @@ def create_app(
                             data.attachment_ids,
                             token=token or "",
                             generate=generate_later,
-                            validate=lambda: runtime.validate(model or "", version, seconds),
+                            validate=lambda: chat_runtime.validate(model or "", version, seconds),
                         ),
                         "status": "queued",
                         "text": data.text,
@@ -586,7 +600,7 @@ def create_app(
                     data.scope,
                     data.attachment_ids,
                     generate=generate,
-                    validate=lambda: runtime.validate(model or "", version, seconds),
+                    validate=lambda: chat_runtime.validate(model or "", version, seconds),
                     token=token,
                     chat_job_id=job,
                 )
