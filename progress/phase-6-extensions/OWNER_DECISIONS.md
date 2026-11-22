@@ -2257,3 +2257,39 @@ UNVERIFIED
 - I did not run `ruff`/secret-scan myself beyond the controller evidence, but I did run `ruff check` and `ruff format --check` on the three changed files (all passed).
 
 **Answer** (2026-11-22, orchestrator): **15:25 に私が指定した 3 件は全部終わっていて、別モデルが裏を取っている。** (1) `_make_minimal_env()` は許可列挙になった（`sandbox.py:63-70`）。(2) §8.3 の持ち出し検査があり、**レビュアーが自分で歯を確かめた** — 「`_make_minimal_env` を親の環境全体に戻すと合言葉が `content` に漏れてこの検査が FAIL することを手で確認した」と `UNVERIFIED` 節に書いてある。**要求した証拠を独立のモデルが出した。** (3) 退避が `content` を渡し（`:284-290`）、本文が無ければ `success=False`（`:157`）。**そして試行 2 と 3 は、私が切り出したはずの仕事に消えた。** 18:16 のレビューが docker 経路を指摘し実装者が従ったが、docker は 15:25 に `T-PH6-129` へ移してある。**これは私の落ち度** — 切り出しを**レビュアーに見える形で書かなかった**ので、裁定の中ほどの 1 段落が効かなかった。今回の docker 指摘（`-i` が無く stdin が届かない／`--entrypoint` を上書きしないので QA イメージが 125 で落ちる／既定の `ubuntu:22.04` に python3 が無い）は**良い指摘なのでそのまま `T-PH6-129` に写した**。消していない。**残っている範囲内の仕事は 1 件だけ**: `content` が `stdout + stderr` なので（`:160`）、抽出器が stderr に診断を出すと `content` が壊れた JSON になり下流で落ちる。成功時は `content=stdout` にし、**いまの実装では落ちる検査**を 1 件足すこと。もう 1 件の Low（出力上限が `subprocess.run` の後に適用されるので時間内に親のメモリを食い潰せる）は設計変更なので **`T-PH6-130` に切り出した** — `output_bytes: verified` と書きながら事後に数えているのは、この票が直したのと同じ型の嘘なので消さない。**試行と周回を 1 回ずつ戻す**（2 回分が私の切り出し漏れで docker に消えたため）。受入条件は 1 つも緩めていない。詳細は `tasks/T-PH6-104.md`。
+
+## T-PH6-127 — worker wrote outside its workspace (2026-11-22T18:49:07+09:00)
+
+**Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
+
+**Context**
+
+model=opencode/iceman-free
+workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-127
+marker=C:\Users\hirot\Locus\.jobloop\orchestrator-busy present=False
+appeared:
+             beat.parent.mkdir(parents=True, exist_ok=True)
+             with beat.open("a", encoding="utf-8") as handle:
+         """
+         """True while a person is editing the main checkout alongside the loop.
+         Same file so that "when did anything last happen" has one answer; the
+         beat = self.settings.state_directory / "supervisor.log"
+         take from two processes.
+         with suppress(OSError):
+         writes are single short lines in append mode, which is what a log can
+     assert "\n  python scripts/secret_scan.py\n" not in brief, "the full-tree form is a trap"
+     assert "is not yours and must not stop you" in brief
+     assert "python scripts/secret_scan.py <only the files you changed>" in brief
+     def operator_busy(self) -> bool:
+ M jobloop/controller.py
+ M tests/test_jobloop.py
++                handle.write(f"{stamped}\n")
++        Printed as well as written. The supervisor prints only at cycle
++        boundaries, and a cycle's budget is forty-five minutes, so the console
++        print(stamped, flush=True)  # noqa: T201 — the operator's only live view
++        stamped = f"{self.now()} run :: {line}"
++        stopped. Dispatches are the thing that shows it has not.
++        the owner watches went silent for ten minutes on 2026-11-22 while a job
++        was running normally — and the owner had to ask whether the loop had
++    """
++    """The console the owner watches has to show that work is happening.

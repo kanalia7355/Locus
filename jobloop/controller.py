@@ -512,12 +512,20 @@ class Controller:
         Same file so that "when did anything last happen" has one answer; the
         writes are single short lines in append mode, which is what a log can
         take from two processes.
+
+        Printed as well as written. `supervise_loop.py` prints only at cycle
+        boundaries and a cycle's budget is forty-five minutes, so the console the
+        owner watches sat silent for ten minutes on 2026-11-22 while `T-PH6-127`
+        ran normally — and the owner had to ask whether the loop had stopped.
+        A dispatch is the thing that shows it has not.
         """
+        stamped = f"{self.now()} run :: {line}"
         beat = self.settings.state_directory / "supervisor.log"
         with suppress(OSError):
             beat.parent.mkdir(parents=True, exist_ok=True)
             with beat.open("a", encoding="utf-8") as handle:
-                handle.write(f"{self.now()} run :: {line}\n")
+                handle.write(f"{stamped}\n")
+        print(stamped, flush=True)  # noqa: T201 — the operator's only live view
 
     def operator_busy(self) -> bool:
         """True while a person is editing the main checkout alongside the loop.

@@ -1400,3 +1400,27 @@ def test_the_brief_asks_for_the_same_scan_the_gate_runs(tmp_path: Path) -> None:
     assert "python scripts/secret_scan.py <only the files you changed>" in brief
     assert "\n  python scripts/secret_scan.py\n" not in brief, "the full-tree form is a trap"
     assert "is not yours and must not stop you" in brief
+
+
+def test_a_dispatch_is_visible_in_the_console_not_only_in_the_log(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The console the owner watches has to show that work is happening.
+
+    `supervise_loop.py` prints at cycle boundaries, and a cycle's budget is
+    forty-five minutes. On 2026-11-22 the window showed nothing for ten minutes
+    while `T-PH6-127` ran normally, and the owner had to ask whether the loop had
+    stopped. Per-job lines went to `.jobloop/supervisor.log` only.
+    """
+    phase_with_task(tmp_path)
+    controller = controller_for(tmp_path, ["a-free"])
+    controller.note("T-JOB-1: dispatching (light)")
+
+    beat = controller.settings.state_directory / "supervisor.log"
+    written = beat.read_text(encoding="utf-8")
+    shown = capsys.readouterr().out
+
+    assert "run :: T-JOB-1: dispatching (light)" in written
+    assert "run :: T-JOB-1: dispatching (light)" in shown, "the console is the live view"
+    # One line, same text in both, so "when did anything last happen" keeps one answer.
+    assert shown.strip() == written.strip()
