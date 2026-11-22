@@ -80,14 +80,21 @@ def main() -> None:
                         "UPDATE documents SET name=? WHERE id=?",
                         ("別プロジェクトの合成資料.txt", other),
                     )
-        for lead in range(0, 40, BLOCK):
-            service.seed_synthetic(f"test-researcher-{lead}", "synthetic-project", "shared")
-            with service.db() as db:
-                db.execute(
-                    "INSERT INTO project_owners (project_id,user_id) "
-                    "SELECT ?,id FROM users WHERE username=?",
-                    ("synthetic-project", f"test-researcher-{lead}"),
-                )
+        # Ownership cannot repeat per block and must not be made to: in
+        # `project_owners` the project id is the PRIMARY KEY, so a project has
+        # exactly one owner. Seeding one per block raised
+        # `UNIQUE constraint failed: project_owners.project_id` and the fixture
+        # would not start — measured on 2026-11-22 before any ruling was written.
+        # `system_admin` is a flag on the user and does repeat, so the spec that
+        # needs an administrator can take any block; the spec that needs the
+        # project *owner* has to keep account 0.
+        service.seed_synthetic("test-researcher-0", "synthetic-project", "shared")
+        with service.db() as db:
+            db.execute(
+                "INSERT INTO project_owners (project_id,user_id) "
+                "SELECT ?,id FROM users WHERE username=?",
+                ("synthetic-project", "test-researcher-0"),
+            )
         models = Path(temp) / "models"
         models.mkdir()
         (models / "fixture-model.gguf").write_bytes(b"synthetic-not-valid-weights")
