@@ -21,9 +21,15 @@ const uniqueUser = `a11y-${Date.now().toString(36)}-${Math.random()
   .toString(36)
   .slice(2, 8)}`;
 // Derived from the per-run account id so no credential literal is committed
-// (the offline secret scan rejects static password constants).
-const uniquePassword = `${uniqueUser}-Synthetic-Aa1!`;
-const rotatedPassword = `${uniqueUser}-Rotated-Aa1!`;
+// (the offline secret scan rejects static password constants). The backend
+// rejects passwords that contain the user id, so the password is random-suffix
+// anchored instead of id anchored, and stays unique per run.
+const uniquePassword = `Synthetic-${Date.now().toString(36)}${Math.random()
+  .toString(36)
+  .slice(2, 12)}Aa1!`;
+const rotatedPassword = `Changed-${Date.now().toString(36)}${Math.random()
+  .toString(36)
+  .slice(2, 12)}Aa1!`;
 
 // Reuses the reviewed e2e fixture and only adds this spec's own account.
 const serverRunner = `
@@ -346,7 +352,7 @@ test("keyboard only flow covers login, chat, sources, history and logout", async
     await page.keyboard.press("Tab");
     expect(
       await page.evaluate(() => {
-        const element = document.querySelector('[role="dialog"]');
+        const element = document.querySelector('dialog, [role="dialog"]');
         return !!element && !!document.activeElement
           ? element.contains(document.activeElement)
           : false;
@@ -402,7 +408,7 @@ test("keyboard focus stays inside the source dialog and returns to its trigger",
   await expect(dialog).toBeVisible();
   const inside = () =>
     page.evaluate(() => {
-      const element = document.querySelector('[role="dialog"]');
+      const element = document.querySelector('dialog, [role="dialog"]');
       return !!element && !!document.activeElement
         ? element.contains(document.activeElement)
         : false;
