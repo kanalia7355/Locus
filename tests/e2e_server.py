@@ -22,7 +22,18 @@ def main() -> None:
         service.create_project("synthetic-org", "synthetic-project-b", "追加の検証プロジェクト")
         # One account per test that logs in: `enter()` rotates the temporary
         # password, so a second test reusing an index never reaches that screen.
-        for index in range(13):
+        #
+        # That makes the pool a hard cap, and on 2026-11-22 it bit twice.
+        # `appearance.spec.ts` alone had grown to 13 `enter()` calls — the whole
+        # pool — so `T-PH6-125` deleted its own two new e2e tests to get green,
+        # and `T-PH6-127` saw ten `workspace.spec.ts` failures when it widened
+        # the gate to the full suite, because `workspace.spec.ts` draws from the
+        # same thirteen. Both jobs read a fixture limit as their own failure.
+        #
+        # Forty is three times the current demand across all three specs. It is
+        # still a cap: provisioning is cheap (a row and a hash), so raise it
+        # again rather than letting a job delete a check to fit.
+        for index in range(40):
             username = f"test-researcher-{index}"
             service.provision(username, "Synthetic-test-password-01!", system_admin=index == 0)
             service.assign(

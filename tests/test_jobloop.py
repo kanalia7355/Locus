@@ -822,6 +822,19 @@ def test_an_echoed_status_template_is_a_failed_attempt_not_a_decision(tmp_path: 
     assert task.status == "doing" and task.attempts == 1
     assert not (controller.settings.phase_directory / "OWNER_DECISIONS.md").exists()
 
+    # The brief's own wording, not the angle-bracket placeholder. `T-PH6-127`
+    # escalated on 2026-11-22 with "` followed by the real question you need
+    # answered." while its report ended `ready-for-review` and the work was done.
+    assert controller_module.placeholder("` followed by the real question you need answered.")
+    assert controller_module.placeholder("needs-owner-decision: written out in full")
+    # And a real question still gets through, however it is phrased.
+    assert not controller_module.placeholder(
+        "May I widen allowed_paths to include frontend/e2e/a11y.spec.ts?"
+    )
+    assert not controller_module.placeholder(
+        "既存テストが 2 件落ちますが、表明を直すべきか製品を直すべきか判断してください。"
+    )
+
 
 def test_three_failed_attempts_stop_and_ask_the_owner(tmp_path: Path) -> None:
     phase_with_task(tmp_path)
@@ -1059,6 +1072,20 @@ def test_scratch_is_swept_before_a_worker_can_trip_over_it(tmp_path: Path) -> No
 
     assert "check_select3.py" not in seen and "pytest_out.txt" not in seen
     assert "a.txt" in seen, "and the work itself is still there"
+    # The swept paths must also leave the list the scope gate reads. Sweeping
+    # from inside the comprehension's condition ran it once per path: the first
+    # call deleted and returned the scratch, the rest returned nothing, and the
+    # filter kept exactly what had been removed. `T-PH6-125` was stopped on
+    # 2026-11-22 for eight paths its own record shows as already deleted.
+    body = (tmp_path / "progress" / "phase-test" / "tasks" / "T-JOB-1.md").read_text(
+        encoding="utf-8"
+    )
+    scope_stop = (
+        body[body.find("outside allowed_paths") :] if "outside allowed_paths" in body else ""
+    )
+    assert "check_select3.py" not in scope_stop and "pytest_out.txt" not in scope_stop, (
+        "a swept path must not be named in a scope stop"
+    )
     body = (tmp_path / "progress" / "phase-test" / "tasks" / "T-JOB-1.md").read_text(
         encoding="utf-8"
     )

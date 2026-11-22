@@ -113,14 +113,29 @@ APPROVAL = re.compile(r"^[\s>#*_`-]*APPROVED[\s*_`.]*$", re.MULTILINE)
 UNAVAILABLE_COOLDOWN = 900.0
 
 
+# Wording that only ever comes from the brief's own STATUS instruction. A reply
+# containing it is the instruction leaking into the answer, not a question: on
+# 2026-11-22 `T-PH6-127` escalated with "` followed by the real question you
+# need answered." while its report ended `ready-for-review` and the work was
+# done. Each phrase here is a literal fragment of `prompts.implementer_brief`.
+ECHOED = (
+    "followed by the real question",
+    "written out in full",
+    "never copy this instruction",
+    "the real question you need answered",
+)
+
+
 def placeholder(text: str) -> str | bool:
     """True when a reported question is the brief's own placeholder, not a question."""
     stripped = text.strip()
+    lowered = stripped.lower()
     return (
         len(stripped) < 12
         or (stripped.startswith("<") and stripped.endswith(">"))
         or "<the question>" in stripped
         or stripped in {"the question", "<question>"}
+        or any(phrase in lowered for phrase in ECHOED)
     )
 
 
@@ -635,7 +650,14 @@ class Controller:
             return self.failed_attempt(
                 task, model, f"the worker echoed the status template: {question[:120]}"
             )
-        names = [name for name in gates.changed_files(tree) if name not in self.sweep(task, tree)]
+        # Sweep once, then filter. Calling `sweep()` inside the comprehension's
+        # condition ran it for every path: the first call deleted the scratch and
+        # returned it, every later call found nothing and returned an empty set,
+        # so the filter kept the very files that had just been removed. On
+        # 2026-11-22 `T-PH6-125` was stopped for eight paths its own record shows
+        # as already deleted — the scope gate was reading a list of ghosts.
+        dropped = self.sweep(task, tree)
+        names = [name for name in gates.changed_files(tree) if name not in dropped]
         if not names:
             return self.failed_attempt(task, model, "the worker changed nothing")
         checks = [gates.within_scope(names, task.allowed_paths)]
