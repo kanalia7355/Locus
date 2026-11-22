@@ -146,12 +146,24 @@ def churn() -> str:
     beat = ROOT / ".jobloop" / "supervisor.log"
     if not beat.is_file():
         return "ok    no repeating outcome in the log"
-    recent = beat.read_text(encoding="utf-8", errors="replace").strip().splitlines()[-40:]
-    # `rotated` is left out: a model on cooldown is a bounded, normal reaction
-    # and it now self-limits. These three mean a pass ended where it started.
+    # Bounded by time, not by line count. A line window keeps re-reporting
+    # churn that has already been fixed, which is the trap `diagnose` avoids
+    # with its dates: a stop older than its repair is not news.
+    since = (datetime.now(JST) - timedelta(hours=1)).isoformat()
+    recent = [
+        line
+        for line in beat.read_text(encoding="utf-8", errors="replace").strip().splitlines()[-400:]
+        if line[:25] >= since
+    ]
+    # `rotated` and `no-reviewer` are left out: both are bounded, cheap
+    # reactions to an empty roster that end the cycle in about two seconds.
+    # `no-reviewer` was in this list for twenty minutes on 2026-11-22, added
+    # while it still re-ran a job's whole gate suite every two minutes. Once
+    # that was fixed the repetition became what a correct wait looks like, and
+    # a check that fails on correct behaviour trains the reader to ignore it.
     counted: dict[str, int] = {}
     for line in recent:
-        for mark in ("review-unavailable", "gates-failed", "nothing-to-resume", "no-reviewer"):
+        for mark in ("review-unavailable", "gates-failed", "nothing-to-resume"):
             if mark in line:
                 for part in line.split("::")[-1].split(";"):
                     if mark in part:
