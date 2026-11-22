@@ -159,6 +159,32 @@ tickets to the attempt limit without a single merge:
 Then run `python -m jobloop --phase <new> status` and read the `waits for`
 column. That one line is the whole check that 1-3 took.
 
+## A carve-out the reviewer cannot see does not exist
+
+When you move work to another ticket, put the scope **at the top of the ticket
+body, addressed to the reviewer**. The reviewer reads the ticket and judges
+against what it finds there; a paragraph in the middle of a ruling is invisible
+to it. On 2026-11-22 `T-PH6-104`'s docker findings were moved to `T-PH6-129` at
+15:25, and by 18:23 the job had spent **both** its remaining attempts and both
+review cycles on docker, because the next reviewer raised it again and the
+implementer obeyed. The findings were real; they were simply not this ticket's.
+That cost was mine, not theirs.
+
+Two more things that shift gives:
+
+- **Measure before you rule, not after.** The obvious fix to the account-shape
+  problem was to repeat every shape per block of twenty. Running it first
+  produced `UNIQUE constraint failed: project_owners.project_id` — the table
+  makes `project_id` the primary key, so a project has exactly one owner and the
+  fixture would not start. Had that gone out as a ruling it would have been the
+  second impossible instruction of the day.
+- **When a ruling assumed a resource was fungible and it was not, invert the
+  assignment rather than widening anything.** The spec that needs the seeded
+  data keeps the accounts that carry it; the spec that needs only a generic
+  login moves. `workspace.spec.ts` needs the project owner, `appearance.spec.ts`
+  needs only an administrator, and `system_admin` is a flag that repeats while
+  ownership is not.
+
 ## Amending a ticket: rewrite the body
 
 When a ticket is wrong, **edit the text that is wrong**. Appending an amendment
