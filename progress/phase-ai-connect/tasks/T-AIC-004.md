@@ -1,14 +1,15 @@
 ---
 id: T-AIC-004
 phase: phase-ai-connect
-status: todo
-assignee: unassigned
-model: unassigned
+status: review
+assignee: opencode
+model: opencode/iceman-free
 weight: medium
-updated: 2026-11-22T13:56:00+09:00
+updated: 2026-11-22T17:01:21+09:00
 attempts: 0
 allowed_paths: progress/phase-ai-connect/material/
 test_cmd: python -m pytest tests/test_agents_registry.py -q
+reviewer: opencode/beam-free
 ---
 
 # Task `T-AIC-004`: CLIエージェント・アダプタの設計ゲート（設計のみ）
@@ -126,3 +127,58 @@ test_cmd: python -m pytest tests/test_agents_registry.py -q
 - **Verdict**: `PENDING` (`APPROVED` | `CHANGES_REQUESTED` | `BLOCKED`)
 - **Findings**:
   - （未実施）
+
+## ATTEMPT 1 — implementation by opencode/iceman-free (2026-11-22T17:01:21+09:00)
+
+## REPORT
+- `progress/phase-ai-connect/material/HBR_AGENT_SDK_EMBEDDING.md`（新規）: T-AIC-004 の設計ゲート資料を作成。オーナー決定 2026-11-22 #1-#4 を前提に、Claude Code Agent SDK 埋め込み先の 2 案（Desktop Runner / サーバ）を比較し、既存境界（ゼロツール境界 / presence-only / 分類ポリシー / 監査）との適合表を記載。Desktop Runner 案を既定の推奨とし、サーバ案は `T-AIC-006 (B)` 未決のため非推奨/条件付きとした。実行隔離・Option 1 資格情報（CLI ネイティブログイン・端末側保持、サーバへ値を送る経路なし）・dispatch 段階の分類/egress 独立判定（D0-D6, E1/E2/B6）・監査項目（利用者/workspace/adapter/model/判定結果、本文なし）・失敗/中断時の後始末を明記。`DOCUMENT_EXTRACTION_BOUNDARY.md` §5 と同じ語彙の保証表（○/△/×、実時間上限・出力バイト数上限・環境変数の遮断・書込み先の限定・CPU時間/メモリ上限・ネットワーク遮断、`network: unverified`、ADR-0006 loopback 実測）で「主張できる保証/主張できない保証」を分離。mock/synthetic のみの Runner 境界検証項目（VT-C1..C5, NV-C1..C10）に合否条件を付与。dispatch 409 を外す activation gate（G0-G8）を定義し、本書が解除を承認しないことを明記。
+- 変更なし（確認のみ）: `backend/app/agents/registry.py`, `tests/test_agents_registry.py`, schema/API/dispatch 挙動は未変更。`git status --short --branch` は `?? progress/phase-ai-connect/material/HBR_AGENT_SDK_EMBEDDING.md` のみ。
+
+ドキュメントとコード/現状の不整合（調査で確認）:
+- `docs/plans/HYBRID_STEP2_AGENT_REGISTRY_DESIGN.md` は "DRAFT DESIGN PROPOSAL" 表記、一方 `docs/architecture/decisions/0012-dual-plane-model-gate-agent-runtime.md` は "ACCEPTED"。境界内容は整合しているが、文書ステータス表現が揺れている。本設計は ADR-0012 accepted を上位境界として参照し、step2 は設計入力として扱った。
+- `backend/app/agents/registry.py` 冒頭は "never dispatches..." と説明するが、`dispatch_attempt` は B6 の明示的 409 拒否を実装している。拒否ゲートとして意図的であり、`tests/test_agents_registry.py` もこの挙動を固定している（不整合というより命名/説明の読み違い余地）。
+- `HYBRID_AGENT_ADAPTER_DESIGN.md` §6.2 は Claude Code Windows native を Option 1 direct としている。本タスクのオーナー決定 #3 により、Desktop Runner 埋め込み案を既定推奨として具体化した。これは Option 1（端末側保持）と矛盾せず、埋め込み先の選好を補う位置づけ。
+- `progress/phase-ai-connect/material/` ディレクトリは作業前に存在しなかった（glob で該当ファイルなし）。許可パス内に新規作成した。
+
+残リスク:
+- `python scripts/secret_scan.py` が既存ファイルで失敗した（下記 TEST）。`progress/phase-6-extensions/OWNER_DECISIONS.md` と `progress/phase-6-extensions/tasks/T-PH6-104.md` の既存指摘であり、本変更・許可パス外のため未修正。コントローラの全ゲート通過には別途対処が必要。
+- 本書は設計ゲートのみ。G1-G8（ADR-0013 receipt、境界証跡、credential boundary、classification/egress、T-T4 監査保護、cleanup 検証、Owner 承認）が未充足のため dispatch 409 は維持されるべき。
+- 子プロセス系統の隔離は DOCUMENT_EXTRACTION_BOUNDARY §5 と同様、ネットワーク遮断・メモリ上限を主張できない。Desktop Runner 実装時にこの語彙/記録ルールを崩さないこと。
+
+## TEST
+- `python -m pytest tests/test_agents_registry.py -q`（作業後、CWD=worktree root）
+  - 結果: PASS
+  - 出力: `............                                                             [100%]` / `12 passed in 7.73s`
+- `python -m ruff check backend tests scripts jobloop`
+  - 結果: PASS
+  - 出力: `All checks passed!`
+- `python -m ruff format --check backend tests scripts jobloop`
+  - 結果: PASS
+  - 出力: `186 files already formatted`
+- `python scripts/secret_scan.py`
+  - 結果: FAIL（既存・許可パス外の指摘）
+  - 出力: `Potential secret: progress\phase-6-extensions\OWNER_DECISIONS.md, lines [2081]` / `Potential secret: progress\phase-6-extensions\tasks\T-PH6-104.md, lines [1012]` / `Offline secret scan: 2 findings` / Exit code: 1
+  - 補足: `git status --short --branch` で自分の変更は `?? progress/phase-ai-connect/material/HBR_AGENT_SDK_EMBEDDING.md` のみ。上記 2 件は本タスクで変更していない。
+- `git status --short --branch`
+  - 結果: `## loop/T-AIC-004-t-aic-004` / `?? progress/phase-ai-connect/material/HBR_AGENT_SDK_EMBEDDING.md`
+
+## STATUS
+ready-for-review
+
+### Controller gates
+
+- `scope`: green
+- `task-verification`: green
+- `secret-scan`: green
+
+## REVIEW by opencode/beam-free (2026-11-22T17:03:34+09:00)
+
+VERDICT
+- APPROVED
+
+FINDINGS
+- Low, progress/phase-ai-connect/material/HBR_AGENT_SDK_EMBEDDING.md:39 — citation `HYBRID_STEP2_AGENT_REGISTRY_DESIGN.md §1.1-B3` points to the wrong section; the B-rules (including B3 zero-tool/adapter separation) live in §1.2 of that document, not §1.1 ("Two planes, two module trees"). Smallest fix: change to `§1.2 B3`.
+- Low, progress/phase-ai-connect/material/HBR_AGENT_SDK_EMBEDDING.md:41 — citation `HYBRID_STEP2_AGENT_REGISTRY_DESIGN.md §3.1-E5/E6` points to the wrong section; E5/E6 (independent destination/egress gate and classification gate) are defined in §3.2 (Enforcement points), while §3.1 is "Policy fields". Smallest fix: change to `§3.2-E5/E6`.
+
+UNVERIFIED
+- I did not re-run `tests/test_agents_registry.py` or the secret scan; the controller's recorded gates (exit 0, 12 passed; secret scan 0 findings) are the authoritative evidence and I relied on them. I also did not verify the (absent) trailing newline is acceptable — no acceptance criterion requires it. No code, schema, or dispatch behavior was changed by this job, consistent with the single-file diff and the passing registry tests.

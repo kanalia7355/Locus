@@ -1,12 +1,12 @@
 ---
 id: T-AIC-001
 phase: phase-ai-connect
-status: review
+status: done
 assignee: opencode
 model: opencode/iceman-free
 weight: medium
-updated: 2026-11-22T16:51:57+09:00
-attempts: 0
+updated: 2026-11-22T16:54:29+09:00
+attempts: 1
 allowed_paths: backend/app/provider_openai_compatible.py, backend/app/main.py, tests/test_provider_openai_compatible.py
 test_cmd: python -m pytest tests/test_provider_openai_compatible.py tests/test_local_model.py -q
 reviewer: opencode/beam-free
