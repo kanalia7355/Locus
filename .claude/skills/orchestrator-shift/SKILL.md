@@ -80,6 +80,14 @@ each line is a mistake already made.
 - **"attempt limit reached"** — look in the workspace before you believe it.
   `git -C <workspace> log --oneline -3`. `T-PH6-123` had an **approved commit
   sitting there**; the attempts were spent on a merge that never happened.
+  **"the worker changed nothing" means the work is already done.** Check
+  `rev-list --count FETCH_HEAD..HEAD` too: `T-PH6-116` had a finished, green
+  commit on a base **32 commits old**, so it could never merge and every later
+  attempt truthfully reported nothing to do.
+- **When you restore a job, put it where its work is.** A job whose work is
+  already committed belongs in `review`, not `doing`. Setting `T-PH6-116` to
+  `doing` after a false containment stop cost it three "changed nothing"
+  attempts and the attempt limit — `stranded()` only ever looks at `review`.
 - **"review cycle limit reached"** — open the VERDICT and read it with your own
   eyes. One job was blocked with `**APPROVED**` and `FINDINGS: none` in its own
   record, because the pattern did not allow the asterisks.
