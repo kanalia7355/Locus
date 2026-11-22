@@ -12,6 +12,12 @@ from app.main import create_app
 from app.model_catalog import ModelCatalog
 from app.service import Service
 
+# Accounts repeat their shapes every `BLOCK`, so each spec can own a disjoint
+# block and still find the administrator, the second-page document and the
+# second-project member it needs. `appearance.spec.ts` uses the first block and
+# `workspace.spec.ts` the second; a third spec takes the next multiple.
+BLOCK = 20
+
 
 def main() -> None:
     if os.getenv("LOCUS_E2E") != "1":
@@ -33,14 +39,23 @@ def main() -> None:
         # Forty is three times the current demand across all three specs. It is
         # still a cap: provisioning is cheap (a row and a hash), so raise it
         # again rather than letting a job delete a check to fit.
+        #
+        # The shapes below repeat every twenty, so each block of twenty accounts
+        # is equivalent and a spec moves by changing one offset. They used to sit
+        # at fixed indices, which made the pool look interchangeable when it was
+        # not: on 2026-11-22 the ruling that sent `workspace.spec.ts` to account
+        # 20 and up broke four of its tests, because 20 was not an administrator,
+        # 27 had no second page and 29 was not in the second project. The spec was
+        # right and the fixture was the thing that had to give.
         for index in range(40):
             username = f"test-researcher-{index}"
-            service.provision(username, "Synthetic-test-password-01!", system_admin=index == 0)
+            shape = index % BLOCK
+            service.provision(username, "Synthetic-test-password-01!", system_admin=shape == 0)
             service.assign(
-                username, "synthetic-project", "project_lead" if index == 0 else "researcher"
+                username, "synthetic-project", "project_lead" if shape == 0 else "researcher"
             )
             document = service.seed_synthetic(username, "synthetic-project")
-            if index == 7:
+            if shape == 7:
                 # Fixed, non-research fixture only: exercise an actual second-page citation.
                 content = (
                     "【合成資料の第1頁】\n"
@@ -57,7 +72,7 @@ def main() -> None:
                     service._index(
                         db, db.execute("SELECT * FROM documents WHERE id=?", (document,)).fetchone()
                     )
-            if index == 9:
+            if shape == 9:
                 service.assign(username, "synthetic-project-b", "researcher")
                 other = service.seed_synthetic(username, "synthetic-project-b")
                 with service.db() as db:
@@ -65,13 +80,14 @@ def main() -> None:
                         "UPDATE documents SET name=? WHERE id=?",
                         ("別プロジェクトの合成資料.txt", other),
                     )
-        service.seed_synthetic("test-researcher-0", "synthetic-project", "shared")
-        with service.db() as db:
-            db.execute(
-                "INSERT INTO project_owners (project_id,user_id) "
-                "SELECT ?,id FROM users WHERE username=?",
-                ("synthetic-project", "test-researcher-0"),
-            )
+        for lead in range(0, 40, BLOCK):
+            service.seed_synthetic(f"test-researcher-{lead}", "synthetic-project", "shared")
+            with service.db() as db:
+                db.execute(
+                    "INSERT INTO project_owners (project_id,user_id) "
+                    "SELECT ?,id FROM users WHERE username=?",
+                    ("synthetic-project", f"test-researcher-{lead}"),
+                )
         models = Path(temp) / "models"
         models.mkdir()
         (models / "fixture-model.gguf").write_bytes(b"synthetic-not-valid-weights")
