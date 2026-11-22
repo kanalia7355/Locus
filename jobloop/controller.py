@@ -1266,7 +1266,7 @@ class Controller:
         )
         return "" if check.green else f"{', '.join(touched)}\n{check.detail[:700]}"
 
-    def commit_progress_records(self, task: Task) -> str:
+    def commit_progress_records(self, task: Task | None = None) -> str:
         """Commit the controller's own records; report anything else still dirty.
 
         The controller writes a job's status and evidence into the main checkout
@@ -1294,7 +1294,15 @@ class Controller:
         foreign = [path for path in paths if not path.startswith(records) and path != guide]
         if foreign:
             return "\n".join(lines)
-        git(self.settings.repository, "add", "--", records, guide)
+        # Only add what exists. `git add` has no `--ignore-unmatch`, so naming
+        # the guide page in a checkout that has not generated it yet raises
+        # `fatal: pathspec ... did not match any files` — harmless while
+        # `deliver` was the only caller, because by then the page was always
+        # there, and a crash now that every cycle commits its records.
+        targets = [path for path in (records, guide) if (self.settings.repository / path).exists()]
+        if not targets:
+            return ""
+        git(self.settings.repository, "add", "--", *targets)
         git(
             self.settings.repository,
             "-c",
@@ -1303,7 +1311,11 @@ class Controller:
             "user.email=jobloop@localhost",
             "commit",
             "-m",
-            f"docs(progress): record the {task.id} cycle"[:100],
+            (
+                f"docs(progress): record the {task.id} cycle"
+                if task
+                else "docs(progress): record this cycle"
+            )[:100],
         )
         return ""
 
@@ -1404,4 +1416,14 @@ class Controller:
             outcomes.append(outcome)
             if outcome.state in {"no-model", "no-reviewer"}:
                 break
+        # Commit this cycle's records before leaving, whatever the outcomes were.
+        # `deliver` was the only caller, so a cycle that only rotated, escalated
+        # or found no model left its own bookkeeping uncommitted — and the next
+        # job that *did* reach delivery then escalated with "integration branch
+        # is dirty" over records the loop had written itself. `T-PH6-104` was
+        # stopped that way at 18:54 on 2026-11-22, and the end-of-run push in
+        # `cli` pushed nothing because nothing had been committed. A person's
+        # uncommitted files still stop the merge: `commit_progress_records`
+        # refuses to stage anything outside `progress/` and the guide page.
+        self.commit_progress_records()
         return outcomes

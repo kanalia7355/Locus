@@ -1574,3 +1574,48 @@ def test_a_model_that_cannot_do_the_work_rests_as_long_as_a_spent_one() -> None:
         assert (
             controller_module.cooldown_for(transient) == controller_module.UNAVAILABLE_COOLDOWN
         ), transient
+
+
+def test_a_cycle_commits_its_own_records_even_when_nothing_was_delivered(
+    tmp_path: Path,
+) -> None:
+    """`deliver` was the only caller, so every other outcome left the tree dirty.
+
+    The loop writes a job's status and evidence into the main checkout as it
+    goes. A cycle that only rotated, escalated or found no model committed none
+    of it, and the next job that *did* reach delivery escalated with "integration
+    branch is dirty" over records the loop had written itself — `T-PH6-104` at
+    18:54 on 2026-11-22. The end-of-run push then pushed nothing, because
+    nothing had been committed.
+    """
+    phase_with_task(tmp_path)
+    controller = controller_for(tmp_path, [])
+    repository = controller.settings.repository
+    git(repository, "init", "-b", controller.settings.integration_branch)
+    git(repository, "config", "user.email", "t@example.invalid")
+    git(repository, "config", "user.name", "t")
+    # The real repository ignores the loop's own state directory
+    # (`.gitignore:57`). Without it the roster file reads as a foreign path and
+    # nothing is ever committed — which is how this test first failed.
+    (repository / ".gitignore").write_text(".jobloop/\n", encoding="utf-8")
+    git(repository, "add", "-A")
+    git(repository, "commit", "-m", "the phase and its task")
+    assert not Controller.dirt(repository).strip()
+
+    # What a rotation leaves behind: an edited record, no delivery.
+    record = controller.settings.phase_directory / "tasks" / "T-JOB-1.md"
+    record.write_text(record.read_text(encoding="utf-8") + "\n## ROTATED\n", encoding="utf-8")
+    assert Controller.dirt(repository).strip(), "the record really is uncommitted"
+
+    # No models, so the cycle ends without delivering anything.
+    controller.run(minutes=0.2, max_jobs=1)
+    assert not Controller.dirt(repository).strip(), "the cycle must not leave its own dirt"
+    assert "record this cycle" in git(repository, "log", "-1", "--format=%s")
+
+    # A person's uncommitted file still stops the merge rather than being swept.
+    (repository / "mine.txt").write_text("the orchestrator is mid-edit\n", encoding="utf-8")
+    record.write_text(record.read_text(encoding="utf-8") + "\n## AGAIN\n", encoding="utf-8")
+    controller.run(minutes=0.2, max_jobs=1)
+    left = Controller.dirt(repository)
+    assert "mine.txt" in left, "never stage a path outside progress/"
+    assert "T-JOB-1.md" in left, "and do not commit the records around it either"
