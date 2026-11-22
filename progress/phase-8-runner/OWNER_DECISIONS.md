@@ -13,6 +13,7 @@ Each entry is a judgement the controller refused to make itself.
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job.
 
 **Context**
@@ -28,6 +29,7 @@ protected paths touched: ['docs/plans/HBR_DECISION_REGISTER.json']
 読む対象としての `docs/plans/...` は従来どおり。試行は 0 のまま `todo` に戻した。
 受入条件は無変更。詳細は各 `tasks/T-PH8-30X.md`。
 ## T-PH8-302 — out-of-scope change (2026-11-20T02:44:04+09:00)
+
 
 
 
@@ -63,6 +65,7 @@ protected paths touched: ['docs/plans/HBR_PROVIDER_EGRESS_DECISION.md']
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job. — 4 path(s) the worker wrote outside its scope: fix_parenthesis.py, fix_test.py, fix_test2.py, progress/phase-8-runner/material/HBR_CLASSIFICATION_MODEL.json. Decide whether the job's scope was drawn too narrowly, or whether the worker should not have written them.
 
 **Context**
@@ -78,6 +81,7 @@ outside allowed_paths: ['fix_parenthesis.py', 'fix_test.py', 'fix_test2.py', 'pr
 読む対象としての `docs/plans/...` は従来どおり。試行は 0 のまま `todo` に戻した。
 受入条件は無変更。詳細は各 `tasks/T-PH8-30X.md`。
 ## T-PH8-304 — attempt limit reached (2026-11-20T03:12:14+09:00)
+
 
 
 
@@ -112,6 +116,7 @@ unavailable: {"type": "provider.invalid-request", "message": "Upstream request f
 
 
 
+
 **Question**: The main checkout has uncommitted changes, so the reviewed commit was not merged. Decide how to integrate it.
 
 **Context**
@@ -134,6 +139,7 @@ M  frontend/src/styles.css
 
 **Answer** (2026-11-21, jobloop diagnose): この停止は**ループ側の欠陥**が原因で、その欠陥は既に直っている — every phase's records count as the loop's own bookkeeping。停止の時刻（2026-11-21T04:00）は修正より前なので、判断を覆したのではなく、**原因が無くなったので再開する**という記録である。欠陥が消費した試行 1 回分だけを戻す（それ以上は戻さない）。受入条件・許可パスは変更していない。
 ## T-PH8-302 — integration branch is dirty (2026-11-21T01:32:23+09:00)
+
 
 
 
@@ -173,6 +179,7 @@ M  frontend/src/styles.css
 
 
 
+
 **Question**: The reviewer still requires changes at the cycle limit.
 
 **Context**
@@ -200,6 +207,7 @@ UNVERIFIED
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job.
 
 **Context**
@@ -209,6 +217,7 @@ protected paths touched: ['docs/plans/HBR_ISOLATION_SELECTION.json', 'docs/plans
 **Answer** (2026-11-21, jobloop diagnose): この停止は**ループ側の欠陥**が原因で、その欠陥は既に直っている — scratch files are swept by `gates.litter`。停止の時刻（2026-11-21T03:32）は修正より前なので、判断を覆したのではなく、**原因が無くなったので再開する**という記録である。欠陥が消費した試行 1 回分だけを戻す（それ以上は戻さない）。受入条件・許可パスは変更していない。
 
 ## T-PH8-303 — review cycle limit reached (2026-11-21T14:07:01+09:00)
+
 
 
 
@@ -232,6 +241,7 @@ UNVERIFIED
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job. — 1 path(s) the worker wrote outside its scope: backend/app/agents/registry.py. Decide whether the job's scope was drawn too narrowly, or whether the worker should not have written them.
 
 **Context**
@@ -240,6 +250,7 @@ outside allowed_paths: ['backend/app/agents/registry.py']
 
 **Answer** (2026-11-21, jobloop diagnose): この停止は**ループ側の欠陥**が原因で、その欠陥は既に直っている — scratch files are swept by `gates.litter`。停止の時刻（2026-11-21T16:52）は修正より前なので、判断を覆したのではなく、**原因が無くなったので再開する**という記録である。欠陥が消費した試行 1 回分だけを戻す（それ以上は戻さない）。受入条件・許可パスは変更していない。
 ## T-PH8-302 — review cycle limit reached (2026-11-21T14:34:30+09:00)
+
 
 
 
@@ -263,6 +274,7 @@ UNVERIFIED
 
 
 
+
 **Question**: Can `allowed_paths` be widened to include `docs/architecture/decisions/0013-job-approval-authorization-receipt.md` so I can apply only the 2026-11-16 E1/E2 confirmed ADR-0013 body edits (default TTL = one month as a configurable setting with immediate revocation, rejection on next validation after revocation, and required usage history; no new approval permission, map to existing system_admin pre-
 
 **Context**
@@ -282,6 +294,7 @@ one-receipt (`job_id`) authorization. It is unclear which object the 1-month ter
 
 
 
+
 - `python -m pytest tests/test_hbr_decision_register.py tests/test_agents_registry.py -q` → **19 passed in 7.53s**
 - `python -m ruff format tests/test_hbr_decision_register.py` → **1 file left unchanged**
 - `python -m ruff check backend tests scripts jobloop` → **All checks passed!**
@@ -292,9 +305,11 @@ one-receipt (`job_id`) authorization. It is unclear which object the 1-month ter
 
 
 
+
 needs-owner-decision: Can `allowed_paths` be widened to include `docs/architecture/decisions/0013-job-approval-authorization-receipt.md` so I can apply only the 2026-11-16 E1/E2 confirmed ADR-0013 body edits (default TTL = one month as a configurable setting with immediate revocation, rejection on next validation after revocation, and required usage history; no new approval permission, map to existing system_admin pre-authorization) while keeping `Status: **DRAFT.**` unchanged?
 
 ## T-PH8-302 — review cycle limit reached (2026-11-22T03:51:10+09:00)
+
 
 
 
@@ -315,6 +330,7 @@ UNVERIFIED
 
 
 
+
 **Question**: The reviewer still requires changes at the cycle limit.
 
 **Context**
@@ -331,6 +347,7 @@ UNVERIFIED
 ## T-PH8-302 — no independent reviewer available (2026-11-22T07:52:12+09:00)
 
 
+
 **Question**: No second free model is available, and self-review is prohibited (CONSTRAINTS.md §5-5). Decide whether to wait for usage to reset.
 
 **Context**
@@ -341,6 +358,7 @@ implementer=claude-opus-5 (orchestrator)
 ## T-PH8-303 — no independent reviewer available (2026-11-22T07:52:15+09:00)
 
 
+
 **Question**: No second free model is available, and self-review is prohibited (CONSTRAINTS.md §5-5). Decide whether to wait for usage to reset.
 
 **Context**
@@ -348,3 +366,23 @@ implementer=claude-opus-5 (orchestrator)
 implementer=claude-opus-5 (orchestrator)
 
 **Answer** (2026-11-22, orchestrator): **判断ではなく待ちだった。** 実測で `available models: none` — 無料モデルが全部冷却中で、冷却は時間で明ける。人が決めることは何も無い。前のシフトの「走らせられないモデルを冷却して次へ回す」は正しく働き、尽きたところで止まった — **止まり方だけが間違っていた**。`blocked` は人を呼ぶ状態で、自分で明ける条件に使うべきではない（4 件が同時に落ちた）。レビュアーが取れないときはエスカレートせず `review` のまま `WAITING FOR A REVIEWER` を記録し、次のサイクルに任せるようにした（`stranded()` が拾うので試行は消費しない）。レビューは行われず、何も承認せず、何もマージしない点は変えていない。全モデルが読み取り専用の規則を破った場合は従来どおり人に聞く。詳細は各 task ファイル。
+
+## T-PH8-303 — review cycle limit reached (2026-11-22T11:06:00+09:00)
+
+
+**Question**: The reviewer still requires changes at the cycle limit.
+
+**Context**
+
+63f1` and both are new files in this diff. What is wrong: the task deliverable names only `HBR_CLASSIFICATION_DESIGN.md`, so the task-ID-named copy is an unexplained duplicate in the delivered change set. Concrete failure scenario: two canonical copies of the HBR-003 design can drift and consumer/acceptance resolution becomes ambiguous. Smallest fix: remove the duplicate `T-PH8-303.md`.
+
+- Low, `progress/phase-8-runner/material/HBR_CLASSIFICATION_DESIGN.md:66` — §3.3 (継承グラフの単調性) contradicts §3.1 (:54) on the inherit-max no-downgrade wording: §3.3's phrasing ("...すべての源の `max` 以上にはならない") is directionally inconsistent with §3.1's correct prohibition ("降格（派生先が継承元の最大値より低くなること）は絶対に起きない"). Concrete failure scenario: an implementer could misread the monotonicity constraint from the contradictory text. Smallest fix: reword §3.3:66.
+
+- Low, `tests/test_hbr_classification_contract.py:82` — `assert set(levels) == REGISTRY_CLASSIFICATIONS` compares unordered sets, so the design's ordered `levels` contract (`HBR_CLASSIFICATION_DESIGN.md:21-22`) is not enforced; reordering `levels` would still pass the test. Concrete failure scenario: levels-order regression in the machine-readable contract would go undetected. Smallest fix: use ordered comparison.
+
+UNVERIFIED
+- The AC4 migration test-impact estimate (`### 移行で落ちる既存テストの見積り`, task file ~lines 583-603) lives outside the reviewed diff and outside `allowed_paths`; its grep-based counts could not be re-derived from the diff, so its validity is unverified here.
+- The exact gate hook placement: `tests/test_hbr_classification_contract.py:119-135` (`test_gate_location_exists`) verifies file existence only, not that the named function is the true pre-assembly/pre-dispatch boundary.
+- End-to-end inherit-max enforcement: only synthetic `_max_classification` cases are covered (`tests/test_hbr_classification_contract.py:163-186`); no backend implementation is in scope for this change, so runtime enforcement across the 8 paths is unverified here.
+
+**Answer** (2026-11-22, orchestrator): **Low 3 件とも正しく、私が保持している票なので私が直した。レビューは別の無料モデルが行う。** (1) `material/T-PH8-303.md` はバイト単位で同一の重複なので削除した — **この重複は私が作らせたもの**でもあり、元の `allowed_paths` がその名前を成果物として名指していたのに本文を `HBR_CLASSIFICATION_DESIGN.md` に書き換えたため票が 2 つの名前を示していた。(2) §3.3 の「`max` **以上にはならない**（下げられない）」は前半と括弧内が逆のことを言っていたので、§3.1 に合わせて「`max` を**下回らない**」に直した。(3) `levels` を集合で比べていたので順序の表明を足した。併せて**私の落ち度**を直した: AC4 の見積りを task ファイルの `REPORT` にだけ書いており、レビュアーの `UNVERIFIED` が指摘したとおり**レビューできる差分の外**にあった。`material/HBR_MIGRATION_TEST_IMPACT.md` に移した。受入条件が証拠を差分の外に置かせていたのは票の設計の誤りである。順序の表明は measure-first で確かめ、**最初の試し方では通ってしまった**ことまで docstring に書いた。詳細は `tasks/T-PH8-303.md`。

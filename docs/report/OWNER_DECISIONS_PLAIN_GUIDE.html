@@ -1,419 +1,736 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>オーナーに決めてほしいこと（やさしい説明）</title>
-  <style>
-    :root {
-      --bg: #f6f7f9;
-      --surface: #ffffff;
-      --surface-muted: #eef1f5;
-      --text: #1f242b;
-      --text-muted: #525c6a;
-      --border: #d5dce4;
-      --accent: #2f5d8a;
-      --accent-soft: #e8f0f8;
-      --warn-bg: #fbf4e6;
-      --warn-border: #d8b56c;
-      --table-stripe: #f8fafc;
-    }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>オーナーに決めてほしいこと（やさしい説明）</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --surface: #ffffff;
+    --surface-sub: #f0f2f5;
+    --text: #1f242c;
+    --text-muted: #555e6b;
+    --border: #d8dee6;
+    --accent: #2c5282;
+    --accent-soft: #ebf3fc;
+    --warn-border: #b7791f;
+    --warn-bg: #fef9ec;
+    --warn-text: #744210;
+    --note-border: #4a5568;
+    --note-bg: #edf2f7;
+    --note-text: #2d3748;
+    --link: #2b6cb0;
+    --shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  }
 
-    @media (prefers-color-scheme: dark) {
-      :root:not([data-theme="light"]) {
-        --bg: #14181d;
-        --surface: #1d232b;
-        --surface-muted: #252c36;
-        --text: #e6ebf1;
-        --text-muted: #a6b1bf;
-        --border: #333c48;
-        --accent: #7fb0df;
-        --accent-soft: #223244;
-        --warn-bg: #2c2519;
-        --warn-border: #8a6d32;
-        --table-stripe: #222933;
-      }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14171c;
+      --surface: #1d222a;
+      --surface-sub: #252b35;
+      --text: #e6eaf0;
+      --text-muted: #a3aebf;
+      --border: #323a46;
+      --accent: #7aa7e0;
+      --accent-soft: #1e2d40;
+      --warn-border: #d69e2e;
+      --warn-bg: #2c2414;
+      --warn-text: #f6e0a0;
+      --note-border: #718096;
+      --note-bg: #252b35;
+      --note-text: #cbd5e0;
+      --link: #8ab4f8;
+      --shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
     }
+  }
 
-    :root[data-theme="dark"] {
-      --bg: #14181d;
-      --surface: #1d232b;
-      --surface-muted: #252c36;
-      --text: #e6ebf1;
-      --text-muted: #a6b1bf;
-      --border: #333c48;
-      --accent: #7fb0df;
-      --accent-soft: #223244;
-      --warn-bg: #2c2519;
-      --warn-border: #8a6d32;
-      --table-stripe: #222933;
-    }
+  :root[data-theme="dark"] {
+    --bg: #14171c;
+    --surface: #1d222a;
+    --surface-sub: #252b35;
+    --text: #e6eaf0;
+    --text-muted: #a3aebf;
+    --border: #323a46;
+    --accent: #7aa7e0;
+    --accent-soft: #1e2d40;
+    --warn-border: #d69e2e;
+    --warn-bg: #2c2414;
+    --warn-text: #f6e0a0;
+    --note-border: #718096;
+    --note-bg: #252b35;
+    --note-text: #cbd5e0;
+    --link: #8ab4f8;
+    --shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  }
 
-    * {
-      box-sizing: border-box;
-    }
+  :root[data-theme="light"] {
+    --bg: #f6f7f9;
+    --surface: #ffffff;
+    --surface-sub: #f0f2f5;
+    --text: #1f242c;
+    --text-muted: #555e6b;
+    --border: #d8dee6;
+    --accent: #2c5282;
+    --accent-soft: #ebf3fc;
+    --warn-border: #b7791f;
+    --warn-bg: #fef9ec;
+    --warn-text: #744210;
+    --note-border: #4a5568;
+    --note-bg: #edf2f7;
+    --note-text: #2d3748;
+    --link: #2b6cb0;
+    --shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  }
 
-    body {
-      margin: 0;
-      padding: 24px 16px 48px;
-      background-color: var(--bg);
-      color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo", sans-serif;
-      line-height: 1.75;
-      font-size: 16px;
-    }
+  * {
+    box-sizing: border-box;
+  }
 
-    .container {
-      max-width: 880px;
-      margin: 0 auto;
-    }
+  body {
+    margin: 0;
+    padding: 24px 16px 56px;
+    background-color: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo", sans-serif;
+    line-height: 1.75;
+    font-size: 16px;
+  }
 
-    header {
-      margin-bottom: 24px;
-    }
+  .container {
+    max-width: 860px;
+    margin: 0 auto;
+  }
 
-    h1 {
-      font-size: 1.6rem;
-      margin: 0 0 8px;
-      line-height: 1.35;
-    }
+  header {
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
 
-    .subtitle {
-      margin: 0;
-      color: var(--text-muted);
-      font-size: 0.95rem;
-    }
+  h1 {
+    margin: 0 0 8px;
+    font-size: 1.65rem;
+    line-height: 1.35;
+  }
 
-    h2 {
-      font-size: 1.25rem;
-      margin: 32px 0 14px;
-      padding-bottom: 6px;
-      border-bottom: 2px solid var(--border);
-    }
+  .lead {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 0.95rem;
+  }
 
-    h3 {
-      font-size: 1.1rem;
-      margin: 0 0 12px;
-      line-height: 1.4;
-    }
+  h2 {
+    margin: 36px 0 16px;
+    font-size: 1.3rem;
+    padding-left: 10px;
+    border-left: 4px solid var(--accent);
+  }
 
-    h4 {
-      font-size: 0.98rem;
-      margin: 16px 0 6px;
-      color: var(--accent);
-    }
+  .toc {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 18px 20px;
+    margin-bottom: 28px;
+    box-shadow: var(--shadow);
+  }
 
-    p {
-      margin: 0 0 10px;
-    }
+  .toc-title {
+    margin: 0 0 10px;
+    font-size: 1.05rem;
+    font-weight: 700;
+  }
 
-    ul, ol {
-      margin: 0 0 12px;
-      padding-left: 1.4em;
-    }
+  .toc-group {
+    margin: 12px 0 6px;
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--text-muted);
+  }
 
-    li {
-      margin-bottom: 6px;
-    }
+  .toc ul {
+    margin: 0 0 8px;
+    padding-left: 20px;
+  }
 
-    a {
-      color: var(--accent);
-      text-decoration: none;
-    }
+  .toc li {
+    margin: 4px 0;
+  }
 
-    a:hover {
-      text-decoration: underline;
-    }
+  a {
+    color: var(--link);
+    text-decoration: none;
+  }
 
-    .card {
-      background-color: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 20px 22px;
-      margin-bottom: 18px;
-    }
+  a:hover {
+    text-decoration: underline;
+  }
 
-    .toc-card {
-      background-color: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 18px 22px;
-      margin-bottom: 24px;
-    }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px 22px;
+    margin-bottom: 20px;
+    box-shadow: var(--shadow);
+  }
 
-    .toc-card h2 {
-      margin-top: 0;
-      font-size: 1.1rem;
-    }
+  .card-decision {
+    border-left: 5px solid var(--warn-border);
+  }
 
-    .badge {
-      display: inline-block;
-      font-size: 0.78rem;
-      font-weight: 600;
-      padding: 2px 8px;
-      border-radius: 4px;
-      margin-bottom: 8px;
-      background-color: var(--accent-soft);
-      color: var(--accent);
-    }
+  .card-handoff {
+    border-left: 5px solid var(--note-border);
+  }
 
-    .badge-decision {
-      background-color: var(--warn-bg);
-      border: 1px solid var(--warn-border);
-      color: var(--text);
-    }
+  .card-header {
+    margin-bottom: 14px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+  }
 
-    .callout {
-      background-color: var(--surface-muted);
-      border-left: 4px solid var(--accent);
-      padding: 12px 14px;
-      border-radius: 0 6px 6px 0;
-      margin: 10px 0 12px;
-    }
+  .badge {
+    display: inline-block;
+    font-size: 0.78rem;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 4px;
+    margin-bottom: 6px;
+  }
 
-    .table-wrap {
-      width: 100%;
-      overflow-x: auto;
-      margin: 12px 0;
-      border: 1px solid var(--border);
-      border-radius: 6px;
-    }
+  .badge-decision {
+    background: var(--warn-bg);
+    color: var(--warn-text);
+    border: 1px solid var(--warn-border);
+  }
 
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      min-width: 560px;
-      font-size: 0.92rem;
-    }
+  .badge-handoff {
+    background: var(--note-bg);
+    color: var(--note-text);
+    border: 1px solid var(--note-border);
+  }
 
-    th, td {
-      padding: 10px 12px;
-      text-align: left;
-      border-bottom: 1px solid var(--border);
-      vertical-align: top;
-    }
+  .card-title {
+    margin: 0;
+    font-size: 1.15rem;
+    line-height: 1.4;
+  }
 
-    th {
-      background-color: var(--surface-muted);
-      font-weight: 600;
-      white-space: nowrap;
-    }
+  .card-meta {
+    margin-top: 4px;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+  }
 
-    tr:nth-child(even) td {
-      background-color: var(--table-stripe);
-    }
+  .section-block {
+    margin-top: 14px;
+  }
 
-    tr:last-child td {
-      border-bottom: none;
-    }
+  .section-label {
+    margin: 0 0 4px;
+    font-size: 0.92rem;
+    font-weight: 700;
+    color: var(--accent);
+  }
 
-    code {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size: 0.88em;
-      background-color: var(--surface-muted);
-      padding: 1px 5px;
-      border-radius: 4px;
-    }
-  </style>
+  .section-block p {
+    margin: 0 0 8px;
+  }
+
+  .section-block ul,
+  .section-block ol {
+    margin: 4px 0 8px;
+    padding-left: 22px;
+  }
+
+  .section-block li {
+    margin-bottom: 4px;
+  }
+
+  .table-wrap {
+    width: 100%;
+    overflow-x: auto;
+    margin: 10px 0;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 520px;
+    font-size: 0.92rem;
+  }
+
+  th,
+  td {
+    padding: 10px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+
+  th {
+    background: var(--surface-sub);
+    font-weight: 700;
+  }
+
+  tr:last-child td {
+    border-bottom: none;
+  }
+
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.88em;
+    background: var(--surface-sub);
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+
+  .back-top {
+    margin-top: 14px;
+    font-size: 0.85rem;
+    text-align: right;
+  }
+</style>
 </head>
 <body>
-  <div class="container">
-    <header>
-      <h1>オーナーに決めてほしいこと（やさしい説明）</h1>
-      <p class="subtitle">開発チームからオーナー（発注者）への、決めてほしいことと申し送り（弱点や注意点の報告）のまとめです。</p>
-    </header>
+<div class="container" id="top">
+  <header>
+    <h1>オーナーに決めてほしいこと（やさしい説明）</h1>
+    <p class="lead">開発チームからオーナー（発注者）への確認事項と、決定に対する注意点の報告をまとめた資料です。</p>
+  </header>
 
-    <nav class="toc-card" aria-label="目次">
-      <h2>全体の目次</h2>
-      <p>大きく分けて「決めてほしいこと（1件）」と「申し送り（8件と用語の説明）」があります。</p>
+  <nav class="toc" aria-label="目次">
+    <p class="toc-title">全体の目次</p>
+    <p class="toc-group">決めてほしいこと（開発が止まっているもの）</p>
+    <ul>
+      <li><a href="#item-t-ph8-303">1. T-PH8-303：チェック担当からの修正依頼がやり直し上限に達した件</a></li>
+    </ul>
+    <p class="toc-group">申し送り（決定への注意・開発側からの報告）</p>
+    <ul>
+      <li><a href="#handoff-legend">2. 記録で使われている印の意味（凡例）</a></li>
+      <li><a href="#handoff-ttl">3. 通行証（TTL）の有効期限を長くすることへの注意</a></li>
+      <li><a href="#handoff-lan">4. 研究室内ネットワーク（LAN）の安全性への注意</a></li>
+      <li><a href="#handoff-sandbox">5. 危ないデータを受け入れる場合の共有サーバへの影響と隔離（サンドボックス）</a></li>
+      <li><a href="#handoff-slots">6. 同時に動かす枠（スロット数 N）を増やすときの機械の限界</a></li>
+      <li><a href="#handoff-mfa">7. 二段階認証（MFA）を不要にしたことへの補い</a></li>
+      <li><a href="#handoff-progress">8. 決まった項目の作業化と「申し送り」の扱い</a></li>
+      <li><a href="#handoff-plot">9. グラフや図を作る機能（作図：コード実行）の安全対策</a></li>
+      <li><a href="#handoff-docs">10. 開発ルール書類（CLAUDE.md と AGENTS.md）の食い違い修正の提案</a></li>
+    </ul>
+  </nav>
+
+  <h2>決めてほしいこと</h2>
+
+  <article class="card card-decision" id="item-t-ph8-303">
+    <div class="card-header">
+      <span class="badge badge-decision">決めてほしいこと</span>
+      <h3 class="card-title">1. T-PH8-303：チェック担当からの修正依頼がやり直し上限に達した件</h3>
+      <div class="card-meta">段階：phase-8-runner / 日時：2026-11-22 11:06（日本時間）</div>
+    </div>
+
+    <div class="section-block">
+      <p class="section-label">ひとことで言うと</p>
+      <p>チェック担当が「まだ直すところがある」と言っている状態のまま、決められたやり直し回数の上限に達してしまったため、この先どう進めるかを決めてほしいです。</p>
+    </div>
+
+    <div class="section-block">
+      <p class="section-label">いまどうなっているの</p>
+      <p><code>T-PH8-303</code> という作業について、チェック担当（できあがった書類やプログラムを確認する役割）から次の 3 つの問題が指摘されたまま、やり直し回数の上限に達して止まっています。</p>
       <ol>
-        <li><a href="#decision-t-ph7-201">決めてほしいこと：T-PH7-201 のやり直し回数上限に達した件（phase-7-production）</a></li>
-        <li><a href="#handover-legend">申し送りについての説明と凡例（記号の意味）</a></li>
-        <li><a href="#handover-1">申し送り 1：通行証の使える期限（TTL）が長いことへの対策</a></li>
-        <li><a href="#handover-2">申し送り 2：職場などのネットワーク内（LAN 内）の安全性と本人確認の工夫</a></li>
-        <li><a href="#handover-3">申し送り 3：危ないデータを受け入れる場合の隔離（サンドボックス）の前提</a></li>
-        <li><a href="#handover-4">申し送り 4：同時作業の枠（スロット数 N）と機械の性能のバランス</a></li>
-        <li><a href="#handover-5">申し送り 5：追加の本人確認（MFA）をやめたことによるパスワード周りの対策</a></li>
-        <li><a href="#handover-6">申し送り 6：決まったことの扱いと申し送りの位置づけ</a></li>
-        <li><a href="#handover-7">申し送り 7：図を作るためのプログラム実行（B）に設ける安全制限</a></li>
-        <li><a href="#handover-8">申し送り 8：ルール文書（CLAUDE.md と AGENTS.md）の食い違い</a></li>
+        <li><strong>同じ内容の書類が 2 つ入っている問題</strong>：本来納品する書類は <code>HBR_CLASSIFICATION_DESIGN.md</code> だけなのに、<code>T-PH8-303.md</code> という同じ内容のコピーも一緒に入っています（元の文章の冒頭が <code>63f1</code> で途切れているため、正確な元のファイル名全体はここからは分かりません）。同じものが 2 つあると、後から片方だけが書き換わって食い違うおそれがあります。</li>
+        <li><strong>設計書の文章どうしが食い違っている問題</strong>：<code>progress/phase-8-runner/material/HBR_CLASSIFICATION_DESIGN.md</code> の 66 行目（3.3 節）で、54 行目（3.1 節）と逆のことが書かれています。3.1 節では「元の値より低いランクに下がることは絶対に起きない」と書いてあるのに、3.3 節では「すべての元の値の最大以上にはならない」という逆向きの表現になっていて、これから作る人が読み間違えるおそれがあります。</li>
+        <li><strong>自動テスト（プログラムが正しく動くか自動で確かめる仕組み）の抜け</strong>：<code>tests/test_hbr_classification_contract.py</code> の 82 行目で、段階の並び（<code>levels</code>）の順番を守る決まりになっているのに、順番を見ない比べ方をしています。そのため、順番が入れ替わってもテストが合格してしまいます。</li>
       </ol>
-    </nav>
+    </div>
 
-    <section id="decision-section">
-      <h2>1. いま開発が止まっている「決めてほしいこと」</h2>
+    <div class="section-block">
+      <p class="section-label">決めないとどうなるの</p>
+      <p><code>T-PH8-303</code> の作業をこのまま通すか、やり直しを続けるかなどが決まらず、この作業が止まったままになります。（この決定を待っている別の作業が何であるかは、元の文に書かれていないため分かりません。）</p>
+    </div>
 
-      <article id="decision-t-ph7-201" class="card">
-        <span class="badge badge-decision">決めてほしいこと / phase-7-production / T-PH7-201</span>
-        <h3>T-PH7-201：チェック担当とのやり直し回数が上限に達した件</h3>
-        <p class="subtitle">記録日時：2026-11-22T10:32:12+09:00</p>
+    <div class="section-block">
+      <p class="section-label">選べるやり方</p>
+      <p>選択肢は示されていません。</p>
+    </div>
 
-        <h4>1. ひとことで言うと</h4>
-        <p><code>T-PH7-201</code> の作業で、チェック担当（レビュアー）との修正と再確認の回数上限に達してもまだ直すべき点（2件）が残っているため、このあとどう進めるかを決めてほしいです。</p>
+    <div class="section-block">
+      <p class="section-label">開発側の意見</p>
+      <p>やり直し上限を超えた手続きの進め方についての推奨は書かれていません。ただし、指摘された 3 つの問題それぞれの「一番小さな直し方」として、チェック担当から次の方法が挙げられています。</p>
+      <ul>
+        <li>重複している <code>T-PH8-303.md</code> を消すこと。</li>
+        <li>設計書の 66 行目（3.3 節）の文章を、3.1 節と合うように書き直すこと。</li>
+        <li>テストで「順番も含めて比べる」方法に変えること。</li>
+      </ul>
+    </div>
 
-        <h4>2. いまどうなっているの</h4>
-        <p>チェック担当が「修正が必要（<code>CHANGES_REQUIRED</code>）」と判定した状態で、あらかじめ決まっているやり直しの回数上限に達してしまい、作業が止まっています。</p>
-        <p>チェック担当が見つけた問題点は次の 2 つです。</p>
+    <div class="section-block">
+      <p class="section-label">決める前に知っておくこと</p>
+      <p>チェック担当から、今回の確認範囲に入っていないため「未確認（正しいか確かめられていない）」と報告されている点が 3 つあります。</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>未確認の項目</th>
+              <th>元の文に書かれている内容</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>移行時に落ちる既存テストの見積もり</td>
+              <td>作業ファイル（約 583〜603 行目）にある見積もり件数は、今回の確認対象の外にあるため、数が正しいか確かめられていません。</td>
+            </tr>
+            <tr>
+              <td>確認処理（ゲート）を置く場所</td>
+              <td><code>tests/test_hbr_classification_contract.py</code> の 119〜135 行目（<code>test_gate_location_exists</code>）は「ファイルが存在すること」だけを確かめており、指定された処理が本当に正しい入口かどうかまでは確認できていません。</td>
+            </tr>
+            <tr>
+              <td>実際のプログラムでの動作</td>
+              <td>今回の作業範囲に裏側のプログラム本体の実装は含まれていないため、8 つの経路すべてで「低いランクに下がらない」ルールが実際に動くかは確認できていません。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="back-top"><a href="#top">目次へ戻る</a></div>
+  </article>
 
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>重さ</th>
-                <th>該当する場所</th>
-                <th>起きている問題</th>
-                <th>そのままにするとどうなるか</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>中くらい（Medium）</td>
-                <td><code>backend/app/service.py</code> の 912〜913 行目、924 行目、および呼び出し元（2496、2755、3182〜3183 行目）</td>
-                <td>外部の資料を見に行けるか確認する処理（<code>can_read</code>）が、データベース全体を一時的に独占する枠（書き込みトランザクションとロック）を開いたまま動いています。コード内のメモには「枠の外で動かす」と書かれているのに、一部そうなっていません。</td>
-                <td><code>T-PH7-202+</code> で作る本物の外部接続（SMB、Drive、Box）とつなぐと、通信を待っている間ずっと全体のロックが握られたままになり、他の人の操作や全体の作業が止まってしまいます。</td>
-              </tr>
-              <tr>
-                <td>小さい（Low）</td>
-                <td><code>backend/app/service.py</code> の 1086〜1095 行目、1101 行目</td>
-                <td>権限の記録（permission hash）が分からないときの扱いで、保存するときは空の文字に直しているのに、比べるときは <code>None</code>（値が入っていない空の状態）のまま比べています。</td>
-                <td>権限を決められない場所について、毎回「権限が変わった」と誤解してしまい、変更記録（<code>source.permission.change</code>）や通知が毎回動き、作業結果も毎回「実行した（<code>performed=True</code>）」と報告されてしまいます。</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+  <h2>申し送り（決定への注意・開発側からの報告）</h2>
+  <p class="lead">ここからは、新しく決めてもらう項目ではなく、「オーナーの決定どおりに作るが、その代わりこういう弱点や注意点がある」という開発側からの報告です。</p>
 
-        <p>なお、中くらいの問題については、元の文に「一番小さな直し方（Smallest fix）」として、確認処理（<code>can_read</code>）を呼ぶ前にデータベースの枠をいったん閉じ、終わったあとに状態をもう一度見直す方法が書かれています。</p>
+  <article class="card card-handoff" id="handoff-legend">
+    <div class="card-header">
+      <span class="badge badge-handoff">申し送り</span>
+      <h3 class="card-title">2. 記録で使われている印の意味（凡例）</h3>
+      <div class="card-meta">段階：phase-6-extensions</div>
+    </div>
+    <div class="section-block">
+      <p class="section-label">ひとことで言うと</p>
+      <p>この「phase-6-extensions」の記録で使われている 4 つの見出しの意味をまとめた案内です。</p>
+    </div>
+    <div class="section-block">
+      <p class="section-label">いまどうなっているの</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>印</th>
+              <th>意味</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>【回答】</code></td>
+              <td>オーナーが答えたそのままの言葉</td>
+            </tr>
+            <tr>
+              <td><code>【解釈】</code></td>
+              <td>作る側（実装）が従うルール</td>
+            </tr>
+            <tr>
+              <td><code>【解禁】</code></td>
+              <td>その決定によって作り始められるようになる機能の番号（要件 ID）</td>
+            </tr>
+            <tr>
+              <td><code>【申し送り】</code></td>
+              <td>作る側が完全には同意していない点、または確認が必要な点</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="section-block">
+      <p class="section-label">決めないとどうなるの</p>
+      <p>これは言葉の説明なので、新しく決めることはありません。</p>
+    </div>
+    <div class="section-block">
+      <p class="section-label">選べるやり方</p>
+      <p>選択肢は示されていません。</p>
+    </div>
+    <div class="section-block">
+      <p class="section-label">決める前に知っておくこと</p>
+      <p>下の 3 番目から 10 番目までの項目を読むときの目安になります。</p>
+    </div>
+    <div class="back-top"><a href="#top">目次へ戻る</a></div>
+  </article>
 
-        <h4>3. 決めないとどうなるの</h4>
-        <p><code>T-PH7-201</code> の作業を完了にできず、この作業が止まったままになります。ほかにどの作業が待たされるかについては、元の文に一覧が書かれていないため、ここは分かりません（ただし、中くらいの問題の具体例として <code>T-PH7-202+</code> で本物の SMB / Drive / Box 接続を使うときに全体が止まることが挙げられています）。</p>
+  <article class="card card-handoff" id="handoff-ttl">
+    <div class="card-header">
+      <span class="badge badge-handoff">申し送り</span>
+      <h3 class="card-title">3. 通行証（TTL）の有効期限を長くすることへの注意</h3>
+      <div class="card-meta">段階：phase-6-extensions</div>
+    </div>
+    <div class="section-block">
+      <p class="section-label">ひとことで言うと</p>
+      <p>通行証（TTL：アクセスできる有効期限）を長くすると、万が一漏れたときに悪用され続ける時間も長くなるという報告です。</p>
+    </div>
+    <div class="section-block">
+      <p class="section-label">いまどうなっているの</p>
+      <p>オーナーの決定どおりに進めますが、有効期限が長いほど「漏れた通行証が使える時間」も長くなるという弱点が残ります。そのため開発側では、途中で通行証を無効にする仕組み（取消 / revoke）と、いつ使われたかの記録（利用履歴）を必ず入れる方針で進めます。</p>
+    </div>
+    <div class="section-block">
+      <p class="section-label">決めないとどうなるの</p>
+      <p>これは決定に対する申し送りであり、新しく決めてもらう項目ではありません。このまま上記の補いを入れて作られます。</p>
+    </div>
+    <div class="section-block">
+      <p class="section-label">選べるやり方</p>
+      <p>選択肢は示されていません。</p>
+    </div>
+    <div class="section-block">
+      <p class="section-label">開発側の意見</p>
+      <p>弱点を補うために、取消（revoke）と利用履歴の記録を必須にして進めます。</p>
+    </div>
+    <div class="section-block">
+      <p class="section-label">決める前に知っておくこと</p>
+      <p>もし後から「有効期限を短くしたい」という指示があれば、設定を変えることでいつでも短くできます。</p>
+    </div>
+    <div class="back-top"><a href="#top">目次へ戻る</a></div>
+  </article>
 
-        <h4>4. 選べるやり方</h4>
-        <p>元の文には選べるやり方（選択肢）が書かれていないため、選択肢は示されていません。</p>
+  <article class="card card-handoff" id="handoff-lan">
+    <div class="card-header">
+      <span class="badge badge-handoff">申し送り</span>
+      <h3 class="card-title">4. 研究室内ネットワーク（LAN）の安全性への注意</h3>
+      <div class="card-meta">段階：phase-6-extensions</div>
+    </div>
+    <div class="section-block">
+      <p class="section-label">ひとことで言うと</p>
+      <p>同じ建物内のネットワーク（LAN）でも攻撃は起こりうるため、費用のかからない最低限の対策 2 つだけは入れるという報告です。</p>
+    </div>
+    <div class="section-block">
+      <p class="section-label">いまどうなっているの</p>
+      <p>開発側としては「LAN 内だから攻撃がない」という前提には同意していません。LAN の中でも、乗っ取られたパソコン（踏み台になった端末）、外から持ち込まれた端末、同じ LAN につながった別部署からのアクセスは起こりうるからです。</p>
+      <p>ただし、セキュリティにどれだけ費用や手間をかけるかの判断はオーナーの領分なので、コストの重い「お互いを厳しく確認し合う仕組み（相互認証）」は入れずに進めます。</p>
+    </div>
+    <div class="section-block">
+      <p class="section-label">決めないとどうなるの</p>
+      <p>これは決定に対する申し送りであり、新しく決めてもらう項目ではありません。このまま進みます。</p>
+    </div>
+    <div class="section-block">
+      <p class="section-label">選べるやり方</p>
+      <p>選択肢は示されていません。</p>
+    </div>
+    <div class="section-block">
+      <p class="section-label">開発側の意見</p>
+      <p>重い相互認証は入れない代わりに、費用がほぼゼロで効果がある次の 2 つだけは入れます。</p>
+      <ol>
+        <li>作業を実行するプログラム（Runner）を登録するときに 1 回だけ使う合言葉。</li>
+        <li>貸し出し権限（リース / lease）の利用記録（「誰のどの権限が、いつ、どの Runner で使われたか」の記録）。</li>
+      </ol>
+    </div>
+    <div class="section-block">
+      <p class="section-label">決める前に知っておくこと</p>
+      <p>この 2 つを入れておくと、後から本人確認をさらに強めたくなったときの土台にもなります。</p>
+    </div>
+    <div class="back-top"><a href="#top">目次へ戻る</a></div>
+  </article>
 
-        <h4>6. 決める前に知っておくこと</h4>
-        <ul>
-          <li>チェック担当は「ファイルを読むだけ（書き換えやテスト実行ができない）」という制限のもとで確認したため、自動チェック（task-verification 56件の合格、文法チェックの <code>lint</code>、見た目整形の <code>format</code>、秘密情報の混入を調べる <code>secret-scan</code>）の再実行やテストの実行は自分では行っていません。それらはシステムから報告された結果をそのまま前提にしています。</li>
-          <li>今回の変更箇所（<code>diff</code>）と確認した <code>_can_read</code> の呼び出し元以外について、データの中身を扱うすべての読み取り経路を隅々まで調べたわけではありません。</li>
-          <li>元の文の冒頭（<code>der review...</code> の前）が途中で切れているため、その直前に書かれていた経緯は元の文からは分かりません。</li>
-        </ul>
-      </article>
-    </section>
+  <article class="card card-handoff" id="handoff-sandbox">
+    <div class="card-header">
+      <span class="badge badge-handoff">申し送り</span>
+      <h3 class="card-title">5. 危ないデータを受け入れる場合の共有サーバへの影響と隔離（サンドボックス）</h3>
+      <div class="card-meta">段階：phase-6-extensions</div>
+    </div>
+    <div class="section-block">
+      <p class="section-label">ひとことで言うと</p>
+      <p>Locus は全員で使う共有ツールなので、1 人が危ないファイルを開くと全員の資料に被害が広がるおそれがあり、隔離場所（サンドボックス）を使う前提で作るという報告です。</p>
+    </div>
+    <div class="section-block">
+      <p class="section-label">いまどうなっているの</p>
+      <p>「危ないデータを入れるのは本人のせい」という考え方は、被害がその人 1 人の中で止まる場合にしか成り立ちません。Locus は共有ツールなので、悪意のあるファイルが開かれた瞬間に、サーバ側（つまり全員の資料がある場所）にまで被害が及ぶ可能性があります。</p>
+    </div>
+    <div class="section-block">
+      <p class="section-label">決めないとどうなるの</p>
+      <p>これは決定に対する申し送りであり、新しく決めてもらう項目ではありません。隔離する仕組み（サンドボックス）を前提にして「広く許容（いろいろなデータを受け入れること）」の実装を進めます。</p>
+    </div>
+    <div class="section-block">
+      <p class="section-label">選べるやり方</p>
+      <p>選択肢は示されていません。</p>
+    </div>
+    <div class="section-block">
+      <p class="section-label">開発側の意見</p>
+      <p>共有サーバ全体に被害が及ぶ危険を埋めるために、サンドボックス（安全な隔離場所）を採用する前提で進めます。</p>
+    </div>
+    <div class="section-block">
+      <p class="section-label">決める前に知っておくこと</p>
+      <p>サンドボックス無しで「広く許容」を行うと、他の利用者の資料にも被害が及ぶリスクがあります。</p>
+    </div>
+    <div class="back-top"><a href="#top">目次へ戻る</a></div>
+  </article>
 
-    <section id="handover-section">
-      <h2>2. オーナーへの「申し送り」（決定に対する弱点や注意点の報告）</h2>
-      <p>ここからは決めてもらう項目ではなく、「オーナーの決定どおりに作りますが、その代わりこういう弱点が残るので、この工夫で補います」という開発側からの報告です（すべて <code>phase-6-extensions</code> に関するものです）。</p>
+  <article class="card card-handoff" id="handoff-slots">
+    <div class="card-header">
+      <span class="badge badge-handoff">申し送り</span>
+      <h3 class="card-title">6. 同時に動かす枠（スロット数 N）を増やすときの機械の限界</h3>
+      <div class="card-meta">段階：phase-6-extensions</div>
+    </div>
+    <div class="section-block">
+      <p class="section-label">ひとことで言うと</p>
+      <p>同時に動かす枠（スロット）を増やすとメモリや画像処理装置（GPU）の消費も増えるため、起動時に実際の機械の性能を測って、超えていたら警告を出すという報告です。</p>
+    </div>
+    <div class="section-block">
+      <p class="section-label">いまどうなっているの</p>
+      <p>スロットの数（N）を増やすと、メモリや GPU の消費量もそれに比例して増えます。実際にいくつまで動かせるかの上限は、動かす実機の性能で決まります。そのため、N は設定された数のままにしつつ、起動するときに実測して上限を超えていたら警告を出すようにします。</p>
+    </div>
+    <div class="section-block">
+      <p class="section-label">決めないとどうなるの</p>
+      <p>これは決定に対する申し送りであり、新しく決めてもらう項目ではありません。このまま進められます。</p>
+    </div>
+    <div class="section-block">
+      <p class="section-label">選べるやり方</p>
+      <p>選択肢は示されていません。</p>
+    </div>
+    <div class="section-block">
+      <p class="section-label">決める前に知っておくこと</p>
+      <p>配備先の実機の性能に対してスロット数 N が多すぎる場合、メモリや GPU が足りなくなるリスクがあります。</p>
+    </div>
+    <div class="back-top"><a href="#top">目次へ戻る</a></div>
+  </article>
 
-      <article id="handover-legend" class="card">
-        <span class="badge">申し送りの見方</span>
-        <h3>凡例（元の文で使われている記号の意味）</h3>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>記号</th>
-                <th>意味（やさしい言い換え）</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>【回答】</td>
-                <td>オーナーが答えた言葉そのまま</td>
-              </tr>
-              <tr>
-                <td>【解釈】</td>
-                <td>開発側が実際に作るうえで従うルール</td>
-              </tr>
-              <tr>
-                <td>【解禁】</td>
-                <td>決定が出たことで作業を始められるようになる要件の番号</td>
-              </tr>
-              <tr>
-                <td>【申し送り】</td>
-                <td>開発側として賛成していない点、または確認が必要な弱点や注意点</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </article>
+  <article class="card card-handoff" id="handoff-mfa">
+    <div class="card-header">
+      <span class="badge badge-handoff">申し送り</span>
+      <h3 class="card-title">7. 二段階認証（MFA）を不要にしたことへの補い</h3>
+      <div class="card-meta">段階：phase-6-extensions</div>
+    </div>
+    <div class="section-block">
+      <p class="section-label">ひとことで言うと</p>
+      <p>二段階認証（MFA）を「作らない」ことに変わったため、パスワードが漏れると全資料が見られてしまう弱点を補う 4 つの対策を標準で入れるという報告です。</p>
+    </div>
+    <div class="section-block">
+      <p class="section-label">いまどうなっているの</p>
+      <p>2026 年 11 月 9 日の記録では、二段階認証（MFA：パスワードのほかにスマホの確認コードなどを使う仕組み）は「本番必須」として整理されていましたが、今回のオーナー判断（2026 年 11 月 16 日）で「不要」に変わりました。そのため、要件 <code>IAM-005</code> の扱いを「実装しない（オーナー判断 2026-11-16）」に改めます。</p>
+    </div>
+    <div class="section-block">
+      <p class="section-label">決めないとどうなるの</p>
+      <p>これは決定に対する申し送りであり、新しく決めてもらう項目ではありません。ID とパスワードだけでログインする形になり、下記の補い対策が標準設定になります。</p>
+    </div>
+    <div class="section-block">
+      <p class="section-label">選べるやり方</p>
+      <p>選択肢は示されていません。</p>
+    </div>
+    <div class="section-block">
+      <p class="section-label">開発側の意見</p>
+      <p>ID とパスワードだけの場合、パスワードが漏れるとそのまま全資料が見られてしまうため、代わりに次の 4 つを標準（既定）にします。</p>
+      <ul>
+        <li>パスワードの最低限の強さ</li>
+        <li>ログインに何度も失敗したときの一時ロック</li>
+        <li>既存の <code>must_rotate</code>（発行時と管理者によるリセット後の初回ログインで必ずパスワードを変更させる仕組み。定期的な変更を強制するものではありません）</li>
+        <li>いつ誰がログインしたかの履歴を管理者が確認できること</li>
+      </ul>
+    </div>
+    <div class="section-block">
+      <p class="section-label">決める前に知っておくこと</p>
+      <p>二段階認証がないため、パスワードが外に漏れた場合はそれだけで全資料の閲覧につながってしまうリスクが残ります。</p>
+    </div>
+    <div class="back-top"><a href="#top">目次へ戻る</a></div>
+  </article>
 
-      <article id="handover-1" class="card">
-        <span class="badge">申し送り 1 / phase-6-extensions</span>
-        <h3>通行証の使える期限（TTL）が長いことへの対策</h3>
-        <p><strong>報告の要点：</strong> 通行証が使える期限（<code>TTL</code>）を長くすると、もしその通行証が外に漏れたときに悪用されうる時間も長くなるという弱点が残ります。</p>
-        <p><strong>開発側が取る対策：</strong> 途中での取り消し（<code>revoke</code>：通行証を無効にすること）と、いつ使われたかの利用履歴の記録を必ず残す形で補って進めます。</p>
-        <p><strong>変えたいとき：</strong> 期限を短くしたいという指示があれば、いつでも設定で変えられるようにします。</p>
-      </article>
+  <article class="card card-handoff" id="handoff-progress">
+    <div class="card-header">
+      <span class="badge badge-handoff">申し送り</span>
+      <h3 class="card-title">8. 決まった項目の作業化と「申し送り」の扱い</h3>
+      <div class="card-meta">段階：phase-6-extensions</div>
+    </div>
+    <div class="section-block">
+      <p class="section-label">ひとことで言うと</p>
+      <p>決まった項目だけを作業表（PROGRESS.md）の作業にし、申し送りに書かれた補いの対策は「不要」と指示されれば外すという確認です。</p>
+    </div>
+    <div class="section-block">
+      <p class="section-label">いまどうなっているの</p>
+      <ul>
+        <li>今回のやり取りで決まった項目は、作業管理表（<code>PROGRESS.md</code>）の作業（ジョブ）へ変換します。決定のない項目は作業にしません。</li>
+        <li><code>【申し送り】</code> はオーナーの決定をひっくり返すものではありません。実装側が取る補いの対策をはっきり書いているだけで、不要と指示されれば外します。</li>
+      </ul>
+    </div>
+    <div class="section-block">
+      <p class="section-label">決めないとどうなるの</p>
+      <p>決定のない項目は作業（ジョブ）にならず、開発には進みません。</p>
+    </div>
+    <div class="section-block">
+      <p class="section-label">選べるやり方</p>
+      <p>選択肢は示されていません。</p>
+    </div>
+    <div class="section-block">
+      <p class="section-label">決める前に知っておくこと</p>
+      <p>申し送りに書かれている補いの対策について「それは要らない」という場合は、オーナーから不要と指示すれば外すことができます。</p>
+    </div>
+    <div class="back-top"><a href="#top">目次へ戻る</a></div>
+  </article>
 
-      <article id="handover-2" class="card">
-        <span class="badge">申し送り 2 / phase-6-extensions</span>
-        <h3>職場などのネットワーク内（LAN 内）の安全性と本人確認の工夫</h3>
-        <p><strong>報告の要点：</strong> 開発側としては「職場や研究室のネットワーク（<code>LAN</code>）の中だから攻撃は起きない」という前提には賛成していません。内部のネットワークであっても、乗っ取られて踏み台になったパソコンや、外から持ち込まれた端末、同じネットワーク内の別部署からのアクセスは起こりえます。</p>
-        <p><strong>オーナー判断の尊重と対策：</strong> ただし、どれくらい費用や手間をかけるかはオーナーが決めることなので、負担の重い「お互いに確認し合う仕組み（相互認証）」は入れずに進めます。その代わり、費用がほとんどゼロで効果のある次の 2 つだけを入れます。</p>
-        <ol>
-          <li><code>Runner</code>（作業を実際に動かすプログラムや機械）を登録するときの一回限りの合言葉</li>
-          <li><code>lease</code>（リース：一時的な利用権）の利用記録（誰のどの利用権が、いつ、どの Runner で使われたか）</li>
-        </ol>
-        <p>この 2 つは、あとから本人確認を強くしたくなったときの土台にもなります。</p>
-      </article>
+  <article class="card card-handoff" id="handoff-plot">
+    <div class="card-header">
+      <span class="badge badge-handoff">申し送り</span>
+      <h3 class="card-title">9. グラフや図を作る機能（作図：コード実行）の安全対策</h3>
+      <div class="card-meta">段階：phase-6-extensions</div>
+    </div>
+    <div class="section-block">
+      <p class="section-label">ひとことで言うと</p>
+      <p>図を作る機能は AI（モデル）が書いた命令を動かすため、ファイルを読むだけの機能より危険度が高く、作図専用の厳しい制限を追加して作るという報告です。</p>
+    </div>
+    <div class="section-block">
+      <p class="section-label">いまどうなっているの</p>
+      <p>ファイルを解析する機能は「攻撃者が選んだデータを読む」だけなのに対し、作図（B：コード実行）は「モデルが書いた命令を実行する」ため、より踏み込んだ危険な境界になります。そのため、<code>T-PH6-104</code> の安全境界をそのまま使い回すのではなく、作図用（<code>T-PH6-114</code> の合格条件）として次の制限を追加する前提で進めます。</p>
+      <ul>
+        <li>実行するのは生成されたコードだけにし、利用者の資料原本は「読み取り専用（書き換えられない状態）」で渡す。</li>
+        <li>出力は「画像 1 枚」と「画面の文字出力（標準出力）」だけに限る。</li>
+        <li>外部との通信（ネットワーク）は遮断する。</li>
+        <li>動かせる時間と使えるメモリは、作図用の別枠にする。</li>
+      </ul>
+    </div>
+    <div class="section-block">
+      <p class="section-label">決めないとどうなるの</p>
+      <p>これは決定に対する申し送りであり、新しく決めてもらう項目ではありません。これらの条件を <code>T-PH6-114</code> の受入条件（合格基準）に落として進めます。</p>
+    </div>
+    <div class="section-block">
+      <p class="section-label">選べるやり方</p>
+      <p>選択肢は示されていません。</p>
+    </div>
+    <div class="section-block">
+      <p class="section-label">開発側の意見</p>
+      <p>ファイル解析より危険な「命令の実行」になるため、上記の 4 つの制限を追加して作図を進める方針です。</p>
+    </div>
+    <div class="section-block">
+      <p class="section-label">決める前に知っておくこと</p>
+      <p>制限を付けずにそのまま動かすと、利用者の資料原本が書き換えられたり、ネットワーク越しに問題が起きたりするリスクがあります。</p>
+    </div>
+    <div class="back-top"><a href="#top">目次へ戻る</a></div>
+  </article>
 
-      <article id="handover-3" class="card">
-        <span class="badge">申し送り 3 / phase-6-extensions</span>
-        <h3>危ないデータを受け入れる場合の隔離（サンドボックス）の前提</h3>
-        <p><strong>報告の要点：</strong> 「危ないデータを入れるのは本人の責任」という考え方は、被害がその本人だけに収まるときにしか成り立ちません。Locus はみんなで共有して使う道具なので、悪い仕組みが仕込まれたファイルが開かれた瞬間に、被害がサーバ側（つまり全員の資料がある場所）へ広がるおそれがあります。</p>
-        <p><strong>開発側が取る対策：</strong> その危険を埋めるために「サンドボックス（隔離された安全な箱の中で動かす仕組み）」を使います。この安全な箱を使うことを前提として、「広く受け入れる」仕組みを作ります。</p>
-      </article>
-
-      <article id="handover-4" class="card">
-        <span class="badge">申し送り 4 / phase-6-extensions</span>
-        <h3>同時作業の枠（スロット数 N）と機械の性能のバランス</h3>
-        <p><strong>報告の要点：</strong> 同時に動かせる作業の枠（スロット）を増やすと、<code>メモリ</code>（作業用の記憶場所）や <code>GPU</code>（画像や計算を高速に処理する部品）の消費も同じ割合で増えます。上限の数（<code>N</code>）は、実際にこのシステムを置く機械の性能で決まります。</p>
-        <p><strong>開発側が取る対策：</strong> <code>N</code> は設定で変えられるようにしたままにし、システムを起動したときに実際の機械の性能を測って、上限を超えていたら警告を出すようにします。</p>
-      </article>
-
-      <article id="handover-5" class="card">
-        <span class="badge">申し送り 5 / phase-6-extensions</span>
-        <h3>追加の本人確認（MFA）をやめたことによるパスワード周りの対策</h3>
-        <p><strong>報告の要点：</strong> <code>MFA</code>（多要素認証：パスワードに加えて別の確認も求める仕組み）は、2026年11月9日の記録では「本番で必ず必要」と整理されていましたが、今回の回答で「不要」に変わりました。そのため、<code>IAM-005</code>（該当する要件の番号）の扱いを「実装しない（オーナー判断 2026年11月16日）」へ改めます。</p>
-        <p><strong>残る弱点と対策：</strong> ID とパスワードだけになると、パスワードが漏れただけで全部の資料を見られてしまう弱点が残ります。そこで、代わりに次の 4 つを標準で入れます。</p>
-        <ul>
-          <li>パスワードの最低限の強さ（簡単すぎるものを防ぐ）</li>
-          <li>一定回数間違えたら一時的に入れなくする仕組み（一時ロック）</li>
-          <li>既存の <code>must_rotate</code>（新しく発行したときや管理者がリセットしたあとの初回ログインで、必ずパスワードを変更させる仕組み。定期的な変更を強制するものではありません）</li>
-          <li>ログイン履歴を管理者が確認できる仕組み</li>
-        </ul>
-      </article>
-
-      <article id="handover-6" class="card">
-        <span class="badge">申し送り 6 / phase-6-extensions</span>
-        <h3>決まったことの扱いと申し送りの位置づけ</h3>
-        <ul>
-          <li>ここで決まった項目は <code>PROGRESS.md</code>（進捗を記録するファイル）の作業リスト（ジョブ）に変換します。決まっていない項目は作業にしません。</li>
-          <li>【申し送り】はオーナーの決定をひっくり返すものではありません。開発側が弱点を補うために取る工夫をはっきり書いているだけで、不要だと指示されれば外します。</li>
-        </ul>
-      </article>
-
-      <article id="handover-7" class="card">
-        <span class="badge">申し送り 7 / phase-6-extensions</span>
-        <h3>図を作るためのプログラム実行（B）に設ける安全制限</h3>
-        <p><strong>報告の要点：</strong> 「B（コード実行：プログラムを動かして図を作ること）」は、ファイルの中身を解析する作業よりも危険度が高い境界になります。解析は「攻撃者が選んだデータを読む」だけなのに対し、図を作る作業は「AI（モデル）が書いた命令そのものを実行する」ためです。</p>
-        <p><strong>開発側が取る対策：</strong> <code>T-PH6-104</code>（別の作業番号）で使った安全の枠組みをそのまま使い回すのではなく、図を作る作業用に次の制限を追加する前提で進めます。これらは <code>T-PH6-114</code>（作図作業の番号）の合格条件（受入条件）に落とし込みます。</p>
-        <ul>
-          <li>実行するのは新しく作られたプログラム（コード）だけにし、利用者の元の資料は「読むだけ（書き換え不可）」で渡す</li>
-          <li>外に出せる結果は「画像 1 枚」と「文字の出力（標準出力）」だけに限る</li>
-          <li>ネットワーク（外部との通信）はつなげない（遮断する）</li>
-          <li>動かせる時間と使えるメモリ（作業用の記憶場所）は、図を作る作業専用の別枠にする</li>
-        </ul>
-      </article>
-
-      <article id="handover-8" class="card">
-        <span class="badge">申し送り 8 / phase-6-extensions</span>
-        <h3>ルール文書（CLAUDE.md と AGENTS.md）の食い違い</h3>
-        <p><strong>報告の要点：</strong> ルールを書いたファイルである <code>CLAUDE.md</code> と <code>AGENTS.md</code> には、いま「別の担当AIを同時にいくつも動かさない（サブエージェント駆動開発・並列エージェント起動を行わない）」とはっきり書かれており、今回の指示と食い違っています。</p>
-        <div class="callout">
-          <strong>開発側からの提案：</strong> 実際のやり方に合わせて両方のファイルを書き換えることを提案します（ルールの文面変更にはオーナーの承認が必要なため、ここでは提案にとどめています）。食い違いをそのままにしておくと、次に別の担当者が読んだときにどちらが正しいのか分からなくなります。
-        </div>
-      </article>
-    </section>
-  </div>
+  <article class="card card-handoff" id="handoff-docs">
+    <div class="card-header">
+      <span class="badge badge-handoff">申し送り</span>
+      <h3 class="card-title">10. 開発ルール書類（CLAUDE.md と AGENTS.md）の食い違い修正の提案</h3>
+      <div class="card-meta">段階：phase-6-extensions</div>
+    </div>
+    <div class="section-block">
+      <p class="section-label">ひとことで言うと</p>
+      <p>開発ルールを書いた書類（<code>CLAUDE.md</code> と <code>AGENTS.md</code>）の内容が今回の指示と食い違っているため、実態に合わせて書き換えてよいか提案するという報告です。</p>
+    </div>
+    <div class="section-block">
+      <p class="section-label">いまどうなっているの</p>
+      <p><code>CLAUDE.md</code> と <code>AGENTS.md</code> には現在「サブエージェント駆動開発・並列エージェント起動（複数の AI 作業員を同時に動かすやり方）を行わない」とはっきり書かれており、今回の指示と食い違っています。ルール書類（governance）の文面を変えるにはオーナーの承認が必要なため、ここではまだ書き換えず、提案にとどめています。</p>
+    </div>
+    <div class="section-block">
+      <p class="section-label">決めないとどうなるの</p>
+      <p>食い違いを放置すると、次に別の担当者が書類を読んだときに「どちらが正しいルールなのか」が分からなくなってしまいます。</p>
+    </div>
+    <div class="section-block">
+      <p class="section-label">選べるやり方</p>
+      <p>選択肢は示されていません。</p>
+    </div>
+    <div class="section-block">
+      <p class="section-label">開発側の意見</p>
+      <p>実態に合わせて <code>CLAUDE.md</code> と <code>AGENTS.md</code> の両方を更新することを提案します。理由：食い違いを残すと、次の担当者が迷うためです。</p>
+    </div>
+    <div class="section-block">
+      <p class="section-label">決める前に知っておくこと</p>
+      <p>ルール書類の文面変更にはオーナーの承認が必要です。</p>
+    </div>
+    <div class="back-top"><a href="#top">目次へ戻る</a></div>
+  </article>
+</div>
 </body>
 </html>
