@@ -215,6 +215,37 @@ RULING` section of the task file, and an `**Answer**` under the matching entry i
   conflict in `service.py` resolved by guesswork destroys the one thing the
   record is for: knowing whether the change passed.
 
+## Fixing the harness is work on a live system
+
+The tools are the shift's own, which makes it easy to ship a repair without the
+measurement a worker would be required to produce. Three in one evening on
+2026-11-22:
+
+- **A print that goes into a pipe is not a fix.** `Controller.note` was taught
+  to print so the owner's window would show dispatches. It did not help:
+  `supervise_loop` ran each cycle with `capture_output=True`, so the line went
+  into the pipe and then into the cycle's log tail, where it duplicated what
+  `note` had already written. **I reported that one as fixed before checking
+  it.** The repair is a tee — read the child a line at a time and echo it — and
+  the proof is running one cycle in the foreground and seeing `run ::` in the
+  output.
+- **`FETCH_HEAD..HEAD` is a comparison of two tips, not a job's own change.**
+  Used to find a workspace whose work is committed, it listed every file the
+  branch had gained since the clone, and the scope gate failed `T-PH6-104` for
+  `.claude/skills/README.md`. Measure from `merge-base`. The job went from
+  `review` to `doing` because of it — my repair cost the ticket the state my
+  previous ruling had just put it in.
+- **A check that cannot tell "fixed" from "still happening" cries wolf.** The
+  churn count kept failing for twenty-eight minutes after the cause was
+  repaired, because its window is an hour. It prints the time of the last
+  occurrence now, and a mark that has not recurred in fifteen minutes is
+  reported without failing — the same reasoning `diagnose` applies with its
+  repair dates.
+
+So: after repairing the harness, **run the thing the repair was about** and read
+the output. A green suite says the code does what the test says; it does not say
+the owner can now see the loop working.
+
 ## Your own writing goes through the gates too
 
 A ruling is a file in the repository, and the gates apply to it.

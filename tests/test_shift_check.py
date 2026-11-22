@@ -11,11 +11,13 @@ from __future__ import annotations
 import importlib.util
 import io
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+JST = timezone(timedelta(hours=9))
 EM_DASH_LINE = "T-PH6-125 — attempt limit reached"
 
 
@@ -115,3 +117,41 @@ def test_stream_returns_the_output_and_the_exit_code(
     assert code == 3
     assert output.splitlines() == ["first", "second"]
     assert "first" in capfd.readouterr().out, "the console is the point"
+
+
+def test_a_repeat_that_has_stopped_is_reported_but_not_a_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The hour window cannot tell that a cause was repaired inside it.
+
+    `T-PH6-104 nothing-to-resume x4` kept failing this check for twenty-eight
+    minutes after the controller fix that ended it on 2026-11-22 — the same trap
+    `diagnose` avoids with repair dates. The count and the time still print; only
+    the verdict changes.
+    """
+    check = load()
+    monkeypatch.setattr(check, "ROOT", tmp_path)  # type: ignore[arg-type]
+    state = tmp_path / ".jobloop"
+    state.mkdir()
+    now = datetime.now(JST)
+
+    def log(when: datetime, times: int) -> None:
+        state.joinpath("supervisor.log").write_text(
+            "".join(
+                f"{(when).isoformat()} run :: T-A-1: nothing-to-resume - no changes\n"
+                for _ in range(times)
+            ),
+            encoding="utf-8",
+        )
+
+    # Still happening: a failure, and it says when.
+    log(now - timedelta(minutes=2), 3)
+    fresh = check.churn()  # type: ignore[attr-defined]
+    assert fresh.startswith("FAIL"), fresh
+    assert "x3" in fresh and "last " in fresh
+
+    # Stopped half an hour ago: still reported, no longer a failure.
+    log(now - timedelta(minutes=30), 3)
+    old = check.churn()  # type: ignore[attr-defined]
+    assert old.startswith("ok"), old
+    assert "x3" in old, old

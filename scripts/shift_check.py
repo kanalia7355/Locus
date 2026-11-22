@@ -184,6 +184,7 @@ def churn() -> str:
     # that was fixed the repetition became what a correct wait looks like, and
     # a check that fails on correct behaviour trains the reader to ignore it.
     counted: dict[str, int] = {}
+    latest: dict[str, str] = {}
     for line in recent:
         # Count the per-job lines only. A cycle's closing line repeats every
         # outcome it saw, so each event was counted twice and `T-PH6-104` was
@@ -198,12 +199,27 @@ def churn() -> str:
                     if mark in part:
                         job = part.strip().split(":")[0].strip()
                         counted[f"{job} {mark}"] = counted.get(f"{job} {mark}", 0) + 1
+                        latest[f"{job} {mark}"] = max(latest.get(f"{job} {mark}", ""), line[:25])
     # Twice is already a repeat. The threshold was three, and the churn that
     # prompted this check sat at two for an hour — read by a person, not by this.
     repeating = {key: count for key, count in counted.items() if count >= 2}
     if not repeating:
         return "ok    no repeating outcome in the log"
-    named = ", ".join(f"{key} x{count}" for key, count in sorted(repeating.items())[:4])
+    # Say when it last happened, and stop failing once it has stopped. The hour
+    # window cannot tell that a cause was repaired inside it, so on 2026-11-22
+    # this still reported `T-PH6-104 nothing-to-resume x4` for twenty-eight
+    # minutes after the controller fix that ended it — the `diagnose` trap of
+    # re-reporting a stop that predates its own repair. A mark that has not
+    # recurred for a quarter of an hour, across roughly seven cycles, is
+    # history; the count and the time are still printed either way.
+    freshest = max(latest.get(key, "") for key in repeating)
+    stale = freshest < (datetime.now(JST) - timedelta(minutes=15)).isoformat()
+    named = ", ".join(
+        f"{key} x{count} (last {latest.get(key, '?')[11:16]})"
+        for key, count in sorted(repeating.items())[:4]
+    )
+    if stale:
+        return f"ok    a repeat stopped more than 15 min ago: {named}"
     return f"FAIL  the same outcome keeps repeating: {named}"
 
 
