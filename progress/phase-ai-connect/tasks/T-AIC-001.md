@@ -34,11 +34,14 @@ test_cmd: python -m pytest tests/test_provider_openai_compatible.py tests/test_l
        `available()` / `generate(model, text, citations, timeout_seconds=None, on_delta=None)`
      - 内部差分は接続先と認証とワイヤ形式のみ:
        - POST `{base_url}/chat/completions`（OpenAI互換 Chat Completions 形式）。
-         `base_url` は環境変数 `LOCUS_OPENAI_COMPATIBLE_BASE_URL` から読む
-         （未設定なら configure を 422 で拒否）。
-       - 認証は環境変数 `LOCUS_OPENAI_COMPATIBLE_API_KEY` を `Authorization: Bearer` に
-         付ける。**値はクラス属性・例外メッセージ・ログ・`status()` の戻り値に含めない**
-         （`status()` に出してよいのは `api_key_present: bool` まで）。
+       - **`base_url` と API キーは引数で受け取る。環境変数を読まない。**
+         オーナー決定 2026-11-22 により鍵は**利用者ごと**になり、解決はハーネス層
+         （`T-AIC-005`）の仕事になった。アダプタは**運び屋**で、
+         どの利用者の鍵かを知らないまま運ぶ。
+         `generate(..., *, base_url: str, api_key: str)` の形にし、
+         **クラス属性・モジュール変数・例外メッセージ・ログ・`status()` の戻り値に
+         値を保持しない**（`status()` に出してよいのは `api_key_present: bool` まで）。
+         値が空なら `fail(422, ...)` で拒否する（既定で閉じている）。
        - system プロンプトは `LocalModel._payload` と同一文面・同一の資料JSON形式を使う
          （資料内命令を実行させない方針をプロバイダ間で変えない）。
        - ストリーミングは SSE（`data:` 行、終端 `[DONE]`）をパースし、
@@ -58,12 +61,16 @@ test_cmd: python -m pytest tests/test_provider_openai_compatible.py tests/test_l
      **実ネットワークへ一切出ない**こと:
      - 正常応答（通常／ストリーム）の往復と、リクエストヘッダに
        Bearer が付いていること（テスト用ダミー値で検証）
-     - APIキー未設定時の configure 拒否、`status()` にキー値が含まれないこと
+     - APIキーが空のときの拒否、`status()` にキー値が含まれないこと
+     - **鍵が引数として渡ること**（クラス属性・モジュール変数に残らないこと。
+       `vars(instance)` と `status()` の両方に現れないことで示す）
      - `tool_calls` 付き応答・モデル名不一致・空応答・非200 の拒否
      - 占有時の 429、設定変更時の `validate` 409
 - **Acceptance Criteria**:
   1. MockTransport 上で OpenAI互換エンドポイントとの通常／ストリーム応答が往復できる。
-  2. APIキーの値が `status()`・例外・テスト出力のどこにも現れない。
+  2. APIキーの値が `status()`・例外・テスト出力・インスタンス属性のどこにも現れない。
+  2b. **環境変数を読んでいないこと**（`os.environ` / `getenv` を使っていないこと）。
+     どう確かめたかを報告に書く。
   3. `tool_calls` 付き応答が拒否され、ツール実行に繋がらない。
   4. `tests/test_local_model.py` を含む既存テストに退行がない。
   5. 変更が allowed_paths 内に収まっている。

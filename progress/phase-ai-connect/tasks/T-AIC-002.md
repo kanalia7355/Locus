@@ -7,7 +7,7 @@ model: unassigned
 weight: medium
 updated: 2026-11-22T13:56:00+09:00
 attempts: 0
-depends_on: T-AIC-001
+depends_on: T-AIC-001, T-AIC-005
 allowed_paths: backend/app/model_catalog.py, backend/app/main.py, tests/test_model_catalog.py, tests/test_provider_openai_compatible.py
 test_cmd: python -m pytest tests/test_model_catalog.py tests/test_provider_openai_compatible.py tests/test_local_model.py -q
 ---
@@ -30,10 +30,11 @@ test_cmd: python -m pytest tests/test_model_catalog.py tests/test_provider_opena
   1. `backend/app/model_catalog.py`:
      - `sources()` に `{"id": "openai-compatible", "label": "OpenAI互換API", "kind": "remote"}`
        を追加する。
-     - 発見は `GET {base_url}/models`（Bearer 認証、base_url／キーは T-AIC-001 と同じ
-       環境変数から解決）。応答の `data[].id` をモデル候補として正規化し、
+     - 発見は `GET {base_url}/models`（Bearer 認証）。**`base_url` と鍵は引数で受け取る**
+       （環境変数を読まない。解決はハーネス層の仕事）。
+       応答の `data[].id` をモデル候補として正規化し、
        既存の `_record` 形式（id / name / source_id / status）に合わせる。
-     - 環境変数が未設定の場合は source の status を `unavailable` とし、
+     - 鍵が解決できない場合は source の status を `unavailable` とし、
        **理由にキーやURLの資格情報部分を含めない**。
      - 既存の安全策（deadline、サイズ上限、MockTransport 注入可能性）は維持する。
   2. `backend/app/main.py`:
@@ -50,12 +51,12 @@ test_cmd: python -m pytest tests/test_model_catalog.py tests/test_provider_opena
        （ローカル専用フラグを外部モデルに流用しない）。
      - 監査 `model.configure` の記録先ラベルは provider を含める
        （例: `remote-model-runtime`）。監査にもキー値は書かない。
-  3. **分類ガード**: リモート runtime が有効な状態で会話経路が外部送信する前に、
-     対象 workspace のポリシー（分類上限・egress）が許可しない場合は送信を拒否する。
-     判定材料が取れない workspace は「不明＝拒否」とする
-     （要件: 分類不明データは送信拒否）。拒否は監査に残す。
-     ※ 判定の置き場所は実装時に既存のポリシー判定（`app/agents/registry.py` の
-     ポリシー読み取り、または service 層）に合わせ、**新しいポリシー基盤は作らない**。
+  3. **分類ガードは本票の仕事ではない。** オーナー決定 2026-11-22 により
+     ハーネス層（`T-AIC-005`）に集約した。本票は**会話経路がハーネスを通ること**だけを
+     担保する。ハーネスを迂回してアダプタを直接呼ぶ経路を作らないこと。
+     （草案は置き場所を「実装時に合わせる」としていたが、`agents/registry.py` も
+     service 層も本票の許可パスに入っていなかった。
+     書けない場所を要求する票は `T-PH8-301/302/303` と `T-PH6-104` を止めた形である。）
   4. テスト:
      - `tests/test_model_catalog.py` に `/models` 発見の正常系／未設定時 unavailable を追加。
      - 管理API経由の往復（discover → runtime 選択 → 会話応答）は
@@ -65,7 +66,8 @@ test_cmd: python -m pytest tests/test_model_catalog.py tests/test_provider_opena
   1. 管理者が discover で OpenAI互換のモデル一覧を取得し、runtime に選択できる。
   2. 選択したリモートモデルで会話応答（通常／ストリーム）が返る。
   3. APIキーの値が runtime 応答・監査・カタログ応答のどこにも現れない。
-  4. 分類／egress が許可しない workspace からは外部送信されず、監査に拒否が残る。
+  4. 会話経路が**ハーネスを通る**こと（アダプタを直接呼ぶ経路が無いこと）。
+     分類／egress の拒否そのものの検証は `T-AIC-005` が持つ。
   5. Ollama の発見・選択・応答に退行がない。
   6. 変更が allowed_paths 内に収まっている。
 - **Reviewer Model (実装モデルとは別モデルを指定)**: `<未割当>`

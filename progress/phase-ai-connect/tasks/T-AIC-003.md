@@ -28,8 +28,11 @@ test_cmd: npm --prefix frontend test -- --run src/ModelSettings.test.tsx src/Mod
      `provider` と `api_key_present` を追加し、表示する:
      - 接続先プロバイダ名（Ollama ローカル / OpenAI互換API）
      - 認証状態は **「APIキー: 設定済み／未設定」の presence 表示のみ**。
-       **キー入力欄は作らない**（キーはサーバ環境変数で管理する設計のため。
-       画面から値を送る導線を作ることは本フェーズの境界 §3-2 違反）。
+       表示は**ログインしている利用者自身の状態**であること
+       （オーナー決定 2026-11-22 により鍵は利用者ごと）。
+     - **キー入力欄は本票では作らない。** 鍵の保管方式が `T-AIC-006` の設計で
+       決まっていないため。入力導線を先に作ると、保管方式が決まる前に
+       値がサーバへ流れ始める。入力 UI は `T-AIC-006` 確定後の別票で起こす。
   2. `ModelSettings.tsx` の発見ソース一覧に、API が返す
      `openai-compatible` ソースをそのまま表示できるようにする
      （ソース名のハードコード追加は最小限にし、API の `label` を使う）。
@@ -45,6 +48,7 @@ test_cmd: npm --prefix frontend test -- --run src/ModelSettings.test.tsx src/Mod
 - **Acceptance Criteria**:
   1. 管理画面でプロバイダ種別とモデルの出所が判別できる。
   2. 認証状態は presence のみ表示され、キー値を入力・表示する要素が存在しない。
+     presence は**ログイン中の利用者自身**のものであること（他人の状態を出さない）。
   3. リモート選択時に外部送信の確認文言が表示される。
   4. 既存の Vitest・typecheck に退行がない。
   5. 変更が allowed_paths 内に収まっている。
