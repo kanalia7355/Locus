@@ -65,6 +65,41 @@ async function askSomething(page: Page) {
   await expect(answers).toHaveCount(before + 1);
 }
 
+/** Sign in as an account an earlier check already rotated.
+ *
+ * The e2e server provisions one throwaway account per check (0..12) and
+ * enter() spends it by rotating the temporary password, so a later check
+ * cannot use enter() again. It signs in with the rotated password instead.
+ * Like the scope-popup check below, this depends on the file's execution
+ * order (workers: 1, retries: 0); run the whole file, not a single -g case.
+ */
+async function signInAgain(page: Page, index: number) {
+  await page.goto("/");
+  await page.getByLabel("利用者ID").fill(`test-researcher-${index}`);
+  await page
+    .getByLabel("パスワード", { exact: true })
+    .fill("Changed-synthetic-password-01!");
+  await page.getByRole("button", { name: "ログイン", exact: true }).click();
+  await expect(
+    page.getByRole("textbox", { name: "メッセージ", exact: true }),
+  ).toBeVisible();
+}
+
+/** Open the source modal the way a reader does: click the citation.
+ *
+ * Clicking the citation is what wires up the document and chunk the modal
+ * shows, so the check drives the real path instead of a shortcut.
+ */
+async function openSourceModal(page: Page) {
+  await page
+    .getByRole("button", { name: /合成サンプル_成膜条件\.txt · p\./ })
+    .first()
+    .click();
+  const modal = page.getByRole("dialog", { name: "出典の原文" });
+  await expect(modal).toBeVisible();
+  return modal;
+}
+
 /**
  * A button that is enabled but always fails is worse than no button: copying
  * the temporary password is how an administrator hands the account over, and
@@ -635,4 +670,82 @@ test("a dark choice is dark from the first paint after reload", async ({
     measured.scheme,
     "color-scheme when the first paint was requested",
   ).toBe("dark");
+});
+
+// T-PH6-116: the source modal is a native <dialog> opened with showModal().
+// Its own 35-line Tab trap is gone, so these checks pin the property the trap
+// used to guarantee — focus stays inside the modal — in a real browser. The
+// file runs these after the earlier checks have rotated test-researcher-1.
+test("Tab does not move focus out of the source modal", async ({ page }) => {
+  await page.setViewportSize(WIDTHS[0]);
+  await signInAgain(page, 1);
+  await askSomething(page);
+  await openSourceModal(page);
+  const focusState = () =>
+    page.evaluate(() => {
+      // Matches the migrated native <dialog> and the pre-migration
+      // [role="dialog"] section, so the same probe measures both builds.
+      const dialog = document.querySelector('dialog, [role="dialog"]');
+      const active = document.activeElement as HTMLElement | null;
+      if (!dialog) return "no-dialog";
+      if (!active) return "no-active";
+      if (active === document.body) return "body";
+      return dialog.contains(active)
+        ? "inside"
+        : `outside <${active.tagName.toLowerCase()}>`;
+    });
+  for (let tab = 0; tab < 20; tab++) {
+    await page.keyboard.press("Tab");
+    expect(await focusState(), `focus after Tab #${tab + 1}`).toBe("inside");
+  }
+  for (let tab = 0; tab < 20; tab++) {
+    await page.keyboard.press("Shift+Tab");
+    expect(await focusState(), `focus after Shift+Tab #${tab + 1}`).toBe(
+      "inside",
+    );
+  }
+});
+
+test("Escape closes the source modal", async ({ page }) => {
+  // Closing on Escape is native <dialog> behaviour; before the migration the
+  // modal needed a hand-written key handler for the same effect.
+  await page.setViewportSize(WIDTHS[0]);
+  await signInAgain(page, 1);
+  await askSomething(page);
+  const modal = await openSourceModal(page);
+  await page.keyboard.press("Escape");
+  await expect(modal).toBeHidden();
+});
+
+test("the page behind the source modal does not scroll", async ({ page }) => {
+  // The modal must not let a wheel over its backdrop move the chat behind it.
+  // The conversation is tall enough to scroll, or the check proves nothing.
+  await page.setViewportSize(WIDTHS[0]);
+  await signInAgain(page, 1);
+  for (let turn = 0; turn < 3; turn++) await askSomething(page);
+  const messages = page.locator(".messages");
+  const scrollable = await messages.evaluate(
+    (element) => element.scrollHeight - element.clientHeight,
+  );
+  expect(
+    scrollable,
+    "fixture page is not tall enough to scroll",
+  ).toBeGreaterThan(0);
+  await openSourceModal(page);
+  // Opening the modal re-renders the conversation and may scroll it, so the
+  // wheel check starts from a known position *after* the modal is open.
+  await messages.evaluate((element) => {
+    element.scrollTop = 0;
+  });
+  // The dialog is centred (max width 800px at 1280px), so this point is on
+  // the backdrop below-left of it, over the chat that sits behind.
+  await page.mouse.move(40, 780);
+  await page.mouse.wheel(0, 800);
+  await page.waitForTimeout(200);
+  const top = await messages.evaluate((element) => element.scrollTop);
+  expect(top, "wheel over the backdrop scrolled the text behind").toBe(0);
+  const documentTop = await page.evaluate(
+    () => (document.scrollingElement ?? document.documentElement).scrollTop,
+  );
+  expect(documentTop, "the document itself scrolled behind the modal").toBe(0);
 });

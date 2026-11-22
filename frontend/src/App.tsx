@@ -50,6 +50,29 @@ import type {
   User,
 } from "./api";
 
+/**
+ * Controls inside a modal <dialog>, in tab order.
+ *
+ * A native modal contains focus in the page, but Chromium hands the Tab that
+ * leaves the last control to the browser UI; while that happens
+ * document.activeElement is <body>. The two .focus-guard spans at the dialog's
+ * edges pull focus back inside so the focus never rests outside the modal.
+ * They are not a Tab handler: the native dialog still decides the order, and
+ * this only undoes the browser-chrome gap at the two ends.
+ */
+function dialogControls(dialog: HTMLDialogElement | null): HTMLElement[] {
+  if (!dialog) return [];
+  return Array.from(
+    dialog.querySelectorAll<HTMLElement>(
+      'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+    ),
+  ).filter(
+    (control) =>
+      !control.classList.contains("focus-guard") &&
+      control.getClientRects().length > 0,
+  );
+}
+
 function readStoredTheme(): string | null {
   try {
     return window.localStorage.getItem(THEME_STORAGE_KEY);
@@ -659,7 +682,7 @@ function Workspace({
   const conversationRef = useRef<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const personalInput = useRef<HTMLInputElement>(null);
-  const sourceClose = useRef<HTMLButtonElement>(null);
+  const sourceDialog = useRef<HTMLDialogElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const sidebarToggle = useRef<HTMLButtonElement>(null);
   const lastPage = useRef(page);
@@ -910,10 +933,20 @@ function Workspace({
   }, [page]);
 
   useEffect(() => {
-    if (source?.selectedChunk && sourceTarget.current) {
+    if (!source) return;
+    // showModal() is what makes the dialog modal: it moves the element to the
+    // top layer, makes the rest of the page inert and contains focus. Opening
+    // with the `open` attribute (or show()) would skip all of that. The .open
+    // guard avoids calling showModal() again on a dialog that is already open
+    // (e.g. a related document opened from inside it).
+    const dialog = sourceDialog.current;
+    if (dialog && !dialog.open) dialog.showModal();
+    if (source.selectedChunk && sourceTarget.current) {
       sourceTarget.current.focus();
-      sourceTarget.current.scrollIntoView({ block: "nearest" });
-    } else if (source) sourceClose.current?.focus();
+      // jsdom does not implement scrolling; guard so the effect cannot take
+      // the whole tree down in unit tests.
+      sourceTarget.current.scrollIntoView?.({ block: "nearest" });
+    }
   }, [source]);
 
   function toggleSidebar() {
@@ -1807,86 +1840,86 @@ function Workspace({
         )}
       </main>
       {source && (
-        <div
-          className="modal-backdrop"
+        <dialog
+          ref={sourceDialog}
+          className="source-modal"
+          aria-label="出典の原文"
+          closedby="any"
+          onClose={closeSource}
           onClick={(event) => {
-            if (event.target === event.currentTarget) closeSource();
+            // Safari has no light dismiss for <dialog> (and does not support
+            // closedby), so a click that lands on the dialog itself, outside
+            // the content rectangle, closes it as the fallback for such
+            // browsers. Chromium closes on the native closedby="any" path.
+            if (event.target !== event.currentTarget) return;
+            const rect = event.currentTarget.getBoundingClientRect();
+            if (
+              event.clientX < rect.left ||
+              event.clientX >= rect.right ||
+              event.clientY < rect.top ||
+              event.clientY >= rect.bottom
+            ) {
+              event.currentTarget.close();
+            }
           }}
         >
-          <section
-            className="source-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label="出典の原文"
-            onKeyDown={(event) => {
-              if (event.key === "Escape") closeSource();
-              if (event.key === "Tab") {
-                const controls = Array.from(
-                  event.currentTarget.querySelectorAll<HTMLElement>(
-                    'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
-                  ),
-                ).filter((control) => control.getClientRects().length > 0);
-                const first = controls[0];
-                const last = controls[controls.length - 1];
-                const inside = controls.some(
-                  (control) => control === document.activeElement,
-                );
-                if (!inside) {
-                  event.preventDefault();
-                  (event.shiftKey ? last : first)?.focus();
-                } else if (event.shiftKey && document.activeElement === first) {
-                  event.preventDefault();
-                  last?.focus();
-                } else if (!event.shiftKey && document.activeElement === last) {
-                  event.preventDefault();
-                  first?.focus();
-                }
-              }
-            }}
-          >
-            <div className="source-heading">
-              <div className="section-toolbar">
-                <h2>出典の原文</h2>
-                <button ref={sourceClose} onClick={closeSource}>
-                  閉じる
-                </button>
-              </div>
-              <p className="source-document-name">{source.document.name}</p>
+          <span
+            className="focus-guard"
+            tabIndex={0}
+            onFocus={() =>
+              dialogControls(sourceDialog.current).at(-1)?.focus()
+            }
+          />
+          <div className="source-heading">
+            <div className="section-toolbar">
+              <h2>出典の原文</h2>
+              {/* Only the close button sits in the dialog form:
+                  RelatedDocuments renders plain <button>s, which would become
+                  submit buttons and close the dialog on every click. */}
+              <form method="dialog">
+                <button autoFocus>閉じる</button>
+              </form>
             </div>
-            {sourceError && <p role="alert">{sourceError}</p>}
-            {source.chunks.map((chunk) => (
-              <div
-                key={chunk.id}
-                ref={source.selectedChunk === chunk.id ? sourceTarget : null}
-                className={
-                  source.selectedChunk === chunk.id
-                    ? "selected-source"
-                    : undefined
-                }
-                role={source.selectedChunk === chunk.id ? "region" : undefined}
-                aria-label={
-                  source.selectedChunk === chunk.id
-                    ? `引用箇所 p.${chunk.page} chunk ${chunk.ordinal}`
-                    : undefined
-                }
-                tabIndex={source.selectedChunk === chunk.id ? -1 : undefined}
-              >
-                <p className="muted">
-                  p.{chunk.page} · chunk {chunk.ordinal}
-                </p>
-                <pre>{chunk.text}</pre>
-              </div>
-            ))}
-            {can("retrieve") && (
-              <RelatedDocuments
-                key={`${source.document.id}:${conversationId ?? ""}`}
-                documentId={source.document.id}
-                conversationId={conversationId}
-                onOpen={openSource}
-              />
-            )}
-          </section>
-        </div>
+            <p className="source-document-name">{source.document.name}</p>
+          </div>
+          {sourceError && <p role="alert">{sourceError}</p>}
+          {source.chunks.map((chunk) => (
+            <div
+              key={chunk.id}
+              ref={source.selectedChunk === chunk.id ? sourceTarget : null}
+              className={
+                source.selectedChunk === chunk.id
+                  ? "selected-source"
+                  : undefined
+              }
+              role={source.selectedChunk === chunk.id ? "region" : undefined}
+              aria-label={
+                source.selectedChunk === chunk.id
+                  ? `引用箇所 p.${chunk.page} chunk ${chunk.ordinal}`
+                  : undefined
+              }
+              tabIndex={source.selectedChunk === chunk.id ? -1 : undefined}
+            >
+              <p className="muted">
+                p.{chunk.page} · chunk {chunk.ordinal}
+              </p>
+              <pre>{chunk.text}</pre>
+            </div>
+          ))}
+          {can("retrieve") && (
+            <RelatedDocuments
+              key={`${source.document.id}:${conversationId ?? ""}`}
+              documentId={source.document.id}
+              conversationId={conversationId}
+              onOpen={openSource}
+            />
+          )}
+          <span
+            className="focus-guard"
+            tabIndex={0}
+            onFocus={() => dialogControls(sourceDialog.current)[0]?.focus()}
+          />
+        </dialog>
       )}
     </div>
   );

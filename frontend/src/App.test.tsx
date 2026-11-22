@@ -1247,3 +1247,129 @@ describe("project switch with pending job", () => {
     expect(screen.queryByText("成膜条件は180°Cです。")).not.toBeInTheDocument();
   });
 }, 20000);
+
+describe("source provenance modal", () => {
+  const CITE_NAME = "比較結果.txt";
+
+  function mockCitationFetch() {
+    const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (input, options) => {
+      const path = String(input);
+      if (path.endsWith("/messages") && options?.method === "POST") {
+        return new Response(
+          JSON.stringify({
+            id: "message-source",
+            text: "比較の答えです",
+            scope: "all",
+            citations: [
+              {
+                id: "chunk-1",
+                document_id: "document-1",
+                page: 2,
+                ordinal: 1,
+                name: CITE_NAME,
+                text: "出典の原文です",
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+      }
+      if (path.includes(`/documents/document-1/chunks`))
+        return new Response(
+          JSON.stringify([
+            {
+              id: "chunk-1",
+              document_id: "document-1",
+              page: 2,
+              ordinal: 1,
+              text: "出典の原文です",
+            },
+          ]),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+      if (path.includes("/documents/document-1/related"))
+        return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      if (path.includes("/documents/document-1"))
+        return new Response(
+          JSON.stringify({
+            id: "document-1",
+            name: CITE_NAME,
+            project_id: "project",
+            kind: "personal",
+            status: "ready",
+            conversation_id: "conversation",
+            created: 1,
+            owned: true,
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+      return originalFetch(input, options);
+    });
+  }
+
+  async function openSourceDialog() {
+    render(<App />);
+    const field = await screen.findByRole("textbox", { name: "メッセージ" });
+    fireEvent.change(field, { target: { value: "比較してください" } });
+    fireEvent.click(screen.getByRole("button", { name: "送信" }));
+    const citation = await screen.findByRole("button", {
+      name: /比較結果\.txt/,
+    });
+    fireEvent.click(citation);
+    return screen.findByRole("dialog", { name: "出典の原文" });
+  }
+
+  it("opens a labelled <dialog> and its accessible name is readable", async () => {
+    mockCitationFetch();
+    const dialog = await openSourceDialog();
+    expect(dialog.tagName).toBe("DIALOG");
+    expect(dialog).toHaveAttribute("open", "");
+    // getByRole with a name only resolves when the accessible name is
+    // computable from aria-label.
+    expect(screen.getByRole("dialog", { name: "出典の原文" })).toBeTruthy();
+  });
+
+  it("closes on 閉じる without depending on the network", async () => {
+    mockCitationFetch();
+    await openSourceDialog();
+    fireEvent.click(screen.getByRole("button", { name: "閉じる" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "出典の原文" })).toBeNull(),
+    );
+  });
+
+  it("keeps the dialog open when 関連資料を確認 is clicked", async () => {
+    mockCitationFetch();
+    await openSourceDialog();
+    // The related-documents buttons must not submit the dialog's form;
+    // a plain <button> inside <form method="dialog"> would close it.
+    fireEvent.click(screen.getByRole("button", { name: "関連資料を確認" }));
+    expect(await screen.findByText(/関連資料はありません/)).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "出典の原文" })).toBeTruthy();
+  });
+
+  it("closes on a backdrop click outside the content rectangle", async () => {
+    mockCitationFetch();
+    const dialog = await openSourceDialog();
+    // jsdom has no real backdrop hit-testing, so a click targeted at the
+    // dialog itself stands in for a backdrop click; the coordinates land
+    // outside the content rectangle there too.
+    fireEvent.click(dialog, { clientX: -1, clientY: -1 });
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "出典の原文" })).toBeNull(),
+    );
+  });
+});

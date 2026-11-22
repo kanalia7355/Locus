@@ -51,10 +51,6 @@ test("first login, source retrieval, history and logout use actual API", async (
     page.getByRole("dialog").getByText("処理温度180°C", { exact: false }),
   ).toBeVisible();
   const sourceDialog = page.getByRole("dialog", { name: "出典の原文" });
-  const close = sourceDialog.getByRole("button", {
-    name: "閉じる",
-    exact: true,
-  });
   const related = sourceDialog.getByRole("button", {
     name: "関連資料を確認",
     exact: true,
@@ -62,8 +58,10 @@ test("first login, source retrieval, history and logout use actual API", async (
   await expect(
     sourceDialog.getByRole("region", { name: "引用箇所 p.1 chunk 1" }),
   ).toBeFocused();
-  await page.keyboard.press("Tab");
-  await expect(close).toBeFocused();
+  // Native <dialog> keeps focus inside the modal, but it walks the DOM order
+  // rather than the old hand-written trap. From the cited chunk the next
+  // control is the related-documents button (the close button sits before the
+  // chunk), so name that control instead of asserting the trap's old target.
   await page.keyboard.press("Tab");
   await expect(related).toBeFocused();
   await related.click();
@@ -593,7 +591,7 @@ test("sidebar, long names, mobile widths and reduced motion", async ({
     "the page itself scrolled",
   ).toBe(0);
   expect(
-    await page.locator(".main").evaluate((element) => element.scrollTop),
+    await page.locator(".messages").evaluate((element) => element.scrollTop),
     "the content did not scroll",
   ).toBeGreaterThan(0);
   const bar = await page.locator(".topbar").boundingBox();

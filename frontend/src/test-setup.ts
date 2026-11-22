@@ -73,6 +73,46 @@ if (popoverProto && typeof popoverProto.showPopover !== "function") {
   document.addEventListener("pointerdown", lightDismiss);
 }
 
+// jsdom does not implement the modal behaviour of <dialog>. Keep this
+// stand-in to the smallest useful surface: showModal() marks the dialog open,
+// close() marks it closed and fires "close", and a submit button inside
+// <form method="dialog"> closes the nearest dialog. Containment, the backdrop
+// and Escape are deliberately NOT modelled here — they are what the e2e suite
+// proves in a real browser.
+if (typeof HTMLDialogElement !== "undefined") {
+  if (!HTMLDialogElement.prototype.showModal) {
+    HTMLDialogElement.prototype.showModal = function showModal(
+      this: HTMLDialogElement,
+    ) {
+      this.setAttribute("open", "");
+    };
+  }
+  if (!HTMLDialogElement.prototype.close) {
+    HTMLDialogElement.prototype.close = function close(
+      this: HTMLDialogElement,
+    ) {
+      if (!this.hasAttribute("open")) return;
+      this.removeAttribute("open");
+      this.dispatchEvent(new Event("close"));
+    };
+  }
+  // jsdom does not perform the form-dialog activation behaviour either: a
+  // submit button in <form method="dialog"> does nothing. Close the button's
+  // nearest dialog instead so unit tests can use it as in browsers.
+  document.addEventListener("click", (event) => {
+    if (!(event.target instanceof HTMLElement)) return;
+    const button = event.target.closest(
+      'form[method="dialog"] button:not([type="button"]):not([type="reset"])',
+    );
+    if (!button) return;
+    // Handle the activation ourselves; jsdom's own form submission is not
+    // implemented and would only log noise.
+    event.preventDefault();
+    const dialog = button.closest("dialog");
+    if (dialog instanceof HTMLDialogElement) dialog.close();
+  });
+}
+
 afterEach(() => {
   cleanup();
   // 製品コードが <html data-mode> を書き換えるので、テスト間で持ち越さないようにする。
