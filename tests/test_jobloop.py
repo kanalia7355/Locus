@@ -1424,3 +1424,68 @@ def test_a_dispatch_is_visible_in_the_console_not_only_in_the_log(
     assert "run :: T-JOB-1: dispatching (light)" in shown, "the console is the live view"
     # One line, same text in both, so "when did anything last happen" keeps one answer.
     assert shown.strip() == written.strip()
+
+
+def test_containment_is_judged_on_paths_and_never_on_diff_content(tmp_path: Path) -> None:
+    """The evidence has to name a file, and only a path can be classified.
+
+    `dirt` used to include `git diff HEAD`, so the comparison ran over diff body
+    lines. On 2026-11-22 at 18:49 `T-PH6-127` was accused with evidence that was
+    fragments of the orchestrator's own edit to `Controller.note` — no filename
+    anywhere in it, and nothing `bookkeeping` could exclude, because it reads a
+    line as a status code plus a path.
+    """
+    repository = tmp_path / "main"
+    repository.mkdir()
+    git(repository, "init", "-b", "main")
+    git(repository, "config", "user.email", "t@example.invalid")
+    git(repository, "config", "user.name", "t")
+    (repository / "module.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+    (repository / "progress").mkdir()
+    (repository / "progress" / "PROGRESS.md").write_text("# plan\n", encoding="utf-8")
+    git(repository, "add", "-A")
+    git(repository, "commit", "-m", "first")
+
+    def appeared(before: str, now: str) -> list[str]:
+        return sorted(set(now.splitlines()) - set(before.splitlines()))
+
+    clean = Controller.dirt(repository)
+    assert clean.strip() == ""
+
+    def paths(lines: list[str]) -> list[str]:
+        return [Controller.changed_path(line) for line in lines]
+
+    # An edit to a tracked file: one entry, and it names the file.
+    (repository / "module.py").write_text("def f():\n    return 2\n", encoding="utf-8")
+    lines = appeared(clean, Controller.dirt(repository))
+    assert paths(lines) == ["module.py"], lines
+    assert not any("return 2" in line for line in lines), "content must not reach the evidence"
+
+    # The same edit under `progress/` is the owner writing records, not an escape.
+    (repository / "progress" / "PROGRESS.md").write_text("# plan\n\n- more\n", encoding="utf-8")
+    records = appeared(clean, Controller.dirt(repository))
+    assert "progress/PROGRESS.md" in paths(records)
+    kept = paths([line for line in records if not Controller.bookkeeping(line)])
+    assert kept == ["module.py"], kept
+
+    # A deletion in the main checkout is an escape too, and porcelain reports it.
+    git(repository, "checkout", "--", ".")
+    (repository / "module.py").unlink()
+    assert paths(appeared(clean, Controller.dirt(repository))) == ["module.py"]
+
+    # The detection that porcelain alone would lose: a file that is *already*
+    # dirty and edited again keeps the same status line, so without the digest a
+    # reviewer editing it — or a worker hiding behind the orchestrator's own
+    # uncommitted mess — is invisible.
+    git(repository, "checkout", "--", ".")
+    (repository / "module.py").write_text("def f():\n    return 3\n", encoding="utf-8")
+    already = Controller.dirt(repository)
+    (repository / "module.py").write_text("def f():\n    return 4\n", encoding="utf-8")
+    again = appeared(already, Controller.dirt(repository))
+    assert paths(again) == ["module.py"], again
+
+    # A path with a space keeps its whole name when the digest column is dropped.
+    assert Controller.changed_path("?? progress/my notes.md abcdef0123456789") == (
+        "progress/my notes.md"
+    )
+    assert Controller.changed_path("?? progress/my notes.md") == "progress/my notes.md"

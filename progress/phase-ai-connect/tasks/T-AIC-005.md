@@ -3,9 +3,9 @@ id: T-AIC-005
 phase: phase-ai-connect
 status: doing
 assignee: opencode
-model: opencode/iceman-free
+model: ollama/gemma3:4b
 weight: medium
-updated: 2026-11-22T17:11:28+09:00
+updated: 2026-11-22T18:55:44+09:00
 attempts: 1
 allowed_paths: backend/app/harness.py, tests/test_harness_egress.py
 test_cmd: python -m pytest tests/test_harness_egress.py tests/test_agents_registry.py tests/test_api.py -q
@@ -130,3 +130,15 @@ ready-for-review
 - `python-lint`: green
 - `python-format`: green
 - `secret-scan`: FAILED
+
+## CONTAINMENT UNVERIFIED (2026-11-22T18:55:44+09:00)
+
+The operator was editing the main checkout during this cycle, so the containment comparison was suspended. The worker's isolation was not verified for this attempt.
+
+## CONTAINMENT UNVERIFIED (2026-11-22T18:55:48+09:00)
+
+The operator was editing the main checkout during this cycle, so the containment comparison was suspended. The worker's isolation was not verified for this attempt.
+
+## CONTAINMENT UNVERIFIED (2026-11-22T18:55:53+09:00)
+
+The operator was editing the main checkout during this cycle, so the containment comparison was suspended. The worker's isolation was not verified for this attempt.

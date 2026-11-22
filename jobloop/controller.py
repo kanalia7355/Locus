@@ -25,6 +25,7 @@ from jobloop.tasks import ATTEMPT_LIMIT, REVIEW_CYCLE_LIMIT, Task, load_phase
 JST = timezone(timedelta(hours=9))
 GIT = shutil.which("git") or "git"
 SLUG = re.compile(r"[^a-z0-9]+")
+HEX = frozenset("0123456789abcdef")
 
 
 @dataclass
@@ -501,10 +502,24 @@ class Controller:
         narrowed to what it is actually for. `commit_progress_records` already
         treats all of `progress/` as the loop's own, which is the same judgement.
         """
-        path = line[3:].strip().strip('"').replace("\\", "/")
-        return path.startswith("progress/") or path == (
-            "docs/report/OWNER_DECISIONS_PLAIN_GUIDE.html"
-        )
+        return Controller.changed_path(line).startswith("progress/") or Controller.changed_path(
+            line
+        ) == ("docs/report/OWNER_DECISIONS_PLAIN_GUIDE.html")
+
+    @staticmethod
+    def changed_path(line: str) -> str:
+        """The path out of a `dirt` line, with the digest column removed.
+
+        Written as its own step because the digest is appended, and a path may
+        contain spaces: splitting blindly on whitespace would truncate
+        `?? progress/my notes.md` to `progress/my`. Only a field that looks like
+        a digest is dropped, so a line written by hand without one still parses.
+        """
+        body = line[3:].strip().strip('"')
+        head, _, last = body.rpartition(" ")
+        if head and (last in {"-", "?"} or (len(last) == 16 and all(c in HEX for c in last))):
+            body = head.strip().strip('"')
+        return body.replace("\\", "/")
 
     def note(self, line: str) -> None:
         """Append one heartbeat line, in the supervisor's own format and file.
@@ -559,10 +574,46 @@ class Controller:
         signal that matters. A worker that wrote *and committed* in the main
         checkout would slip past this, but it is told not to commit, and every
         real escape so far left the tree dirty.
+
+        **One line per path: status, path, digest.** This used to return
+        `git diff HEAD` as well, and the comparison then ran over diff *body*
+        lines: on 2026-11-22 at 18:49 `T-PH6-127` was accused with evidence that
+        read
+
+            beat.parent.mkdir(parents=True, exist_ok=True)
+            with beat.open("a", encoding="utf-8") as handle
+
+        — fragments of the orchestrator's own edit to this very method. Three
+        things were wrong with that. `bookkeeping` reads a line as a status code
+        plus a path and cannot classify a fragment, so nothing could be excluded;
+        a set difference over content lines is junk, since a shared context line
+        in two unrelated edits cancels out; and the evidence named no file, which
+        is the one thing a reader needs.
+
+        Porcelain alone is not enough either, and dropping to it lost a real
+        detection: a file that is *already* dirty keeps the same status line when
+        its contents change, so a reviewer editing it — or a worker hiding behind
+        the orchestrator's own uncommitted mess — became invisible. The digest
+        restores that. Judgement and evidence stay at path granularity; the hash
+        only decides whether that path's entry is the same entry.
         """
-        diff = git(worktree, "diff", "HEAD", check=False)
-        untracked = git(worktree, "status", "--porcelain=1", "--untracked-files=all", check=False)
-        return diff + untracked
+        porcelain = git(worktree, "status", "--porcelain=1", "--untracked-files=all", check=False)
+        lines = []
+        for entry in porcelain.splitlines():
+            if not entry.strip():
+                continue
+            code, path = entry[:2], entry[3:].strip().strip('"')
+            target = worktree / path.replace("\\", "/")
+            try:
+                digest = (
+                    hashlib.sha256(target.read_bytes()).hexdigest()[:16]
+                    if target.is_file()
+                    else "-"
+                )
+            except OSError:
+                digest = "?"
+            lines.append(f"{code} {path} {digest}")
+        return "".join(f"{line}\n" for line in lines)
 
     # --- one job -------------------------------------------------------------
 
@@ -634,7 +685,9 @@ class Controller:
                 f"model={model}\nworkspace={tree}\n"
                 f"marker={self.settings.state_directory / 'orchestrator-busy'} "
                 f"present={self.operator_busy()}\n"
-                f"appeared:\n" + "\n".join(moved[:25]),
+                # Paths, not digests: the reader needs the filenames.
+                f"appeared:\n"
+                + "\n".join(f"{line[:2]} {self.changed_path(line)}" for line in moved[:25]),
             )
         if self.operator_busy():
             self.record(
