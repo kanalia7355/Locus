@@ -792,3 +792,18 @@ UNVERIFIED
 - I could not exhaustively audit retrieval paths outside `backend/app/service.py` and `backend/app/main.py` (e.g., indirect content use in the agent registry) beyond grepping for `documents`/`chunks` references.
 
 **Answer** (2026-11-22, orchestrator): **レビュアーは 2 周とも正しく、今回は半分だけ直っていることまで正確に書いてある。** 直った分: 巡回の `list_objects` / `permission_hash` は取引の外に出た。残る分: `_source_allows(self, db, ...)` は `db` を受け取る＝取引の中で呼ばれ、`service.py:1154` で `connector.can_read` を呼んでいる（呼び出し元は取得 8 経路の `_can_read`、`_ingestion_allowed`、所有者一覧の分岐）。実測で確認した。**残りは本票で追わない。** (1) 取得 8 経路を「取引の中で読む→抜ける→聞く→再確認」に組み替える作業で、コネクタの共通インタフェースを作る本票とは種類が違う。(2) 合成コネクタは即答するので**いま実害が無く**、実害は本物のネットワークコネクタが入ったときに出る。**`T-PH7-205` を起票し、`T-PH7-202`/`203`/`204` をそれに依存させた** — 本票は先にマージされるが、ネットワークコネクタは修正より先に入らない。**受入条件を落としたのではなく、レビューの所見を別票に移した**（どちらをやったかを明示する規則どおり）。`review_cycles` を 1 に戻して `review` から再開。詳細は `tasks/T-PH7-201.md`。
+
+## T-PH7-205 — review cycle limit reached (2026-11-22T16:38:47+09:00)
+
+**Question**: The reviewer still requires changes at the cycle limit.
+
+**Context**
+
+, and `state` after the connector round-trip, but not `source_id`/`object_id` identity. A concurrent in-process writer that repoints the binding to another source object whose revision string happens to match would pass re-verification while the connector result (for the original object) is reused, authorizing the wrong object. Smallest fix: add `str(binding2["source_id"]) == source_id` and `str(binding2["object_id"]) == object_id` to the fail-closed condition.
+- Medium, tests/test_connector_transaction_scope.py (test_slow_connector_does_not_hold_write_lock) — the synthetic connector blocks for at most 200 ms (`proceed.wait(timeout=0.2)`) while the assertion waits 2 s. A build that still holds `self.lock` across `can_read` lets the probe write complete after the 200 ms timeout, so the test passes on the buggy code; it does not fail before the fix as AC1 requires. I reproduced this by simulating a lock-holding implementation, which passed in ~2.5 s. Smallest fix: make the connector block indefinitely on `proceed` (remove the timeout fallback) or set the delay above the assertion timeout.
+- Medium, tests/test_connector_transaction_scope.py (test_revocation_during_read_is_denied) — exercises `source_cycle`/`_source_binding_allows`, not the new `_source_connector_allows` read path, so the re-verification (`binding2`) checks are untested; deleting them would still leave all tests green. Smallest fix: add a case that repoints/revokes the binding while a slow connector call is in flight on a read path (`_can_read`/`_ingestion_allowed`) and asserts denial.
+
+UNVERIFIED
+- Whether the reported "fails before fix" claim held for attempt-2 code could not be confirmed; my faithful lock-holding simulation passed the shipped test (see finding 2).
+- Re-verification behavior under a concurrent repoint was not exercised by any test (see finding 3).
+- Containment comparison was suspended per the task record; not re-verified. Exact-head CI beyond the controller's local gates was not run.
