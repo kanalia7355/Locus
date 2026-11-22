@@ -941,10 +941,14 @@ function Workspace({
     // (e.g. a related document opened from inside it).
     const dialog = sourceDialog.current;
     if (dialog && !dialog.open) dialog.showModal();
+    // AC: after entry animation focus lands on the initial position ("閉じる").
+    // Keep it there even when a cited chunk is present; scroll the chunk into
+    // view without stealing focus.
+    const closeButton =
+      dialog?.querySelector<HTMLElement>("form[method='dialog'] button") ??
+      dialog?.querySelector<HTMLElement>("[autofocus]");
+    closeButton?.focus();
     if (source.selectedChunk && sourceTarget.current) {
-      sourceTarget.current.focus();
-      // jsdom does not implement scrolling; guard so the effect cannot take
-      // the whole tree down in unit tests.
       sourceTarget.current.scrollIntoView?.({ block: "nearest" });
     }
   }, [source]);
