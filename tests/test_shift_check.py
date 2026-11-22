@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import json
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -155,3 +157,34 @@ def test_a_repeat_that_has_stopped_is_reported_but_not_a_failure(
     old = check.churn()  # type: ignore[attr-defined]
     assert old.startswith("ok"), old
     assert "x3" in old, old
+
+
+def test_the_quota_line_never_claims_a_ready_count(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The roster is the union of every model ever seen, not what the CLI offers.
+
+    The first version of this line said `2 ready` while `jobloop status` said
+    `available models: none`, because two models the CLI had stopped offering
+    were still in the file with expired cooldowns. Only `Roster.available`
+    intersects the two, and this script cannot call it without invoking the CLI.
+    """
+    check = load()
+    monkeypatch.setattr(check, "ROOT", tmp_path)  # type: ignore[arg-type]
+    state = tmp_path / ".jobloop"
+    state.mkdir()
+    now = time.time()
+    state.joinpath("roster.json").write_text(
+        json.dumps(
+            {
+                "gone/from-the-cli-a": {"cooldown_until": now - 9999},
+                "gone/from-the-cli-b": {"cooldown_until": now - 9999},
+                "opencode/resting-free": {"cooldown_until": now + 600},
+            }
+        ),
+        encoding="utf-8",
+    )
+    line = check.quota()  # type: ignore[attr-defined]
+    assert "1 of 3 recorded models resting" in line, line
+    assert "ready" not in line, "a ready count from this file cannot be true"
+    assert "soonest back in 10 min" in line, line

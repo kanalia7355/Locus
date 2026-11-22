@@ -227,11 +227,18 @@ def quota() -> str:
     """Whether the queue is waiting on a decision or just on the free allowances.
 
     The two look identical from the outside — cycles ending in two seconds,
-    nothing moving — and on 2026-11-22 the owner had to ask which it was. The
-    answer is in the roster: a model that spent its allowance is rested for six
-    hours. This reads the recorded cooldowns, so it says *recorded*, not
-    *offered*: a model the CLI has stopped listing can sit in that file looking
-    ready for ever.
+    nothing moving — and on 2026-11-22 the owner had to ask which it was. A
+    model that spent its allowance is rested for six hours, and the roster file
+    records when each one comes back.
+
+    **It does not report a ready count.** The first version did, and said
+    `2 ready` while `jobloop status` said `available models: none`: the roster
+    is the union of every model ever seen, so two that the CLI has stopped
+    offering sat in it looking available for ever. `available()` is the
+    intersection of the file and what the CLI reports, and only the loop can
+    compute that. So this says how many are resting and when the soonest
+    returns — both of which the file really knows — and leaves the authority on
+    "can anything run" to the loop's own line in the log.
     """
     state = ROOT / ".jobloop" / "roster.json"
     if not state.is_file():
@@ -248,11 +255,11 @@ def quota() -> str:
     }
     if not resting:
         return "ok    no model is resting"
-    ready = len(recorded) - len(resting)
     soonest = min(resting.values()) / 60
     return (
         f"ok    {len(resting)} of {len(recorded)} recorded models resting, "
-        f"{ready} ready, soonest back in {soonest:.0f} min"
+        f"soonest back in {soonest:.0f} min "
+        f"(whether any can run is the loop's `no-model` line, not this count)"
     )
 
 
