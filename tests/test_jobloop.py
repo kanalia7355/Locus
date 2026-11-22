@@ -12,6 +12,7 @@ import pytest
 
 from jobloop import controller as controller_module
 from jobloop import gates, prompts, tasks, worker
+from jobloop import roster as roster_module
 from jobloop.controller import Controller, Settings, git
 from jobloop.roster import Roster, eligible
 
@@ -1540,3 +1541,36 @@ def test_a_resume_sees_work_that_is_already_committed(tmp_path: Path) -> None:
     assert controller.committed_but_unmerged(tree) == ["backend/app/service.py"], (
         "another job's merged files are not this job's change"
     )
+
+
+def test_a_model_that_cannot_do_the_work_rests_as_long_as_a_spent_one() -> None:
+    """`unavailable` covers an outage and an incapability, and they differ.
+
+    `ollama/gemma3:4b` answered `registry.ollama.ai/library/gemma3:4b does not
+    support tools` — the same answer every time, since `opencode run` needs
+    tools. The short cooldown meant it was picked, failed and rested every
+    fifteen minutes: ninety-six attempts a day that could never succeed, and the
+    highest observation count in the roster by 2026-11-22 evening.
+    """
+    assert (
+        controller_module.cooldown_for(
+            [
+                "provider.invalid-request",
+                "registry.ollama.ai/library/gemma3:4b does not support tools",
+            ]
+        )
+        == roster_module.COOLDOWN_SECONDS
+    )
+
+    # A real outage keeps the short rest: a CLI that briefly lost its route to a
+    # provider may come back in minutes, and resting it six hours would throw
+    # away a working model.
+    for transient in (
+        ["opencode executable not found"],
+        ["connection reset by peer"],
+        ["provider.invalid-request: malformed request body"],
+        [],
+    ):
+        assert (
+            controller_module.cooldown_for(transient) == controller_module.UNAVAILABLE_COOLDOWN
+        ), transient

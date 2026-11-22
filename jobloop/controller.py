@@ -19,7 +19,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from jobloop import gates, prompts, selfrepair, worker
-from jobloop.roster import Roster
+from jobloop.roster import COOLDOWN_SECONDS, Roster
 from jobloop.tasks import ATTEMPT_LIMIT, REVIEW_CYCLE_LIMIT, Task, load_phase
 
 JST = timezone(timedelta(hours=9))
@@ -112,6 +112,27 @@ APPROVAL = re.compile(r"^[\s>#*_`-]*APPROVED[\s*_`.]*$", re.MULTILINE)
 # CLI that cannot route to a provider may come back in minutes, and the point
 # here is only to stop the roster handing out the same broken first choice.
 UNAVAILABLE_COOLDOWN = 900.0
+
+# A provider saying the model cannot do what the worker needs is not an outage.
+# It is the same answer every time, so the short cooldown above is wrong for it:
+# `ollama/gemma3:4b` answered
+#   provider.invalid-request: registry.ollama.ai/library/gemma3:4b does not support tools
+# and on 2026-11-22 it was therefore picked, failed and rested every fifteen
+# minutes — ninety-six attempts a day that could never succeed. Rested for the
+# full exhaustion period instead, so it is tried a few times a day rather than
+# constantly, and a model that gains the capability still comes back.
+#
+# Only strings that have actually been observed belong here. A broad match like
+# `does not support` would also swallow a transient bad request.
+INCAPABLE = ("does not support tools",)
+
+
+def cooldown_for(errors: list[str]) -> float:
+    """How long to rest a model the CLI could not run."""
+    joined = " ".join(errors).lower()
+    if any(mark in joined for mark in INCAPABLE):
+        return COOLDOWN_SECONDS
+    return UNAVAILABLE_COOLDOWN
 
 
 # Wording that only ever comes from the brief's own STATUS instruction. A reply
@@ -710,7 +731,7 @@ class Controller:
             # problem, a provider it cannot route to. The job was never
             # attempted, so it keeps its attempt, and the model goes on a short
             # cooldown so the next pass reaches a different one.
-            self.roster.mark_exhausted(model, seconds=UNAVAILABLE_COOLDOWN)
+            self.roster.mark_exhausted(model, seconds=cooldown_for(result.errors))
             return Outcome(
                 task.id,
                 "rotated",
@@ -1072,7 +1093,7 @@ class Controller:
             # `T-PH6-104` and `T-PH8-302` on every cycle for an hour, while two
             # working `opencode` models sat untried. Nothing escalated, so the
             # queue looked healthy and `diagnose` saw nothing at all.
-            self.roster.mark_exhausted(reviewer, seconds=UNAVAILABLE_COOLDOWN)
+            self.roster.mark_exhausted(reviewer, seconds=cooldown_for(verdict.errors))
             return (
                 Outcome(
                     task.id,
