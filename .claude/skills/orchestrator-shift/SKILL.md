@@ -189,6 +189,26 @@ RULING` section of the task file, and an `**Answer**` under the matching entry i
   conflict in `service.py` resolved by guesswork destroys the one thing the
   record is for: knowing whether the change passed.
 
+## Your own writing goes through the gates too
+
+A ruling is a file in the repository, and the gates apply to it.
+
+- **Never paste a secret-shaped literal into a record.** The `T-PH6-104` ruling
+  quoted its own measurement as a `"secret": "<value>"` pair on 2026-11-22 —
+  the exact shape `scripts/secret_scan.py` exists to catch. It sat red in the
+  repository-wide scan for two hours and then stopped `T-STC-001`, which had
+  finished all of its work. The value proves nothing a reader needs: *that* the
+  planted word came back is the evidence, not what the word was. Say it in
+  words.
+- **Run the repository-wide gates by hand before you leave.** The job gates
+  scan only a job's own changed paths, by design, so anything you write stays
+  invisible to them. `python scripts/secret_scan.py` with no arguments is the
+  whole check, and it is the one that caught this.
+- A test that proves a credential never leaks needs a credential-shaped literal
+  to plant. The four `sk-synthetic-0N-not-a-real-key` fixtures are allowed by
+  exact value; anything else fails. Put that in the ticket rather than letting a
+  worker guess — `T-AIC-005` spent an attempt finding out.
+
 ## Close the shift
 
 1. **Verify what you touched.** If you resolved a merge or edited the frontend
