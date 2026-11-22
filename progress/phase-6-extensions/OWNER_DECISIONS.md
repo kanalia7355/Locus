@@ -1937,3 +1937,17 @@ appeared:
 ?? progress/phase-storage-connect/tasks/T-STC-005.md
 
 **Answer** (2026-11-22, orchestrator): **封じ込めはオーナーの編集が原因。ワーカーは逃げていない。** 前のシフトで足した証拠が原因を 1 行で答えた: `appeared:` に `?? progress/phase-storage-connect/tasks/T-STC-005.md` — **オーナーがジョブ実行中に書いた task の草案**である。**マーカーではこれを防げない** — `orchestrator-busy` は私のシフトが置くもので、オーナーは自分のリポジトリでシフトを回さない。今後も好きなときに草案を書くし、それは正しい。そこで**判定を本来の目的に狭めた**: 逃げたワーカーは**製品のコード**がメインチェックアウトに現れる形で見える。記録や計画はそうではないので、`progress/` 配下とループが再生成する平易化ページを比較から外した（`commit_progress_records` が既に `progress/` 全体をループ自身のものとして扱っており、同じ判断）。**製品コードが現れた場合は従来どおり止まる**（両方向を検査で固定）。試行は消費せず `doing`。前のシフトの指示は有効で、**フィクスチャは既に 40 アカウント**あるので `tests/e2e_server.py` に触る必要はない。詳細は `tasks/T-PH6-127.md`。
+
+## T-PH6-104 — review cycle limit reached (2026-11-22T14:34:07+09:00)
+
+**Question**: The reviewer still requires changes at the cycle limit.
+
+**Context**
+
+{"body": null}` with `success=True`, creating the “ingested without body” outcome §6 forbids. Smallest fix: use a container-valid interpreter/explicit image-interpreter contract (e.g. `python3` for a Python-bearing image, or validate/configure it), pass `content=content` on fallback, and treat null/empty extracted body as failure.
+- Medium, `tests/integration/test_live_sandbox_docker.py:49-75,112-142`: Opt-in Docker evidence does not exercise the product path and cannot run on a normal container. Both tests hand-build `docker run` commands and pass host `sys.executable` into `receipt["image_id"]`; neither calls `_run_docker`/`extract_with_sandbox(..., use_docker=True)`. Concrete failure: with `LOCUS_LIVE_DOCKER=1`, the command can fail before network/write isolation is observed because the host interpreter path is absent in the container, and even a passing hand-built command would not prove the product Docker path works. Smallest fix: invoke a container-valid Python interpreter consistent with the product contract, and add an opt-in test that exercises the product Docker extraction path end-to-end while keeping the env gate.
+
+UNVERIFIED
+- I did not re-run `python -m pytest tests/test_sandbox_boundary.py tests/test_api.py -q`, `python -m ruff check ...`, `python -m ruff format --check ...`, or `python scripts/secret_scan.py`; I relied on the controller evidence provided in the job message.
+- Docker containment criteria (`DOCUMENT_EXTRACTION_BOUNDARY.md` §8 items 7-8) were not executed. `tests/integration/test_live_sandbox_docker.py` is opt-in (`LOCUS_LIVE_DOCKER=1`) and requires a working Docker engine and `.loop/runtime/qa-image.json`; I did not run it, and skip/unrun opt-in checks are not evidence.
+- I did not perform live dynamic verification of the env-leak or Docker host-`sys.executable` failure modes; those findings are based on static inspection of `backend/app/sandbox.py`, `tests/test_sandbox_boundary.py`, and `tests/integration/test_live_sandbox_docker.py`.
