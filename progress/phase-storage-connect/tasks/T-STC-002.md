@@ -3,12 +3,13 @@ id: T-STC-002
 phase: phase-storage-connect
 status: todo
 assignee: unassigned
-model: unassigned
+model: -
 weight: medium
 updated: 2026-11-22T14:06:00+09:00
 attempts: 0
+depends_on: T-STC-001
 allowed_paths: backend/app/connector_local.py, tests/test_connector_local.py
-test_cmd: .venv313/Scripts/python.exe -m pytest tests/test_connector_local.py tests/test_connectors.py -q
+test_cmd: python -m pytest tests/test_connector_local.py tests/test_connectors.py -q
 ---
 
 # Task `T-STC-002`: ローカルフォルダ（エクスプローラー）コネクタ
@@ -88,3 +89,20 @@ test_cmd: .venv313/Scripts/python.exe -m pytest tests/test_connector_local.py te
 - **Verdict**: `PENDING` (`APPROVED` | `CHANGES_REQUESTED` | `BLOCKED`)
 - **Findings**:
   - （未実施）
+
+## ORCHESTRATOR — 配管を直した。設計は 1 行も変えていない (2026-11-22 15:10)
+
+この票をループで走らせるために、frontmatter の配管だけ直した。
+受入条件・実装方針・境界はオーナーの草案のままである。
+
+- **`test_cmd` の `.venv313/Scripts/python.exe` を素の `python` にした。**
+  `.venv313` は `.gitignore:31`（`.venv*/`）で無視されるので**ジョブごとの
+  クローンには存在しない**（実測: `workspaces/T-PH6-104/.venv313` は無い）。
+  コントローラは**先頭が素の `python` のときだけ**自分のインタプリタに束縛する
+  （`jobloop/gates.py` の `INTERPRETER`）。直さなければ検証が毎回失敗し、
+  5 票 15 試行が 1 件もマージできずに終わっていた。
+  **ジョブ文にインタプリタのパスを書かないこと**自体も封じ込めの要件である
+  （2026-11-16 に `T-PH6-103` がこれでメインチェックアウトを編集した）。
+- **`model:` を `-` にした**（他フェーズと同じ表記）。
+- **`depends_on` を frontmatter に入れた。** 本文とフェーズ表には依存が書いてあったが、
+  コントローラが見るのは frontmatter だけである。入れないと土台より先に派遣される。

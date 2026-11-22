@@ -3,12 +3,13 @@ id: T-STC-004
 phase: phase-storage-connect
 status: todo
 assignee: unassigned
-model: unassigned
+model: -
 weight: medium
 updated: 2026-11-22T14:06:00+09:00
 attempts: 0
-allowed_paths: backend/app/connector_box.py, tests/test_connector_box.py, backend/requirements.lock, pyproject.toml
-test_cmd: .venv313/Scripts/python.exe -m pytest tests/test_connector_box.py tests/test_connectors.py -q
+depends_on: T-STC-001
+allowed_paths: backend/app/connector_box.py, tests/test_connector_box.py, backend/requirements.lock
+test_cmd: python -m pytest tests/test_connector_box.py tests/test_connectors.py -q
 ---
 
 # Task `T-STC-004`: Box コネクタ（CCG／読み取り専用）
@@ -20,7 +21,10 @@ test_cmd: .venv313/Scripts/python.exe -m pytest tests/test_connector_box.py test
   - Box には公式 Python SDK（現行 `boxsdk>=10`、`box_sdk_gen`）があるが、
     T-STC-003 と同じ理由（依存ロック、既存コードは httpx 統一）で
     **REST API を httpx で直接呼ぶ**方針とする。SDK が必要と判断した場合は
-    REPORT に理由を記録し裁定を仰ぐ（allowed_paths の pyproject／lock はその場合のみ）。
+    **自分で入れずに REPORT に理由を記録して停止し、裁定を仰ぐこと**。
+    `pyproject.toml` は保護パスで**ジョブからは書けない**
+    （`jobloop/gates.py` の `PROTECTED`）。`backend/requirements.lock` は
+    allowed_paths にあるが、**裁定が出るまでは触らない**。
   - 認証は CCG（Client Credentials Grant）: サーバが無人でトークンを取得する方式。
     トークンは60分有効で refresh token はないため、期限切れの都度再取得する。
     対象フォルダはサービスアカウントに共有（コラボレーション）する運用。
@@ -94,3 +98,27 @@ test_cmd: .venv313/Scripts/python.exe -m pytest tests/test_connector_box.py test
 - **Verdict**: `PENDING` (`APPROVED` | `CHANGES_REQUESTED` | `BLOCKED`)
 - **Findings**:
   - （未実施）
+
+## ORCHESTRATOR — 配管を直した。設計は 1 行も変えていない (2026-11-22 15:10)
+
+この票をループで走らせるために、frontmatter の配管だけ直した。
+受入条件・実装方針・境界はオーナーの草案のままである。
+
+- **`test_cmd` の `.venv313/Scripts/python.exe` を素の `python` にした。**
+  `.venv313` は `.gitignore:31`（`.venv*/`）で無視されるので**ジョブごとの
+  クローンには存在しない**（実測: `workspaces/T-PH6-104/.venv313` は無い）。
+  コントローラは**先頭が素の `python` のときだけ**自分のインタプリタに束縛する
+  （`jobloop/gates.py` の `INTERPRETER`）。直さなければ検証が毎回失敗し、
+  5 票 15 試行が 1 件もマージできずに終わっていた。
+  **ジョブ文にインタプリタのパスを書かないこと**自体も封じ込めの要件である
+  （2026-11-16 に `T-PH6-103` がこれでメインチェックアウトを編集した）。
+- **`model:` を `-` にした**（他フェーズと同じ表記）。
+- **`depends_on` を frontmatter に入れた。** 本文とフェーズ表には依存が書いてあったが、
+  コントローラが見るのは frontmatter だけである。入れないと土台より先に派遣される。
+- **`allowed_paths` から `pyproject.toml` を外した。** これは
+  `jobloop/gates.py` の `PROTECTED` に入っており、**票に何と書いてあっても
+  ジョブからは書けない**（書けば scope ゲートが即停止する）。
+  オーナーの意図（SDK が必要になったときの逃げ道）は残してあるが、
+  **経路を「裁定を仰ぐ」に書き換えた**。書けない場所を許可と書いた票は、
+  phase-8 で 3 件のジョブを保護パスへ書かせて失わせている。
+  `backend/requirements.lock` は保護対象でないのでそのまま残した。
