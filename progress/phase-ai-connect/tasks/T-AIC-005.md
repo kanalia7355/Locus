@@ -1,12 +1,12 @@
 ---
 id: T-AIC-005
 phase: phase-ai-connect
-status: todo
-assignee: unassigned
-model: -
+status: doing
+assignee: opencode
+model: opencode/iceman-free
 weight: medium
-updated: 2026-11-22T14:30:00+09:00
-attempts: 0
+updated: 2026-11-22T17:11:28+09:00
+attempts: 1
 allowed_paths: backend/app/harness.py, tests/test_harness_egress.py
 test_cmd: python -m pytest tests/test_harness_egress.py tests/test_agents_registry.py tests/test_api.py -q
 ---
@@ -65,6 +65,15 @@ test_cmd: python -m pytest tests/test_harness_egress.py tests/test_agents_regist
    - `resolve_credential` が `None` を返すとき**拒否**されること（既定で閉じている）。
    - 許可された場合にアダプタへ渡る引数に、鍵が**引数として**渡ること
      （クラス属性やグローバルに置かれていないこと）。
+   - **植える鍵の文字列は決まっている。** `sk-synthetic-01-not-a-real-key` から
+     `sk-synthetic-04-not-a-real-key` のいずれかを使うこと
+     （複数要るときは別の番号を使う）。
+     **これ以外の鍵らしい文字列は secret-scan が落とす。**
+     この票の試行 1 が `sk-live-SUPERSECRET` と `sk-test-injected-key` で
+     落ちたのは**検査の書き方としては正しく、名前が許可集合の外だっただけ**である。
+     許可は `scripts/secret_scan.py` の `SYNTHETIC` にある**完全一致の閉じた集合**で、
+     パターンではない（`sk-synthetic-05-...` も末尾を足したものも落ちる。
+     `tests/test_secret_scan.py` が両方向を固定している）。
 2. **外部送信の経路がこの層以外に無いこと**を示すこと。
    どう確かめたかを報告に書く（grep の条件など）。
 3. `python -m pytest tests/test_harness_egress.py tests/test_agents_registry.py tests/test_api.py -q` が PASS。
@@ -87,3 +96,37 @@ test_cmd: python -m pytest tests/test_harness_egress.py tests/test_agents_regist
 
 - Reviewer:
 - Findings:
+
+## ATTEMPT 1 — implementation by opencode/iceman-free (2026-11-22T17:11:28+09:00)
+
+## REPORT
+- `backend/app/harness.py` (new): Added `Harness` as the single external-send choke point. `send(...)` is the only public surface. It reads workspace policy via injected `get_policy`, denies when `egress_mode` is `local_only` or not an explicitly allowed mode, denies when `classification_ceiling` cannot be determined (missing/unknown/`none`), resolves credentials only through injected `resolve_credential(actor) -> str | None` (default returns `None`, so closed by default), emits audit records through the injected existing audit port (`audit` callable, same shape as `service._audit`), and only then calls the injected adapter with `credential=...` as an argument. Denials use `fail(403, "外部送信は許可されていません")` with no credential/URL/body in reason; audit records include actor, workspace, destination type (`external_model`), model name, outcome, and reason type, and never include body/credentials.
+- `tests/test_harness_egress.py` (new): Added synthetic tests covering the AC: `local_only` rejects with 403 and adapter spy is never called; unknown/missing classification rejects with 403; denial is audited and audit blob contains no body/credential; default `resolve_credential` returning `None` rejects; allowed injected-policy case calls adapter once and passes key as `credential` argument, with checks that key is not stored on harness/adapter class attrs.
+
+Inconsistencies found between documentation/job intent and existing code:
+- T-AIC-005 states "外部送信の経路はこの層を通る以外にない". Current codebase still contains pre-existing HTTP model-call modules outside this ticket's allowed paths: `backend/app/local_model.py` (localhost Ollama via `httpx`) and `backend/app/provider_openai_compatible.py` (OpenAI-compatible endpoint via `httpx`, takes `api_key` arg). I did not modify them (outside `allowed_paths`). I verified with grep: `Select-String -Path backend\app\*.py,backend\app\**\*.py -Pattern 'httpx|requests\.|urllib\.request|aiohttp|openai|http\.client'` shows those two modules plus harness-local references; `Select-String -Path backend\app\*.py,backend\app\**\*.py -Pattern '\bsend\('` excluding `harness.py` shows only `service.send`/conversation flow and `main.py` routing, no harness bypass. The harness is now the designated/implemented single guard for future external egress; wiring existing callers through it is follow-up work outside this ticket.
+
+Risks left behind:
+- Existing `local_model.py` / `provider_openai_compatible.py` are not routed through `Harness`; until integrated, the "only this layer" property is enforced for new harness-based paths but not retrofitted to these pre-existing modules.
+- The "allowed" path is currently reachable only through injected policy because DB schema constrains `egress_mode` to `local_only`; this is intentional per ticket, but real egress remains closed until a separate decision/schema change and caller integration.
+- Harness audit calls the injected audit port directly; when used outside an explicit transaction manager, persistence semantics depend on the caller's DB mode (service uses `isolation_level=None` and its own tx management). Tests confirm audit rows are written with `service._audit`.
+
+## TEST
+- `python -m pytest tests/test_harness_egress.py -q` (before fixing a self-inflicted spy assertion) — `5 passed, 1 failed`; failure was in test assertion `secret not in repr(vars(adapter))` because spy stores call args; fixed test to assert key not stored on harness/adapter class attrs per AC intent, no production behavior change.
+- `python -m pytest tests/test_harness_egress.py tests/test_agents_registry.py tests/test_api.py -q` — `40 passed in 25.45s`
+- `python -m ruff check backend tests scripts jobloop` — `Found 7 errors` (E501/I001 in new files), auto-fixed with `ruff check --fix` and `ruff format`.
+- `python -m ruff format --check backend tests scripts jobloop` — `2 files would be reformatted, 186 files already formatted` before fix; after fix `188 files already formatted`.
+- `python -m ruff check backend tests scripts jobloop` (after fix) — `All checks passed!`
+- `python -m ruff format --check backend tests scripts jobloop` (after fix) — `188 files already formatted`
+- `python -m pytest tests/test_harness_egress.py tests/test_agents_registry.py tests/test_api.py -q` (after format/fix) — `40 passed in 25.80s`
+
+## STATUS
+ready-for-review
+
+### Controller gates
+
+- `scope`: green
+- `task-verification`: green
+- `python-lint`: green
+- `python-format`: green
+- `secret-scan`: FAILED

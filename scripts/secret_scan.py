@@ -31,9 +31,17 @@ EXCLUDED = (
     r"\.mypy_cache|\.ruff_cache|\.pytest_cache|__pycache__)([/\\]|$)|"
     r"\.(zip|png|tsbuildinfo)$|\.bootstrap/.*-audit\.json$"
 )
+# Exact synthetic fixtures, anchored, with no wildcard and no file waiver — the
+# same rule as `reviewed_public_reference` below. A test that proves a key never
+# reaches an audit record needs a key-shaped literal to plant, and on 2026-11-22
+# `T-AIC-005` was failed by this gate for `sk-live-SUPERSECRET` and
+# `sk-test-injected-key`, which is the correct test written the correct way. The
+# answer is a named fixture, not a pattern: anything outside this closed set
+# still fails, so a real key cannot be waved through by looking test-ish.
 SYNTHETIC = (
     r"^(Temporary-password-0[1-4]!|Changed-password-long-01!|"
-    r"Synthetic-test-password-01!|Changed-synthetic-password-01!)$"
+    r"Synthetic-test-password-01!|Changed-synthetic-password-01!|"
+    r"sk-synthetic-0[1-4]-not-a-real-key)$"
 )
 
 

@@ -65,10 +65,17 @@ JUDGEMENT = {
     # announced as a REGRESSION of that repair. The repair is about *why* an
     # attempt was spent, which this signature does not record; the reasons do.
     "attempt limit reached",
+    # The same budget, reached through a review rather than a failed gate. The
+    # controller tells them apart now (it used to call both "review cycle limit
+    # reached"), so both spellings have to be listed here.
+    "attempt limit reached after a review",
 }
 
 # Extra guidance for a judgement whose signature hides more than one cause.
 NOTE = {
+    "attempt limit reached after a review": (
+        "the reviewer's findings are the evidence here, not the gates"
+    ),
     "attempt limit reached": (
         "read the three reasons before ruling: the same supplier error three times "
         "means the outage repair of 2026-11-20 regressed, not that the job failed"

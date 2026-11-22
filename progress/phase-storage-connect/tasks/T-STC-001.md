@@ -1,11 +1,11 @@
 ---
 id: T-STC-001
 phase: phase-storage-connect
-status: todo
-assignee: unassigned
-model: -
+status: doing
+assignee: opencode
+model: opencode/iceman-free
 weight: medium
-updated: 2026-11-22T14:06:00+09:00
+updated: 2026-11-22T17:40:00+09:00
 attempts: 0
 allowed_paths: backend/app/connectors.py, backend/app/service.py, backend/app/main.py, tests/test_connectors.py
 test_cmd: python -m pytest tests/test_connectors.py tests/test_api.py -q
@@ -116,3 +116,66 @@ test_cmd: python -m pytest tests/test_connectors.py tests/test_api.py -q
   **ジョブ文にインタプリタのパスを書かないこと**自体も封じ込めの要件である
   （2026-11-16 に `T-PH6-103` がこれでメインチェックアウトを編集した）。
 - **`model:` を `-` にした**（他フェーズと同じ表記）。
+
+## CONTAINMENT UNVERIFIED (2026-11-22T17:26:08+09:00)
+
+The operator was editing the main checkout during this cycle, so the containment comparison was suspended. The worker's isolation was not verified for this attempt.
+
+## OWNER DECISION REQUESTED (2026-11-22T17:26:08+09:00)
+
+worker stopped for a decision: `python scripts/secret_scan.py` reports 2 pre-existing potential-secret findings in files outside this job's allowed_paths (`progress/phase-6-extensions/OWNER_DECISIONS.md` line 2081, `progress/phase-6-extensions/tasks/T-PH6-104.md` line 1012). I cannot modify those files under the task boundary; may I treat these pre-existing out-of-scope findings as non-blocking for T-STC-001, or should the owne
+
+## ORCHESTRATOR RULING — 2 件はどちらも私が書いたものだった (2026-11-22 17:40)
+
+**あなたは正しい。しかも正しい止め方をした。** 作業は全部終わらせ、
+自分の票の範囲外のファイルを勝手に直さず、聞いてから止まっている。
+そのうえで挙げた 2 件は、**どちらもその日の朝に私が裁定文へ書き込んだもの**である。
+
+```
+progress/phase-6-extensions/OWNER_DECISIONS.md:2081
+progress/phase-6-extensions/tasks/T-PH6-104.md:1012
+```
+
+`T-PH6-104` の裁定で、環境変数が漏れることを実測した証拠として
+`{"secret": "<値>"}` という形の行をそのまま貼っていた。
+`"secret": "値"` は**この検査がまさに捕まえるための形**であり、
+しかも値そのものは読む人にとって何の情報でもない（**合言葉が返ってきた**という
+事実が証拠であって、合言葉の中身は証拠ではない）。記録を言葉に直し、
+**リポジトリ全体の走査は 0 件になった**。あなたを止めていたものはもう無い。
+
+### 私の側の欠陥も直した（2 件）
+
+1. **ブリーフが、コントローラの走らせないコマンドを書いていた。**
+   ブリーフは `python scripts/secret_scan.py` と書いていたが、
+   コントローラが実際に走らせるのは**そのジョブが変えたパスだけ**を渡した形である
+   （`gates.python_gates`）。木全体を走査すれば他人のファイルで必ず落ちる。
+   ブリーフを `python scripts/secret_scan.py <自分が変えたファイル>` に直し、
+   「**自分が触っていないファイルの指摘はあなたのものではなく、
+   あなたを止めてはならない**」と明記した。検査で固定した。
+   **つまりあなたは、見る必要のないものを見るよう指示されていた。**
+2. **合成の鍵に使える文字列を決めた。** 鍵が漏れないことを示す検査には
+   鍵らしい文字列が要るが、自由に決めると検査が落とす
+   （`T-AIC-005` が同じ理由で 1 試行使った）。
+   `sk-synthetic-01-not-a-real-key` 〜 `04` の**完全一致の閉じた集合**を
+   `scripts/secret_scan.py` の `SYNTHETIC` に足した。
+   パターンではないので、集合の外の鍵らしい文字列は従来どおり落ちる
+   （`tests/test_secret_scan.py` が両方向を固定している）。
+   **本物の資格情報を書かないという規則は何も変わっていない。**
+
+### やること
+
+**試行は消費しない**（`attempts: 0` のまま）。質問での停止は失敗ではなく、
+しかも原因は私だった。`doing` に戻す。
+
+報告によれば作業は終わっていて、`tests/test_connectors.py` と
+`tests/test_api.py` が **28 passed**、変更は許可パス内
+（`backend/app/main.py`, `backend/app/service.py`, `backend/app/connectors.py`,
+`tests/test_connectors.py`）に収まっている。
+やり直す必要はない。**自分が変えた 4 ファイルに対して**
+`python scripts/secret_scan.py backend/app/main.py backend/app/service.py
+backend/app/connectors.py tests/test_connectors.py` を走らせて 0 件を確認し、
+`test_cmd` を再実行して件数を報告すれば終わりである。
+
+なお、自分の検査から合成の鍵らしい文字列を外したと報告しているが、
+**外す必要はなかった**（上の決まった文字列を使えばよい）。
+鍵が漏れないことを示す検査に鍵を植えるのは**正しい書き方**である。

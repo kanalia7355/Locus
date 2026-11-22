@@ -1342,3 +1342,61 @@ def test_the_implementer_brief_states_the_boundary_and_the_skills(tmp_path: Path
         task, diff="--- a\n+++ b", evidence="- scope: ok", repository="repo"
     )
     assert "read-only" in review and "APPROVED" in review and "do not commit" in review.lower()
+
+
+def test_the_escalation_names_the_budget_that_actually_ran_out(tmp_path: Path) -> None:
+    """Two opposite situations used to be recorded with the same sentence.
+
+    `review cycles` spent means the implementer and the reviewer are pushing at
+    each other over the same artifact; `attempts` spent means the work itself
+    kept failing. On 2026-11-22 `T-PH7-205` escalated as "review cycle limit
+    reached" with `review_cycles: 1` — it was the attempt budget — and the shift
+    opened the review looking for an approval the pattern had missed, which was
+    the wrong evidence to read first.
+    """
+    spent = TASK.replace("attempts: 0", "attempts: 2").replace(
+        "status: todo", "status: todo\nreview_cycles: 0"
+    )
+    phase_with_task(tmp_path, spent)
+    tree = reviewable_worktree(tmp_path)
+    controller = controller_for(tmp_path, ["a-free", "b-free"])
+
+    def dispatch(model: str, prompt: str, **_: object) -> worker.Result:
+        return worker.Result(
+            worker.Ending.COMPLETED,
+            "VERDICT\n- CHANGES_REQUIRED\n\nFINDINGS\n- High, do it again",
+            model,
+        )
+
+    controller.dispatch = dispatch  # type: ignore[assignment]
+    task = controller.select()
+    assert task is not None
+    outcome, _ = controller.review_once(task, tree, "a-free", [])
+
+    # One review cycle only, but the third attempt is gone: say so.
+    assert outcome.state == "escalated"
+    assert "attempt limit reached after a review" in outcome.detail
+    assert "review cycle limit reached" not in outcome.detail
+    record = (
+        (controller.settings.phase_directory / "tasks" / "T-JOB-1.md").read_bytes().decode("utf-8")
+    )
+    assert "attempts 3/3" in record and "review cycles 1/2" in record
+
+
+def test_the_brief_asks_for_the_same_scan_the_gate_runs(tmp_path: Path) -> None:
+    """The brief promised a command the controller does not run.
+
+    `test_the_secret_scan_gate_asks_about_this_change_only` pins the gate to the
+    job's own changed paths, but the brief still printed the bare full-tree
+    form. On 2026-11-22 `T-STC-001` finished all of its work, ran the brief's
+    version, found two potential secrets in another phase's records — written
+    there by the orchestrator that morning — and stopped to ask, because it
+    could not touch files outside its scope to clear them. It was right to ask;
+    it should never have been told to look.
+    """
+    task = tasks.load_phase(phase_with_task(tmp_path)).tasks[0]
+    brief = prompts.implementer_brief(task, attempt=1, repository="/workspaces/T-JOB-1")
+
+    assert "python scripts/secret_scan.py <only the files you changed>" in brief
+    assert "\n  python scripts/secret_scan.py\n" not in brief, "the full-tree form is a trap"
+    assert "is not yours and must not stop you" in brief

@@ -994,12 +994,26 @@ class Controller:
             task = self.set_fields(
                 task, status="doing", review_cycles=str(cycles), attempts=str(task.attempts + 1)
             )
-            if cycles >= REVIEW_CYCLE_LIMIT or task.attempts >= ATTEMPT_LIMIT:
+            spent_cycles = cycles >= REVIEW_CYCLE_LIMIT
+            if spent_cycles or task.attempts >= ATTEMPT_LIMIT:
+                # Name the budget that actually ran out. Both branches used to
+                # escalate as "review cycle limit reached", so on 2026-11-22
+                # `T-PH7-205` was recorded that way with `review_cycles: 1` —
+                # it was the attempt limit. The two have opposite readings: a
+                # spent cycle budget means implementer and reviewer are pushing
+                # at each other, a spent attempt budget means the work itself
+                # kept failing. A shift sent to the wrong one reads the wrong
+                # evidence first.
                 return (
                     self.escalate(
                         task,
-                        "review cycle limit reached",
-                        "The reviewer still requires changes at the cycle limit.",
+                        "review cycle limit reached"
+                        if spent_cycles
+                        else "attempt limit reached after a review",
+                        f"The reviewer still requires changes, and the "
+                        f"{'review cycle' if spent_cycles else 'attempt'} budget is spent "
+                        f"(attempts {task.attempts}/{ATTEMPT_LIMIT}, "
+                        f"review cycles {cycles}/{REVIEW_CYCLE_LIMIT}).",
                         verdict.text[-2000:],
                     ),
                     None,

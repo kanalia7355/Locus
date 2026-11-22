@@ -132,7 +132,12 @@ Verification command the controller will run: {command}
 The controller also runs, from your workspace root, and all of them must pass:
   python -m ruff check backend tests scripts jobloop
   python -m ruff format --check backend tests scripts jobloop
-  python scripts/secret_scan.py
+  python scripts/secret_scan.py <only the files you changed>
+The secret scan is given your changed paths and nothing else. Run it the same
+way. A finding in a file you did not touch is not yours and must not stop you:
+on 2026-11-22 `T-STC-001` scanned the whole tree, found two in another phase's
+records, and correctly stopped to ask — having done all of its own work. Those
+two were the orchestrator's, written into a ruling that morning.
 Formatting is part of the job, not an afterthought: run the formatter before you
 report, and never leave a file the formatter would rewrite.
 
