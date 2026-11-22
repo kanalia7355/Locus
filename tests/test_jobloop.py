@@ -609,6 +609,17 @@ def test_a_commit_in_the_main_checkout_is_not_mistaken_for_an_escape(tmp_path: P
     def appeared(before: str, now: str) -> list[str]:
         return sorted(set(now.splitlines()) - set(before.splitlines()))
 
+    # Records and planning are not an escape. The owner writes task drafts into
+    # `progress/` whenever they like, and `T-PH6-127` was accused on 2026-11-22
+    # because `progress/phase-storage-connect/tasks/T-STC-005.md` appeared while
+    # it ran. The marker cannot cover that: the owner does not run shifts.
+    assert Controller.bookkeeping("?? progress/phase-x/tasks/T-A-1.md")
+    assert Controller.bookkeeping(" M docs/report/OWNER_DECISIONS_PLAIN_GUIDE.html")
+    # Product code appearing in the main checkout still is an escape.
+    assert not Controller.bookkeeping("?? backend/app/service.py")
+    assert not Controller.bookkeeping(" M frontend/src/App.tsx")
+    assert not Controller.bookkeeping("?? progress-notes.txt"), "prefix, not substring"
+
     dirty = Controller.dirt(repository)
     git(repository, "add", "-A")
     git(repository, "commit", "-m", "the operator commits its ruling")

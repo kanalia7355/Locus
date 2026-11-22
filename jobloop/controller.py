@@ -485,6 +485,27 @@ class Controller:
             return ""
         return hashlib.sha256((head + Controller.dirt(worktree)).encode("utf-8")).hexdigest()
 
+    @staticmethod
+    def bookkeeping(line: str) -> bool:
+        """True for a porcelain line that cannot be a worker escaping.
+
+        A worker escaping the workspace shows up as **product code** appearing in
+        the main checkout. Records and planning do not: `progress/` is where the
+        controller writes its own evidence, and where the owner writes task
+        drafts whenever they like. On 2026-11-22 `T-PH6-127` was accused because
+        the owner created `progress/phase-storage-connect/tasks/T-STC-005.md`
+        while the job ran — the appeared-lines evidence named it exactly.
+
+        The orchestrator marker cannot cover that: it is set by a shift, and the
+        owner does not run shifts in their own repository. So the comparison is
+        narrowed to what it is actually for. `commit_progress_records` already
+        treats all of `progress/` as the loop's own, which is the same judgement.
+        """
+        path = line[3:].strip().strip('"').replace("\\", "/")
+        return path.startswith("progress/") or path == (
+            "docs/report/OWNER_DECISIONS_PLAIN_GUIDE.html"
+        )
+
     def note(self, line: str) -> None:
         """Append one heartbeat line, in the supervisor's own format and file.
 
@@ -591,7 +612,11 @@ class Controller:
         # mid-dispatch, so the dirt it had been carrying went away. The evidence
         # added an hour earlier is what settled it — the record said
         # `appeared:` and then nothing at all.
-        moved = sorted(set(after.splitlines()) - set(outside.splitlines()))
+        moved = [
+            line
+            for line in sorted(set(after.splitlines()) - set(outside.splitlines()))
+            if not self.bookkeeping(line)
+        ]
         if moved and not self.operator_busy():
             return self.escalate(
                 task,
