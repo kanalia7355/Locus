@@ -20,6 +20,7 @@ Each entry is a judgement the controller refused to make itself.
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job. — 11 path(s) the worker wrote outside its scope: all_tests.txt, ruff1.txt, ruff2.txt, ruff_check.txt, ruff_format.txt, secret1.txt…. Decide whether the job's scope was drawn too narrowly, or whether the worker should not have written them.
 
 **Context**
@@ -38,6 +39,7 @@ outside allowed_paths: ['all_tests.txt', 'ruff1.txt', 'ruff2.txt', 'ruff_check.t
 
 
 ## T-PH7-211 — worker wrote outside its workspace (2026-11-20T00:11:06+09:00)
+
 
 
 
@@ -91,6 +93,7 @@ workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH7-211
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job. — 2 path(s) the worker wrote outside its scope: test_output.txt, test_output_raw.txt. Decide whether the job's scope was drawn too narrowly, or whether the worker should not have written them.
 
 **Context**
@@ -102,6 +105,7 @@ outside allowed_paths: ['test_output.txt', 'test_output_raw.txt']
 （`T-PH6-116` の回答に詳細）。削除し、許可パス内の成果物は残して `review` に戻した。
 試行は消費しない。詳細は `tasks/T-PH7-201.md`。
 ## T-PH7-211 — attempt limit reached (2026-11-20T03:09:59+09:00)
+
 
 
 
@@ -151,6 +155,7 @@ unavailable: {"type": "provider.invalid-request", "message": "Upstream request f
 
 
 
+
 **Question**: Three attempts did not satisfy the acceptance criteria; the job needs a human decision.
 
 **Context**
@@ -166,6 +171,7 @@ unavailable: {"type": "provider.invalid-request", "message": "Upstream request f
 `Ending.OUTAGE` を追加し、試行を消費せず冷却して回すようにした。
 5 件すべて試行 0 に戻し `todo` に戻した。受入条件・許可パスは無変更。
 ## T-PH7-223 — attempt limit reached (2026-11-20T03:16:24+09:00)
+
 
 
 
@@ -199,6 +205,7 @@ unavailable: {"type": "provider.invalid-request", "message": "Upstream request f
 5 件すべて試行 0 に戻し `todo` に戻した。受入条件・許可パスは無変更。
 
 ## T-PH7-201 — integration branch is dirty (2026-11-21T00:20:41+09:00)
+
 
 
 
@@ -249,6 +256,7 @@ M  frontend/src/styles.css
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job. — 12 path(s) the worker wrote outside its scope: test_conn.py, test_conn2.py, test_conn3.py, test_cursor.py, test_cursor2.py, test_cursor3.py…. Decide whether the job's scope was drawn too narrowly, or whether the worker should not have written them.
 
 **Context**
@@ -272,6 +280,7 @@ outside allowed_paths: ['test_conn.py', 'test_conn2.py', 'test_conn3.py', 'test_
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job. — 1 path(s) the worker wrote outside its scope: debug_test.py. Decide whether the job's scope was drawn too narrowly, or whether the worker should not have written them.
 
 **Context**
@@ -280,6 +289,7 @@ outside allowed_paths: ['debug_test.py']
 
 **Answer** (2026-11-21, jobloop diagnose): この停止は**ループ側の欠陥**が原因で、その欠陥は既に直っている — scratch files are swept by `gates.litter`。停止の時刻（2026-11-21T03:32）は修正より前なので、判断を覆したのではなく、**原因が無くなったので再開する**という記録である。欠陥が消費した試行 1 回分だけを戻す（それ以上は戻さない）。受入条件・許可パスは変更していない。
 ## T-PH7-223 — integration branch is dirty (2026-11-21T04:00:20+09:00)
+
 
 
 
@@ -336,6 +346,7 @@ M  frontend/src/styles.css
 
 
 
+
 **Question**: the T-PH7-201 implementation files are missing from this working tree (only stale `__pycache__` bytecode remains; HEAD `849b49b` on `loop/T-PH7-201-t-ph7-201` never contained them and the branch is clean) even though attempts 1–3 reported them present and green and the integration decision is still open — how should this job proceed now: should the worker redo the implementation in this attempt, o
 
 **Context**
@@ -360,6 +371,7 @@ STATUS
 
 **Answer** (2026-11-22, orchestrator): **作り直してほしい。ただしゼロからではない。** 実装ファイルが無いのは私の欠陥（`refresh` がレビュー済みコミットを reset で消した）。消えた `e6f9287`（7 ファイル 1,071 行）は reflog から取り戻し、`rescued/T-PH7-201` に固定したので全部読める。そのまま戻さないのは、土台が古く `T-PH6-103` が `service.py` を大きく触っており、cherry-pick が約 300 行の衝突になったため（**他人の成果物の衝突を推測で混ぜると、ゲートを通ったかが分からなくなる**）。ワークスペースは現在の統合ブランチに揃えた。詳細は `tasks/T-PH7-201.md`。
 ## T-PH7-211 — worker stopped for a decision (2026-11-21T16:04:11+09:00)
+
 
 
 
@@ -412,6 +424,7 @@ The core requirements are satisfied: storage engine abstraction is in place, `im
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job. — 1 path(s) the worker wrote outside its scope: attack_pattern.txt. Decide whether the job's scope was drawn too narrowly, or whether the worker should not have written them.
 
 **Context**
@@ -420,6 +433,7 @@ outside allowed_paths: ['attack_pattern.txt']
 
 **Answer** (2026-11-21, jobloop diagnose): この停止は**ループ側の欠陥**が原因で、その欠陥は既に直っている — scratch files are swept by `gates.litter`。停止の時刻（2026-11-21T16:52）は修正より前なので、判断を覆したのではなく、**原因が無くなったので再開する**という記録である。欠陥が消費した試行 1 回分だけを戻す（それ以上は戻さない）。受入条件・許可パスは変更していない。
 ## T-PH7-223 — worker stopped for a decision (2026-11-21T17:29:15+09:00)
+
 
 
 
@@ -459,6 +473,7 @@ needs-owner-decision: The required verification command `python -m pytest tests/
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job. — 1 path(s) the worker wrote outside its scope: attack_pattern.txt. Decide whether the job's scope was drawn too narrowly, or whether the worker should not have written them.
 
 **Context**
@@ -468,6 +483,7 @@ outside allowed_paths: ['attack_pattern.txt']
 **Answer** (2026-11-21, jobloop diagnose): この停止は**ループ側の欠陥**が原因で、その欠陥は既に直っている — scratch files are swept by `gates.litter`。停止の時刻（2026-11-21T17:45）は修正より前なので、判断を覆したのではなく、**原因が無くなったので再開する**という記録である。欠陥が消費した試行 1 回分だけを戻す（それ以上は戻さない）。受入条件・許可パスは変更していない。
 
 ## T-PH7-222 — worker stopped for a decision (2026-11-21T17:59:41+09:00)
+
 
 
 
@@ -489,6 +505,7 @@ pi/admin/audit`, and `caplog`; different-length wrong passwords produce rows ide
 
 **Answer** (2026-11-22, orchestrator): **ループが消す。あなたの問題ではない。** 掃除を派遣の前にも走らせるよう直したので `attack_pattern.txt` は既に消えている（`T-PH6-126` の回答に詳細）。許可パス外のファイルを勝手に消さなかったのは規則どおりで、**聞いたこと自体は正しい**。聞かずに済む仕組みが無かったのが欠陥だった。`review` に戻した（試行は消費しない）。詳細は `tasks/T-PH7-222.md`。
 ## TEST
+
 
 
 
@@ -529,9 +546,11 @@ pi/admin/audit`, and `caplog`; different-length wrong passwords produce rows ide
 
 
 
+
 needs-owner-decision: `attack_pattern.txt` (untracked, outside allowed_paths) causes `python scripts/secret_scan.py` to fail with 5 findings, blocking the controller gate; should I be granted scope to remove that file, or will the owner/controller remove it before re-gating this job?
 
 ## T-PH7-222 — out-of-scope change (2026-11-22T03:45:10+09:00)
+
 
 
 
@@ -550,6 +569,7 @@ outside allowed_paths: ['attack_pattern.txt']
 
 **Answer** (2026-11-22, orchestrator): **同上。掃除の判定が緩すぎた。** `attack_pattern.txt` が残ったのは、その語幹がこのジョブ自身のテストの `def test_attack_pattern_visible(...)` に含まれていたため — **参照ではなく名前の偶然の一致**である。判定を直し、ファイルは消えている。`review` に戻した（試行は消費しない）。詳細は `tasks/T-PH7-222.md`。
 ## T-PH7-201 — attempt limit reached (2026-11-22T04:20:08+09:00)
+
 
 
 
@@ -580,6 +600,7 @@ Offline secret scan: 1 findings
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job. — 8 path(s) the worker wrote outside its scope: debug_output.txt, git_status.txt, test_fake_detail.txt, test_orig.txt, test_output.txt, test_output2.txt…. Decide whether the job's scope was drawn too narrowly, or whether the worker should not have written them.
 
 **Context**
@@ -588,6 +609,7 @@ outside allowed_paths: ['debug_output.txt', 'git_status.txt', 'test_fake_detail.
 
 **Answer** (2026-11-22, orchestrator): **掃除が「自分で自分を保証する」穴を開けていた。私の実装の循環で、測って特定した。** 参照の有無を読めた全ファイルの本文から探していたが、その「全ファイル」に**掃除候補そのもの**が入っていた。このワーカーは `git status` の出力を `git_status.txt` に保存しており、その中身が兄弟の作業ファイル 8 個の名前を並べていたため、作業ファイル群が互いを保証し合って 1 つも消えなかった。参照を探すのは**許可パス内の本文だけ**に限定し、併せて「拡張子を落とした語幹でも参照とみなす」緩さも直した（両方を検査で固定）。8 個は削除済み。**前のシフトの差し戻しは有効** — 落ちているテストはこのジョブ自身が書いたもので、「無関係な既存の失敗」ではない。`doing` のまま続ける。詳細は `tasks/T-PH7-211.md`。
 ## T-PH7-223 — out-of-scope change (2026-11-22T04:38:08+09:00)
+
 
 
 
@@ -613,6 +635,7 @@ outside allowed_paths: ['certs/server.crt']
 
 
 
+
 **Question**: Three attempts did not satisfy the acceptance criteria; the job needs a human decision.
 
 **Context**
@@ -624,6 +647,7 @@ Offline secret scan: 1 findings
 **Answer** (2026-11-22, orchestrator): **また試行を落としたのはループなので 1 回戻す。道具が古かった。** 04:35 にゲートを直したのに 05:10 に同じ指摘で止まった原因を測って特定した: **ゲートはワークスペースにある `scripts/secret_scan.py` の複製を実行していた**。コントローラ側は直っていて変更パスを引数で渡していたが、受け取る側が古い版で引数を解さず全体走査に落ち、そのワークスペースの `T-PH7-222.md` 複製にはallowlist の印も無かった。ゲートは**コントローラ自身の写し**を実行し `--root <worktree>` で対象を切り替えるようにした（道具を 1 か所直せば全ジョブに効き、ジョブが自分を裁く道具を書き換えられない）。古いままのワークスペースを `--root` で指して 0 findings を実測。試行を戻して `todo`。前のシフトの指示は有効。詳細は `tasks/T-PH7-201.md`。
 
 ## T-PH7-211 — attempt limit reached (2026-11-22T05:40:59+09:00)
+
 
 
 
@@ -644,6 +668,7 @@ timeout: no reply within 1800s
 
 
 
+
 **Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
 
 **Context**
@@ -654,6 +679,7 @@ workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH7-201
 **Answer** (2026-11-22, orchestrator): **誤検知。ワーカーは逃げていない。** メインチェックアウトにワーカー由来のファイルは1 つも無く（`git status` は私の編集とループ自身の記録だけ）、判定時刻には `.jobloop/orchestrator-busy` も置いてあったはずである（05:26 作成、05:46 削除）。**なぜ抑止されなかったのかは未解明**なので、推測で原因を書く代わりに**次に起きたときに記録が答えられるようにした** — 封じ込めの停止記録にマーカーのパスとその時点の有無、判定中に実際に増えた行を書き出すようにした。告発には証拠を添えるべきで、今回の記録はどちらとも言えなかった。試行を戻して `todo`。前のシフトの指示は有効。詳細は `tasks/T-PH7-201.md`。
 
 ## T-PH7-201 — worker wrote outside its workspace (2026-11-22T05:56:29+09:00)
+
 
 
 
@@ -672,6 +698,7 @@ appeared:
 ## T-PH7-211 — no independent reviewer available (2026-11-22T08:10:07+09:00)
 
 
+
 **Question**: No second free model is available, and self-review is prohibited (CONSTRAINTS.md §5-5). Decide whether to wait for usage to reset.
 
 **Context**
@@ -680,6 +707,7 @@ implementer=opencode/iceman-free
 
 **Answer** (2026-11-22, orchestrator): **判断ではなく待ちだった。** 実測で `available models: none` — 無料モデルが全部冷却中で、冷却は時間で明ける。人が決めることは何も無い。前のシフトの「走らせられないモデルを冷却して次へ回す」は正しく働き、尽きたところで止まった — **止まり方だけが間違っていた**。`blocked` は人を呼ぶ状態で、自分で明ける条件に使うべきではない（4 件が同時に落ちた）。レビュアーが取れないときはエスカレートせず `review` のまま `WAITING FOR A REVIEWER` を記録し、次のサイクルに任せるようにした（`stranded()` が拾うので試行は消費しない）。レビューは行われず、何も承認せず、何もマージしない点は変えていない。全モデルが読み取り専用の規則を破った場合は従来どおり人に聞く。詳細は各 task ファイル。
 ## T-PH7-201 — the job file names another checkout (2026-11-22T08:10:07+09:00)
+
 
 
 **Question**: The job file contains an absolute path to the main checkout, which a worker reads as the project root. Replace it with a relative path (use the bare name `python` in `test_cmd`) before dispatching.
@@ -691,3 +719,24 @@ file=T-PH7-201.md
 frontmatter=yes
 
 **Answer** (2026-11-22, orchestrator): **frontmatter は綺麗で、名指していたのは私が前のシフトで書いた裁定文の絶対パス**だった。原因は `\r` 1 文字: frontmatter の切り出しが `split("\n---\n")` なのに task ファイルはCRLF なので**一度も一致せず**、`head` がファイル全体になり、本文のどこにあるパスも「frontmatter にある」と報告されていた。`selfrepair` は frontmatter のパスを伏せない規則（`test_cmd` を伏せたら壊れたコマンドを渡すことになる）なので自己修復も働かなかった。切り出す前に改行を正規化した — 本文のパスは自動で伏せ字になり、frontmatter のパスは従来どおり止まる。両方を検査で固定した。**私の書き方の問題でもあり**、裁定文に絶対パスを書く必要は無かった。以後 `<repository>` 相対で書く。試行は消費せず `todo`。詳細は `tasks/T-PH7-201.md`。
+
+## T-PH7-201 — review cycle limit reached (2026-11-22T10:32:12+09:00)
+
+
+**Question**: The reviewer still requires changes at the cycle limit.
+
+**Context**
+
+der review to re-check each prior finding against the diff.Now let me read the synthetic connector and locate the key regions of `service.py`.Let me check the final recheck section of `send` and the `_cancel_ingestion` helper to complete the correctness picture.VERDICT
+- CHANGES_REQUIRED
+
+FINDINGS
+- Medium — `backend/app/service.py:912-913, 924` (source-cycle transaction scope) together with call sites `backend/app/service.py:2496`, `backend/app/service.py:2755`, `backend/app/service.py:3182-3183`: the live source-permission decision (`_source_allows` → `SourceConnector.can_read`) executes while the process-wide write transaction (`with self.db()`) is open, even though the cycle-local comment at `service.py:912-913` claims connector calls run outside the write transaction. The cycle's own candidate evaluation sits outside the block, but `_can_read` (all six retrieval paths) and `_ingestion_allowed` (pre-scan/pre-index recheck) hold the transaction/`self.lock` across the connector call. Concrete failure: with the real SMB/Drive/Box connectors (`T-PH7-202+`), a network-bound `can_read` holds `BEGIN IMMEDIATE` + `self.lock`, stalling all request handlers and the single worker loop. Smallest fix: release the transaction before invoking `can_read` and re-check the observed state afterwards.
+
+- Low — `backend/app/service.py:1086-1095, 1101`: unknown permission hash handling stores the normalized empty string but compares the raw `None`, so undecidable sources re-trigger change detection, the `source.permission.change` audit and scheduler notification on every cycle, and `source_cycle` reports `performed=True` each tick.
+
+UNVERIFIED
+- I did not re-run the controller-reported gates (task-verification 56 passed, lint, format, secret-scan) and did not execute tests, per instructions and the read-only review constraints; those results are relied on as given.
+- I did not exhaustively trace content-bearing read paths beyond the diff and the `_can_read` call sites inspected here.
+
+**Answer** (2026-11-22, orchestrator): **2 件とも本物で、Medium は今のうちに直す価値がある。** `_source_allows` → `SourceConnector.can_read` が書き込み取引と `self.lock` を握ったまま走っており、`service.py:912-913` のコメントが「取引の外で走る」と書いているのは**事実と違う**（外なのは巡回の候補評価だけで、`_can_read` と `_ingestion_allowed` は握ったまま）。合成コネクタは即答するので今は困らないが、**`T-PH7-202` 以降が本物の SMB / Drive / Box を入れた瞬間に、ネットワーク待ちが `BEGIN IMMEDIATE` とロックを握って全ハンドラと唯一のワーカーループを止める**。後続が 3 件待っている票なので、ここで直すのが一番安い。Low は未知の権限ハッシュで保存値と比較値の正規化が食い違い、判定不能な source が**毎周期**変更扱いになって監査記録とスケジューラ通知が出続けるもの — 私がループ側で潰してきた「静かな空回り」が製品側に出ている。残り 1 周を許し、やることを 2 点に絞った（加えて**嘘のコメントを実態に合わせる**こと。それがこの欠陥を見えなくしていた）。`review` から再開。詳細は `tasks/T-PH7-201.md`。
