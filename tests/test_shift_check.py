@@ -188,3 +188,61 @@ def test_the_quota_line_never_claims_a_ready_count(
     assert "1 of 3 recorded models resting" in line, line
     assert "ready" not in line, "a ready count from this file cannot be true"
     assert "soonest back in 10 min" in line, line
+
+
+def test_a_quota_outage_is_not_counted_as_work() -> None:
+    """`worked` decided whether to back off, and `no-model` was reading as work.
+
+    From 19:00 to 21:25 on 2026-11-22 the supervisor ran 47 full-rate cycles
+    while every free model was resting, never reached its idle branch, and wrote
+    4,197 `pushed` lines into the log — the noise that had made a real churn
+    signal hard to find earlier that evening.
+    """
+    module = load_supervisor()
+    did_work = module.did_work  # type: ignore[attr-defined]
+
+    assert not did_work(
+        "T-PH7-205: no-model - every eligible free model is on cooldown\n"
+        "pushed loop/local-development"
+    )
+    assert not did_work("-: idle - no actionable job is left; pushed loop/local-development")
+    assert not did_work(
+        "T-PH6-104: no-reviewer - every free model is on cooldown\npushed loop/local-development"
+    )
+    assert not did_work("")
+    # Announcements are not outcomes: these two lines are the whole of a cycle
+    # that reached the reviewer check and stopped, and the first version of this
+    # counted the `resuming` line as work.
+    assert not did_work(
+        "\n".join(
+            [
+                "2026-11-22T21:26:16+09:00 run :: T-PH6-104: resuming",
+                "2026-11-22T21:26:16+09:00 run :: T-PH6-104: no-reviewer - every model is resting",
+                "pushed loop/local-development",
+            ]
+        )
+    )
+    assert not did_work(
+        "\n".join(
+            [
+                "T-STC-001: dispatching (medium)",
+                "T-STC-001: rotated - opencode/x-free is out of usage",
+            ]
+        )
+    )
+    # A real outcome, however it ended, is work.
+    assert did_work("T-PH6-125: delivered - e53dfd6 merged into loop/local-development")
+    assert did_work("T-PH6-127: escalated - worker stopped for a decision")
+    assert did_work("T-PH6-104: gates-failed - scope: outside allowed_paths")
+
+
+def test_the_idle_wait_grows_but_stays_bounded() -> None:
+    module = load_supervisor()
+    backoff = module.backoff  # type: ignore[attr-defined]
+
+    assert backoff(120.0, 0) == 120.0
+    assert backoff(120.0, 1) == 240.0
+    assert backoff(120.0, 3) == 960.0
+    # Capped, so a cooldown that ends sooner than expected is not waited out.
+    assert backoff(120.0, 10) == 1200.0
+    assert backoff(120.0, 99) == 1200.0

@@ -45,6 +45,58 @@ def heartbeat(path: Path, line: str) -> None:
     print(f"{now()} {line}", flush=True)
 
 
+# Lines that do not amount to work: outcomes in which nothing was attempted, and
+# the announcements that precede an outcome rather than being one. `dispatching`
+# and `resuming` are here because they are printed *before* the model is chosen —
+# a cycle whose only lines were `resuming` and `no-reviewer` was counted as work
+# on the first attempt at this, and the supervisor kept polling at full rate.
+# `rotated` is the same: a spent model is handed back and the next line is
+# another dispatch.
+#
+# Deliberately a blocklist, not an allowlist of real outcomes. If a future
+# outcome name is unknown here it reads as work, and the loop keeps its current
+# full-rate cadence — the status quo. An allowlist would read it as nothing and
+# back off while work was happening.
+NON_EVENTS = (
+    "idle - no actionable job is left",
+    "no-model",
+    "no-reviewer",
+    "nothing-to-resume",
+    ": dispatching",
+    ": resuming",
+    "rotated -",
+)
+
+
+def did_work(output: str) -> bool:
+    """Whether a cycle actually attempted anything.
+
+    This used to be `"idle - no actionable job is left" not in output`, which
+    counted a quota outage as work: `no-model` is not the idle string, so from
+    19:00 to 21:25 on 2026-11-22 the supervisor ran 47 full-rate cycles, never
+    reached its idle branch, and wrote 4,197 `pushed` lines into the log — the
+    noise that made a real churn signal hard to find earlier the same evening.
+    """
+    lines = [line for line in output.strip().splitlines() if line.strip()]
+    events = [
+        line
+        for line in lines
+        if "pushed " not in line and not any(mark in line for mark in NON_EVENTS)
+    ]
+    return bool(events)
+
+
+def backoff(pause: float, idle_rounds: int) -> float:
+    """How long to wait after `idle_rounds` consecutive walks that did nothing.
+
+    Doubling, capped at ten times the configured pause. A six-hour cooldown does
+    not need a visit every two minutes, and the first cycle that attempts
+    anything resets the count — so the cost of being wrong is one longer wait,
+    not a stalled queue.
+    """
+    return float(min(pause * (2.0**idle_rounds), pause * 10))
+
+
 def tail_of(output: str) -> str:
     """The last few lines of a cycle's output, minus what is already in the log.
 
@@ -115,6 +167,7 @@ def main() -> int:
     phases = arguments.phases or ["phase-6-extensions"]
     heartbeat(beat, f"supervisor started for {', '.join(phases)}")
     cycle = 0
+    idle_rounds = 0
     while not stop.is_file():
         cycle += 1
         if arguments.cycles and cycle > arguments.cycles:
@@ -139,7 +192,7 @@ def main() -> int:
                     str(arguments.max_jobs),
                 ]
             )
-            worked = worked or "idle - no actionable job is left" not in output
+            worked = worked or did_work(output)
             spent = time.monotonic() - started
             heartbeat(
                 beat,
@@ -162,8 +215,16 @@ def main() -> int:
                 check=False,
             )
             told = "; ".join((diagnosis.stdout or "").strip().splitlines()) or "(nothing said)"
-            heartbeat(beat, f"cycle {cycle} idle everywhere :: {told[:600]}")
-        time.sleep(arguments.pause)
+            idle_rounds += 1
+            waiting = backoff(arguments.pause, idle_rounds)
+            heartbeat(
+                beat,
+                f"cycle {cycle} idle everywhere, waiting {waiting:.0f}s :: {told[:600]}",
+            )
+        else:
+            idle_rounds = 0
+            waiting = arguments.pause
+        time.sleep(waiting)
     heartbeat(beat, "supervisor stopped")
     return 0
 
