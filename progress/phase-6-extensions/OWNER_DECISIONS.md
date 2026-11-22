@@ -28,6 +28,7 @@
 
 
 
+
 参照: `docs/plans/OWNER_CHECKLIST_2026-11-11.md` Entry 1〜5、`ADR-0012`、`ADR-0013`、`HBR-001`〜`HBR-015`
 
 ### E1 許可証（リース）の期限
@@ -104,6 +105,7 @@ LAN 内でも、踏み台になった端末・持ち込み端末・同一 LAN �
 
 
 
+
 参照: `DATA-006`、`DATA-007`、`progress/phase-5-prototype/PROGRESS.md` §3
 
 【回答】「opencode や claude, chatgpt などで許容されている形式データはすべて許容。
@@ -136,6 +138,7 @@ LAN 内でも、踏み台になった端末・持ち込み端末・同一 LAN �
 ---
 
 ## テーマ 3 — 同時利用時の待ち時間
+
 
 
 
@@ -189,6 +192,7 @@ N の上限が決まるので、N は設定値のままにし、起動時に実�
 
 
 
+
 参照: `DATA-008`、`PHASE2_STORAGE_ACL_RESEARCH.md`
 
 【回答】「win 共有フォルダ、GoogleDrive、BOX 等々」「チェック頻度は 10 分おき程度か、
@@ -208,6 +212,7 @@ N の上限が決まるので、N は設定値のままにし、起動時に実�
 ---
 
 ## テーマ 5 — 本番公開の準備
+
 
 
 
@@ -274,6 +279,7 @@ ID + パスワードのみの場合、パスワード流出がそのまま全資
 
 
 
+
 参照: `LOOP-003/006/008/012〜014/018/020〜022`
 
 【回答】「人が見てない無監視状態で自動で動かしてよいし、チェック結果を認めて仕組化してよい。
@@ -295,6 +301,7 @@ main へマージさせていい。」「問題があればあとでその変更
 ---
 
 ## UI 方針
+
 
 
 
@@ -353,11 +360,13 @@ main へマージさせていい。」「問題があればあとでその変更
 
 
 
+
 - ここで決まった項目は `PROGRESS.md` のジョブへ変換する。決定のない項目はジョブにしない。
 - 【申し送り】はオーナーの決定を覆すものではない。実装が取る補償手段を明示しているだけで、
   不要と指示されれば外す。
 
 ## T-PH6-103 — worker wrote outside its workspace (2026-11-16T16:33:55+09:00)
+
 
 
 
@@ -399,6 +408,7 @@ timeout で停止させたワーカーの子プロセスが生き残って後か
 （ループ自身の改修をジョブにすると、走っているループが自分を書き換えることになる）。
 
 ## T-PH6-114 — 作図と、資料に根拠のない生成の扱い (2026-11-16T19:00:00+09:00)
+
 
 
 
@@ -469,6 +479,7 @@ timeout で停止させたワーカーの子プロセスが生き残って後か
 
 
 
+
 **Answer**（記録のみ。質問ではなくオーナーからの指示）:
 
 1. 上部の帯を本文のスクロールから分離する（`T-PH6-109`。実測で確認済み:
@@ -481,6 +492,7 @@ timeout で停止させたワーカーの子プロセスが生き残って後か
 5. 絵文字は使わない（上記 1. と同じ規則）。
 
 ## T-PH6-109 — worker wrote outside its workspace (2026-11-17T11:21:44+09:00)
+
 
 
 
@@ -526,6 +538,7 @@ workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-109
 
 
 
+
 **Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
 
 **Context**
@@ -537,6 +550,7 @@ workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-111
 
 
 ## T-PH6-109 — worker stopped for a decision (2026-11-17T12:28:47+09:00)
+
 
 
 
@@ -595,6 +609,7 @@ needs-owner-decision: appearance.spec.ts:146 の test.fail 印は、本件の修
 
 
 
+
 **Question**: frontend/e2e/appearance.spec.ts は許可パス外なので触れませんでしたが、その中の test.fail("the message box stays reachable") には「Fixed by T-PH6-111 — remove this marker in that job」とあり、今回の修正でこのテストは合格に反転し、次回の --e2e 実行で browser-e2e ゲートが赤くなります。このマーカー1行の削除だけ許可パスに加えて私が消してよいか、それともマージ直後にオーナーが消すか（同じファイル21行目に基底コミット時点から存在する eslint エラー no-misleading-character-class も CI の frontend-lint を赤くしています。そちらの扱いも併せてご指定ください）、どちらで進めるべきかの判断をお願いしま
 
 **Context**
@@ -620,6 +635,7 @@ needs-owner-decision: frontend/e2e/appearance.spec.ts は許可パス外なの�
 
 
 ## T-PH6-109 — worker stopped for a decision (2026-11-17T13:30:48+09:00)
+
 
 
 
@@ -685,6 +701,7 @@ STATUS
 
 
 
+
 【回答】「サブエージェント起動してガンガン進めていいので起票ガンガンしましょう」
 「UI 系に関しては opencode の UI や google が出している
 https://github.com/GoogleChrome/modern-web-guidance などを使用して進めてください」
@@ -707,6 +724,7 @@ https://github.com/GoogleChrome/modern-web-guidance などを使用して進め�
 
 
 ## T-PH6-109 — out-of-scope change (2026-11-17T16:42:16+09:00)
+
 
 
 
@@ -751,6 +769,7 @@ outside allowed_paths: ['test-results/.last-run.json']
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job.
 
 **Context**
@@ -759,6 +778,7 @@ outside allowed_paths: ['frontend/test-output.txt', 'frontend/test-results.txt']
 
 **Answer** (2026-11-17, orchestrator): オーナー判断ではない。範囲外として報告されたのは画面検査ゲート自身が書いた `test-results/.last-run.json` と、ワーカーがテスト出力を読むために作った作業ファイル。ゲートを `frontend/` から起動するよう直し（`.gitignore` が覆う場所に成果物が出る）、3 件とも試行を戻して再開する。範囲判定そのものは緩めない。
 ## T-PH6-115 — out-of-scope change (2026-11-17T17:07:18+09:00)
+
 
 
 
@@ -805,6 +825,7 @@ outside allowed_paths: ['test-results/.last-run.json']
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job.
 
 **Context**
@@ -813,6 +834,7 @@ outside allowed_paths: ['test-results/.last-run.json']
 
 **Answer** (2026-11-17, orchestrator): 検査基盤の欠陥。ワークスペースに `.venv` を共有しておらず画面検査のサーバが起動できなかったこと、および Playwright の実行記録が`.gitignore` の外に出ていたことが原因。両方直して試行を戻した。範囲判定は緩めない。
 ## T-PH6-113 — out-of-scope change (2026-11-17T21:35:45+09:00)
+
 
 
 
@@ -857,6 +879,7 @@ outside allowed_paths: ['frontend/test-output.txt', 'frontend/test-results.txt']
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job.
 
 **Context**
@@ -865,6 +888,7 @@ outside allowed_paths: ['test-results/.last-run.json']
 
 **Answer** (2026-11-17, orchestrator): 検査基盤の欠陥。ワークスペースに `.venv` を共有しておらず画面検査のサーバが起動できなかったこと、および Playwright の実行記録が`.gitignore` の外に出ていたことが原因。両方直して試行を戻した。範囲判定は緩めない。
 ## T-PH6-124 — out-of-scope change (2026-11-17T22:28:50+09:00)
+
 
 
 
@@ -911,6 +935,7 @@ outside allowed_paths: ['frontend/errors.txt', 'frontend/filtered.txt', 'fronten
 
 
 
+
 **Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
 
 **Context**
@@ -938,6 +963,7 @@ workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-109
 
 
 
+
 **Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
 
 **Context**
@@ -947,6 +973,7 @@ workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-113
 
 **Answer** (2026-11-18, orchestrator): 誤検知。3 件ともワーカーは自分のクローンの中だけに書いており、メインチェックアウトにワーカー由来のファイルは無い。原因は私がループ実行中にメインチェックアウトで作業したこと（スクリーンショット取り込み、報告の追加、push まわりの修正）。`.jobloop/orchestrator-busy` がある間は判定を停止し、停止したことをジョブに記録する仕組みにした。試行は戻した。
 ## T-PH6-115 — worker wrote outside its workspace (2026-11-18T00:04:13+09:00)
+
 
 
 
@@ -994,6 +1021,7 @@ workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-115
 
 
 
+
 **Question**: The job file contains an absolute path to the main checkout, which a worker reads as the project root. Replace it with a relative path (use the bare name `python` in `test_cmd`) before dispatching.
 
 **Context**
@@ -1003,6 +1031,7 @@ file=T-PH6-111.md
 
 **Answer** (2026-11-19, orchestrator): ループが自分の証跡で自分を止めていた。名指ししていたのはコントローラが記録したゲート出力。記録時にパスを伏せるよう直し、既出分も伏せ字にした。
 ## T-PH6-108 — out-of-scope change (2026-11-18T21:38:18+09:00)
+
 
 
 
@@ -1047,6 +1076,7 @@ outside allowed_paths: ['debug_test.py', 'edit_service.py', 'edit_service2.py', 
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job.
 
 **Context**
@@ -1073,6 +1103,7 @@ outside allowed_paths: ['frontend/src/test-setup.ts']
 
 
 
+
 **Question**: Three attempts did not satisfy the acceptance criteria; the job needs a human decision.
 
 **Context**
@@ -1081,6 +1112,7 @@ timeout: no reply within 1800s
 
 **Answer** (2026-11-19, orchestrator): 3 回とも中身の失敗ではなく時間切れ。ジョブが大きすぎた見積もりの誤りなので、`::backdrop`・入場アニメーション・`closedby` を別ジョブに切り出して縮めた。
 ## T-PH6-123 — integration branch is dirty (2026-11-19T00:59:31+09:00)
+
 
 
 
@@ -1135,6 +1167,7 @@ commit=03d4bb5adc1ca6953224860f17ff11e3bf46715b
 
 
 
+
 **Question**: May I extend this job's allowed_paths to include frontend/e2e/a11y.spec.ts and frontend/e2e/workspace.spec.ts so I can update exactly four stale assertions to the migrated native-<dialog> semantics — a11y.spec.ts:349 and :405 (querySelector('[role="dialog"]') → querySelector('dialog, [role="dialog"]'), which the review itself recommended) and workspace.spec.ts:66 and :275 (the single-Tab toBeFocus
 
 **Context**
@@ -1148,6 +1181,7 @@ needs-owner-decision: May I extend this job's allowed_paths to include frontend/
 **Answer** (2026-11-19, orchestrator): 許可する。`frontend/e2e/a11y.spec.ts` と `frontend/e2e/workspace.spec.ts` を許可パスに加えた。別ジョブには切り出さない（移行で意味が変わった表明をそのジョブで直すのが筋で、e2e 2 本を赤のまま次の人に渡すのは `done` の偽装と変わらない）。ただし書き換えは指摘の 4 か所に限り、**「`<body>` にフォーカスがあってもよい」という表明にはしない** —「ダイアログの外に出られない」性質は native の語彙で言い直して残すこと。受入条件に a11y/workspace の全件 PASS を追加した。詳細は `tasks/T-PH6-116.md` の ORCHESTRATOR RULING。
 
 ## T-PH6-123 — attempt limit reached (2026-11-19T05:04:19+09:00)
+
 
 
 
@@ -1193,6 +1227,7 @@ the worker changed nothing
 
 
 
+
 **Question**: The reviewer still requires changes at the cycle limit.
 
 **Context**
@@ -1208,6 +1243,7 @@ UNVERIFIED
 **Answer** (2026-11-19, orchestrator): 残り 1 周を許す（`review_cycles` を 2 → **1**。0 には戻していない）。この 2 周は押し合いではなく収束しており（High 1 + Medium 2 + Low 1 → Medium 1 + Low 1）、直し方まで特定されている欠陥を画面に残す選択は取らない。やることは 2 点だけ: (1) Medium の修正（承諾経路でフォーカスが `body` に落ちる。取り消し経路と揃える）とその性質を固定するテスト、(2) `a11y.spec.ts` を実行して UNVERIFIED を実測で埋める。Low（待機列のジョブが切替後も残り、古いプロジェクトの失敗が新しい画面に書き込まれる）は**本ジョブ以前からある欠陥**なので別票 `T-PH6-126` に移した（320px が外観ゲートで一度も測られていない穴も併記）。受入条件 1〜4 は 1 つも緩めていない。詳細は `tasks/T-PH6-113.md`。
 
 ## T-PH6-113 — reviewer modified the worktree (2026-11-19T21:58:45+09:00)
+
 
 
 
@@ -1261,6 +1297,7 @@ reviewer=opencode/nemotron-3.5-lightning-free
 
 
 
+
 **Question**: The reviewer still requires changes at the cycle limit.
 
 **Context**
@@ -1277,6 +1314,7 @@ Let me verify the key behavioral patterns in the implementation.
 誤読で増えた `review_cycles` と `attempts` を戻し、`review` に戻した。
 詳細は `tasks/T-PH6-113.md`。
 ## VERDICT
+
 
 
 
@@ -1316,9 +1354,11 @@ Let me verify the key behavioral patterns in the implementation.
 
 
 
+
 - **none** — no material findings. The change is clean and correct.
 
 ## UNVERIFIED
+
 
 
 
@@ -1372,6 +1412,7 @@ The diff is byte-identical to what the controller verified (101/101 tests pass, 
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job. — 10 path(s) the worker wrote outside its scope: a11y-full.txt, a11y-output.txt, a11y-results.txt, appearance-output.txt, e2e-results.txt, ruff-check.txt…. Decide whether the job's scope was drawn too narrowly, or whether the worker should not have written them.
 
 **Context**
@@ -1386,6 +1427,7 @@ outside allowed_paths: ['a11y-full.txt', 'a11y-output.txt', 'a11y-results.txt', 
 従来どおりジョブを止める。10 個は削除し、成果物は残して `review` に戻した。
 前回の裁定（フォーカスの表明を緩めない）は変えていない。詳細は `tasks/T-PH6-116.md`。
 ## T-PH6-104 — attempt limit reached (2026-11-20T03:08:39+09:00)
+
 
 
 
@@ -1436,6 +1478,7 @@ unavailable: {"type": "provider.invalid-request", "message": "Upstream request f
 
 
 
+
 **Question**: The main checkout has uncommitted changes, so the reviewed commit was not merged. Decide how to integrate it.
 
 **Context**
@@ -1469,6 +1512,7 @@ M  frontend/src/styles.css
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job. — 26 path(s) the worker wrote outside its scope: frontend/appearance_output.txt, frontend/baseline.txt, frontend/check_bytes.py, frontend/check_pending.py, frontend/check_poll.py, frontend/check_select.py…. Decide whether the job's scope was drawn too narrowly, or whether the worker should not have written them.
 
 **Context**
@@ -1477,6 +1521,7 @@ outside allowed_paths: ['frontend/appearance_output.txt', 'frontend/baseline.txt
 
 **Answer** (2026-11-21, jobloop diagnose): この停止は**ループ側の欠陥**が原因で、その欠陥は既に直っている — scratch files are swept by `gates.litter`。停止の時刻（2026-11-21T03:32）は修正より前なので、判断を覆したのではなく、**原因が無くなったので再開する**という記録である。欠陥が消費した試行 1 回分だけを戻す（それ以上は戻さない）。受入条件・許可パスは変更していない。
 ## T-PH6-104 — integration branch is dirty (2026-11-21T02:18:24+09:00)
+
 
 
 
@@ -1532,6 +1577,7 @@ M  frontend/src/styles.css
 
 
 
+
 **Question**: frontend/e2e/workspace.spec.ts の「sidebar, long names, mobile widths and reduced motion」が、私の変更とは無関係に既に赤です（変更をすべてスタッシュしたクリーンな HEAD で再現）。原因は T-PH6-111 が .messages をスクロール領域に変えて .main はスクロールしなくなったのに、このテストが .main の scrollTop > 0 を求めていることです。オーナー裁定が「4 か所以外の表明に触れるな」と禁じているため、私の側では直せません。この既存失敗をどう扱いますか。（a）このジョブでは既存失敗を対象外とし 12/13 で完了とみなす、（b）この陳腐化した表明（.main → .messages）の修正をこのジョブで特別に認める、（c）別ジョブで直す。
 
 **Context**
@@ -1556,6 +1602,7 @@ needs-owner-decision: frontend/e2e/workspace.spec.ts の「sidebar, long names, 
 
 **Answer** (2026-11-22, orchestrator): (b) を採る。**ワーカーの報告は正確で、私が実測で確認した** （クリーンな HEAD で当該テストだけを実行して 1 failed）。`workspace.spec.ts:596` は `T-PH6-111` が移したスクロール領域を追えていない陳腐化で、このジョブの責任ではない。前回許した 4 か所に加えて**5 番目として**修正を認める。ただし**性質は緩めない** — スクロール領域がスクロールしたことを表明する形にし、上の帯の 2 つの表明はそのまま残すこと。併せて、これが腐った原因（画面ゲートが `appearance.spec.ts` 1 本しか走らせていない）を別票 `T-PH6-127` に起票した。詳細は `tasks/T-PH6-116.md`。
 ## T-PH6-126 — worker stopped for a decision (2026-11-21T13:21:44+09:00)
+
 
 
 
@@ -1608,6 +1655,7 @@ STATUS
 
 
 
+
 **Question**: The reviewer still requires changes at the cycle limit.
 
 **Context**
@@ -1635,6 +1683,7 @@ UNVERIFIED
 
 
 
+
 **Question**: The reviewer still requires changes at the cycle limit.
 
 **Context**
@@ -1649,6 +1698,7 @@ UNVERIFIED
 
 **Answer** (2026-11-22, orchestrator): 指摘は 1 点に絞られた（環境変数の High は消えている）。残りは docker 系統が**ホストの `sys.executable` をコンテナに渡している**ことで、既定の image にそのパスは無いので `LOCUS_LIVE_DOCKER=1` でも §8 の 7〜8 の証拠が取れない。コンテナ内の `python3` を使い、製品の docker 経路（`extract_with_sandbox(..., use_docker=True)`）を通る opt-in テストも足すこと。前のシフトで延長した 1 回の中で終わる範囲。詳細は `tasks/T-PH6-104.md`。
 ## T-PH6-116 — review cycle limit reached (2026-11-22T04:02:25+09:00)
+
 
 
 
@@ -1692,6 +1742,7 @@ UNVERIFIED
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job. — 1 path(s) the worker wrote outside its scope: frontend/baseline.txt. Decide whether the job's scope was drawn too narrowly, or whether the worker should not have written them.
 
 **Context**
@@ -1701,6 +1752,7 @@ outside allowed_paths: ['frontend/baseline.txt']
 **Answer** (2026-11-22, orchestrator): **掃除の実装が甘かったので直した。あなたの逸脱ではない。** 掃除は「変更がそのファイルを参照しているか」で判定していたが、拡張子を落とした語幹でも参照とみなしていた。語幹での一致を認めるのは `.py` `.ts` など**import が拡張子を省く言語のソースだけ**にし、それ以外はファイル名を拡張子ごと書いてある場合のみ参照とみなすようにした（検査で固定）。`frontend/baseline.txt` は既に消えている。`review` に戻した（試行は消費しない）。詳細は `tasks/T-PH6-126.md`。
 
 ## T-PH6-116 — the merge conflicted (2026-11-22T04:59:45+09:00)
+
 
 
 
@@ -1739,6 +1791,7 @@ Automatic merge failed; fix conflicts and then commit the result.
 
 
 
+
 **Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
 
 **Context**
@@ -1749,6 +1802,7 @@ workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-116
 **Answer** (2026-11-22, orchestrator): **誤検知で、原因は私。** このシフトは裁定とループの修正を書きながらメインチェックアウトを編集し続けていた。メインチェックアウトにワーカー由来のファイルは 1 つも無い。`T-PH7-201` と同じ事象で、`orchestrator-busy` を置いていたのに抑止されなかった理由は未解明なので、封じ込めの停止記録に**マーカーの有無と実際に増えた行**を書き出すようにした（次回は記録が答える）。試行は消費しない。**直前の裁定（現在の枝で作り直す）と、前のシフトから未着手の 1 行（`.main` → `.messages`）はそのまま有効**。詳細は `tasks/T-PH6-116.md`。
 
 ## T-PH6-104 — no independent reviewer available (2026-11-22T07:56:44+09:00)
+
 
 
 
@@ -1777,6 +1831,7 @@ implementer=opencode/nemotron-3.5-lightning-free
 
 
 
+
 **Question**: Every other free model wrote to the worktree instead of replying, so no verdict stands (ollama/gemma3:4b). Decide whether to wait for usage to reset.
 
 **Context**
@@ -1786,6 +1841,7 @@ implementer=opencode/nemotron-3.5-lightning-free
 **Answer** (2026-11-22, orchestrator): **この文面は誤りで、私の欠陥が書かせたもの。** 「Every other free model wrote to the worktree instead of replying ... (ollama/gemma3:4b)」とあるが、`ollama/gemma3:4b` は `unavailable` しか返しておらず worktree には何も書いていない。前のシフトで「走らせられないモデルも次の候補へ回す」ために同じ名簿へ積んだ結果、「読み取り専用の規則を破った」と「CLI が走らせられなかった」が混ざり、エスカレーションがやっていないことを告発していた。名簿を 2 つに分け、人に聞くのは**worktree に書いたモデルがある場合だけ**にした（走らせられないだけなら待ち）。検査も追加した。**記録が嘘をつくのは機能が無いより悪い** — ジョブ単位の心拍を 1 行入れた直後に見つかった。このジョブは `review` に戻し、モデルの冷却が明けたら再開される。試行は消費しない。
 
 ## T-PH6-104 — review cycle limit reached (2026-11-22T09:40:09+09:00)
+
 
 
 
@@ -1821,6 +1877,7 @@ UNVERIFIED
 
 
 
+
 **Question**: Three attempts did not satisfy the acceptance criteria; the job needs a human decision.
 
 **Context**
@@ -1836,6 +1893,7 @@ the worker changed nothing
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job. — 8 path(s) the worker wrote outside its scope: REPORT, frontend/appearance_output.txt, frontend/appearance_result.txt, frontend/appearance_test.txt, frontend/src/styles.css.restore, frontend/test.txt…. Decide whether the job's scope was drawn too narrowly, or whether the worker should not have written them.
 
 **Context**
@@ -1844,6 +1902,7 @@ outside allowed_paths: ['REPORT', 'frontend/appearance_output.txt', 'frontend/ap
 
 **Answer** (2026-11-22, orchestrator): **範囲違反は私のコードの誤り。試行は戻す。** 挙げられた 8 パスは、この票の記録が「削除した」と書いている 8 パスと**同一**だった。原因は `names = [n for n in changed_files(tree) if n not in self.sweep(task, tree)]` — `sweep()` が内包表記の条件の中にあるのでパスごとに呼ばれ、1 回目で消して返し2 回目以降は空集合を返すため、**フィルタがたった今消したファイルを残していた**。1 回だけ呼ぶ形に直し、検査で固定した。**もう 1 件、報告の中に本物の問題がある**: 受入条件 3 に対して**追加した e2e 2 件を自分で削除して**「22 件は通る」と報告している。報告が正直だったのは良いが、検査を消して緑にするのは未達である。ただし**原因の読みは当たっていた** — 実測すると `appearance.spec.ts` が `enter(page, 0..12)` で 13 アカウントを使い切っていた。フィクスチャ側の限界なので私が 13 → 40 に増やした。削除した 2 件を戻し、`enter(page, 13)` 以降を使うこと。詳細は `tasks/T-PH6-125.md`。
 ## T-PH6-127 — worker stopped for a decision (2026-11-22T13:17:18+09:00)
+
 
 
 
@@ -1875,6 +1934,7 @@ ready-for-review
 
 **Answer** (2026-11-22, orchestrator): **落ちていた 10 件は製品の不具合ではない。実測した。** `workspace.spec.ts` を**単独で**実行すると **13 passed**、`test:e2e` で**まとめて**実行すると 10 件落ちる。原因は `appearance.spec.ts` が `enter(page, 0..12)` で試験用アカウントを**13 件すべて**消費し（`enter()` は仮パスワードを変更するので 1 アカウント 1 回）、`workspace.spec.ts` が `test-researcher-0` / `1` を使うため**取り合い**になること。**だから落ちた表明を直してはいけない** — 製品の不具合でも表明の不具合でもなく、フィクスチャの取り合いである。私が `tests/e2e_server.py` のアカウントを 13 → 40 に増やした（共有の土台なので私の持ち物）。やること: spec ごとに重ならない範囲を使う（appearance は `0..12` のまま、`T-PH6-125` が `13..19`、**`workspace.spec.ts` は `20` 以降**へ）。範囲の約束を spec の先頭にコメントで書くこと。そのうえで `test:e2e` 全件 PASS を確認し件数を報告すること。なお停止そのものは `STATUS` 行が壊れて brief の例文が混ざったもので、報告は `ready-for-review` で終わり作業はやってある。試行は戻す。詳細は `tasks/T-PH6-127.md`。
 ## T-PH6-104 — worker stopped for a decision (2026-11-22T13:26:28+09:00)
+
 
 
 
@@ -1915,6 +1975,7 @@ Decision needed: given that the environment variable inspection test passes (the
 
 
 
+
 **Question**: The worker needed paths outside allowed_paths; widen the scope or split the job. — 1 path(s) the worker wrote outside its scope: tests/e2e_server.py. Decide whether the job's scope was drawn too narrowly, or whether the worker should not have written them.
 
 **Context**
@@ -1923,6 +1984,7 @@ outside allowed_paths: ['tests/e2e_server.py']
 
 **Answer** (2026-11-22, orchestrator): **ワーカーは正しかった。私の指示が不可能だった。** 範囲違反の 1 件 `tests/e2e_server.py` は、差分を見ると**私が今朝入れたのと同じ変更**（`range(13)` → `range(40)`）だった。13:40 に私が統合ブランチへ入れ 13:41 に派遣されたが、ワークスペースに作業中の変更が残っていたため `refresh()` は土台を動かさず（作業を捨てないための仕様）、ワーカーの手元は 13 アカウントのままだった。そこへ私の裁定が「`enter(page, 13)` 以降を使え」と書いていた — **存在しない index を使えと指示していた**。ワーカーは原因を正しく見抜いて自分で増やした。対応: 作業を退避して土台を現在の統合ブランチまで `--ff-only` で進め、作業を戻し、`e2e_server.py` だけ両側が同じ変更だったので**既にマージされている側を採って重複を落とした**（他人の衝突を推測で混ぜたのではなく、同じ変更の重複を 1 つにした）。ワークスペースは 3 ファイルのみ変更・フィクスチャ 40 を確認済み。削除した e2e 2 件を戻し `enter(page, 13)` 以降を使うこと。**`tests/e2e_server.py` には触らないこと**。試行は戻す。詳細は `tasks/T-PH6-125.md`。
 ## T-PH6-127 — worker wrote outside its workspace (2026-11-22T14:20:23+09:00)
+
 
 
 
@@ -1940,6 +2002,7 @@ appeared:
 
 ## T-PH6-104 — review cycle limit reached (2026-11-22T14:34:07+09:00)
 
+
 **Question**: The reviewer still requires changes at the cycle limit.
 
 **Context**
@@ -1951,3 +2014,5 @@ UNVERIFIED
 - I did not re-run `python -m pytest tests/test_sandbox_boundary.py tests/test_api.py -q`, `python -m ruff check ...`, `python -m ruff format --check ...`, or `python scripts/secret_scan.py`; I relied on the controller evidence provided in the job message.
 - Docker containment criteria (`DOCUMENT_EXTRACTION_BOUNDARY.md` §8 items 7-8) were not executed. `tests/integration/test_live_sandbox_docker.py` is opt-in (`LOCUS_LIVE_DOCKER=1`) and requires a working Docker engine and `.loop/runtime/qa-image.json`; I did not run it, and skip/unrun opt-in checks are not evidence.
 - I did not perform live dynamic verification of the env-leak or Docker host-`sys.executable` failure modes; those findings are based on static inspection of `backend/app/sandbox.py`, `tests/test_sandbox_boundary.py`, and `tests/integration/test_live_sandbox_docker.py`.
+
+**Answer** (2026-11-22, orchestrator): **レビューは正しい。押し合いではない。** 受入条件の中心「記録が嘘をつかない」が破れている。レビュアーは自分で実行していないと正直に書いていたので**私が実測した**: 親に `EXTRACTED_VAR=SENTINEL-7f3a` を置いて `_run_subscript` を直接呼ぶと、`content` に `{"secret": "SENTINEL-7f3a"}` が返り、同時に記録は `env_stripped: verified` と書いていた。`_make_minimal_env()` は `dict(os.environ)` をそのまま返し（`sandbox.py:55-56`）、保証は無条件に立っている（`:113`）。さらに `ENV_READER_SOURCE` は `tests/test_sandbox_boundary.py:43` に**定義だけされて一度も使われていない**ので、**検査は全部緑のまま環境は丸漏れ**である。受入条件は 1 つも緩めない。この票でやることは 3 件に絞った: (1) `_make_minimal_env()` を許可列挙にし、`verified` はその env を実際に渡した場合だけ。(2) `ENV_READER_SOURCE` を使って §8.3 の持ち出し検査を足し、**落としを戻すと FAIL すること**を手で確認して報告に書く。(3) `_run_docker` の退避が `content` を捨てている（`:240-245`）ので渡し、**本文が空／null なら `success=False`** にする（いまは `{"body": null}` で `success=True` が返り、§6 が禁じる「本文なしの取り込み」になる）。docker 経路の 3 件は **`T-PH6-129` に切り出した** — **これは私が 2 回命じて 2 回なされていない**が、3 回目を命じない理由は**この機では検証できない**ことである（docker エンジンが動いていないことは `DOCUMENT_EXTRACTION_BOUNDARY.md` §5 で実測済み）。満たせない証拠を条件に残すと票が永久に閉じないので、新票は「動くことを示せ」ではなく**「動くと主張していないことを示せ」**に書き直した。**条件を落としたのではなく移した。**`review_cycles` は 0（次のレビューが見るのは別の成果物）。`attempts` は戻さない（1 回目の実装は実際に要件未達。残り 2 回）。詳細は `tasks/T-PH6-104.md`。
