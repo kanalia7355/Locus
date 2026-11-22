@@ -1,0 +1,102 @@
+{
+  "levels": [
+    "none",
+    "public",
+    "personal",
+    "research_shared",
+    "confidential"
+  ],
+  "deny_states": [
+    "none"
+  ],
+  "paths": [
+    {
+      "id": "ingestion",
+      "gate_location": "backend/app/service.py",
+      "on_unknown": "deny",
+      "inherits": []
+    },
+    {
+      "id": "chunking",
+      "gate_location": "backend/app/service.py",
+      "on_unknown": "deny",
+      "inherits": [
+        "ingestion"
+      ]
+    },
+    {
+      "id": "retrieval",
+      "gate_location": "backend/app/service.py",
+      "on_unknown": "deny",
+      "inherits": [
+        "ingestion"
+      ]
+    },
+    {
+      "id": "answer",
+      "gate_location": "backend/app/service.py",
+      "on_unknown": "deny",
+      "inherits": [
+        "chunking",
+        "retrieval"
+      ]
+    },
+    {
+      "id": "citation",
+      "gate_location": "backend/app/service.py",
+      "on_unknown": "deny",
+      "inherits": [
+        "chunking",
+        "retrieval"
+      ]
+    },
+    {
+      "id": "export",
+      "gate_location": "backend/app/agents/registry.py",
+      "on_unknown": "deny",
+      "inherits": [
+        "answer",
+        "citation"
+      ],
+      "gate_location_reason": "runner_artifacts テーブルはこのファイル（registry.py:171）にしか存在せず、service.py には artifact を扱うコードが 1 行も無い。service.py に置くゲートはデータを見ない場所に置くゲートで、置いていないのと同じ。"
+    },
+    {
+      "id": "runner_input",
+      "gate_location": "backend/app/service.py",
+      "on_unknown": "deny",
+      "inherits": [
+        "answer"
+      ]
+    },
+    {
+      "id": "runner_artifact",
+      "gate_location": "backend/app/agents/registry.py",
+      "on_unknown": "deny",
+      "inherits": [
+        "answer",
+        "citation"
+      ]
+    }
+  ],
+  "migration": [
+    {
+      "id": "migration-plan-1",
+      "summary": "移行期間の明示的 `unclassified` 状態",
+      "breaks": [
+        "既存の分類列を持たない文書に対する既存検索・回答が停止し、現行機能が低下する",
+        "DB マイグレーションにより `documents` テーブルに分類列を追加し、既存文書を `none` または `unclassified` で初期化する必要がある",
+        "検索フィルタとスコープ判定コードの更新が必要になる"
+      ]
+    },
+    {
+      "id": "migration-plan-2",
+      "summary": "パス別の線引き（許容経路／拒否経路）",
+      "breaks": [
+        "`answer`、`citation`、`export`、`runner_artifact` 経路で `none` を持つ文書に対する処理がすべて停止する",
+        "検索(`retrieval`)経路では `none` を許容するが、回答生成経路では拒否するという二重基準が生じる",
+        "8 経路それぞれで `none` 許容フラグまたはポリシーを明示的に定義・管理するコードが必要になる"
+      ]
+    }
+  ],
+  "selected": null
+}
