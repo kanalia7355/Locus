@@ -13,6 +13,7 @@ import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import TextIO
 
 ROOT = Path(__file__).resolve().parents[1]
 JST = timezone(timedelta(hours=9))
@@ -38,6 +39,25 @@ def run(*command: str, quiet: bool = False) -> str:
     if quiet:
         return result.stdout or ""
     return (result.stdout or "") + (result.stderr or "")
+
+
+def say(text: str = "", stream: TextIO | None = None) -> None:
+    """Print a line that the console's own encoding may not be able to carry.
+
+    A Japanese Windows console hands Python a cp932 stdout, and cp932 has no em
+    dash. On 2026-11-22 this script died with `UnicodeEncodeError` *inside the
+    open-stops section*, at the moment it had something to report: the stop
+    record it was relaying carried an em dash, and so does the
+    `genuinely empty` verdict below. The whole point of this script is to be the
+    one command a tired shift runs, so it must never fail on the shape of a
+    character. Replace what the console cannot encode and keep going.
+    """
+    out = sys.stdout if stream is None else stream
+    try:
+        out.write(text + "\n")
+    except UnicodeEncodeError:
+        encoding = getattr(out, "encoding", None) or "utf-8"
+        out.write(text.encode(encoding, "replace").decode(encoding, "replace") + "\n")
 
 
 def stranded_merge() -> str:
@@ -187,10 +207,10 @@ def main() -> int:
         if busy
         else "ok    orchestrator-busy is clear"
     )
-    print("\n".join(checks))
-    print("\n--- open stops " + "-" * 50)
-    print(run(sys.executable, "-m", "jobloop", "diagnose").strip())
-    print("\n--- queue " + "-" * 55)
+    say("\n".join(checks))
+    say("\n--- open stops " + "-" * 50)
+    say(run(sys.executable, "-m", "jobloop", "diagnose").strip())
+    say("\n--- queue " + "-" * 55)
     phases = sorted(
         path.name
         for path in (ROOT / "progress").iterdir()
@@ -204,19 +224,19 @@ def main() -> int:
         ready += here
         blocked += stuck
         if here or stuck:
-            print(f"{phase:<22} ready {here:<3} blocked {stuck}")
+            say(f"{phase:<22} ready {here:<3} blocked {stuck}")
     failing = [check for check in checks if check.startswith("FAIL")]
-    print()
+    say()
     if failing:
-        print(f"VERDICT  this shift has work: {len(failing)} check(s) failing")
+        say(f"VERDICT  this shift has work: {len(failing)} check(s) failing")
         return 1
     if blocked:
-        print(f"VERDICT  this shift has work: {blocked} job(s) blocked")
+        say(f"VERDICT  this shift has work: {blocked} job(s) blocked")
         return 1
     if not ready:
-        print("VERDICT  nothing ready and nothing blocked — the queue is genuinely empty")
+        say("VERDICT  nothing ready and nothing blocked — the queue is genuinely empty")
         return 0
-    print("VERDICT  quiet tick: the loop is working and nothing is waiting on you")
+    say("VERDICT  quiet tick: the loop is working and nothing is waiting on you")
     return 0
 
 

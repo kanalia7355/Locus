@@ -36,7 +36,6 @@ HEALTH_PHASE = "phase-9-loop-health"
 # module called ten jobs a regression on the morning their fix was written.
 HANDLED = {
     "out-of-scope change": ("2026-11-21", "scratch files are swept by `gates.litter`"),
-    "attempt limit reached": ("2026-11-20", "a provider outage no longer spends an attempt"),
     "reviewer modified the worktree": (
         "2026-11-19",
         "a reviewer that only wrote a file is rotated to the next model",
@@ -59,6 +58,21 @@ JUDGEMENT = {
     # read as a regression of its own fix on 2026-11-22.
     "the merge conflicted",
     "the merge broke the loop",
+    # Three honest attempts that did not meet the acceptance criteria is the
+    # escalation working, not a defect. This sat in HANDLED against the
+    # 2026-11-20 outage repair, so on 2026-11-22 `T-PH6-125` — whose three
+    # attempts were its own, the last of them reviewed and found hollow — was
+    # announced as a REGRESSION of that repair. The repair is about *why* an
+    # attempt was spent, which this signature does not record; the reasons do.
+    "attempt limit reached",
+}
+
+# Extra guidance for a judgement whose signature hides more than one cause.
+NOTE = {
+    "attempt limit reached": (
+        "read the three reasons before ruling: the same supplier error three times "
+        "means the outage repair of 2026-11-20 regressed, not that the job failed"
+    ),
 }
 
 
@@ -168,6 +182,8 @@ def report(findings: list[Finding]) -> str:
             lines.append(f"           REGRESSION — {finding.handled}, and it happened anyway")
         elif finding.judgement:
             lines.append("           a person's call by design, not a loop defect")
+            if finding.category in NOTE:
+                lines.append(f"           {NOTE[finding.category]}")
         elif finding.repairable:
             lines.append("           repairable: no handling exists and it has stopped 2 or more")
         else:

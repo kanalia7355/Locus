@@ -199,3 +199,39 @@ def test_a_ticket_id_is_the_same_on_every_run() -> None:
     assert diagnose.identifier(one) != diagnose.identifier(
         diagnose.Finding(category="a different name")
     )
+
+
+def test_three_honest_attempts_are_not_a_regression_of_the_outage_repair(tmp_path: Path) -> None:
+    """The signature records *that* attempts ran out, never *why*.
+
+    `attempt limit reached` sat in HANDLED against the 2026-11-20 repair that
+    stops a provider outage from spending an attempt. On 2026-11-22 `T-PH6-125`
+    spent its three attempts on its own work — the last reviewed and found
+    hollow — and was announced as a REGRESSION of that repair, which would send
+    a shift looking for a loop defect instead of writing the ruling the job was
+    actually waiting for.
+    """
+    phase = tmp_path / "phase-x"
+    decisions(
+        phase,
+        ENTRY.format(
+            job="T-A-1",
+            category="attempt limit reached",
+            when="2026-12-05T04:00:00+09:00",  # long after the outage repair
+            context="Three attempts did not satisfy the acceptance criteria.",
+        ),
+    )
+    job_file(phase, "T-A-1")
+    findings = diagnose.survey(tmp_path, ["phase-x"])
+    assert len(findings) == 1
+    assert findings[0].judgement, "an exhausted budget is a person's call"
+    assert not findings[0].regression
+    assert not findings[0].repairable
+    assert diagnose.file_tickets(tmp_path, findings, now="2026-12-05T12:00:00+09:00") == []
+    assert diagnose.reopen(tmp_path, findings, now="2026-12-05T12:00:00+09:00") == []
+
+    # And it must still say where the outage case would show itself, because
+    # that reading is now the reader's job rather than the table's.
+    shown = diagnose.report(findings)
+    assert "a person's call by design" in shown
+    assert "the same supplier error three times" in shown
