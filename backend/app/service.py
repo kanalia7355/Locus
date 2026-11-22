@@ -20,6 +20,10 @@ from argon2 import PasswordHasher
 from argon2.exceptions import VerificationError
 from fastapi import HTTPException
 
+from app.connectors import CONNECTOR_FACTORIES, connector_for
+from app.connectors.base import SourceConnector, SourceObject
+from app.connectors.scheduler import DEFAULT_INTERVAL_SECONDS, SourceScheduler
+from app.connectors.synthetic import SyntheticSourceConnector
 from app.formats import (
     accepted_format_names,
     format_catalog,
@@ -153,7 +157,14 @@ class UnavailableScanner:
 
 
 class Service:
-    def __init__(self, path: Path, *, scanner: Scanner | None = None) -> None:
+    def __init__(
+        self,
+        path: Path,
+        *,
+        scanner: Scanner | None = None,
+        source_connector: SourceConnector | None = None,
+        source_scheduler: SourceScheduler | None = None,
+    ) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
         self.conn.row_factory = sqlite3.Row
@@ -166,6 +177,27 @@ class Service:
         # Operational outcome of the most recent scan, reported separately from
         # adapter configuration: None means no scan has run yet.
         self.scanner_last_outcome: str | None = None
+        configured = (
+            source_connector if source_connector is not None else connector_for("synthetic")
+        )
+        self.source_connector: SourceConnector = configured or SyntheticSourceConnector()
+        self.source_connectors: dict[str, SourceConnector] = {
+            self.source_connector.source_id: self.source_connector
+        }
+        # Every registered destination kind is available through the same table;
+        # later tasks add one registry entry and no service wiring.
+        for kind in CONNECTOR_FACTORIES:
+            if kind == self.source_connector.kind:
+                continue
+            registered = connector_for(kind)
+            if registered is not None:
+                self.source_connectors.setdefault(registered.source_id, registered)
+        self.source_interval_seconds: int = DEFAULT_INTERVAL_SECONDS
+        self.source_scheduler: SourceScheduler = (
+            source_scheduler
+            if source_scheduler is not None
+            else SourceScheduler(interval_seconds=self.source_interval_seconds)
+        )
         self.limits: OrderedDict[str, list[float]] = OrderedDict()
         self.chat_dispatch: dict[str, ChatDispatch] = {}
         self.chat_dispatch_lock = threading.Lock()
@@ -462,6 +494,21 @@ class Service:
             CREATE TABLE IF NOT EXISTS chunks (
                 id TEXT PRIMARY KEY, document_id TEXT REFERENCES documents(id) ON DELETE CASCADE,
                 page INTEGER NOT NULL, ordinal INTEGER NOT NULL, text TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS storage_sources (
+                id TEXT PRIMARY KEY, connector TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1,
+                configuration TEXT NOT NULL DEFAULT '{}', created REAL NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS source_objects (
+                source_id TEXT NOT NULL, object_id TEXT NOT NULL, revision TEXT NOT NULL,
+                permission_hash TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'unknown',
+                observed_at REAL NOT NULL, PRIMARY KEY (source_id, object_id)
+            );
+            CREATE TABLE IF NOT EXISTS document_source_bindings (
+                document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+                source_id TEXT NOT NULL, object_id TEXT NOT NULL, revision TEXT NOT NULL,
+                sync_state TEXT NOT NULL DEFAULT 'pending',
+                PRIMARY KEY (document_id, source_id, object_id)
             );
             CREATE TABLE IF NOT EXISTS messages (
                 id TEXT PRIMARY KEY, conversation_id TEXT REFERENCES conversations(id)
@@ -829,6 +876,308 @@ class Service:
             "accepted_extensions": accepted_format_names(),
             "max_file_bytes": max_content_bytes(),
         }
+
+    def source_connector_for(self, source_id: str) -> SourceConnector | None:
+        return self.source_connectors.get(source_id)
+
+    def set_source_interval_seconds(self, seconds: int) -> None:
+        if isinstance(seconds, bool) or not isinstance(seconds, int) or seconds < 1:
+            fail(422, "ソース同期の巡回間隔は1以上の整数（秒）で指定してください")
+        with self.db() as db:
+            self._audit(db, "system", "source.interval", str(seconds))
+        self.source_interval_seconds = seconds
+        self.source_scheduler.interval_seconds = seconds
+
+    def source_notify(self, source_id: str, actor_id: str) -> None:
+        """Internal permission-change notification entry; the HTTP surface is a later task."""
+        with self.db() as db:
+            self._audit(db, actor_id, "source.notify", source_id)
+        self.source_scheduler.notify(source_id)
+
+    def source_cycle(self, source_id: str) -> bool:
+        """One storage-source sync cycle; the worker loop drives this per source."""
+        connector = self.source_connector_for(source_id)
+        if connector is None:
+            self.source_scheduler.mark_run(source_id)
+            return False
+        try:
+            try:
+                objects = connector.list_objects(source_id=source_id)
+            except Exception:
+                # Record the failed cycle; marking the run keeps a broken destination
+                # from being retried on every worker tick (~0.25 s).
+                with self.db() as db:
+                    self._audit(db, "worker", "source.cycle", source_id, outcome="error")
+                raise
+            # Connector calls run outside the process-wide write transaction so a
+            # slow destination cannot stall request handlers sharing self.lock.
+            observations: list[tuple[SourceObject, str | None]] = []
+            for obj in objects:
+                try:
+                    permission = connector.permission_hash(
+                        source_id=source_id, object_id=obj.object_id
+                    )
+                except Exception:
+                    permission = None
+                observations.append((obj, permission))
+            performed = False
+            with self.db() as db:
+                self._audit(db, "worker", "source.cycle", source_id)
+                for obj, permission in observations:
+                    if self._observe_source(db, source_id, obj, permission):
+                        performed = True
+                candidates: list[tuple[str, sqlite3.Row, Principal]] = []
+                for binding in db.execute(
+                    "SELECT b.document_id, b.source_id, b.object_id, b.revision AS bound_revision, "
+                    "o.revision AS observed_revision, o.state "
+                    "FROM document_source_bindings b "
+                    "JOIN source_objects o ON o.source_id=b.source_id AND o.object_id=b.object_id "
+                    "WHERE b.source_id=?",
+                    (source_id,),
+                ).fetchall():
+                    document = db.execute(
+                        "SELECT * FROM documents WHERE id=?", (binding["document_id"],)
+                    ).fetchone()
+                    if document is None:
+                        continue
+                    owner = db.execute(
+                        "SELECT * FROM users WHERE id=?", (document["owner_id"],)
+                    ).fetchone()
+                    if owner is None:
+                        continue
+                    candidates.append(
+                        (
+                            str(document["id"]),
+                            binding,
+                            Principal(
+                                str(owner["id"]),
+                                str(owner["username"]),
+                                bool(owner["system_admin"]),
+                                bool(owner["must_rotate"]),
+                            ),
+                        )
+                    )
+            denied = [
+                document_id
+                for document_id, binding, owner_actor in candidates
+                if not self._source_binding_allows(connector, binding, owner_actor)
+            ]
+            if denied:
+                # Hide first in a committed transaction; chunk cleanup follows so a
+                # cleanup failure can never create a readable window.
+                with self.db() as db:
+                    for document_id in denied:
+                        self._hide_source_document(db, document_id)
+                failure: Exception | None = None
+                for document_id in denied:
+                    try:
+                        with self.db() as db:
+                            self._cleanup_source_document(db, document_id)
+                    except Exception as error:
+                        with self.db() as db:
+                            self._audit(db, "worker", "source.revoke", document_id, outcome="error")
+                        if failure is None:
+                            failure = error
+                if failure is not None:
+                    raise failure
+            return performed
+        finally:
+            self.source_scheduler.mark_run(source_id)
+
+    def source_ingest(
+        self,
+        actor: Principal,
+        source_id: str,
+        object_id: str,
+        content: str,
+        name: str,
+        *,
+        kind: str = "personal",
+        grants: list[Json] | None = None,
+        project: str,
+    ) -> Json:
+        """Ingest one source object into the local documents store (1:1 slice)."""
+        document_format = format_for(name)
+        if unsafe_document_name(name) or document_format is None:
+            fail(422, "対応形式はUTF-8のtxt・md・csvです。安全なファイル名を指定してください")
+        if (
+            not content.strip()
+            or len(content.encode("utf-8")) > document_format.max_bytes
+            or any(ord(character) < 32 and character not in "\n\r\t\f" for character in content)
+        ):
+            fail(422, "本文は空でないUTF-8テキスト、256 KiB以内にしてください")
+        if kind not in {"personal", "shared"}:
+            fail(422, "ソース取り込み資料は個人資料または公開資料として登録してください")
+        connector = self.source_connector_for(source_id)
+        if connector is None:
+            fail(422, "保存先が見つかりません")
+        objects = connector.list_objects(source_id=source_id)
+        obj = next((candidate for candidate in objects if candidate.object_id == object_id), None)
+        if obj is None:
+            fail(422, "保存先に対象オブジェクトが見つかりません")
+        permission: str | None = None
+        try:
+            permission = connector.permission_hash(source_id=source_id, object_id=object_id)
+        except Exception:
+            permission = None
+        effective_grants: list[Json] = (
+            grants
+            if grants is not None
+            else (
+                [{"role": "viewer", "operations": ["read", "retrieve"]}] if kind == "shared" else []
+            )
+        )
+        with self.db() as db:
+            self.require(db, actor, project, "upload")
+            self._check_ingestion_limits(db, actor)
+            effective_grants = self._validated_grants(db, project, effective_grants)
+            document = uid()
+            db.execute(
+                "INSERT INTO documents "
+                "(id,owner_id,project_id,kind,name,content,status,grants,created) "
+                "VALUES (?,?,?,?,?,?,'queued',?,?)",
+                (
+                    document,
+                    actor.id,
+                    project,
+                    kind,
+                    name,
+                    content,
+                    json.dumps(effective_grants),
+                    time.time(),
+                ),
+            )
+            db.execute(
+                "INSERT OR REPLACE INTO source_objects "
+                "(source_id,object_id,revision,permission_hash,state,observed_at) "
+                "VALUES (?,?,?,?,?,?)",
+                (
+                    source_id,
+                    object_id,
+                    obj.revision,
+                    permission or "",
+                    "ok" if permission is not None else "unavailable",
+                    time.time(),
+                ),
+            )
+            db.execute(
+                "INSERT OR IGNORE INTO document_source_bindings "
+                "(document_id,source_id,object_id,revision,sync_state) "
+                "VALUES (?,?,?,?,'pending')",
+                (document, source_id, object_id, obj.revision),
+            )
+            self._audit(db, actor.id, "source.ingest", document)
+            return self._metadata(
+                db.execute("SELECT * FROM documents WHERE id=?", (document,)).fetchone(), actor.id
+            )
+
+    def _observe_source(
+        self,
+        db: sqlite3.Connection,
+        source_id: str,
+        obj: SourceObject,
+        permission: str | None,
+    ) -> bool:
+        row = db.execute(
+            "SELECT revision,permission_hash,state FROM source_objects "
+            "WHERE source_id=? AND object_id=?",
+            (source_id, obj.object_id),
+        ).fetchone()
+        permission_changed = row is not None and permission != row["permission_hash"]
+        changed = row is None or permission_changed or str(obj.revision) != str(row["revision"])
+        if changed:
+            state = "ok" if permission is not None else "unavailable"
+            if row is None:
+                db.execute(
+                    "INSERT INTO source_objects "
+                    "(source_id,object_id,revision,permission_hash,state,observed_at) "
+                    "VALUES (?,?,?,?,?,?)",
+                    (source_id, obj.object_id, obj.revision, permission or "", state, time.time()),
+                )
+            else:
+                db.execute(
+                    "UPDATE source_objects SET revision=?,permission_hash=?,state=?,observed_at=? "
+                    "WHERE source_id=? AND object_id=?",
+                    (obj.revision, permission or "", state, time.time(), source_id, obj.object_id),
+                )
+            if permission_changed:
+                # Metadata only: the hash and object identity, never the ACL payload.
+                self._audit(
+                    db, "worker", "source.permission.change", f"{source_id}:{obj.object_id}"
+                )
+            self.source_scheduler.notify(source_id)
+            return True
+        return False
+
+    @staticmethod
+    def _source_binding_allows(
+        connector: SourceConnector, binding: sqlite3.Row, actor: Principal
+    ) -> bool:
+        """Evaluate a captured binding without holding the database transaction."""
+        if str(binding["bound_revision"]) != str(binding["observed_revision"]):
+            # Unknown or stale source state fails closed; staleness is never authorization.
+            return False
+        if binding["state"] != "ok":
+            # An unavailable source must not authorize content either.
+            return False
+        try:
+            allowed = connector.can_read(
+                source_id=str(binding["source_id"]),
+                object_id=str(binding["object_id"]),
+                user_id=actor.username,
+            )
+        except Exception:
+            # Connector failures are denials, never errors surfaced to readers.
+            return False
+        return allowed is True
+
+    def _source_allows(self, db: sqlite3.Connection, actor: Principal, row: sqlite3.Row) -> bool:
+        """Original-source ACL gate. Unbound documents pass; bound ones must pass."""
+        binding = db.execute(
+            "SELECT source_id,object_id,revision FROM document_source_bindings WHERE document_id=?",
+            (row["id"],),
+        ).fetchone()
+        if not binding:
+            return True
+        source_object = db.execute(
+            "SELECT revision,state FROM source_objects WHERE source_id=? AND object_id=?",
+            (binding["source_id"], binding["object_id"]),
+        ).fetchone()
+        if not source_object or str(binding["revision"]) != str(source_object["revision"]):
+            return False
+        if source_object["state"] != "ok":
+            return False
+        connector = self.source_connector_for(str(binding["source_id"]))
+        if connector is None:
+            return False
+        try:
+            allowed = connector.can_read(
+                source_id=str(binding["source_id"]),
+                object_id=str(binding["object_id"]),
+                user_id=actor.username,
+            )
+        except Exception:
+            return False
+        return allowed is True
+
+    def _hide_source_document(self, db: sqlite3.Connection, document_id: str) -> None:
+        """Make a revoked source document invisible before chunk cleanup runs."""
+        changed = db.execute(
+            "UPDATE documents SET status='failed',reason=?,failure_code='source_denied' "
+            "WHERE id=? AND status IN ('queued','scanning','indexing','ready')",
+            ("元保存先の利用権限が失効したため索引物を削除しました", document_id),
+        ).rowcount
+        if changed:
+            self._audit(db, "worker", "source.revoke", document_id)
+
+    def _cleanup_source_document(self, db: sqlite3.Connection, document_id: str) -> None:
+        """Delete source-derived chunks after a source revocation was observed."""
+        db.execute("DELETE FROM chunks WHERE document_id=?", (document_id,))
+        db.execute(
+            "UPDATE documents SET status='failed',reason=?,failure_code='source_denied' "
+            "WHERE id=? AND status='ready'",
+            ("元保存先の利用権限が失効したため索引物を削除しました", document_id),
+        )
 
     def _project_member_mutation(
         self,
@@ -2144,6 +2493,10 @@ class Service:
             self.require(db, actor, row["project_id"], operation)
         except HTTPException:
             return False
+        if not self._source_allows(db, actor, row):
+            # Original-source permission is an additional fail-closed gate on top of
+            # the existing Locus gates; the intersection keeps its deny-by-default base.
+            return False
         if row["kind"] != "shared":
             return bool(
                 row["owner_id"] == actor.id
@@ -2226,6 +2579,9 @@ class Service:
                         row["owner_id"] == actor.id
                         and row["kind"] == "shared"
                         and "upload" in self._permissions(db, actor, project)
+                        # The owner listing branch must not bypass the source gate;
+                        # unbound documents still pass it unchanged.
+                        and self._source_allows(db, actor, row)
                     )
                 ):
                     continue
@@ -2324,6 +2680,25 @@ class Service:
                 results, key=lambda item: (-item["shared_term_count"], item["document"]["id"])
             )[:10]
 
+    def _check_ingestion_limits(self, db: sqlite3.Connection, actor: Principal) -> None:
+        """Ingestion bounds shared by manual upload and original-source ingestion."""
+        queued = db.execute(
+            "SELECT COUNT(*) FROM documents WHERE status IN ('queued','scanning','indexing')"
+        ).fetchone()[0]
+        owned = db.execute(
+            "SELECT COUNT(*) FROM documents WHERE owner_id=? AND status "
+            "IN ('queued','scanning','indexing')",
+            (actor.id,),
+        ).fetchone()[0]
+        if queued >= IN_FLIGHT_LIMIT or owned >= OWNER_IN_FLIGHT_LIMIT:
+            fail(429, "取り込み待ちが上限です。完了後に再試行してください")
+        total = db.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+        personal = db.execute(
+            "SELECT COUNT(*) FROM documents WHERE owner_id=?", (actor.id,)
+        ).fetchone()[0]
+        if total >= DOCUMENT_LIMIT or personal >= OWNER_DOCUMENT_LIMIT:
+            fail(429, "検証環境の資料数上限です。不要な資料を削除してください")
+
     def upload(
         self,
         actor: Principal,
@@ -2352,22 +2727,7 @@ class Service:
                     fail(404, "会話が見つかりません")
             elif conversation is not None:
                 fail(422, "個人資料は会話に結び付けられません")
-            queued = db.execute(
-                "SELECT COUNT(*) FROM documents WHERE status IN ('queued','scanning','indexing')"
-            ).fetchone()[0]
-            owned = db.execute(
-                "SELECT COUNT(*) FROM documents WHERE owner_id=? AND status "
-                "IN ('queued','scanning','indexing')",
-                (actor.id,),
-            ).fetchone()[0]
-            if queued >= IN_FLIGHT_LIMIT or owned >= OWNER_IN_FLIGHT_LIMIT:
-                fail(429, "取り込み待ちが上限です。完了後に再試行してください")
-            total = db.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
-            personal = db.execute(
-                "SELECT COUNT(*) FROM documents WHERE owner_id=?", (actor.id,)
-            ).fetchone()[0]
-            if total >= DOCUMENT_LIMIT or personal >= OWNER_DOCUMENT_LIMIT:
-                fail(429, "検証環境の資料数上限です。不要な資料を削除してください")
+            self._check_ingestion_limits(db, actor)
             document = uid()
             db.execute(
                 "INSERT INTO documents (id,owner_id,project_id,kind,name,content,status,"
@@ -2390,7 +2750,9 @@ class Service:
                 self._conversation(db, actor, document["conversation_id"])
         except HTTPException:
             return False
-        return True
+        # The original source must still allow the ingesting user, and the bound
+        # revision must still be current; both fail closed before any indexing.
+        return self._source_allows(db, actor, document)
 
     def process_next(self) -> bool:
         with self.db() as db:
@@ -2587,28 +2949,35 @@ class Service:
             db.execute("DELETE FROM documents WHERE id=?", (document,))
             self._audit(db, actor.id, "document.delete", document)
 
+    def _validated_grants(
+        self, db: sqlite3.Connection, project: str, grants: list[Json]
+    ) -> list[Json]:
+        """Publish-style grant validation, reused by original-source ingestion."""
+        for grant in grants:
+            role = grant.get("role")
+            operations = grant.get("operations")
+            custom = db.execute(
+                "SELECT id FROM roles WHERE id=? AND project_id=?",
+                (role, project),
+            ).fetchone()
+            if (
+                (role not in ROLE_PERMISSIONS and not custom)
+                or not isinstance(operations, list)
+                or not operations
+                or not set(operations) <= {"read", "retrieve"}
+            ):
+                fail(422, "公開先のロールと操作を確認してください")
+            if "retrieve" in operations and "read" not in operations:
+                fail(422, "チャット参照には閲覧の許可も必要です")
+        return grants
+
     def publish(self, actor: Principal, document: str, grants: list[Json]) -> None:
         with self.db() as db:
             row = self._managed_document(db, actor, document)
             self.require(db, actor, row["project_id"], "publish")
             if row["owner_id"] != actor.id or row["kind"] == "attachment":
                 fail(403, "会話添付や他人の資料は公開できません")
-            for grant in grants:
-                role = grant.get("role")
-                operations = grant.get("operations")
-                custom = db.execute(
-                    "SELECT id FROM roles WHERE id=? AND project_id=?",
-                    (role, row["project_id"]),
-                ).fetchone()
-                if (
-                    (role not in ROLE_PERMISSIONS and not custom)
-                    or not isinstance(operations, list)
-                    or not operations
-                    or not set(operations) <= {"read", "retrieve"}
-                ):
-                    fail(422, "公開先のロールと操作を確認してください")
-                if "retrieve" in operations and "read" not in operations:
-                    fail(422, "チャット参照には閲覧の許可も必要です")
+            grants = self._validated_grants(db, row["project_id"], grants)
             db.execute(
                 "UPDATE documents SET kind=?,grants=? WHERE id=?",
                 ("shared" if grants else "personal", json.dumps(grants), document),

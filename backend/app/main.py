@@ -226,6 +226,19 @@ def create_app(
     async def worker() -> None:
         while not stop.is_set():
             await asyncio.to_thread(svc.process_next)
+            # Original-source sync cycle: one pass over the bound sources. It is
+            # part of the same worker loop (no new thread) and driven per source by
+            # the injectable scheduler clock/interval.
+            for source_id in list(svc.source_connectors):
+                if svc.source_scheduler.should_run(source_id):
+                    try:
+                        await asyncio.to_thread(svc.source_cycle, source_id)
+                    except Exception:  # noqa: S110 — the cycle already audited the failure
+                        # A failing destination must not kill the only worker
+                        # loop: process_next/chat dispatch keep running. The
+                        # cycle marked the run, so the next tick is not a tight
+                        # retry.
+                        pass
             # Advisory check only: slots taken between this probe and the next
             # pickup are handled by the queue's requeue path, not by failure.
             usage = runtime.slot_usage()
