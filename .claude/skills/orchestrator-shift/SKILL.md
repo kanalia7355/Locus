@@ -91,6 +91,24 @@ each line is a mistake already made.
 - **"review cycle limit reached"** — open the VERDICT and read it with your own
   eyes. One job was blocked with `**APPROVED**` and `FINDINGS: none` in its own
   record, because the pattern did not allow the asterisks.
+- **A reviewer that marks its own findings `UNVERIFIED` is still worth
+  believing — go and measure them.** On 2026-11-22 `T-PH6-104`'s reviewer said
+  plainly it had run nothing and worked from static reading. Three of its four
+  findings were real, and the central one took six lines to prove: plant a
+  sentinel in the parent environment, call the workspace's own
+  `_run_subscript`, and the sentinel comes back in the content while the record
+  says `env_stripped: verified`. **A green suite is not evidence the criterion
+  holds** — that suite stayed green because the exfiltration fixture it defined
+  was never used. Measure, then rule; the measurement is what makes the ruling a
+  fact rather than a preference.
+- **An acceptance criterion nothing on this machine can satisfy is a ticket that
+  never closes.** `T-PH6-104` carried "prove the container isolates" while
+  `DOCUMENT_EXTRACTION_BOUNDARY.md` §5 had already measured that no docker
+  engine runs here. I had ordered that fix twice and it had not happened; the
+  third order would not have worked either. Move it to its own ticket and
+  **rewrite the criterion to the provable side** — not "prove it isolates" but
+  "prove the code does not *claim* it isolates". That is a move, not a deletion,
+  and the weaker claim is the one §5 says to make anyway.
 - **"out-of-scope change"** — separate the two kinds. Output redirected into
   files (`pytest_out.txt`, `check_select3.py`) is scratch and is swept
   automatically. A module the change *imports* is real work, and means **your
