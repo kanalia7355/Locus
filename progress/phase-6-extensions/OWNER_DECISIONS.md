@@ -1790,3 +1790,11 @@ needs-owner-decision: The environment variable inspection test (the only remaini
 Decision needed: given that the environment variable inspection test passes (the sole remaining High acceptance criterion on T-PH6-104), should the 4 failing §8 tests (which require `service.py` changes outside `allowed_paths`) be accepted as residual failures pending T-PH6-128, or should this job wait for the full extraction pipeline implementation?
 
 **Answer** (2026-11-22, orchestrator): **どちらも採らない。前提が違う。** 挙げられた 4 件 (`infinite_loop_isolated` / `output_flood_isolated` / `normal_returns_content` / `guarantees_honest`) は**全部、境界そのものの性質**（§8.1 / 8.2 / 8.4 / 8.5）である。設計文書 §8 は「1〜6 は子プロセス系統で成立し docker 無しで PASS」と書いているだけで、**取り込み処理を通ることは要求していない**。`service.py` が必要になったのは**これらを `process_next()` 経由で書いたから**であり、性質がそれを要求しているからではない。`extract_with_sandbox(...)` を合成の抽出器に直接呼べば 4 件とも `sandbox.py` だけで表明できる。**テストは 1 件も消さず、階層を下げる**こと。取り込みとして成立するかの検査は `T-PH6-128` の受入条件 1 が別に持っているので重複しない。併せて、あなた自身が報告している Medium（`_run_docker` が `ubuntu:22.04` に python が無いのにホストの `sys.executable` を渡している）も前回の裁定どおり直すこと — opt-in の検査を実行しない限り気付かれないので、報告に書いてあることが大事である。試行は戻す。詳細は `tasks/T-PH6-104.md`。
+
+## T-PH6-125 — out-of-scope change (2026-11-22T13:50:21+09:00)
+
+**Question**: The worker needed paths outside allowed_paths; widen the scope or split the job. — 1 path(s) the worker wrote outside its scope: tests/e2e_server.py. Decide whether the job's scope was drawn too narrowly, or whether the worker should not have written them.
+
+**Context**
+
+outside allowed_paths: ['tests/e2e_server.py']
