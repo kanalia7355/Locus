@@ -2466,3 +2466,53 @@ command line を記録しなかったので、ワーカーだったのか利用�
 この票の workspace に `REPORT.md` は無く、主題も許可パスも違う。
 ファイルは証拠として退避した。製品コードは本体に現れていない。
 **試行は消費せず `doing` に戻す。** 検査が孤児を見落とした分は `T-PH9-402`。
+
+## T-PH6-104 — integration branch is dirty (2026-11-23T21:45:22+09:00)
+
+**Question**: The main checkout has uncommitted changes, so the reviewed commit was not merged. Decide how to integrate it.
+
+**Context**
+
+commit=96d0da9a05c8135a972a399b9486227d751e8049
+foreign (判定に使った未コミットのパス):
+ M jobloop/controller.py  → T-PH9-401, T-PH9-403 の許可パス
+ M jobloop/diagnose.py  → T-PH9-403 の許可パス
+ M scripts/shift_check.py  → T-PH6-109, T-PH6-113, T-PH6-124, T-PH9-402 の許可パス
+ M tests/test_diagnose.py  → T-PH6-109, T-PH6-113, T-PH6-124, T-PH9-403 の許可パス
+ M tests/test_jobloop.py  → T-PH6-109, T-PH6-113, T-PH6-124, T-PH6-127, T-PH9-401, T-PH9-403 の許可パス
+ M tests/test_shift_check.py  → T-PH6-109, T-PH6-113, T-PH6-124, T-PH9-402 の許可パス
+
+not used for decision (判定に使っていない: progress/ と平易化ページ):
+ M docs/report/OWNER_DECISIONS_PLAIN_GUIDE.html
+ M progress/phase-6-extensions/tasks/T-PH6-104.md
+ M progress/phase-9-loop-health/tasks/T-PH9-402.md
+ M progress/phase-9-loop-health/tasks/T-PH9-403.md
+?? progress/phase-9-loop-health/OWNER_DECISIONS.md
+
+
+**Answer** (2026-11-23 22:50, orchestrator): **この票の落ち度ではない。** `foreign` は直前の3 件が本体に書いた製品コードで（`T-PH9-402` の 2 ファイル、`T-PH9-403` の 4 ファイル、`T-PH6-112` から零れた `App.tsx`）、この票の成果は無傷である — ワークスペースに 2 コミット（`96d0da9`, `8ca0bda`）が積まれ、レビューも 1 周終わっている。落ちたのはマージの一歩手前だけ。6 ファイルをそれぞれの票のワークスペースへ移送し `App.tsx` を戻したので、**いま `foreign` は0 件**である。**試行は消費せず `review` に戻す**（成果はコミット済みなので `doing` ではない）。今日 2 度目の同じ形（21:16 に `T-AIC-005`）で、`integration branch is dirty` は汚した本人ではなく次にマージする票を止めるため、「誰の汚れか」を書かせる `T-PH9-403` の必要性は変わらない。詳細は `tasks/T-PH6-104.md`。
+
+## T-PH6-127 — out-of-scope change (2026-11-23T22:06:34+09:00)
+
+**Question**: The worker needed paths outside allowed_paths; widen the scope or split the job. — 1 path(s) the worker wrote outside its scope: frontend/appearance_output.txt. Decide whether the job's scope was drawn too narrowly, or whether the worker should not have written them.
+
+**Context**
+
+outside allowed_paths: ['frontend/appearance_output.txt']
+
+
+**Answer** (2026-11-23 22:50, orchestrator): `frontend/appearance_output.txt` は**コマンドの出力**で、この票の成果物ではない。**掃き捨てる**（「ワーカーが書いた作業は消さない、掃き捨ては消す」の後者）。**スコープは広げない** — 逸脱を後から合法にしないため、許可パスは1 文字も変えていない。`diagnose` は `REGRESSION ?` と出したが**退行ではない**: いまの掃除はワークツリー直下の追跡外 `.txt`/`.log`/`.out` だけを対象にしており（ディレクトリの中は本物の実体がありうるため意図して狭めた範囲）、このファイルは 1 階層深いので**対象外＝届いていない**。範囲を深くするかは判断が要るので `T-PH9-405` に起票した。**試行は消費せず `doing` に戻す。**18:50 と 18:58 の裁定（`workspace.spec.ts` は 0 起点、`appearance.spec.ts` は 20 起点、`tests/e2e_server.py` には触らない）はそのまま有効。詳細は `tasks/T-PH6-127.md`。
+
+## T-PH6-112 — worker wrote outside its workspace (2026-11-23T22:36:38+09:00)
+
+**Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
+
+**Context**
+
+model=opencode/iceman-free
+workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-112
+marker=C:\Users\hirot\Locus\.jobloop\orchestrator-busy present=False
+appeared:
+ M frontend/src/App.tsx
+
+**Answer** (2026-11-23 22:50, orchestrator): 本体に現れた `App.tsx` は**同じ改修の前段の写し**だった。比べた: ワークスペース側は 1947 行で、変更 9 ファイル（+478/-700）と新規 5 モジュール（`AdminPanels.tsx`, `IconButton.tsx`, `SettingsDialog.tsx`, `Sidebar.tsx`, `dialog.ts`、22:10〜22:33 に書かれ、実際に import されていて実体もある）。本体側は 2020 行で、`SquarePen`/`UserCheck`/`UserX` を `App.tsx` に抱えたままの古い形で、ほかに何も無い。**だから本体の写しを戻しても作業は減らない**（証拠としてパッチに退避したうえで戻した）。**試行は消費せず `doing` に戻す**（作業は未コミットなので `review` ではない）。仕上げは**ワークスペースの中で**行い、`npm --prefix frontend run test:appearance` を通すこと（jsdom は代わりにならない）。詳細は `tasks/T-PH6-112.md`。
