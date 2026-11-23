@@ -89,7 +89,12 @@ def _run_extractor_direct(
     """
     # Build a minimal environment: always use the module's _make_minimal_env,
     # then overlay any user-supplied environment variables.
-    base_env = {"PATH": os.getenv("PATH", ""), "PYTHONUNBUFFERED": "1"}
+    base_env = {
+        "PATH": os.getenv("PATH", ""),
+        "PYTHONUNBUFFERED": "1",
+        "PYTHONIOENCODING": "utf-8",
+        "PYTHONUTF8": "1",
+    }
     if set_env:
         base_env.update(set_env)
 

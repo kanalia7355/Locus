@@ -1,22 +1,24 @@
 # ruff: noqa: S603, S108
 """Child-process and Docker execution boundary for document extraction.
 
-Runs extractors in an isolated subprocess with real-time and output-byte limits,
-a stripped environment, and guarantees tracking.  The subprocess path does NOT
-claim network isolation, memory/pids limits on Windows (where `resource` is
-unavailable).  The Docker path provides strong guarantees and is opt-in.
+Runs extractors in an isolated child process with real-time and output-byte
+limits, a stripped environment, and explicit guarantee tracking. The extractor
+code is never imported into the backend process.
 
-Key invariants (design DOCUMENT_EXTRACTION_BOUNDARY.md §5):
-- Subprocess guarantees are weak on Windows (no resource module, no cgroups).
-- Docker guarantees are strong but opt-in; CI defaults to subprocess.
-- Records which backend was used so operators can see sandbox: docker / subprocess.
-- Never claim network isolation from subprocess.
+The subprocess path does NOT claim network isolation or memory/pids limits on
+Windows (where ``resource`` is unavailable). The Docker path provides strong
+guarantees and is opt-in. Records say which backend ran and what it could
+actually guarantee (DOCUMENT_EXTRACTION_BOUNDARY.md §5).
 """
 
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
+import threading
+from contextlib import suppress
 from dataclasses import dataclass
 
 # ---------------------------------------------------------------------------
@@ -50,13 +52,13 @@ DOCKER_GUARANTEES: dict[str, str] = {
 # Allowlist only: do not pass the full parent environment to extractors.
 # PATH is needed to locate the Python interpreter; SYSTEMROOT/COMSPEC/PATHEXT
 # are the minimum Windows requires for a child python process to start and
-# resolve DLLs; PYTHONUNBUFFERED ensures output is flushed promptly.
+# resolve DLLs. The UTF-8 variables matter: without them a child launched from
+# a UTF-8-mode parent falls back to the Windows code page and corrupts text.
 _MINIMAL_ENV_KEYS: tuple[str, ...] = (
     "PATH",
     "SYSTEMROOT",
     "COMSPEC",
     "PATHEXT",
-    "PYTHONUNBUFFERED",
 )
 
 
@@ -67,6 +69,8 @@ def _make_minimal_env() -> dict[str, str]:
         if value is not None:
             env[key] = value
     env["PYTHONUNBUFFERED"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUTF8"] = "1"
     return env
 
 
@@ -85,6 +89,178 @@ class SandboxResult:
     error_message: str | None
 
 
+@dataclass
+class _Outcome:
+    """Raw process outcome before it is interpreted as a sandbox result."""
+
+    exit_code: int | None
+    stdout: str
+    stderr: str
+    exceeded: bool = False
+    timed_out: bool = False
+    spawn_failed: bool = False
+
+
+# ---------------------------------------------------------------------------
+# Process execution with a streamed output budget
+# ---------------------------------------------------------------------------
+
+
+def _terminate(process: subprocess.Popen[bytes]) -> None:
+    with suppress(OSError, ValueError):
+        process.kill()
+
+
+def _run_process(
+    command: list[str],
+    stdin_data: bytes,
+    *,
+    timeout: float,
+    output_limit: int,
+    cwd: str | None = None,
+    env: dict[str, str] | None = None,
+) -> _Outcome:
+    """Run one bounded child, cutting stdout/stderr at ``output_limit``.
+
+    Reading is incremental: an extractor that writes forever is killed when the
+    budget runs out instead of filling the parent's memory first.
+    """
+    creationflags = 0
+    if sys.platform == "win32":
+        creationflags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+    try:
+        process = subprocess.Popen(
+            command,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            cwd=cwd,
+            env=env,
+            creationflags=creationflags,
+        )
+    except OSError:
+        return _Outcome(None, "", "", spawn_failed=True)
+
+    budget = [output_limit]
+    lock = threading.Lock()
+    exceeded = threading.Event()
+    stdout = bytearray()
+    stderr = bytearray()
+
+    def consume(stream: object, sink: bytearray) -> None:
+        assert hasattr(stream, "read")
+        try:
+            while True:
+                chunk = stream.read(65536)
+                if not chunk:
+                    return
+                with lock:
+                    allowed = min(len(chunk), budget[0])
+                    sink.extend(chunk[:allowed])
+                    budget[0] -= allowed
+                if allowed < len(chunk):
+                    exceeded.set()
+                    _terminate(process)
+                    return
+        except (OSError, ValueError):
+            return
+
+    def write_stdin() -> None:
+        assert process.stdin is not None
+        with suppress(OSError, ValueError):
+            process.stdin.write(stdin_data)
+            process.stdin.flush()
+        with suppress(OSError, ValueError):
+            process.stdin.close()
+
+    readers = [
+        threading.Thread(target=consume, args=(process.stdout, stdout), daemon=True),
+        threading.Thread(target=consume, args=(process.stderr, stderr), daemon=True),
+        threading.Thread(target=write_stdin, daemon=True),
+    ]
+    for reader in readers:
+        reader.start()
+
+    timed_out = False
+    try:
+        process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        _terminate(process)
+        with suppress(subprocess.TimeoutExpired):
+            process.wait(timeout=5)
+
+    for reader in readers:
+        reader.join(timeout=5)
+    for stream in (process.stdin, process.stdout, process.stderr):
+        if stream is not None:
+            with suppress(OSError, ValueError):
+                stream.close()
+
+    return _Outcome(
+        exit_code=process.returncode,
+        stdout=stdout.decode("utf-8", errors="replace"),
+        stderr=stderr.decode("utf-8", errors="replace"),
+        exceeded=exceeded.is_set(),
+        timed_out=timed_out,
+    )
+
+
+def _interpret(outcome: _Outcome, sandbox: str, guarantees: dict[str, str]) -> SandboxResult:
+    base = dict(guarantees)
+    if outcome.spawn_failed:
+        return SandboxResult(
+            success=False,
+            content=None,
+            sandbox=sandbox,
+            guarantees=base,
+            exit_code=None,
+            error_message="解析環境を起動できませんでした",
+        )
+    if outcome.timed_out:
+        return SandboxResult(
+            success=False,
+            content=None,
+            sandbox=sandbox,
+            guarantees={**base, "wall_time": "timed_out"},
+            exit_code=-1,
+            error_message="実時間上限超過",
+        )
+
+    base["wall_time"] = "verified"
+    base["output_bytes"] = "truncated" if outcome.exceeded else "verified"
+
+    body_missing = False
+    if outcome.exit_code == 0 and not outcome.exceeded:
+        try:
+            parsed = json.loads(outcome.stdout)
+            body = parsed.get("body") if isinstance(parsed, dict) else None
+        except (TypeError, ValueError):
+            body = None
+        if body is None or body == "":
+            body_missing = True
+
+    candidates: list[str] = []
+    if outcome.exceeded:
+        candidates.append("出力バイト数上限超過")
+    if outcome.exit_code is not None and outcome.exit_code < 0:
+        candidates.append(f"シグナル終了 ({-outcome.exit_code})")
+    elif outcome.exit_code not in (0, None) and not outcome.exceeded:
+        candidates.append(f"異常終了 (exit_code={outcome.exit_code})")
+    if body_missing:
+        candidates.append("抽出本文が空です")
+
+    success = outcome.exit_code == 0 and not outcome.exceeded and not body_missing
+    return SandboxResult(
+        success=success,
+        content=outcome.stdout if success else None,
+        sandbox=sandbox,
+        guarantees=base,
+        exit_code=outcome.exit_code,
+        error_message="; ".join(candidates)[:200] if candidates else None,
+    )
+
+
 # ---------------------------------------------------------------------------
 # _run_subscript – run a script in a child Python process with limits.
 # ---------------------------------------------------------------------------
@@ -98,80 +274,19 @@ def _run_subscript(
     cwd: str | None = None,
     content: str | None = None,
 ) -> SandboxResult:
-    begin = __import__("time").time()
-    stdin_data = content or ""
-    try:
-        proc = subprocess.run(
+    environment = _make_minimal_env()
+    with tempfile.TemporaryDirectory(prefix="locus-extract-") as workdir:
+        environment.setdefault("TEMP", workdir)
+        environment.setdefault("TMP", workdir)
+        outcome = _run_process(
             [sys.executable, "-c", script],
-            input=stdin_data,
-            capture_output=True,
-            text=True,
+            (content or "").encode("utf-8"),
             timeout=timeout,
-            env=_make_minimal_env(),
-            cwd=cwd,
+            output_limit=output_limit,
+            cwd=cwd or workdir,
+            env=environment,
         )
-        exit_code = proc.returncode
-        stdout = proc.stdout or ""
-        stderr = proc.stderr or ""
-        all_output = stdout + stderr
-        output_bytes = len(all_output.encode("utf-8"))
-        _ = __import__("time").time() - begin
-
-        if output_bytes > output_limit:
-            all_output = all_output[:output_limit] + "\n..."
-            exit_code = 1
-
-        guarantees = dict(SUBPROCESS_GUARANTEES)
-        guarantees["wall_time"] = "verified"
-        guarantees["output_bytes"] = "verified" if output_bytes <= output_limit else "truncated"
-        guarantees["env_stripped"] = "verified"
-
-        guarantees["memory"] = "unverified"
-        guarantees["cpu"] = "unverified"
-
-        guarantees["network"] = "unverified"
-
-        error_message = None
-        body_missing = False
-        if exit_code == 0 and output_bytes <= output_limit:
-            try:
-                parsed = json.loads(stdout)
-                body = parsed.get("body") if isinstance(parsed, dict) else None
-            except Exception:
-                body = None
-            if body is None or body == "":
-                body_missing = True
-
-        if exit_code != 0 or body_missing:
-            cands = []
-            if output_bytes > output_limit:
-                cands.append("出力バイト数上限超過")
-            if body_missing and output_bytes <= output_limit and exit_code == 0:
-                cands.append("抽出本文が空です")
-            if exit_code < 0:
-                cands.append(f"シグナル終了 ({-exit_code})")
-            elif exit_code != 0:
-                cands.append(f"異常終了 (exit_code={exit_code})")
-            error_message = "; ".join(cands)[:200] if cands else "抽出本文が空です"
-
-        success = exit_code == 0 and output_bytes <= output_limit and not body_missing
-        return SandboxResult(
-            success=success,
-            content=stdout if success else None,
-            sandbox="subprocess",
-            guarantees=guarantees,
-            exit_code=exit_code,
-            error_message=error_message,
-        )
-    except subprocess.TimeoutExpired:
-        return SandboxResult(
-            success=False,
-            content=None,
-            sandbox="subprocess",
-            guarantees={**SUBPROCESS_GUARANTEES, "wall_time": "timed_out"},
-            exit_code=-1,
-            error_message="実時間上限超過",
-        )
+    return _interpret(outcome, "subprocess", SUBPROCESS_GUARANTEES)
 
 
 # ---------------------------------------------------------------------------
@@ -184,17 +299,22 @@ def _run_docker(
     *,
     timeout: float = 30.0,
     output_limit: int = 8 * 1024 * 1024,
-    image: str = "ubuntu:22.04",
+    image: str = "python:3.13-slim",
     content: str | None = None,
 ) -> SandboxResult:
-    stdin_data = content or ""
-    # Docker contract: the target image must provide `python3` on PATH.
-    # We intentionally do not pass the host sys.executable path into the
-    # container because that absolute host path does not exist in the image.
+    binary = shutil.which("docker")
+    if binary is None:
+        return _run_subscript(
+            script,
+            timeout=timeout,
+            output_limit=output_limit,
+            content=content,
+        )
     cmd = [
-        "docker",
+        binary,
         "run",
         "--rm",
+        "--interactive",
         "--network",
         "none",
         "--read-only",
@@ -204,90 +324,26 @@ def _run_docker(
         "no-new-privileges",
         "--pids-limit",
         "1024",
-        f"--memory={512 * 1024 * 1024}",
-        f"--cpus={1.0}",
+        "--memory=512m",
+        "--cpus=1",
         "--tmpfs",
         "/tmp:exec",
-        "--user",
-        "1000:1000",
+        "--env",
+        "PYTHONIOENCODING=utf-8",
+        "--env",
+        "PYTHONUTF8=1",
         image,
         "python3",
         "-c",
         script,
     ]
-    begin = __import__("time").time()
-    try:
-        proc = subprocess.run(  # noqa: S603
-            cmd,
-            input=stdin_data,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            env=_make_minimal_env(),
-        )
-        exit_code = proc.returncode
-        stdout = proc.stdout or ""
-        stderr = proc.stderr or ""
-        all_output = stdout + stderr
-        output_bytes = len(all_output.encode("utf-8"))
-        _ = __import__("time").time() - begin
-
-        if output_bytes > output_limit:
-            all_output = all_output[:output_limit] + "\n..."
-            exit_code = 1
-
-        guarantees = dict(DOCKER_GUARANTEES)
-        guarantees["wall_time"] = "verified"
-        guarantees["output_bytes"] = "verified" if output_bytes <= output_limit else "truncated"
-
-        error_message = None
-        body_missing = False
-        if exit_code == 0 and output_bytes <= output_limit:
-            try:
-                parsed = json.loads(stdout)
-                body = parsed.get("body") if isinstance(parsed, dict) else None
-            except Exception:
-                body = None
-            if body is None or body == "":
-                body_missing = True
-
-        if exit_code != 0 or body_missing:
-            cands = []
-            if output_bytes > output_limit:
-                cands.append("出力バイト数上限超過")
-            if body_missing and output_bytes <= output_limit and exit_code == 0:
-                cands.append("抽出本文が空です")
-            if exit_code < 0:
-                cands.append(f"シグナル終了 ({-exit_code})")
-            elif exit_code != 0:
-                cands.append(f"異常終了 (exit_code={exit_code})")
-            error_message = "; ".join(cands)[:200] if cands else "抽出本文が空です"
-
-        success = exit_code == 0 and output_bytes <= output_limit and not body_missing
-        return SandboxResult(
-            success=success,
-            content=stdout if success else None,
-            sandbox="docker",
-            guarantees=guarantees,
-            exit_code=exit_code,
-            error_message=error_message,
-        )
-    except subprocess.TimeoutExpired:
-        return SandboxResult(
-            success=False,
-            content=None,
-            sandbox="docker",
-            guarantees={**DOCKER_GUARANTEES, "wall_time": "timed_out"},
-            exit_code=-1,
-            error_message="実時間上限超過",
-        )
-    except FileNotFoundError:
-        return _run_subscript(
-            script,
-            timeout=timeout,
-            output_limit=output_limit,
-            content=content,
-        )
+    outcome = _run_process(
+        cmd,
+        (content or "").encode("utf-8"),
+        timeout=timeout,
+        output_limit=output_limit,
+    )
+    return _interpret(outcome, "docker", DOCKER_GUARANTEES)
 
 
 # ---------------------------------------------------------------------------
@@ -390,7 +446,7 @@ def extract_with_sandbox(
             success=False,
             content=None,
             sandbox=backend,
-            guarantees={**gua, "network": "unverified" if not use_docker else "strong"},
+            guarantees=gua,
             exit_code=1,
             error_message="サポートされていない形式です",
         )
@@ -398,5 +454,4 @@ def extract_with_sandbox(
     script = _build_extractor_script(source, content)
     if use_docker:
         return _run_docker(script, timeout=timeout, output_limit=output_limit, content=content)
-    else:
-        return _run_subscript(script, timeout=timeout, output_limit=output_limit, content=content)
+    return _run_subscript(script, timeout=timeout, output_limit=output_limit, content=content)
