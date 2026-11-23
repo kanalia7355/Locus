@@ -5,10 +5,12 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from app.connectors.base import SourceConnector
+from app.connectors.smb import SmbSourceConnector
 from app.connectors.synthetic import SyntheticSourceConnector
 
 CONNECTOR_FACTORIES: dict[str, Callable[[], SourceConnector]] = {
     "synthetic": SyntheticSourceConnector,
+    "smb": SmbSourceConnector,
 }
 
 
