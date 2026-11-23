@@ -1,12 +1,12 @@
 ---
 id: T-AIC-006
 phase: phase-ai-connect
-status: todo
-assignee: unassigned
-model: -
+status: doing
+assignee: opencode
+model: opencode/iceman-free
 weight: medium
-updated: 2026-11-22T15:05:00+09:00
-attempts: 0
+updated: 2026-11-23T21:25:06+09:00
+attempts: 2
 allowed_paths: progress/phase-ai-connect/material/
 test_cmd: python -m pytest tests/test_agents_registry.py -q
 ---
@@ -149,3 +149,7 @@ test_cmd: python -m pytest tests/test_agents_registry.py -q
 
 - Reviewer:
 - Findings:
+
+## CONTAINMENT UNVERIFIED (2026-11-23T21:25:06+09:00)
+
+The operator was editing the main checkout during this cycle, so the containment comparison was suspended. The worker's isolation was not verified for this attempt.

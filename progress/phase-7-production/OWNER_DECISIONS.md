@@ -840,3 +840,23 @@ UNVERIFIED
 - Containment comparison was suspended per the task record; not re-verified. Exact-head CI beyond the controller's local gates was not run.
 
 **Answer** (2026-11-22, orchestrator): **停止の表示が間違っていた。** 記録は「review cycle limit reached」だが `review_cycles` は 1（上限 2）で、尽きたのは**試行**（3/3）である。`controller.py` が両方の枝を同じ文面で出していたため、**押し合いと「実装が繰り返し外した」が同じ字面**になっていた。読むべき証拠が逆になるので直し、検査で固定した（旧文面を期待する検査が落ちることも実測）。**レビュー（`opencode/beam-free`）は正しい。私も読んで確認した。** (1) `_source_connector_allows` の再検証が `source_id` / `object_id` の**同一性を見ていない** — コネクタ往復中に binding が同じ revision の別オブジェクトへ張り替えられると、**別のオブジェクトの許可として使われる**（権限経路の fail-closed が破れる）。(2) AC1 の検査が**落ちない**: コネクタは `proceed.wait(timeout=200ms)` で必ず戻るのに別スレッドの書き込みは 2 秒待つので、**ロックを握ったままの実装でも通る**。レビュアーはロックを握る実装を模して通ることを**自分で再現**している。加えてレビュアーも挙げていないが、`if not ...: pass` の `pass` は何もしないので「fall back to sleep」というコメントは**嘘**である。(3) 再検証（`binding2`）の分岐を**どの検査も通らない**ので、消しても緑のままである。**今日 3 件目の「緑だが落ちない検査」**で、受入条件は 1 つも緩めない。やること: 同一性の再検証を足す／コネクタを無期限に待たせて AC1 に歯を付ける（`try`/`finally` で必ず解放）／読み取り経路で張り替えが拒否されることを表明する。**証拠として 3 つの数字を要求した**: ロックを跨いで握る形に一時的に戻すと AC1 が FAIL、`binding2` を一時的に消すと新検査が FAIL、両方戻して全件 PASS。**「修正前に落ちる」を目視で書くのは認めない** — 試行 3 がそれをやったことが今回の未達の原因である。**試行を 1 回だけ戻す（`attempts: 2`、残り 1 回で最後）**: `15:10:31 timeout: no reply within 1800s` は 30 分無言でコードも報告も無く、何も試みていない試行を 1 回と数えるのは公平でない。`review_cycles` は 1 のまま（実際に 1 周しており、良いレビューだった）。詳細は `tasks/T-PH7-205.md`。
+
+## T-PH7-211 — worker wrote outside its workspace (2026-11-23T20:52:09+09:00)
+
+**Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
+
+**Context**
+
+model=opencode/iceman-free
+workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH7-211
+marker=C:\Users\hirot\Locus\.jobloop\orchestrator-busy present=False
+appeared:
+?? tests/test_storage_seam.py
+**Answer** (2026-11-23 21:25): 本物の逸脱。`?? tests/test_storage_seam.py` は
+**この票の許可パス内の製品ファイル**で、20:41 に本体チェックアウトに現れた。
+私のシフトは 19:45 に書き終えてマーカーを外しており、ジョブ文に本体の絶対パスも無い
+（2026-11-16 の経路ではない）。ただし**作業は失われていない**:
+ワークスペースの写し（19:55、`def test` 6 件）の方が本体の写し（20:41、4 件）より
+進んでいる。本体の写しは証拠として退避して外した。
+**試行は戻さず（2/3）`doing` に戻す。** 原因がワーカー自身の逸脱だからである。
+この逸脱が `T-AIC-005` のマージまで止めた分は `T-PH9-403` に起票した。
