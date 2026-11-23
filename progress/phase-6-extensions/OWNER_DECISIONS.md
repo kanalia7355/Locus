@@ -2445,3 +2445,22 @@ commit=8ca0bda8377711cbba565cc0fbf5b36ed751f998
  M tests/test_jobloop.py
 
 **Answer** (2026-11-22, orchestrator): **これは判断ではなく私の汚れである。** 停止記録が原因を出している: 挙がった 3 ファイル（`jobloop/controller.py`、`tests/test_jobloop.py`、この票の記録）は**全部私のもの**で、封じ込め判定の修理とこの票への裁定を書いている最中だった。**レビュー済みのコミット `8ca0bda` はワークスペースに無傷で残っている** — 失敗したのは合流だけである（`T-PH6-123` と同じ型）。コミットして統合ブランチを綺麗にした。`status` は **`review`** に戻す（**`doing` ではない** — 仕事は済んでおり、`stranded()` が見るのは `review` だけ。`doing` に置くと「ワーカーは何も変えなかった」で試行が溶ける。今朝 `T-PH6-116` にそれをやった）。試行も周回も動かさない。18:50 の裁定はそのまま有効。**ただし今は無料モデルの枠が尽きている** — `opencode` 提供分は 3〜6 時間、`ollama/gemma3:4b` は 10 分で戻るので、待っているのは決定ではなく枠である。詳細は `tasks/T-PH6-104.md`。
+
+## T-PH6-127 — worker wrote outside its workspace (2026-11-23T19:13:12+09:00)
+
+**Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
+
+**Context**
+
+model=opencode/deepseek-v4.1-flash-free
+workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-127
+marker=C:\Users\hirot\Locus\.jobloop\orchestrator-busy present=False
+appeared:
+?? REPORT.md
+**Answer** (2026-11-23 19:27): この票の停止ではない。`appeared:` の `?? REPORT.md` は
+`T-PH5-101`（取り込み前インベントリ、2026-11-15 に `done`）の報告文で、
+この票の許可パスに `backend/` は含まれない。19:09:42 に生まれ**親を失っていた**
+`opencode.exe`（PID 4200、4 プロセス）が 19:12 に本体へ書いたもので、
+この票の派遣（19:10:06〜19:13:12）に時間帯が重なっただけである。
+木ごと落とし、ファイルは証拠として退避した。製品コードは本体に現れていない。
+**試行は消費せず `doing` に戻す。** 検査が孤児を見落とした分は `T-PH9-402`。
