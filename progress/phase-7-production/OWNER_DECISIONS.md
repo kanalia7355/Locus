@@ -742,7 +742,7 @@ workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH7-201
 
 model=opencode/iceman-free
 workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH7-201
-marker=C:\Users\hirot\Locus\.jobloop\orchestrator-busy present=False
+marker=.\.jobloop\orchestrator-busy present=False
 appeared:
 
 **Answer** (2026-11-22, orchestrator): **前のシフトで足した証拠が原因を答えた。** 記録に `appeared:` が**空**で残っていた — 増えた行は 1 つも無いのに比較が不一致だった。行は**減っていた**: 05:55 に私が自分の編集をコミットし、抱えていた未コミットの汚れが消えたためである。**ワーカーが逃げたのではなく、私が片付けたことが告発されていた。** `present=False` も正しく、05:51 にマーカーを外した後だった（前の回答で「置いてあったはず」と書いたのは別時刻の停止との混同。訂正する）。封じ込めは**増えた行だけ**で判定するよう直した — 逃げたワーカーはパスを残すが、ワーカーの行為でオーケストレータの汚れが消えることはない。両方向を検査で固定した。試行は消費せず `todo`。詳細は `tasks/T-PH7-201.md`。
@@ -770,7 +770,7 @@ implementer=opencode/iceman-free
 
 **Context**
 
-found=C:\Users\hirot\Locus
+found=.
 file=T-PH7-201.md
 frontmatter=yes
 
@@ -849,7 +849,7 @@ UNVERIFIED
 
 model=opencode/iceman-free
 workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH7-211
-marker=C:\Users\hirot\Locus\.jobloop\orchestrator-busy present=False
+marker=.\.jobloop\orchestrator-busy present=False
 appeared:
 ?? tests/test_storage_seam.py
 **Answer** (2026-11-23 21:25): 本物の逸脱。`?? tests/test_storage_seam.py` は
@@ -860,3 +860,37 @@ appeared:
 進んでいる。本体の写しは証拠として退避して外した。
 **試行は戻さず（2/3）`doing` に戻す。** 原因がワーカー自身の逸脱だからである。
 この逸脱が `T-AIC-005` のマージまで止めた分は `T-PH9-403` に起票した。
+
+## T-PH7-211 — worker wrote outside its workspace (2026-11-23T23:00:19+09:00)
+
+**Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
+
+**Context**
+
+model=opencode/iceman-free
+workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH7-211
+marker=.\.jobloop\orchestrator-busy present=False
+appeared:
+ M scripts/shift_check.py
+
+
+**Answer** (2026-11-23 23:30, orchestrator): いま本体にこの票のファイルは 1 つも無く、ワークスペースに 3 件（`service.py` 変更、`storage.py` と `tests/test_storage_seam.py` 新規）が残っている。**作業は失われていない。**22:38 の `self-repaired - redact` はこの票の文面から本体の絶対パスを消したもので、判断自体は正しいが「コントローラが書いた証拠だから残す」に倒れていたのが今回の原因である。**試行は消費せず `doing`。残り 1 回。**原因と対処は `T-PH9-406`。詳細は `tasks/T-PH7-211.md`。
+
+## T-PH7-223 — worker wrote outside its workspace (2026-11-23T23:10:55+09:00)
+
+**Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
+
+**Context**
+
+model=opencode/iceman-free
+workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH7-223
+marker=.\.jobloop\orchestrator-busy present=False
+appeared:
+ M backend/app/main.py
+ M scripts/shift_check.py
+ M tests/test_api.py
+ M tests/test_shift_check.py
+?? backend/app/deployment.py
+?? tests/test_production_startup.py
+
+**Answer** (2026-11-23 23:30, orchestrator): 本体に現れたのは**この票の許可パスそのもの**（`main.py` が `from app.deployment import ...` を足している）。ワークスパースにも同じ仕事があり、**2 つは食い違っていた**（`deployment.py` 本体 145 / ws 197 行、`test_production_startup.py` 本体 433 / ws 282 行、`main.py` 本体 958 / ws 941 行）。どちらも相手の上位集合でないので**混ぜず**、正しい木（ワークスパース）を残して本体の版はパッチとファイルに退避して外した。**本体側にしか無かった分はやり直しになる**（正直に書く）。原因はこの票でないので**試行は消費せず `doing`**。原因と対処は `T-PH9-406`。詳細は `tasks/T-PH7-223.md`。

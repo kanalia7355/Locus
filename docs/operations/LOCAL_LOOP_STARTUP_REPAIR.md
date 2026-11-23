@@ -94,7 +94,7 @@ Only after a truthful current-code model boundary proof, current audited QA
 image, required verification/CI success and a separate operator launch instruction:
 
 ```powershell
-Set-Location C:\Users\hirot\Locus
+Set-Location <このリポジトリのルート>   # 絶対パスを書かない（T-PH9-406）
 .venv\Scripts\python.exe -m loop_engine.cli doctor
 .venv\Scripts\python.exe -m loop_engine.cli status
 .venv\Scripts\python.exe -m loop_engine.cli decisions

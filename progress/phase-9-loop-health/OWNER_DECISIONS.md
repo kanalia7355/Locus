@@ -10,7 +10,7 @@ Each entry is a judgement the controller refused to make itself.
 
 model=opencode/iceman-free
 workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH9-402
-marker=C:\Users\hirot\Locus\.jobloop\orchestrator-busy present=False
+marker=.\.jobloop\orchestrator-busy present=False
 appeared:
  M scripts/shift_check.py
  M tests/test_shift_check.py
@@ -26,7 +26,7 @@ appeared:
 
 model=opencode/iceman-free
 workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH9-403
-marker=C:\Users\hirot\Locus\.jobloop\orchestrator-busy present=False
+marker=.\.jobloop\orchestrator-busy present=False
 appeared:
  M jobloop/controller.py
  M jobloop/diagnose.py
@@ -34,3 +34,37 @@ appeared:
  M tests/test_jobloop.py
 
 **Answer** (2026-11-23 22:50, orchestrator): `T-PH9-402` と同じ形で、同じ扱いにした。**ワークスペースは完全に空**で、作業の 100%（`jobloop/controller.py`, `jobloop/diagnose.py`, `tests/test_jobloop.py`, `tests/test_diagnose.py`）が本体にあった。許可パスで機械的に切り分けたので `T-PH9-402` の分と混ざっていない。本体は戻し、作業はこの票のワークスペースへ移送した。**試行は消費せず `review` に戻す。** 原因は未特定で、計測は `T-PH9-404`。詳細は `tasks/T-PH9-403.md`。
+
+## T-PH9-402 — worker wrote outside its workspace (2026-11-23T23:03:23+09:00)
+
+**Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
+
+**Context**
+
+model=opencode/iceman-free
+workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH9-402
+marker=.\.jobloop\orchestrator-busy present=False
+appeared:
+ M backend/app/main.py
+ M scripts/shift_check.py
+ M tests/test_shift_check.py
+?? backend/app/deployment.py
+
+
+**Answer** (2026-11-23 23:30, orchestrator): `appeared` の 4 行のうち `backend/app/main.py` と `backend/app/deployment.py` は **`T-PH7-223` の許可パス**で、この票のものではない（1 つのチェックアウトを順に使うので前の票の汚れが積まれる）。この票の 2 ファイルは、22:50 に移送した分が**ワークスペースに残っている**。本体に再出現した写しは ws 版と食い違っていた（本体 317 行 / ws 319 行）ので**混ぜず**、退避して本体だけ戻した。**試行は消費せず `review`。** 原因は記録が本体の絶対パスを教えていたことで、`T-PH9-406` に起票した。詳細は `tasks/T-PH9-402.md`。
+
+## T-PH9-403 — worker wrote outside its workspace (2026-11-23T23:07:04+09:00)
+
+**Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
+
+**Context**
+
+model=opencode/iceman-free
+workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH9-403
+marker=.\.jobloop\orchestrator-busy present=False
+appeared:
+ M backend/app/main.py
+ M tests/test_api.py
+?? tests/test_production_startup.py
+
+**Answer** (2026-11-23 23:30, orchestrator): **いま本体にこの票のファイルは 1 つも無い**。22:50 に移送した作業はワークスペースに 4 ファイルとして残っている。この停止は同じサイクル中に別の票が汚した分を拾ったものである。**試行は消費せず `review`。** 原因と対処は `T-PH9-406`。詳細は `tasks/T-PH9-403.md`。

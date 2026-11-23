@@ -23,3 +23,29 @@ commit=a14b69c5b0c9733eee67b091180b03b510166ec2
 逸脱ファイルを退避して外したので `foreign` は 0 件。
 **試行は消費せず `review` に戻す**（成果はコミット済みなので `doing` ではない）。
 読み分けを機械化する分は `T-PH9-403`。
+
+## T-AIC-005 — integration branch is dirty (2026-11-23T23:16:11+09:00)
+
+**Question**: The main checkout has uncommitted changes, so the reviewed commit was not merged. Decide how to integrate it.
+
+**Context**
+
+commit=a14b69c5b0c9733eee67b091180b03b510166ec2
+ M backend/app/main.py
+ M docs/report/OWNER_DECISIONS_PLAIN_GUIDE.html
+ M progress/phase-6-extensions/OWNER_DECISIONS.md
+ M progress/phase-6-extensions/tasks/T-PH6-104.md
+ M progress/phase-7-production/OWNER_DECISIONS.md
+ M progress/phase-7-production/tasks/T-PH7-211.md
+ M progress/phase-7-production/tasks/T-PH7-223.md
+ M progress/phase-9-loop-health/OWNER_DECISIONS.md
+ M progress/phase-9-loop-health/tasks/T-PH9-402.md
+ M progress/phase-9-loop-health/tasks/T-PH9-403.md
+ M progress/phase-ai-connect/tasks/T-AIC-005.md
+ M scripts/shift_check.py
+ M tests/test_api.py
+ M tests/test_shift_check.py
+?? backend/app/deployment.py
+?? tests/test_production_startup.py
+
+**Answer** (2026-11-23 23:30, orchestrator): 21:16 と同じ形で、この票は今日 2 回とも無実である。`foreign` は他票（`T-PH9-402`・`T-PH7-223`）が本体に書いた製品コード。`a14b69c` は許可パス 2 件とちょうど一致しレビュー済み。本体は綺麗にした。**試行は消費せず `review`。** 原因と対処は `T-PH9-406`。詳細は `tasks/T-AIC-005.md`。

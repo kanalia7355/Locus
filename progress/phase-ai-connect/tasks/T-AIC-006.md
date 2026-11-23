@@ -3,9 +3,9 @@ id: T-AIC-006
 phase: phase-ai-connect
 status: doing
 assignee: opencode
-model: opencode/iceman-free
+model: ollama/gemma3:4b
 weight: medium
-updated: 2026-11-23T21:25:06+09:00
+updated: 2026-11-23T23:16:22+09:00
 attempts: 2
 allowed_paths: progress/phase-ai-connect/material/
 test_cmd: python -m pytest tests/test_agents_registry.py -q
@@ -153,3 +153,7 @@ test_cmd: python -m pytest tests/test_agents_registry.py -q
 ## CONTAINMENT UNVERIFIED (2026-11-23T21:25:06+09:00)
 
 The operator was editing the main checkout during this cycle, so the containment comparison was suspended. The worker's isolation was not verified for this attempt.
+
+## WORKSPACE REBASED (2026-11-23T23:16:12+09:00)
+
+The workspace was 2 commit(s) behind `loop/local-development` and had no work in progress, so it was reset onto the current branch. Nothing of this job's own was discarded.

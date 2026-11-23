@@ -5,7 +5,7 @@ status: review
 assignee: opencode
 model: opencode/iceman-free
 weight: medium
-updated: 2026-11-23T21:25:48+09:00
+updated: 2026-11-23T23:30:00+09:00
 attempts: 2
 allowed_paths: backend/app/harness.py, tests/test_harness_egress.py
 test_cmd: python -m pytest tests/test_harness_egress.py tests/test_agents_registry.py tests/test_api.py -q
@@ -280,3 +280,69 @@ tests/test_harness_egress.py | 158 +++++
 読み取りを間違えないための一言: **`integration branch is dirty` を見たら、
 印字された全部ではなく `progress/` と平易化ページ以外の行だけを読むこと。**
 その 1 行が誰のものかが答えである。
+
+## RESUMED GATES (2026-11-23T23:12:32+09:00)
+
+- `scope`: green
+- `task-verification`: green
+- `python-lint`: green
+- `python-format`: green
+- `secret-scan`: green
+
+## REVIEW by opencode/beam-free (2026-11-23T23:16:11+09:00)
+
+VERDICT
+- APPROVED
+
+FINDINGS
+- none
+
+UNVERIFIED
+- "No external send path outside this layer": pre-existing modules `backend/app/local_model.py`, `backend/app/provider_openai_compatible.py`, and `backend/app/model_catalog.py` still contain HTTP egress code and were not modified or routed through `Harness` (outside `allowed_paths`); only their non-use in production wiring was confirmed by grep, not by a runtime/CI assertion. Follow-up integration remains.
+- Secret scan: the workspace copy of `scripts/secret_scan.py` does not list the job-mandated `sk-synthetic-0[1-4]-not-a-real-key` keys in `SYNTHETIC`, so a local named-path scan reports 2 findings, while the controller's own scanner copy reports green; I could not verify the controller's allowlist contents from this checkout.
+- Containment/isolation of this attempt was not independently verified by me; the controller verifies worktree byte-identity.
+- Hidden/additional grader tests (e.g., explicit `resolve_credential` returning `None`, audit field assertions for allowed outcomes) were not available to run locally; correctness is inferred from the committed tests and code.
+
+## OWNER DECISION REQUESTED (2026-11-23T23:16:11+09:00)
+
+integration branch is dirty: The main checkout has uncommitted changes, so the reviewed commit was not merged. Decide how to integrate it.
+## ORCHESTRATOR RULING — 2 度目。この票は今日 2 回とも無実である (2026-11-23 23:30)
+
+21:16 と同じ形である。`foreign` はこの票のものではなく、
+`T-PH9-402` と `T-PH7-223` が本体に書いた製品コードだった。
+この票の `a14b69c` は**許可パス 2 件とちょうど一致**し、レビューも済んでいる。
+
+本体は綺麗にした。**試行は消費しない（`attempts: 2/3`）。`review` に戻す。**
+次のサイクルがそのままマージできる（ただし現在は無料モデルが全部冷却中である）。
+
+**原因について（6 件共通。今シフトで初めて測れた）**
+
+ワーカーが本体チェックアウトで作業する理由は、**ループ自身が本体の絶対パスを
+ワーカーの読み物に書き込んでいる**ことである。2026-11-16 に突き止めた
+「ジョブ文の絶対パスがプロジェクト根を本体に解決させる」経路と**同じもの**で、
+入口がジョブ文から**記録**に変わっていた。
+
+- 追跡されている `progress/` のファイルに、本体の絶対パスが**12 箇所**ある。
+  その全部が封じ込め停止の記録の `marker=` 行である:
+  `marker=<repo-root>\.jobloop\orchestrator-busy present=False`。
+  ほかに旧票の `...\.venv\Scripts\python.exe` が 4 箇所、`.venv313` が 4 箇所。
+- **ワーカーは自分の票を必ず読む。** `T-PH6-102`・`T-PH5-102`・`T-PH5-103`・
+  `T-PH6-107`・`T-PH3-101` の票本体に、この絶対パスが入っていた。
+- 追跡文書にも 1 件、**実行できる形**で入っていた:
+  `docs/operations/LOCAL_LOOP_STARTUP_REPAIR.md:97` の
+  `Set-Location <repo-root>`（引退した `loop_engine` 用の手順）。
+- つまり**封じ込め停止 1 件ごとに、次のワーカーへの教材が 1 行増えていた**。
+  これが「同じ形が何度も再発する」ことの説明になる。
+- ループはこれを**知っていて見逃していた**。今日 22:38 の心拍に
+  `self-repaired - redact: the path came from evidence the controller itself
+  recorded, not from the job definition` と出ている。
+  **「コントローラが書いた証拠だから」は、ワーカーには区別が付かない。**
+  票に書いてあるパスは、票に書いてあるパスである。
+
+**潰した仮説も書いておく**（全部測った）: ジョブ文に本体パス（今回の 5 票では 0 件）／
+票がワークスペースに無い（ある）／土台がずれている（本体と同じコミット）／
+`.loop/runtime` の大量のパス（**未追跡なのでクローンに入らない**）。
+
+**このシフトでやったこと**: 追跡ファイルの絶対パスを**相対形に書き換えた**
+（`present=True/False` の情報は落とさない）。実行できる `Set-Location` の行も直した。
+コントローラが書く側を止めるのは `T-PH9-406` に起票した。

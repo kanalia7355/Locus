@@ -1166,7 +1166,7 @@ workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-115
 
 **Context**
 
-found=C:\Users\hirot\Locus
+found=.
 file=T-PH6-111.md
 
 **Answer** (2026-11-19, orchestrator): ループが自分の証跡で自分を止めていた。名指ししていたのはコントローラが記録したゲート出力。記録時にパスを伏せるよう直し、既出分も伏せ字にした。
@@ -2304,7 +2304,7 @@ outside allowed_paths: ['tests/e2e_server.py']
 
 model=opencode/nemotron-3.5-lightning-free
 workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-127
-marker=C:\Users\hirot\Locus\.jobloop\orchestrator-busy present=False
+marker=.\.jobloop\orchestrator-busy present=False
 appeared:
 ?? progress/phase-storage-connect/tasks/T-STC-005.md
 
@@ -2402,7 +2402,7 @@ UNVERIFIED
 
 model=opencode/iceman-free
 workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-127
-marker=C:\Users\hirot\Locus\.jobloop\orchestrator-busy present=False
+marker=.\.jobloop\orchestrator-busy present=False
 appeared:
              beat.parent.mkdir(parents=True, exist_ok=True)
              with beat.open("a", encoding="utf-8") as handle:
@@ -2454,7 +2454,7 @@ commit=8ca0bda8377711cbba565cc0fbf5b36ed751f998
 
 model=opencode/deepseek-v4.1-flash-free
 workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-127
-marker=C:\Users\hirot\Locus\.jobloop\orchestrator-busy present=False
+marker=.\.jobloop\orchestrator-busy present=False
 appeared:
 ?? REPORT.md
 **Answer** (2026-11-23 19:27): この票の停止ではない。`appeared:` の `?? REPORT.md` は
@@ -2511,8 +2511,32 @@ outside allowed_paths: ['frontend/appearance_output.txt']
 
 model=opencode/iceman-free
 workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-112
-marker=C:\Users\hirot\Locus\.jobloop\orchestrator-busy present=False
+marker=.\.jobloop\orchestrator-busy present=False
 appeared:
  M frontend/src/App.tsx
 
 **Answer** (2026-11-23 22:50, orchestrator): 本体に現れた `App.tsx` は**同じ改修の前段の写し**だった。比べた: ワークスペース側は 1947 行で、変更 9 ファイル（+478/-700）と新規 5 モジュール（`AdminPanels.tsx`, `IconButton.tsx`, `SettingsDialog.tsx`, `Sidebar.tsx`, `dialog.ts`、22:10〜22:33 に書かれ、実際に import されていて実体もある）。本体側は 2020 行で、`SquarePen`/`UserCheck`/`UserX` を `App.tsx` に抱えたままの古い形で、ほかに何も無い。**だから本体の写しを戻しても作業は減らない**（証拠としてパッチに退避したうえで戻した）。**試行は消費せず `doing` に戻す**（作業は未コミットなので `review` ではない）。仕上げは**ワークスペースの中で**行い、`npm --prefix frontend run test:appearance` を通すこと（jsdom は代わりにならない）。詳細は `tasks/T-PH6-112.md`。
+
+## T-PH6-104 — integration branch is dirty (2026-11-23T23:12:17+09:00)
+
+**Question**: The main checkout has uncommitted changes, so the reviewed commit was not merged. Decide how to integrate it.
+
+**Context**
+
+commit=96d0da9a05c8135a972a399b9486227d751e8049
+ M backend/app/main.py
+ M docs/report/OWNER_DECISIONS_PLAIN_GUIDE.html
+ M progress/phase-6-extensions/tasks/T-PH6-104.md
+ M progress/phase-7-production/OWNER_DECISIONS.md
+ M progress/phase-7-production/tasks/T-PH7-211.md
+ M progress/phase-7-production/tasks/T-PH7-223.md
+ M progress/phase-9-loop-health/OWNER_DECISIONS.md
+ M progress/phase-9-loop-health/tasks/T-PH9-402.md
+ M progress/phase-9-loop-health/tasks/T-PH9-403.md
+ M scripts/shift_check.py
+ M tests/test_api.py
+ M tests/test_shift_check.py
+?? backend/app/deployment.py
+?? tests/test_production_startup.py
+
+**Answer** (2026-11-23 23:30, orchestrator): 今日 3 度目で、3 度ともこの票の落ち度ではない。`foreign` は `T-PH9-402` と `T-PH7-223` が本体に書いた製品コードで、この票の成果（2 コミット・レビュー 1 周済み）は無傀。本体を綺麗にしたので `foreign` は 0 件。**試行は消費せず `review`。** 原因と対処は `T-PH9-406`。詳細は `tasks/T-PH6-104.md`。
