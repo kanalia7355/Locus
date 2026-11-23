@@ -2,7 +2,9 @@
 
 Usage exhaustion is not a model failure (`docs/agent/PROTOCOL.md` §5.4), so an
 exhausted model is put on cooldown and the next eligible one takes the job
-without consuming the task's attempt budget. Model identifiers are never
+without consuming the task's attempt budget. A model the CLI could not run at
+all is rested too, and that rest grows while the failure repeats: one outage is
+a wait, the seventeenth is a broken provider. Model identifiers are never
 guessed: the roster is the intersection of this file's eligibility rules and the
 identifiers the installed CLI actually reports.
 """
@@ -89,6 +91,58 @@ class Roster:
         entry = state.setdefault(model, {})
         entry["cooldown_until"] = self.now + seconds
         entry["observations"] = float(entry.get("observations", 0)) + 1
+        self._save(state)
+
+    def mark_unavailable(self, model: str, *, base_seconds: float) -> float:
+        """Rest a model the CLI could not run, twice as long for each repeat.
+
+        `base_seconds` is the caller's judgement for a single failure (short for
+        an outage, the exhaustion period for a provider that said outright it
+        cannot do the work). The judgement that is missing from a fixed value is
+        **repetition**: a provider that fails for a new reason every time never
+        matches a known string, so on 2026-11-22 the roster picked it up again
+        every fifteen minutes — `ollama/gemma3:4b` reached 17 observations, the
+        highest in the file, and would have gone on doing so for ever. Counting
+        matches no reason, so a reason nobody has seen yet is covered too.
+
+        It is capped at `COOLDOWN_SECONDS` rather than removing the model: a
+        dead provider is still tried four times a day, and one that recovers is
+        back the moment it answers.
+
+        Returns the seconds it was rested for, so the caller can record it.
+        """
+        state = self._state()
+        entry = state.setdefault(model, {})
+        # Counted separately from `observations`, which keeps its existing
+        # meaning: every rest, exhaustion and unavailability alike, so old
+        # records stay readable as what they are.
+        streak = float(entry.get("unavailable_streak", 0)) + 1
+        entry["unavailable_streak"] = streak
+        # Clamped: the streak is unbounded, since a dead provider is picked
+        # again every six hours, and `2.0 ** 1460` would raise rather than rest.
+        steps = min(streak - 1, 16)
+        seconds = min(base_seconds * 2.0**steps, COOLDOWN_SECONDS)
+        entry["cooldown_until"] = self.now + seconds
+        entry["observations"] = float(entry.get("observations", 0)) + 1
+        self._save(state)
+        return seconds
+
+    def mark_responded(self, model: str) -> None:
+        """Forget the failure streak: the model just answered a job.
+
+        Without this the streak would describe the model's whole history, and a
+        model that had one bad afternoon would rest six hours at a time for the
+        rest of the phase. The controller calls it on the reply paths it
+        already has, for the implementer and for the reviewer.
+        """
+        state = self._state()
+        entry = state.get(model)
+        if not entry or not entry.get("unavailable_streak"):
+            return
+        entry["unavailable_streak"] = 0
+        self._save(state)
+
+    def _save(self, state: dict[str, dict[str, float]]) -> None:
         self.state_file.parent.mkdir(parents=True, exist_ok=True)
         self.state_file.write_text(
             json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8"

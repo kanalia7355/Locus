@@ -107,10 +107,12 @@ def git(repository: Path, *arguments: str, check: bool = True) -> str:
 # "NOT APPROVED" or "APPROVED with reservations" still counts as changes.
 APPROVAL = re.compile(r"^[\s>#*_`-]*APPROVED[\s*_`.]*$", re.MULTILINE)
 
-# How long a model that could not be run at all is passed over. Much shorter
-# than the exhaustion cooldown: a spent free allowance comes back tomorrow, a
-# CLI that cannot route to a provider may come back in minutes, and the point
-# here is only to stop the roster handing out the same broken first choice.
+# How long a model that could not be run at all is passed over, the first time.
+# Much shorter than the exhaustion cooldown: a spent free allowance comes back
+# tomorrow, a CLI that cannot route to a provider may come back in minutes, and
+# the point here is only to stop the roster handing out the same broken first
+# choice. A repeat doubles it (`Roster.mark_unavailable`): one outage is a wait,
+# the seventeenth is a broken provider.
 UNAVAILABLE_COOLDOWN = 900.0
 
 # A provider saying the model cannot do what the worker needs is not an outage.
@@ -729,19 +731,29 @@ class Controller:
         if result.ending is worker.Ending.UNAVAILABLE:
             # The CLI could not run this model at all — a crash, an auth
             # problem, a provider it cannot route to. The job was never
-            # attempted, so it keeps its attempt, and the model goes on a short
-            # cooldown so the next pass reaches a different one.
-            self.roster.mark_exhausted(model, seconds=cooldown_for(result.errors))
+            # attempted, so it keeps its attempt, and the model goes on a
+            # cooldown so the next pass reaches a different one. That cooldown
+            # doubles while the failure repeats, so a provider that is broken
+            # for a reason nobody has seen yet is not picked up every fifteen
+            # minutes for a day.
+            rested = self.roster.mark_unavailable(model, base_seconds=cooldown_for(result.errors))
             return Outcome(
                 task.id,
                 "rotated",
-                f"{model} could not be run: {'; '.join(result.errors[:2])}"[:300],
+                (
+                    f"{model} could not be run: {'; '.join(result.errors[:2])}"
+                    f" (rested {rested / 60:.0f} min)"
+                )[:300],
                 model=model,
             )
         if result.ending is not worker.Ending.COMPLETED:
             return self.failed_attempt(
                 task, model, f"{result.ending.value}: {'; '.join(result.errors[:3])}"
             )
+        # The model answered. Whatever the answer is worth, it is not evidence
+        # that the provider is broken, so the failure streak starts over here —
+        # this is the reset the old design was missing.
+        self.roster.mark_responded(model)
         asked = re.search(r"needs-owner-decision:\s*(.+)", result.text)
         question = asked.group(1).strip() if asked else ""
         if question and not placeholder(question):
@@ -1092,8 +1104,9 @@ class Controller:
             # time: on 2026-11-22 `ollama/gemma3:4b` answered `unavailable` for
             # `T-PH6-104` and `T-PH8-302` on every cycle for an hour, while two
             # working `opencode` models sat untried. Nothing escalated, so the
-            # queue looked healthy and `diagnose` saw nothing at all.
-            self.roster.mark_exhausted(reviewer, seconds=cooldown_for(verdict.errors))
+            # queue looked healthy and `diagnose` saw nothing at all. The rest
+            # doubles while the failure repeats — see `Roster.mark_unavailable`.
+            self.roster.mark_unavailable(reviewer, base_seconds=cooldown_for(verdict.errors))
             return (
                 Outcome(
                     task.id,
@@ -1104,6 +1117,9 @@ class Controller:
                 ),
                 reviewer,
             )
+        # The reviewer answered, so its failure streak is over: without this
+        # reset a model that was unavailable once would rest longer every time.
+        self.roster.mark_responded(reviewer)
         self.record(
             task,
             f"REVIEW by {reviewer} ({self.now()})",

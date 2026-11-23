@@ -1269,6 +1269,129 @@ def test_an_implementer_that_cannot_be_run_keeps_its_attempt(tmp_path: Path) -> 
     assert not (controller.settings.phase_directory / "OWNER_DECISIONS.md").exists()
 
 
+def test_a_model_that_keeps_failing_to_start_waits_longer_each_time(tmp_path: Path) -> None:
+    """One outage is a wait; the seventeenth is a broken provider.
+
+    `controller.UNAVAILABLE_COOLDOWN` is right for a single outage — a CLI that
+    briefly lost its route is back in minutes, and six hours would throw away a
+    working model. It is wrong for a repetition: a provider that fails for a new
+    reason every time is never matched by `cooldown_for`'s known strings, so on
+    2026-11-22 the roster picked it up again every fifteen minutes and
+    `ollama/gemma3:4b` reached 17 observations, the highest in the roster.
+    Counting matches no strings, so the next unknown reason is covered too.
+    """
+    base = controller_module.UNAVAILABLE_COOLDOWN
+    state = tmp_path / "roster.json"
+    waits = [
+        Roster(models=["a-free"], state_file=state, now=1000.0 + attempt).mark_unavailable(
+            "a-free", base_seconds=base
+        )
+        for attempt in range(8)
+    ]
+    assert waits[0] == base, "a first failure keeps the short rest"
+    assert waits[1] > waits[0] and waits[2] > waits[1], "a repetition has to stretch the wait"
+    assert waits[2] >= 4 * base, "a few failures in a row must be clearly longer, not a nudge"
+    assert waits[-1] == roster_module.COOLDOWN_SECONDS, "it stops at the exhaustion period"
+    assert all(wait <= roster_module.COOLDOWN_SECONDS for wait in waits), (
+        "a dead provider is rested, never removed: six hours is four tries a day"
+    )
+    # It really does come back, rather than resting for ever.
+    assert (
+        Roster(models=["a-free"], state_file=state, now=1000.0 + 7 + waits[-1]).pick() == "a-free"
+    )
+    # `observations` keeps counting both kinds of rest, as every existing record
+    # in `.jobloop/roster.json` already does.
+    exhausted = Roster(models=["a-free"], state_file=state, now=1000.0)
+    exhausted.mark_exhausted("a-free")
+    recorded = (tmp_path / "roster.json").read_text(encoding="utf-8")
+    assert '"observations": 9.0' in recorded, recorded
+
+
+def test_answering_a_job_forgets_the_failure_streak(tmp_path: Path) -> None:
+    """The wait has to come back down, or it only ever grows.
+
+    A model that was unavailable twice and then answered is not broken. This is
+    the half of the design that cannot be left out: without a reset the streak
+    would describe the model's whole history, and a model that had one bad
+    afternoon would spend the rest of the phase resting six hours at a time.
+    """
+    base = controller_module.UNAVAILABLE_COOLDOWN
+    state = tmp_path / "roster.json"
+    early = Roster(models=["a-free"], state_file=state, now=1000.0)
+    early.mark_unavailable("a-free", base_seconds=base)
+    long_wait = early.mark_unavailable("a-free", base_seconds=base)
+    assert long_wait > base
+
+    early.mark_responded("a-free")
+    after = Roster(models=["a-free"], state_file=state, now=1000.0 + long_wait)
+    assert after.mark_unavailable("a-free", base_seconds=base) == base, (
+        "a model that answered must start from the short wait again"
+    )
+
+
+def test_the_controller_forgets_the_streak_when_the_model_answers(tmp_path: Path) -> None:
+    """The reset has to be on the dispatch paths, not only in the roster.
+
+    `mark_responded` is only worth having if the controller calls it where a
+    reply actually arrives, for the implementer and for the reviewer.
+    """
+    phase_with_task(tmp_path)
+    base = controller_module.UNAVAILABLE_COOLDOWN
+    state = tmp_path / ".jobloop" / "roster.json"
+    early = Roster(models=["a-free", "b-free"], state_file=state, now=1000.0)
+    early.mark_unavailable("a-free", base_seconds=base)
+    long_wait = early.mark_unavailable("a-free", base_seconds=base)
+    early.mark_unavailable("b-free", base_seconds=base)
+    early.mark_unavailable("b-free", base_seconds=base)
+
+    later = Roster(models=["a-free", "b-free"], state_file=state, now=1000.0 + long_wait)
+    controller = Controller(settings_for(tmp_path), later, clock=lambda: 0.0)
+    dispatched: list[str] = []
+
+    def implement(model: str, prompt: str, **_: object) -> worker.Result:
+        dispatched.append(model)
+        return worker.Result(worker.Ending.COMPLETED, "REPORT\nnothing changed", model)
+
+    controller.workspace = lambda task: tmp_path  # type: ignore[assignment]
+    controller.dispatch = implement  # type: ignore[assignment]
+    outcome = controller.run_job(controller.select())
+    assert dispatched == ["a-free"], "the model with the streak is the one that answers"
+    assert outcome.state == "attempt-failed", outcome.detail
+    assert controller.roster.mark_unavailable("a-free", base_seconds=base) == base, (
+        "the implementer answered, so its streak is over"
+    )
+
+    phase_with_task(tmp_path / "review")
+    tree = reviewable_worktree(tmp_path / "review")
+    reviewer_roster = Roster(
+        models=["a-free", "b-free"],
+        state_file=tmp_path / "review" / ".jobloop" / "roster.json",
+        now=1000.0,
+    )
+    reviewer_roster.mark_unavailable("b-free", base_seconds=base)
+    reviewer_wait = reviewer_roster.mark_unavailable("b-free", base_seconds=base)
+    reviewer_later = Roster(
+        models=["a-free", "b-free"],
+        state_file=tmp_path / "review" / ".jobloop" / "roster.json",
+        now=1000.0 + reviewer_wait,
+    )
+    alone = Controller(settings_for(tmp_path / "review"), reviewer_later, clock=lambda: 0.0)
+    reviewed: list[str] = []
+
+    def verdict_for(model: str, prompt: str, **_: object) -> worker.Result:
+        reviewed.append(model)
+        return worker.Result(worker.Ending.COMPLETED, "VERDICT\n- CHANGES_REQUIRED", model)
+
+    alone.dispatch = verdict_for  # type: ignore[assignment]
+    asked = alone.select()
+    assert asked is not None
+    alone.review(asked, tree, "a-free", [])
+    assert reviewed == ["b-free"], "the reviewer with the streak is the one that answers"
+    assert alone.roster.mark_unavailable("b-free", base_seconds=base) == base, (
+        "the reviewer answered, so its streak is over too"
+    )
+
+
 def test_every_reviewer_writing_to_disk_ends_as_a_question_not_a_loop(tmp_path: Path) -> None:
     phase_with_task(tmp_path)
     tree = reviewable_worktree(tmp_path)
