@@ -42,10 +42,25 @@ is there because skipping it cost hours:
    branch is dirty". That one state blocked eleven jobs and seven hours on
    2026-11-20. The controller aborts conflicting merges now; if you still find
    one, that is a defect, not a chore.
-2. **Orphaned workers.** An `opencode.exe` whose parent is gone is an orphan:
-   its output will never be read and it is still writing into a workspace.
-   `taskkill /PID <id> /T /F` — always the **tree**, because `opencode run` is a
-   launcher and its children outlive it.
+2. **Orphaned workers.** An `opencode.exe` whose parent is gone is *usually* an
+   orphan: its output will never be read and it is still writing into a
+   workspace. `taskkill /PID <id> /T /F` — always the **tree**, because
+   `opencode run` is a launcher and its children outlive it.
+   **Print the command line before you kill it, and keep it.** Two shapes are
+   parentless and only one is rubbish:
+   - `run --standalone …`, and the `serve --stdio --port 0` it spawns, are a job
+     session. Parentless means orphaned. Kill the tree.
+   - **`serve --service` is the user's own long-lived helper and is parentless by
+     design. Killing it breaks their opencode.** On 2026-11-23 I nearly killed
+     PID 13668 — no parent, a live `bash.exe` child, indistinguishable at a
+     glance. `shift_check.py` excludes this shape on purpose; the exclusion is
+     not a bug to repair.
+
+   Keeping the command line is the other half. The same evening I killed PID
+   4200 without recording its shape, and when a stray `REPORT.md` turned up in
+   the main checkout minutes later I could no longer say whether a worker or
+   that helper had written it — so `T-PH6-127`'s stop record has to say "author
+   undetermined" where it could have said who.
 3. **Is the supervisor alive?** Query by image name
    (`-Filter "Name = 'python.exe'"`) and filter after. **Never** match on
    `CommandLine` alone: the querying shell's own command line contains your
