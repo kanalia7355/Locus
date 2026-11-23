@@ -1140,7 +1140,9 @@ class Service:
         return allowed is True
 
     def _source_allows(self, db: sqlite3.Connection, actor: Principal, row: sqlite3.Row) -> bool:
-        """Original-source ACL gate. Unbound documents pass; bound ones must pass."""
+        """Original-source ACL gate. Reads binding/revision/state from db within transaction.
+        Unbound documents pass; bound ones must pass the DB checks.
+        connector.can_read() is called by the caller outside the transaction (DATA-008)."""
         binding = db.execute(
             "SELECT source_id,object_id,revision FROM document_source_bindings WHERE document_id=?",
             (row["id"],),
@@ -1155,18 +1157,73 @@ class Service:
             return False
         if source_object["state"] != "ok":
             return False
-        connector = self.source_connector_for(str(binding["source_id"]))
+        return True
+
+    def _source_connector_allows(
+        self, db: sqlite3.Connection, actor: Principal, row: sqlite3.Row
+    ) -> bool:
+        """Check connector.can_read outside the process lock/tx, then re-verify.
+
+        Must be called while holding self.lock inside self.db(). If a binding
+        exists, this commits the current tx, releases self.lock for the
+        connector call, then re-acquires the lock and begins a new tx before
+        re-verifying that the binding/source state is unchanged. Fail-closed.
+        """
+        binding = db.execute(
+            "SELECT source_id,object_id,revision FROM document_source_bindings WHERE document_id=?",
+            (row["id"],),
+        ).fetchone()
+        if not binding:
+            return True
+        source_id = str(binding["source_id"])
+        object_id = str(binding["object_id"])
+        revision = str(binding["revision"])
+        connector = self.source_connector_for(source_id)
         if connector is None:
             return False
+        if self.conn.in_transaction:
+            self.conn.commit()
+        self.lock.release()
         try:
-            allowed = connector.can_read(
-                source_id=str(binding["source_id"]),
-                object_id=str(binding["object_id"]),
-                user_id=actor.username,
-            )
-        except Exception:
+            try:
+                allowed = connector.can_read(
+                    source_id=source_id,
+                    object_id=object_id,
+                    user_id=actor.username,
+                )
+            except Exception:
+                return False
+            if allowed is not True:
+                return False
+        finally:
+            self.lock.acquire()
+            self.conn.execute("BEGIN IMMEDIATE")
+        binding2 = db.execute(
+            "SELECT b.source_id,b.object_id,b.revision,o.revision AS observed_revision,o.state "
+            "FROM document_source_bindings b "
+            "JOIN source_objects o ON o.source_id=b.source_id AND o.object_id=b.object_id "
+            "WHERE b.document_id=?",
+            (row["id"],),
+        ).fetchone()
+        if not binding2:
             return False
-        return allowed is True
+        if (
+            str(binding2["source_id"]) != source_id
+            or str(binding2["object_id"]) != object_id
+            or str(binding2["revision"]) != revision
+            or str(binding2["observed_revision"]) != revision
+            or str(binding2["state"]) != "ok"
+        ):
+            # Fail closed: the binding identity may have changed while the connector
+            # round-trip was in flight, so a stale verdict must never authorize.
+            return False
+        doc_state = db.execute(
+            "SELECT status,failure_code FROM documents WHERE id=?",
+            (row["id"],),
+        ).fetchone()
+        if doc_state and str(doc_state["failure_code"]) == "source_denied":
+            return False
+        return True
 
     def _hide_source_document(self, db: sqlite3.Connection, document_id: str) -> None:
         """Make a revoked source document invisible before chunk cleanup runs."""
@@ -2558,9 +2615,15 @@ class Service:
             self.require(db, actor, row["project_id"], operation)
         except HTTPException:
             return False
+        # _source_allows performs the source gate check (binding, revision, state).
+        # It is called within the caller's with self.db() as db: transaction;
+        # after it returns we explicitly commit to release the write lock before
+        # any further network I/O (DATA-008).
         if not self._source_allows(db, actor, row):
             # Original-source permission is an additional fail-closed gate on top of
             # the existing Locus gates; the intersection keeps its deny-by-default base.
+            return False
+        if not self._source_connector_allows(db, actor, row):
             return False
         if row["kind"] != "shared":
             return bool(
@@ -2647,6 +2710,7 @@ class Service:
                         # The owner listing branch must not bypass the source gate;
                         # unbound documents still pass it unchanged.
                         and self._source_allows(db, actor, row)
+                        and self._source_connector_allows(db, actor, row)
                     )
                 ):
                     continue
@@ -2817,7 +2881,14 @@ class Service:
             return False
         # The original source must still allow the ingesting user, and the bound
         # revision must still be current; both fail closed before any indexing.
-        return self._source_allows(db, actor, document)
+        # _source_allows performs the source gate check (binding, revision,
+        # state).  After it returns we commit to release the write lock before
+        # any further network I/O (DATA-008).
+        if not self._source_allows(db, actor, document):
+            return False
+        if not self._source_connector_allows(db, actor, document):
+            return False
+        return True
 
     def process_next(self) -> bool:
         with self.db() as db:
