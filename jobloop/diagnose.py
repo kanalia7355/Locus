@@ -82,6 +82,31 @@ NOTE = {
     ),
 }
 
+RECORDS = "progress/"
+GUIDE = "docs/report/OWNER_DECISIONS_PLAIN_GUIDE.html"
+PORCELAIN = re.compile(r"^[ MADRCU?!]{2} (.+)$")
+
+
+def has_product_foreign(evidence: str) -> bool:
+    """True when dirty-branch evidence contains a foreign path outside records/guide.
+
+    The 2026-11-21 repair taught the loop that progress records are its own
+    bookkeeping. A stop caused by a *product* foreign file is not that repair
+    regressing; it is a real dirty checkout, and diagnosing it as a regression
+    sends the shift looking for a loop defect that is not there.
+    """
+    for line in evidence.splitlines():
+        found = PORCELAIN.match(line)
+        if not found:
+            continue
+        path = found.group(1).strip().strip('"').replace("\\", "/")
+        if "  → " in path:
+            path = path.split("  → ", 1)[0].rstrip()
+        if path.startswith(RECORDS) or path == GUIDE:
+            continue
+        return True
+    return False
+
 
 @dataclass
 class Finding:
@@ -102,6 +127,11 @@ class Finding:
         return HANDLED.get(self.category, ("", ""))[1]
 
     @property
+    def product_foreign_dirty(self) -> bool:
+        """A dirty-branch stop caused by a real foreign file, not record misclassification."""
+        return self.category == "integration branch is dirty" and has_product_foreign(self.evidence)
+
+    @property
     def judgement(self) -> bool:
         return self.category in JUDGEMENT
 
@@ -114,7 +144,11 @@ class Finding:
     @property
     def regression(self) -> bool:
         """Handled, and it happened anyway. The repair is incomplete."""
-        return bool(self.handled) and not self.stale
+        if not self.handled or self.stale:
+            return False
+        if self.category == "integration branch is dirty" and has_product_foreign(self.evidence):
+            return False
+        return True
 
     @property
     def repairable(self) -> bool:
@@ -124,7 +158,12 @@ class Finding:
         pattern, and a pattern in the loop's behaviour is the loop's to fix.
         A stop that predates its own repair is neither — it is waiting to run.
         """
-        return not self.judgement and not self.stale and len(self.jobs) >= 2
+        return (
+            not self.judgement
+            and not self.stale
+            and not self.product_foreign_dirty
+            and len(self.jobs) >= 2
+        )
 
 
 def identifier(finding: Finding) -> str:
@@ -187,6 +226,11 @@ def report(findings: list[Finding]) -> str:
             )
         elif finding.regression:
             lines.append(f"           REGRESSION — {finding.handled}, and it happened anyway")
+        elif finding.product_foreign_dirty:
+            lines.append(
+                "           real foreign file in the checkout, not a bookkeeping regression; "
+                "the stop is correct"
+            )
         elif finding.judgement:
             lines.append("           a person's call by design, not a loop defect")
             if finding.category in NOTE:

@@ -989,6 +989,122 @@ def test_every_phases_records_count_as_the_loops_own_bookkeeping(tmp_path: Path)
         module.git = original
 
 
+def test_dirty_branch_report_separates_foreign_and_names_owner(tmp_path: Path) -> None:
+    phase_with_task(tmp_path)
+    # Another ticket owns the stray product file.
+    other = tmp_path / "progress" / "phase-7-production" / "tasks"
+    other.mkdir(parents=True)
+    (other / "T-PH7-211.md").write_text(
+        "---\n"
+        "id: T-PH7-211\n"
+        "phase: phase-7-production\n"
+        "status: doing\n"
+        "attempts: 1\n"
+        "allowed_paths: backend/app/storage.py, tests/test_storage_seam.py\n"
+        "test_cmd: python -m pytest -q\n"
+        "---\n\n# body\n",
+        encoding="utf-8",
+    )
+    controller = controller_for(tmp_path, ["a-free", "b-free"])
+    status_text = (
+        " M docs/report/OWNER_DECISIONS_PLAIN_GUIDE.html\n"
+        " M progress/phase-7-production/OWNER_DECISIONS.md\n"
+        " M progress/phase-7-production/tasks/T-PH7-202.md\n"
+        " M progress/phase-7-production/tasks/T-PH7-211.md\n"
+        " M progress/phase-ai-connect/tasks/T-AIC-005.md\n"
+        " M progress/phase-7-production/PROGRESS.md\n"
+        "?? tests/test_storage_seam.py"
+    )
+
+    def fake_git(repository: Path, *arguments: str, check: bool = True) -> str:
+        if arguments[0] == "status":
+            return status_text
+        return ""
+
+    import jobloop.controller as module
+
+    original = module.git
+    module.git = fake_git  # type: ignore[assignment]
+    try:
+        task = tasks.load_phase(controller.settings.phase_directory).tasks[0]
+        body = controller.commit_progress_records(task)
+    finally:
+        module.git = original
+
+    assert "foreign" in body.lower()
+    foreign_heading = "foreign (判定に使った未コミットのパス):"
+    other_heading = "not used for decision (判定に使っていない: progress/ と平易化ページ):"
+    assert foreign_heading in body
+    assert other_heading in body
+    foreign_section = body.split(foreign_heading, 1)[1].split(other_heading, 1)[0]
+    foreign_lines = [line for line in foreign_section.splitlines() if line.strip()]
+    assert foreign_lines == ["?? tests/test_storage_seam.py  → T-PH7-211 の許可パス"]
+    # The bookkeeping lines are still reported, but not as the reason for the stop.
+    other_section = body.split(other_heading, 1)[1]
+    assert "docs/report/OWNER_DECISIONS_PLAIN_GUIDE.html" in other_section
+    assert other_section.count("progress/") == 5
+
+
+def test_dirty_branch_still_stops_on_foreign_and_commits_bookkeeping_only(tmp_path: Path) -> None:
+    phase_with_task(tmp_path)
+    controller = controller_for(tmp_path, ["a-free", "b-free"])
+    status_text = ""
+    added: list[tuple[str, ...]] = []
+
+    def fake_git(repository: Path, *arguments: str, check: bool = True) -> str:
+        if arguments[0] == "status":
+            return status_text
+        added.append(arguments)
+        return ""
+
+    import jobloop.controller as module
+
+    original = module.git
+    module.git = fake_git  # type: ignore[assignment]
+    try:
+        task = tasks.load_phase(controller.settings.phase_directory).tasks[0]
+        # Bookkeeping + guide only: still committed, never a stop.
+        status_text = (
+            " M progress/phase-test/tasks/T-JOB-1.md\n"
+            " M progress/phase-7-production/OWNER_DECISIONS.md\n"
+            " M docs/report/OWNER_DECISIONS_PLAIN_GUIDE.html"
+        )
+        assert controller.commit_progress_records(task) == ""
+        assert any("commit" in arguments for arguments in added)
+        # Any foreign path still stops the merge.
+        added.clear()
+        status_text = " M progress/phase-test/tasks/T-JOB-1.md\n?? tests/test_storage_seam.py"
+        body = controller.commit_progress_records(task)
+        assert "foreign" in body.lower()
+        assert "tests/test_storage_seam.py" in body
+        assert not any("commit" in arguments for arguments in added)
+    finally:
+        module.git = original
+
+
+def test_dirty_branch_names_unknown_foreign_path(tmp_path: Path) -> None:
+    phase_with_task(tmp_path)
+    controller = controller_for(tmp_path, ["a-free", "b-free"])
+    status_text = "?? backend/app/mystery.py"
+
+    def fake_git(repository: Path, *arguments: str, check: bool = True) -> str:
+        if arguments[0] == "status":
+            return status_text
+        return ""
+
+    import jobloop.controller as module
+
+    original = module.git
+    module.git = fake_git  # type: ignore[assignment]
+    try:
+        task = tasks.load_phase(controller.settings.phase_directory).tasks[0]
+        body = controller.commit_progress_records(task)
+    finally:
+        module.git = original
+
+    assert "?? backend/app/mystery.py  → どの票の許可パスにも無い" in body
+
+
 def test_a_stale_workspace_is_taken_to_the_current_branch_before_a_new_attempt(
     tmp_path: Path,
 ) -> None:
