@@ -209,6 +209,51 @@ def test_a_picked_model_is_recorded_under_the_identifier_the_cli_accepts() -> No
         assert name.count("/") == 1 and name.split("/")[0] in {"opencode", "ollama"}
 
 
+def test_containment_rate_rests_a_model_but_needs_enough_dispatches(tmp_path: Path) -> None:
+    from jobloop.roster import CONTAINMENT_MIN_DISPATCHES, CONTAINMENT_RATE, COOLDOWN_SECONDS
+
+    assert CONTAINMENT_MIN_DISPATCHES == 5
+    assert CONTAINMENT_RATE == 0.5
+    roster = Roster(models=["a-free", "b-free"], state_file=tmp_path / "r.json", now=1000.0)
+    for _ in range(6):
+        roster.mark_dispatched("a-free")
+    report = {}
+    for _ in range(4):
+        report = roster.mark_containment_stop("a-free", orchestrator_busy=False)
+    assert report["rested"] is True
+    assert report["dispatches"] == 6
+    assert report["containment_stops"] == 4
+    assert roster.pick() == "b-free", "rested model is cooled down like usage exhaustion"
+    later = Roster(
+        models=["a-free", "b-free"],
+        state_file=tmp_path / "r.json",
+        now=1000.0 + COOLDOWN_SECONDS + 1,
+    )
+    assert later.pick() == "a-free", "containment rest uses the normal cooldown window"
+
+    few = Roster(models=["c-free", "d-free"], state_file=tmp_path / "few.json", now=1000.0)
+    for _ in range(4):
+        few.mark_dispatched("c-free")
+    for _ in range(4):
+        report = few.mark_containment_stop("c-free", orchestrator_busy=False)
+    assert report["rested"] is False, "not enough dispatches: denominator is too small"
+    assert few.pick() == "c-free"
+
+
+def test_orchestrator_busy_containment_stops_never_count(tmp_path: Path) -> None:
+    roster = Roster(models=["a-free"], state_file=tmp_path / "r.json", now=1000.0)
+    for _ in range(10):
+        roster.mark_dispatched("a-free")
+    for _ in range(10):
+        report = roster.mark_containment_stop("a-free", orchestrator_busy=True)
+        assert report["counted"] is False
+        assert report["rested"] is False
+    assert roster.pick() == "a-free"
+    dispatches, stops = roster.containment_stats("a-free")
+    assert dispatches == 10
+    assert stops == 0
+
+
 # --- worker classification ---------------------------------------------------
 
 
@@ -722,6 +767,77 @@ def test_a_worker_that_edits_the_main_checkout_is_escalated(tmp_path: Path) -> N
         encoding="utf-8"
     )
     assert "restore the checkout" in decisions
+
+
+def test_containment_judgement_still_stops_and_clean_runs_still_pass(tmp_path: Path) -> None:
+    phase_with_task(tmp_path)
+    controller = controller_for(tmp_path, ["a-free", "b-free"])
+    controller.workspace = lambda task: tmp_path  # type: ignore[assignment]
+    controller.dispatch = lambda model, prompt, **_: worker.Result(  # type: ignore[assignment]
+        worker.Ending.COMPLETED, "REPORT\n- done", model
+    )
+
+    clean_calls = {"n": 0}
+
+    def clean_dirt(_path: Path) -> str:
+        clean_calls["n"] += 1
+        return "same\n"
+
+    controller.dirt = clean_dirt  # type: ignore[assignment]
+    clean_outcome = controller.run_job(controller.select())
+    assert "outside its workspace" not in clean_outcome.detail
+
+    dirty_base = tmp_path / "dirty"
+    phase_with_task(dirty_base)
+    dirty_controller = controller_for(dirty_base, ["a-free", "b-free"])
+    dirty_controller.workspace = lambda task: dirty_base  # type: ignore[assignment]
+    dirty_controller.dispatch = lambda model, prompt, **_: worker.Result(  # type: ignore[assignment]
+        worker.Ending.COMPLETED, "REPORT\n- done", model
+    )
+    dirty_seen = {"n": 0}
+
+    def dirty_dirt(_path: Path) -> str:
+        dirty_seen["n"] += 1
+        return "before\n" if dirty_seen["n"] == 1 else "before\n?? escaped.py x\n"
+
+    dirty_controller.dirt = dirty_dirt  # type: ignore[assignment]
+    dirty_outcome = dirty_controller.run_job(dirty_controller.select())
+    assert dirty_outcome.state == "escalated"
+    assert "outside its workspace" in dirty_outcome.detail
+
+
+def test_containment_rest_is_readable_in_log_and_diagnose(tmp_path: Path) -> None:
+    from jobloop import diagnose
+
+    phase_with_task(tmp_path)
+    controller = controller_for(tmp_path, ["a-free", "b-free"])
+    controller.workspace = lambda task: tmp_path  # type: ignore[assignment]
+    controller.dispatch = lambda model, prompt, **_: worker.Result(  # type: ignore[assignment]
+        worker.Ending.COMPLETED, "REPORT\n- done", model
+    )
+    for _ in range(5):
+        controller.roster.mark_dispatched("a-free")
+    for _ in range(2):
+        controller.roster.mark_containment_stop("a-free", orchestrator_busy=False)
+
+    seen = {"n": 0}
+
+    def dirty_dirt(_path: Path) -> str:
+        seen["n"] += 1
+        return "before\n" if seen["n"] == 1 else "before\n?? leaked.py abc123\n"
+
+    controller.dirt = dirty_dirt  # type: ignore[assignment]
+    outcome = controller.run_job(controller.select())
+    assert outcome.state == "escalated"
+    assert "outside its workspace" in outcome.detail
+
+    log = (controller.settings.state_directory / "supervisor.log").read_text(encoding="utf-8")
+    assert "containment a-free: 3/6 stops/dispatches" in log
+    assert "rested" in log
+
+    report = diagnose.report([])
+    assert "containment a-free: 3/6 stops/dispatches" in report
+    assert "rested" in report
 
 
 def test_no_path_to_another_checkout_survives_in_a_brief(tmp_path: Path) -> None:
