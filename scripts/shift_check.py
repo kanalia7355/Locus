@@ -73,12 +73,17 @@ def stranded_merge() -> str:
     return "ok    no merge left in progress"
 
 
-def processes() -> list[tuple[int, int, str, str, bool]]:
-    """`(pid, parent, name, created, is_session)` for the loop's own processes.
+def processes() -> list[tuple[int, int, str, str, str | None]]:
+    """`(pid, parent, name, created, kind)` for the loop's own processes.
 
     Queried by image name. Matching on the command line alone returns the
     querying shell itself, which is how a dead loop was reported as alive for
     seventeen hours on 2026-11-18.
+
+    `kind` is one of ``"run_standalone"``, ``"serve_stdio"``, ``"serve_service"``
+    for an ``opencode.exe`` worker the loop cares about, otherwise ``None``.
+    ``serve --service`` is the long-lived helper the user's own shell started
+    (parentless by nature) — never report it as an orphan.
     """
     if sys.platform != "win32":
         return []
@@ -88,19 +93,22 @@ def processes() -> list[tuple[int, int, str, str, bool]]:
         "'{0}|{1}|{2}|{3}|{4}' -f $_.ProcessId, $_.ParentProcessId, $_.Name, "
         "$_.CreationDate.ToString('s'), $_.CommandLine }"
     )
-    found: list[tuple[int, int, str, str, bool]] = []
+    found: list[tuple[int, int, str, str, str | None]] = []
     for line in run("powershell", "-NoProfile", "-Command", script).splitlines():
         parts = line.split("|", 4)
         if len(parts) < 5 or not parts[0].strip().isdigit():
             continue
         pid, parent, name, created, command = parts
         if "jobloop" in command or "supervise_loop" in command or name.strip() == "opencode.exe":
-            # `run --standalone` is a job session; `serve --service` is the
-            # long-lived helper the user's own shell started, and it is
-            # parentless by nature — reporting it as an orphan every time would
-            # train the reader to ignore this check.
-            session = "run --standalone" in command
-            found.append((int(pid), int(parent), name.strip(), created.strip(), session))
+            kind: str | None = None
+            if name.strip() == "opencode.exe":
+                if "serve --service" in command:
+                    kind = "serve_service"
+                elif "serve --stdio" in command:
+                    kind = "serve_stdio"
+                elif "run --standalone" in command:
+                    kind = "run_standalone"
+            found.append((int(pid), int(parent), name.strip(), created.strip(), kind))
     return found
 
 
@@ -117,7 +125,7 @@ def running(pid: int) -> bool:
     return "0" not in found.split()
 
 
-def orphans(live: list[tuple[int, int, str, str, bool]]) -> str:
+def orphans(live: list[tuple[int, int, str, str, str | None]]) -> str:
     """A job session whose parent is gone writes where nobody reads.
 
     The parent is looked up by id, not searched for in the list above. Testing
@@ -127,14 +135,18 @@ def orphans(live: list[tuple[int, int, str, str, bool]]) -> str:
     the orchestrator to `taskkill` a worker that was eleven minutes into its job
     — a check that destroys work is worse than no check.
     """
-    loose = [
-        (pid, created)
-        for pid, parent, _, created, session in live
-        if session and not running(parent)
-    ]
+    loose: list[tuple[int, str, str]] = []  # (pid, created, shape)
+    for pid, parent, _name, created, kind in live:
+        if kind not in {"run_standalone", "serve_stdio"}:
+            continue
+        if not running(parent):
+            shape = "run --standalone" if kind == "run_standalone" else "serve --stdio"
+            loose.append((pid, created, shape))
     if not loose:
         return "ok    no orphaned worker"
-    named = ", ".join(f"{pid} (started {created[:16]})" for pid, created in loose[:4])
+    named = ", ".join(
+        f"{pid} ({shape}, started {created[:16]})" for pid, created, shape in loose[:4]
+    )
     return f"FAIL  orphaned worker session: {named} — taskkill /PID <id> /T /F"
 
 

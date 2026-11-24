@@ -246,3 +246,37 @@ def test_the_idle_wait_grows_but_stays_bounded() -> None:
     # Capped, so a cooldown that ends sooner than expected is not waited out.
     assert backoff(120.0, 10) == 1200.0
     assert backoff(120.0, 99) == 1200.0
+
+
+def test_orphans_flags_orphan_serve_stdio(monkeypatch: pytest.MonkeyPatch) -> None:
+    """AC1: a parentless serve --stdio is reported as an orphan."""
+    check = load()
+    monkeypatch.setattr(check, "running", lambda pid: False)
+    live = [(111, 9999, "opencode.exe", "2026-11-23T19:00:00", "serve_stdio")]
+    result = check.orphans(live)  # type: ignore[attr-defined]
+    assert result.startswith("FAIL"), result
+    assert "serve --stdio" in result
+    assert "111" in result
+
+
+def test_orphans_ignores_alive_and_service(monkeypatch: pytest.MonkeyPatch) -> None:
+    """AC2: alive serve-stdio/run-standalone and parentless serve-service are not orphans."""
+    check = load()
+
+    def fake_running(pid: int) -> bool:
+        return pid == 100
+
+    monkeypatch.setattr(check, "running", fake_running)
+    live = [
+        (1, 100, "opencode.exe", "2026-11-23T10:00:00", "serve_stdio"),  # parent alive -> ok
+        (2, 100, "opencode.exe", "2026-11-23T10:00:00", "run_standalone"),  # parent alive -> ok
+        (
+            3,
+            999,
+            "opencode.exe",
+            "2026-11-23T10:00:00",
+            "serve_service",
+        ),  # parent missing but excluded -> ok
+    ]
+    result = check.orphans(live)  # type: ignore[attr-defined]
+    assert result.startswith("ok"), result
