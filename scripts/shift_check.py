@@ -21,6 +21,15 @@ ROOT = Path(__file__).resolve().parents[1]
 JST = timezone(timedelta(hours=9))
 
 
+def installed_models() -> list[str]:
+    """The model identifiers the CLI currently reports, for quota counting."""
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from jobloop.cli import installed_models as cli_installed_models
+
+    return cli_installed_models()
+
+
 def run(*command: str, quiet: bool = False) -> str:
     """Run a command and return its output.
 
@@ -236,43 +245,49 @@ def churn() -> str:
 
 
 def quota() -> str:
-    """Whether the queue is waiting on a decision or just on the free allowances.
+    """Report model availability among models currently provided by the CLI.
 
-    The two look identical from the outside — cycles ending in two seconds,
-    nothing moving — and on 2026-11-22 the owner had to ask which it was. A
-    model that spent its allowance is rested for six hours, and the roster file
-    records when each one comes back.
-
-    **It does not report a ready count.** The first version did, and said
-    `2 ready` while `jobloop status` said `available models: none`: the roster
-    is the union of every model ever seen, so two that the CLI has stopped
-    offering sat in it looking available for ever. `available()` is the
-    intersection of the file and what the CLI reports, and only the loop can
-    compute that. So this says how many are resting and when the soonest
-    returns — both of which the file really knows — and leaves the authority on
-    "can anything run" to the loop's own line in the log.
+    The denominator is the provided/eligible set, not every model ever recorded
+    in roster.json. Models only present in the record are not counted in the
+    main number because Roster.available() intersects recorded cooldowns with
+    the currently provided models.
     """
-    state = ROOT / ".jobloop" / "roster.json"
-    if not state.is_file():
-        return "ok    no model cooldowns recorded"
-    try:
-        recorded = json.loads(state.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return "ok    no model cooldowns recorded"
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from jobloop.roster import Roster, eligible
+
     now = time.time()
-    resting = {
-        name: entry["cooldown_until"] - now
-        for name, entry in recorded.items()
-        if isinstance(entry, dict) and entry.get("cooldown_until", 0) - now > 0
-    }
-    if not resting:
-        return "ok    no model is resting"
-    soonest = min(resting.values()) / 60
-    return (
-        f"ok    {len(resting)} of {len(recorded)} recorded models resting, "
-        f"soonest back in {soonest:.0f} min "
-        f"(whether any can run is the loop's `no-model` line, not this count)"
+    provided = eligible(installed_models())
+    state_file = ROOT / ".jobloop" / "roster.json"
+    roster = Roster(models=provided, state_file=state_file, now=now)
+    available = roster.available()
+    provided_count = len(provided)
+    available_count = len(available)
+    resting_count = provided_count - available_count
+
+    line = (
+        f"ok    提供 {provided_count} 件のうち {resting_count} 件が冷却中、"
+        f"使えるのは {available_count} 件"
     )
+    if resting_count > 0:
+        try:
+            recorded = json.loads(state_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            recorded = {}
+        if isinstance(recorded, dict):
+            available_set = set(available)
+            resting_left = {
+                name: entry["cooldown_until"] - now
+                for name, entry in recorded.items()
+                if name in set(provided)
+                and name not in available_set
+                and isinstance(entry, dict)
+                and entry.get("cooldown_until", 0) - now > 0
+            }
+            if resting_left:
+                soonest = min(resting_left.values()) / 60
+                line += f", soonest back in {soonest:.0f} min"
+    return line
 
 
 def main() -> int:
