@@ -22,7 +22,7 @@ async function enter(page: Page, index: number) {
     .fill("Changed-synthetic-password-01!");
   await page.getByRole("button", { name: "変更して続ける" }).click();
   await expect(
-    page.getByRole("heading", { name: "資料を調べる", exact: true }),
+    page.getByRole("heading", { name: "会話", exact: true }),
   ).toBeVisible();
 }
 
@@ -81,8 +81,7 @@ test("first login, source retrieval, history and logout use actual API", async (
   ).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).not.toBeVisible();
-  await page.getByRole("button", { name: "調査履歴", exact: true }).click();
-  await page.getByRole("button", { name: /^成膜条件を比較 \d{4}\// }).click();
+  await page.getByRole("button", { name: /^成膜条件を比較/ }).first().click();
   await expect(
     page.getByRole("heading", { name: "資料に見つかった記述" }),
   ).toBeVisible();
@@ -608,9 +607,9 @@ test("role editor previews scoped subsets and administrator audit is redacted", 
   page,
 }) => {
   await enter(page, 0);
-  await page
-    .getByRole("button", { name: "役割・管理権限", exact: true })
-    .click();
+  await page.getByRole("button", { name: "設定", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "設定" });
+  await settings.getByRole("button", { name: "役割", exact: true }).click();
   await page
     .getByLabel("新しいロール名", { exact: true })
     .fill("合成資料の閲覧担当");
@@ -618,7 +617,7 @@ test("role editor previews scoped subsets and administrator audit is redacted", 
     "現在のプロジェクト",
   );
   await page.getByRole("button", { name: "ロールを作成", exact: true }).click();
-  await expect(page.getByRole("status")).toContainText("ロールを作成しました");
+  await expect(settings.getByRole("status")).toContainText("ロールを作成しました");
   await page
     .getByRole("button", { name: "合成資料の閲覧担当を編集", exact: true })
     .click();
@@ -630,7 +629,8 @@ test("role editor previews scoped subsets and administrator audit is redacted", 
   await page
     .getByRole("button", { name: "ロールの変更を保存", exact: true })
     .click();
-  await expect(page.getByRole("status")).toContainText("ロールを更新しました");
+  await expect(settings.getByRole("status")).toContainText("ロールを更新しました");
+  await page.getByRole("button", { name: "設定を閉じる", exact: true }).click();
   await page.getByRole("button", { name: "個人資料", exact: true }).click();
   await page.getByRole("button", { name: "公開先", exact: true }).click();
   await expect(
@@ -680,16 +680,14 @@ test("role editor previews scoped subsets and administrator audit is redacted", 
   } finally {
     await readerContext.close();
   }
-  await page.getByText("運用・記録", { exact: true }).click();
-  await page.getByRole("button", { name: "操作記録", exact: true }).click();
+  await page.getByRole("button", { name: "設定", exact: true }).click();
+  await settings.getByRole("button", { name: "操作記録", exact: true }).click();
   await expect(page.locator(".list")).toContainText("role.create");
   await expect(page.locator(".list")).toContainText("role.update");
   await expect(page.locator(".list")).not.toContainText(
     "Synthetic-test-password",
   );
-  await page
-    .getByRole("button", { name: "モデル・同時利用", exact: true })
-    .click();
+  await settings.getByRole("button", { name: "モデル", exact: true }).click();
   const discover = page.getByRole("button", {
     name: "選択した場所でモデルを検出",
     exact: true,
@@ -708,7 +706,7 @@ test("role editor previews scoped subsets and administrator audit is redacted", 
   await expect(
     page.getByRole("heading", { name: "synthetic-ollama:latest", exact: true }),
   ).toBeVisible();
-  await expect(page.getByRole("status")).toContainText("2件のモデル候補を検出");
+  await expect(settings.getByRole("status")).toContainText("2件のモデル候補を検出");
   await page
     .getByRole("button", { name: "候補として選択", exact: true })
     .first()
@@ -748,7 +746,8 @@ test("role editor previews scoped subsets and administrator audit is redacted", 
   await expect(
     page.getByText("現在：synthetic-ollama:latest による生成"),
   ).toBeVisible();
-  await page.getByRole("button", { name: "資料を調べる", exact: true }).click();
+  await page.getByRole("button", { name: "設定を閉じる", exact: true }).click();
+  await page.getByRole("button", { name: "新しいチャット", exact: true }).click();
   await page
     .getByRole("textbox", { name: "メッセージ", exact: true })
     .fill("成膜条件");
@@ -765,15 +764,17 @@ test("role editor previews scoped subsets and administrator audit is redacted", 
   await page.screenshot({
     path: test.info().outputPath("local-rag-answer.png"),
   });
-  await page
-    .getByRole("button", { name: "モデル・同時利用", exact: true })
-    .click();
-  await page
-    .getByRole("button", { name: "チャットの実行設定", exact: true })
-    .click();
-  await expect(
-    page.getByText("現在：synthetic-ollama:latest による生成"),
-  ).toBeVisible();
+  await page.getByRole("button", { name: "設定", exact: true }).click();
+  await settings.getByRole("button", { name: "モデル", exact: true }).click();
+  // The dialog keeps its panels mounted while closed, so the runtime section
+  // opened earlier in this test is still expanded. Only open it when it is not.
+  const runtime = page.getByText("現在：synthetic-ollama:latest による生成");
+  if (!(await runtime.isVisible())) {
+    await settings
+      .getByRole("button", { name: "チャットの実行設定", exact: true })
+      .click();
+  }
+  await expect(runtime).toBeVisible();
   await page
     .getByRole("button", { name: "原文検索に戻す", exact: true })
     .click();
@@ -799,7 +800,7 @@ test("administrator can manage projects and inspect storage and load status", as
   let loginResponse = await initialLogin;
   const rotation = page.getByRole("heading", { name: "仮パスワードの変更" });
   const alreadyRotated = page.getByRole("heading", {
-    name: "資料を調べる",
+    name: "会話",
     exact: true,
   });
   if (!loginResponse.ok()) {
@@ -828,14 +829,16 @@ test("administrator can manage projects and inspect storage and load status", as
     await page.getByRole("button", { name: "変更して続ける" }).click();
   }
   await expect(alreadyRotated).toBeVisible();
-  await page.getByRole("button", { name: "プロジェクト", exact: true }).click();
+  await page.getByRole("button", { name: "設定", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "設定" });
+  await settings.getByRole("button", { name: "プロジェクト", exact: true }).click();
   await page.getByLabel("新しいプロジェクトID").fill("admin-screen-project");
   await page.getByLabel("組織ID", { exact: true }).fill("synthetic-org");
   await page.getByLabel("新しいプロジェクト名").fill("管理画面の合成案件");
   await page
     .getByRole("button", { name: "プロジェクトを作成", exact: true })
     .click();
-  await expect(page.getByRole("status")).toContainText(
+  await expect(settings.getByRole("status")).toContainText(
     "プロジェクトを作成しました",
   );
   const project = page.locator(".admin-project-row").filter({
@@ -890,15 +893,15 @@ test("administrator can manage projects and inspect storage and load status", as
     project.getByText("所属している利用者はいません。"),
   ).toBeVisible();
 
-  await page.getByRole("button", { name: "保存先の接続", exact: true }).click();
+  await settings.getByRole("button", { name: "保存先", exact: true }).click();
   await expect(page.getByRole("region", { name: "保存先設定" })).toContainText(
     "sqlite",
   );
   await expect(page.getByRole("region", { name: "保存先設定" })).toContainText(
     "既定拒否",
   );
-  await page
-    .getByRole("button", { name: "負荷・実行状況", exact: true })
+  await settings
+    .getByRole("button", { name: "実行状況", exact: true })
     .click();
   await expect(
     page.getByRole("region", { name: "負荷・実行状況" }),
@@ -951,9 +954,11 @@ test("administrator grants and recipient cancels an expiring project delegation"
     await page.getByRole("button", { name: "変更して続ける" }).click();
   }
   await expect(
-    page.getByRole("heading", { name: "資料を調べる", exact: true }),
+    page.getByRole("heading", { name: "会話", exact: true }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "管理委任", exact: true }).click();
+  await page.getByRole("button", { name: "設定", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "設定" });
+  await settings.getByRole("button", { name: "委任", exact: true }).click();
   await page
     .getByLabel("委任するプロジェクト")
     .selectOption("synthetic-project");
@@ -966,7 +971,7 @@ test("administrator grants and recipient cancels an expiring project delegation"
   await page
     .getByRole("button", { name: "管理委任を作成", exact: true })
     .click();
-  await expect(page.getByRole("status")).toContainText(
+  await expect(settings.getByRole("status")).toContainText(
     "管理委任を作成しました",
   );
   const grant = page
@@ -999,7 +1004,7 @@ test("administrator grants and recipient cancels an expiring project delegation"
   await page
     .getByRole("button", { name: "管理委任を作成", exact: true })
     .click();
-  await expect(page.getByRole("alert")).toContainText("15分〜7日");
+  await expect(settings.getByRole("alert")).toContainText("15分〜7日");
   expect(delegationPosts).toBe(0);
   await page.getByLabel("委任の有効期間").selectOption("900");
   await page.route("**/api/admin/delegations", async (route) => {
@@ -1014,7 +1019,7 @@ test("administrator grants and recipient cancels an expiring project delegation"
   await page
     .getByRole("button", { name: "管理委任を作成", exact: true })
     .click();
-  await expect(page.getByRole("alert")).toContainText(
+  await expect(settings.getByRole("alert")).toContainText(
     "有効期間は900〜604800秒です（422）",
   );
   await expect(page.getByLabel("委任の受領者")).toHaveValue(/.+/);
@@ -1042,7 +1047,7 @@ test("administrator grants and recipient cancels an expiring project delegation"
   await page
     .getByRole("button", { name: "管理委任を作成", exact: true })
     .click();
-  await expect(page.getByRole("status")).toContainText(
+  await expect(settings.getByRole("status")).toContainText(
     "管理委任を作成しました",
   );
   const renewed = page
@@ -1052,6 +1057,7 @@ test("administrator grants and recipient cancels an expiring project delegation"
   const renewedId = await renewed.locator("dd").nth(3).textContent();
   expect(renewedId).not.toBe(grantId);
 
+  await page.getByRole("button", { name: "設定を閉じる", exact: true }).click();
   await page.getByRole("button", { name: "ログアウト", exact: true }).click();
   await page.getByLabel("利用者ID").fill("test-researcher-1");
   await page
@@ -1098,8 +1104,9 @@ test("administrator grants and recipient cancels an expiring project delegation"
       body: JSON.stringify({ detail: "委任の管理権限がありません（403）" }),
     });
   });
-  await page.getByRole("button", { name: "管理委任", exact: true }).click();
-  await expect(page.getByRole("alert")).toContainText(
+  await page.getByRole("button", { name: "設定", exact: true }).click();
+  await settings.getByRole("button", { name: "委任", exact: true }).click();
+  await expect(settings.getByRole("alert")).toContainText(
     "委任の管理権限がありません（403）",
   );
   await page.unroute("**/api/admin/delegations/options");

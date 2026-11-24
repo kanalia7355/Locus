@@ -74,15 +74,33 @@ async function askSomething(page: Page) {
  * order (workers: 1, retries: 0); run the whole file, not a single -g case.
  */
 async function signInAgain(page: Page, index: number) {
-  await page.goto("/");
-  await page.getByLabel("利用者ID").fill(`test-researcher-${index}`);
-  await page
-    .getByLabel("パスワード", { exact: true })
-    .fill("Changed-synthetic-password-01!");
-  await page.getByRole("button", { name: "ログイン", exact: true }).click();
-  await expect(
-    page.getByRole("textbox", { name: "メッセージ", exact: true }),
-  ).toBeVisible();
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await page.goto("/");
+    await page.getByLabel("利用者ID").fill(`test-researcher-${index}`);
+    await page
+      .getByLabel("パスワード", { exact: true })
+      .fill("Changed-synthetic-password-01!");
+    await page.getByRole("button", { name: "ログイン", exact: true }).click();
+    const rateLimited = page.getByRole("alert").filter({
+      hasText: "試行回数が多いため",
+    });
+    const messageBox = page.getByRole("textbox", {
+      name: "メッセージ",
+      exact: true,
+    });
+    const outcome = await Promise.race([
+      messageBox.waitFor({ state: "visible", timeout: 15000 }).then(() => "ok"),
+      rateLimited
+        .waitFor({ state: "visible", timeout: 15000 })
+        .then(() => "rate-limited"),
+    ]).catch(() => "timeout");
+    if (outcome === "ok") return;
+    if (outcome === "rate-limited" && attempt === 0) {
+      await page.waitForTimeout(62_000);
+      continue;
+    }
+    await expect(messageBox).toBeVisible();
+  }
 }
 
 /** Open the source modal the way a reader does: click the citation.
@@ -120,6 +138,7 @@ test("every enabled control on the one-time password screen works", async ({
   });
   await page.setViewportSize(WIDTHS[0]);
   await enter(page, 0);
+  await page.getByRole("button", { name: "設定", exact: true }).click();
   await page.getByRole("button", { name: "利用者", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "利用者の追加" }),
@@ -290,7 +309,7 @@ test("the screens render without a console or page error", async ({ page }) => {
   await page.setViewportSize(WIDTHS[0]);
   await enter(page, 3);
   await askSomething(page);
-  for (const name of ["共有資料", "個人資料", "調査履歴"]) {
+  for (const name of ["共有資料", "個人資料", "取り込み状況"]) {
     const link = page.getByRole("button", { name, exact: true });
     if (await link.count()) {
       await link.first().click();
@@ -685,7 +704,7 @@ test("Tab does not move focus out of the source modal", async ({ page }) => {
     page.evaluate(() => {
       // Matches the migrated native <dialog> and the pre-migration
       // [role="dialog"] section, so the same probe measures both builds.
-      const dialog = document.querySelector('dialog, [role="dialog"]');
+      const dialog = document.querySelector('dialog[open], [role="dialog"]');
       const active = document.activeElement as HTMLElement | null;
       if (!dialog) return "no-dialog";
       if (!active) return "no-active";
@@ -797,4 +816,91 @@ test("prefers-reduced-motion disables dialog entry animation", async ({ page }) 
     isZero(durations.animation),
     `animation-duration should be zero under prefers-reduced-motion; got "${durations.animation}"`,
   ).toBe(true);
+});
+
+
+// T-PH6-112: settings dialog and sidebar account row invariants.
+// Measured before adding: the gear button exists in the sidebar bottom row,
+// the settings dialog opens as a native <dialog>, and the sidebar account row
+// is rendered at desktop width. These checks pin the job's acceptance criteria.
+
+async function openSettingsDialog(page: import("@playwright/test").Page) {
+  await page.getByRole("button", { name: "設定", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "設定" });
+  await expect(dialog).toBeVisible();
+  return dialog;
+}
+
+test("Tab does not move focus out of the settings dialog", async ({ page }) => {
+  await page.setViewportSize(WIDTHS[0]);
+  await enter(page, 15);
+  await openSettingsDialog(page);
+  const focusState = () =>
+    page.evaluate(() => {
+      const dialog = document.querySelector('dialog[aria-label="設定"]');
+      const active = document.activeElement as HTMLElement | null;
+      if (!dialog) return "no-dialog";
+      if (!active) return "no-active";
+      if (active === document.body) return "body";
+      return dialog.contains(active)
+        ? "inside"
+        : `outside <${active.tagName.toLowerCase()}>`;
+    });
+  for (let tab = 0; tab < 20; tab++) {
+    await page.keyboard.press("Tab");
+    expect(await focusState(), `focus after Tab #${tab + 1}`).toBe("inside");
+  }
+});
+
+test("the settings dialog does not scroll sideways at supported widths", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await page.setViewportSize(WIDTHS[0]);
+  await signInAgain(page, 15);
+  await openSettingsDialog(page);
+  for (const size of [WIDTHS[0], WIDTHS[1], WIDTHS[2]]) {
+    await page.setViewportSize(size);
+    await page.waitForTimeout(250);
+    const overflow = await page.evaluate(() => {
+      const root = document.scrollingElement ?? document.documentElement;
+      return root.scrollWidth - root.clientWidth;
+    });
+    expect(
+      overflow,
+      `${size.name} scrolls sideways by ${overflow}px with settings dialog open`,
+    ).toBeLessThanOrEqual(1);
+  }
+});
+
+test("the sidebar account row stays on screen at every supported width", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await page.setViewportSize(WIDTHS[0]);
+  await signInAgain(page, 15);
+  for (const size of WIDTHS) {
+    await page.setViewportSize(size);
+    await page.waitForTimeout(250);
+    if (size.width < 768) {
+      const sidebar = page.locator("#workspace-sidebar");
+      if (!(await sidebar.isVisible())) {
+        await page.getByRole("button", { name: "サイドバーを開く" }).click();
+        await expect(sidebar).toBeVisible();
+      }
+    }
+    const account = page.locator(".sidebar-account");
+    await expect(account).toBeVisible();
+    const box = await account.boundingBox();
+    expect(box, `${size.name}: account row has no box`).not.toBeNull();
+    expect(box!.x, `${size.name}: account row left edge off screen`).toBeGreaterThanOrEqual(-1);
+    expect(
+      box!.x + box!.width,
+      `${size.name}: account row right edge off screen`,
+    ).toBeLessThanOrEqual(size.width + 1);
+    expect(
+      box!.y + box!.height,
+      `${size.name}: account row bottom off screen`,
+    ).toBeLessThanOrEqual(size.height + 1);
+  }
 });

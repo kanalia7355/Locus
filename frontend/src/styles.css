@@ -396,6 +396,148 @@ textarea:user-invalid {
 .sidebar-backdrop:hover {
   background: var(--color-backdrop);
 }
+.sidebar-top {
+  padding: 16px 14px 24px;
+  overflow-y: auto;
+  flex: 1 1 auto;
+}
+.sidebar-new-chat {
+  padding: 0 0 16px;
+}
+.new-chat-button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-ink);
+}
+.new-chat-button:hover:not(:disabled) {
+  background: var(--color-soft);
+}
+.new-chat-button:focus-visible,
+.conversation-link:focus-visible,
+.conversation-delete:focus-visible,
+.sidebar-gear:focus-visible,
+.settings-tab:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+.sidebar-section {
+  margin-top: 18px;
+}
+.conversation-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.conversation-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 2px;
+}
+.conversation-link {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  border-radius: 6px;
+  padding: 10px 10px;
+  font-size: 13px;
+  color: var(--color-ink);
+}
+.conversation-link:hover:not(:disabled) {
+  background: var(--color-soft);
+}
+.conversation-link.selected {
+  background: var(--color-selected);
+  box-shadow: inset 2px 0 var(--color-ink);
+  font-weight: 600;
+}
+.conversation-preview {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.conversation-delete {
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  color: var(--color-muted);
+  padding: 6px;
+  border-radius: 6px;
+  opacity: 0;
+}
+.conversation-item:hover .conversation-delete,
+.conversation-item:focus-within .conversation-delete {
+  opacity: 1;
+}
+.conversation-delete:hover:not(:disabled) {
+  color: var(--color-error);
+  background: var(--color-error-paper);
+}
+.sidebar-empty {
+  font-size: 12px;
+  color: var(--color-muted);
+  padding: 8px 10px;
+  margin: 0;
+}
+.sidebar-account {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 16px;
+  border-top: 1px solid var(--color-line);
+  background: var(--color-sidebar);
+}
+.sidebar-account-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.sidebar-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--color-selected);
+  color: var(--color-ink);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  flex: 0 0 auto;
+}
+.sidebar-account-name {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-gear {
+  border: 0;
+  background: transparent;
+  color: var(--color-muted);
+  padding: 6px;
+  border-radius: 6px;
+  flex: 0 0 auto;
+}
+.sidebar-gear:hover {
+  color: var(--color-ink);
+  background: var(--color-soft);
+}
 .main {
   grid-column: 2;
   min-width: 0;
@@ -1064,6 +1206,163 @@ dialog::backdrop {
   overflow: hidden;
   clip-path: inset(50%);
 }
+.settings-dialog {
+  margin: auto;
+  background: var(--color-paper);
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  padding: 0;
+  width: min(920px, calc(100dvw - 32px));
+  max-height: min(86dvh, 720px);
+  overflow: hidden;
+}
+.settings-dialog[open] {
+  display: flex;
+}
+.settings-dialog-shell {
+  display: flex;
+  width: 100%;
+  min-height: 0;
+}
+.settings-tabs {
+  width: 220px;
+  flex: 0 0 220px;
+  border-right: 1px solid var(--color-line);
+  padding: 16px 10px;
+  overflow-y: auto;
+  background: var(--color-sidebar);
+}
+.settings-tab {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--color-ink);
+  padding: 10px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  margin-bottom: 2px;
+}
+.settings-tab:hover {
+  background: var(--color-soft);
+}
+.settings-tab.selected {
+  background: var(--color-selected);
+  font-weight: 600;
+}
+.settings-tab-icon {
+  flex: 0 0 auto;
+  color: var(--color-muted);
+}
+.settings-tab.selected .settings-tab-icon {
+  color: var(--color-ink);
+}
+.settings-panel {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.settings-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid var(--color-line);
+}
+.settings-panel-header h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.settings-panel-header form {
+  margin: 0;
+}
+.settings-panel-body {
+  padding: 8px 24px 24px;
+  overflow-y: auto;
+  min-height: 0;
+}
+.settings-rows {
+  display: flex;
+  flex-direction: column;
+}
+.settings-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--color-line);
+}
+.settings-row:last-child {
+  border-bottom: 0;
+}
+.settings-row-text {
+  min-width: 0;
+}
+.settings-row-name {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-ink);
+}
+.settings-row-description {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--color-muted);
+  line-height: 1.6;
+}
+.settings-row-status {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.settings-row-control {
+  flex: 0 0 auto;
+}
+.settings-row-control select {
+  min-width: 160px;
+}
+.settings-tab-content {
+  padding: 8px 0;
+}
+@media (max-width: 720px) {
+  .settings-dialog-shell {
+    flex-direction: column;
+  }
+  .settings-tabs {
+    width: 100%;
+    flex: 0 0 auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--color-line);
+    display: flex;
+    gap: 4px;
+    overflow-x: auto;
+    padding: 12px;
+  }
+  .settings-tab {
+    width: auto;
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+  .settings-panel-header,
+  .settings-panel-body {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .settings-row {
+    flex-direction: column;
+  }
+  .settings-row-control,
+  .settings-row-control select {
+    width: 100%;
+  }
+}
+
 .source-modal {
   /* The UA centres a modal dialog with margin:auto, but the reset zeroes every
      margin, so say it again: without it the dialog lands at the top-left. */

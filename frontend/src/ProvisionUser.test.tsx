@@ -83,8 +83,9 @@ afterEach(() => {
 describe("administrator web user provisioning", () => {
   async function openUsersPage() {
     render(<App />);
-    await screen.findByRole("heading", { name: "資料を調べる" });
-    fireEvent.click(screen.getByRole("button", { name: "利用者" }));
+    await screen.findByRole("heading", { name: "会話" });
+    fireEvent.click(screen.getByRole("button", { name: "設定" }));
+    fireEvent.click(await screen.findByRole("button", { name: "利用者" }));
     await screen.findByRole("heading", { name: "利用者の追加" });
   }
 

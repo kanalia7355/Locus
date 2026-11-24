@@ -49,7 +49,7 @@ function jsonResponse(data: unknown, status = 200): Response {
 
 async function askQuestion() {
   render(<App />);
-  await screen.findByRole("heading", { name: "資料を調べる" });
+  await screen.findByRole("heading", { name: "会話" });
   const field = await screen.findByRole("textbox", { name: "メッセージ" });
   fireEvent.change(field, { target: { value: "薄膜の成膜条件は？" } });
   fireEvent.submit(

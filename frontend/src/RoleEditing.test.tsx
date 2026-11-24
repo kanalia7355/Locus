@@ -65,9 +65,8 @@ async function setup(permissions = ["read", "retrieve"]) {
     }),
   );
   render(<App />);
-  fireEvent.click(
-    await screen.findByRole("button", { name: "役割・管理権限" }),
-  );
+  fireEvent.click(await screen.findByRole("button", { name: "設定" }));
+  fireEvent.click(await screen.findByRole("button", { name: "役割" }));
   fireEvent.click(
     await screen.findByRole("button", { name: "既存の担当を編集" }),
   );
@@ -90,9 +89,7 @@ it("retains rejected edits and updates the same role ID on explicit save", async
   );
   state.reject = false;
   fireEvent.click(screen.getByRole("button", { name: "ロールの変更を保存" }));
-  expect(await screen.findByRole("status")).toHaveTextContent(
-    "ロールを更新しました",
-  );
+  expect(await screen.findByText(/ロールを更新しました/)).toBeVisible();
   expect(writes).toEqual(
     Array(2).fill({
       path: "/api/projects/one/roles/role-one",
@@ -128,9 +125,8 @@ it("cancel and project switching discard the old edit target", async () => {
   fireEvent.change(screen.getByLabelText("プロジェクト"), {
     target: { value: "two" },
   });
-  fireEvent.click(
-    await screen.findByRole("button", { name: "役割・管理権限" }),
-  );
+  fireEvent.click(await screen.findByRole("button", { name: "設定" }));
+  fireEvent.click(await screen.findByRole("button", { name: "役割" }));
   await screen.findByRole("button", { name: "別プロジェクトの担当を編集" });
   await waitFor(() =>
     expect(

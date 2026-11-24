@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { FormEvent, KeyboardEvent, ReactNode, Ref } from "react";
+import type { FormEvent, KeyboardEvent } from "react";
 import {
   ArrowUp,
   Check,
@@ -8,11 +8,12 @@ import {
   LogOut,
   PanelLeft,
   Plus,
-  SquarePen,
-  UserCheck,
-  UserX,
   X,
 } from "lucide-react";
+import { dialogControls } from "./dialog";
+import { IconButton } from "./IconButton";
+import { SettingsDialog } from "./SettingsDialog";
+import { Sidebar } from "./Sidebar";
 import {
   api,
   errorText,
@@ -33,10 +34,7 @@ import {
   THEME_STORAGE_KEY,
 } from "./theme";
 import type { ColorScheme, ThemePreference } from "./theme";
-import { AdminLoad, AdminProjects, AdminStorage } from "./AdminSettings";
-import { AdminDelegations } from "./Delegations";
-import { ModelSettings } from "./ModelSettings";
-import { ProvisionUser, useUserInvalidForm } from "./ProvisionUser";
+import { useUserInvalidForm } from "./ProvisionUser";
 import type {
   ChatJob,
   ChatJobAccepted,
@@ -50,28 +48,7 @@ import type {
   User,
 } from "./api";
 
-/**
- * Controls inside a modal <dialog>, in tab order.
- *
- * A native modal contains focus in the page, but Chromium hands the Tab that
- * leaves the last control to the browser UI; while that happens
- * document.activeElement is <body>. The two .focus-guard spans at the dialog's
- * edges pull focus back inside so the focus never rests outside the modal.
- * They are not a Tab handler: the native dialog still decides the order, and
- * this only undoes the browser-chrome gap at the two ends.
- */
-function dialogControls(dialog: HTMLDialogElement | null): HTMLElement[] {
-  if (!dialog) return [];
-  return Array.from(
-    dialog.querySelectorAll<HTMLElement>(
-      'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
-    ),
-  ).filter(
-    (control) =>
-      !control.classList.contains("focus-guard") &&
-      control.getClientRects().length > 0,
-  );
-}
+
 
 function readStoredTheme(): string | null {
   try {
@@ -105,20 +82,7 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
   }
 }
 
-type Page =
-  | "chat"
-  | "shared"
-  | "personal"
-  | "history"
-  | "users"
-  | "roles"
-  | "projects"
-  | "delegations"
-  | "storage"
-  | "load"
-  | "ingestion"
-  | "audit"
-  | "settings";
+type Page = "chat" | "shared" | "personal" | "ingestion";
 type Attachment = {
   key: string;
   name: string;
@@ -127,62 +91,14 @@ type Attachment = {
   reason?: string;
 };
 const labels: Record<Page, string> = {
-  chat: "資料を調べる",
+  chat: "会話",
   shared: "共有資料",
   personal: "個人資料",
-  history: "調査履歴",
-  users: "利用者",
-  roles: "役割・管理権限",
-  projects: "プロジェクト",
-  delegations: "管理委任",
-  storage: "保存先の接続",
-  load: "負荷・実行状況",
   ingestion: "取り込み状況",
-  audit: "操作記録",
-  settings: "モデル・同時利用",
-};
-const permissionLabels: Record<string, string> = {
-  read: "閲覧",
-  retrieve: "チャット参照",
-  upload: "資料追加",
-  publish: "資料公開",
 };
 
-function IconButton({
-  label,
-  onClick,
-  children,
-  disabled = false,
-  buttonRef,
-  ...rest
-}: {
-  label: string;
-  onClick?: () => void;
-  children: ReactNode;
-  disabled?: boolean;
-  buttonRef?: Ref<HTMLButtonElement>;
-  type?: "button" | "submit";
-  "aria-expanded"?: boolean;
-  "aria-controls"?: string;
-}) {
-  return (
-    <button
-      className="icon-button"
-      type="button"
-      aria-label={label}
-      title={label}
-      onClick={onClick}
-      disabled={disabled}
-      ref={buttonRef}
-      {...rest}
-    >
-      {children}
-      <span className="tooltip" role="tooltip">
-        {label}
-      </span>
-    </button>
-  );
-}
+
+
 
 const scopeOptions = [
   { value: "all", label: "共有資料＋個人資料" },
@@ -645,6 +561,7 @@ function Workspace({
       localStorage.getItem("locus-sidebar") !== "closed" &&
       window.innerWidth >= 768,
   );
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [documents, setDocuments] = useState<Document[]>([]);
   const [documentQuery, setDocumentQuery] = useState("");
   const [history, setHistory] = useState<Conversation[]>([]);
@@ -896,7 +813,7 @@ function Workspace({
                 .catch((error) => setError(errorText(error)));
             } else
               setNotice(
-                "待機していた質問の回答が完成しました。調査履歴から開いてください。",
+                "待機していた質問の回答が完成しました。サイドバーの会話から開いてください。",
               );
           } else if (status.status === "failed") {
             setPendingJob(null);
@@ -914,7 +831,7 @@ function Workspace({
           clearInterval(timer);
           setPendingJob(null);
           setError(
-            `質問の状態確認を停止しました。回答は調査履歴から確認できます。${errorText(error)}`,
+            `質問の状態確認を停止しました。回答はサイドバーの会話から確認できます。${errorText(error)}`,
           );
         });
     }, 2000);
@@ -1156,7 +1073,7 @@ function Workspace({
       }
     } catch (error) {
       setError(
-        `逐次表示が途切れました。回答は調査履歴から確認できます。${errorText(error)}`,
+        `逐次表示が途切れました。回答はサイドバーの会話から確認できます。${errorText(error)}`,
       );
       streamed = true;
     } finally {
@@ -1260,6 +1177,16 @@ function Workspace({
       setBusy(false);
     }
   }
+  async function deleteConversation(id: string) {
+    setError("");
+    try {
+      await api(`/conversations/${id}`, json("DELETE"));
+      if (conversationRef.current === id) newChat();
+      await reload();
+    } catch (error) {
+      scopedError(errorText(error));
+    }
+  }
   async function openSource(document: string, chunkId?: string) {
     if (!source) sourceTrigger.current = documentElement();
     const request = ++sourceRequest.current;
@@ -1295,20 +1222,6 @@ function Workspace({
     setSource(null);
     sourceTrigger.current?.focus();
   }
-  function navButton(key: Page) {
-    return (
-      <button
-        key={key}
-        disabled={busy}
-        className={page === key ? "nav-item selected" : "nav-item"}
-        aria-current={page === key ? "page" : undefined}
-        onClick={() => navigate(key)}
-      >
-        {labels[key]}
-      </button>
-    );
-  }
-
   return (
     <div className={`workspace ${sidebar ? "sidebar-open" : "sidebar-closed"}`}>
       <header className="topbar">
@@ -1345,7 +1258,6 @@ function Workspace({
           ))}
         </select>
         <span className="environment">合成データ検証用</span>
-        <span className="user-name">{user.username}</span>
         <IconButton
           label="ログアウト"
           onClick={() => {
@@ -1357,65 +1269,35 @@ function Workspace({
           <LogOut size={17} />
         </IconButton>
       </header>
-      <aside
-        id="workspace-sidebar"
-        className="sidebar"
-        inert={!sidebar}
-        aria-hidden={!sidebar}
-        onKeyDown={(event) => {
-          // The overlay navigation is the mobile-only layout (the CSS
-          // breakpoint is 768px). On wide viewports the sidebar belongs to
-          // the page and must not collapse.
-          if (event.key !== "Escape" || !sidebar || window.innerWidth >= 768)
-            return;
-          event.stopPropagation();
+      <Sidebar
+        open={sidebar}
+        onClose={() => {
           setSidebar(false);
           sidebarToggle.current?.focus();
         }}
-      >
-        <nav aria-label="メインメニュー">
-          <p className="nav-heading">資料・調査</p>
-          {(["chat", "shared", "personal", "history"] as Page[]).map(navButton)}
-          {(user.system_admin || can("manage_roles") || !!projectId) && (
-            <>
-              <div className="nav-divider" />
-              <p className="nav-heading">管理</p>
-              <details open>
-                <summary>
-                  利用者・アクセス <ChevronDown size={12} />
-                </summary>
-                {user.system_admin && navButton("users")}
-                {can("manage_roles") && navButton("roles")}
-                {user.system_admin && navButton("projects")}
-                {!!projectId && navButton("delegations")}
-              </details>
-            </>
-          )}
-          <details open>
-            <summary>
-              データ・処理 <ChevronDown size={12} />
-            </summary>
-            {navButton("ingestion")}
-            {user.system_admin && navButton("storage")}
-            {user.system_admin && navButton("load")}
-            {navButton("settings")}
-          </details>
-          {user.system_admin && (
-            <details open={page === "audit"}>
-              <summary>
-                運用・記録 <ChevronDown size={12} />
-              </summary>
-              {navButton("audit")}
-            </details>
-          )}
-        </nav>
-        <p className="sidebar-foot">Locus · ローカル開発版</p>
-      </aside>
+        onNewChat={newChat}
+        conversations={history}
+        activeConversationId={conversationId}
+        onOpenConversation={(id) => {
+          void openConversation(id);
+        }}
+        onDeleteConversation={(id) => {
+          void deleteConversation(id);
+        }}
+        page={page}
+        onNavigate={(next) => navigate(next)}
+        user={user}
+        onOpenSettings={() => setSettingsOpen(true)}
+        busy={busy}
+      />
       {sidebar && (
         <button
           className="sidebar-backdrop"
           aria-label="メニューを閉じる"
-          onClick={() => setSidebar(false)}
+          onClick={() => {
+            setSidebar(false);
+            sidebarToggle.current?.focus();
+          }}
         />
       )}
       <main className="main">
@@ -1423,11 +1305,6 @@ function Workspace({
           <h1 ref={headingRef} tabIndex={-1}>
             {labels[page]}
           </h1>
-          {page === "chat" && (
-            <IconButton label="新規会話" disabled={busy} onClick={newChat}>
-              <SquarePen size={20} />
-            </IconButton>
-          )}
         </div>
         {error && (
           <div className="notice error" role="alert">
@@ -1456,7 +1333,7 @@ function Workspace({
               {messages.length === 0 ? (
                 <div className="chat-empty">
                   <FileText size={25} strokeWidth={1.3} />
-                  <p>参照できる資料を調べる</p>
+                  <p>資料を参照して質問できます</p>
                   <span>資料の本文と出典を確認できます。</span>
                 </div>
               ) : (
@@ -1748,101 +1625,16 @@ function Workspace({
             />
           </>
         )}
-        {projectId && page === "history" && (
-          <div className="list">
-            {history.length ? (
-              history.map((conv) => (
-                <div className="list-row" key={conv.id}>
-                  <button
-                    className="text-link"
-                    id={`conversation-${conv.id}`}
-                    disabled={busy}
-                    onClick={() => {
-                      void openConversation(conv.id);
-                    }}
-                  >
-                    <span className="conversation-preview">
-                      {conv.preview?.trim() || "調査"}
-                    </span>
-                    <span className="muted">
-                      {" "}
-                      {new Date(conv.created * 1000).toLocaleString("ja-JP")}
-                    </span>
-                  </button>
-                  <button
-                    aria-describedby={`conversation-${conv.id}`}
-                    onClick={() => {
-                      void api(`/conversations/${conv.id}`, json("DELETE"))
-                        .then(() => {
-                          if (conversationRef.current === conv.id) newChat();
-                          return reload();
-                        })
-                        .catch((error) => scopedError(errorText(error)));
-                    }}
-                  >
-                    削除
-                  </button>
-                </div>
-              ))
-            ) : (
-              <p className="empty">本人の調査履歴はまだありません。</p>
-            )}
-          </div>
-        )}
-        {projectId && page === "roles" && (
-          <RoleEditor
-            key={projectId}
-            projectId={projectId}
-            onError={setError}
-          />
-        )}
-        {page === "users" && user.system_admin && (
-          <AdminUsers currentUserId={user.id} />
-        )}
-        {page === "audit" && user.system_admin && (
-          <AdminList key="audit" kind="audit" />
-        )}
-        {page === "projects" && user.system_admin && <AdminProjects />}
-        {page === "delegations" && <AdminDelegations />}
-        {page === "storage" && user.system_admin && <AdminStorage />}
-        {page === "load" && user.system_admin && <AdminLoad />}
-        {page === "settings" && (
-          <div className="settings">
-            <h2>表示</h2>
-            <label>
-              配色テーマ
-              <select
-                value={themePreference}
-                onChange={(event) =>
-                  onThemePreferenceChange(
-                    parseThemePreference(event.target.value),
-                  )
-                }
-              >
-                <option value="light">ライト</option>
-                <option value="system">システムに従う</option>
-                <option value="dark">ダーク</option>
-              </select>
-            </label>
-            <p>
-              「システムに従う」は端末のカラースキーム設定に従います。選択はこのブラウザに保存され、次回の起動時も維持されます。
-            </p>
-            <h2>処理先</h2>
-            <p>
-              既定はローカルの原文検索です。管理者がOllamaモデルを明示的に有効化した場合は、参照資料に基づく回答を生成します。
-            </p>
-            {user.system_admin && <ModelSettings />}
-            <h2>同時利用</h2>
-            <p>
-              取り込みは1件ずつ処理し、全体32件・一人4件まで受付します。安全のための開発上限であり、性能保証ではありません。
-            </p>
-            <h2>本番運用</h2>
-            <p>
-              LAN公開、回復、組織単位の委任拡張、保存期間は承認待ちです。プロジェクト単位の権限委任は「管理委任」から設定できます。
-            </p>
-          </div>
-        )}
       </main>
+      <SettingsDialog
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        user={user}
+        project={project}
+        can={can}
+        themePreference={themePreference}
+        onThemePreferenceChange={onThemePreferenceChange}
+      />
       {source && (
         <dialog
           ref={sourceDialog}
@@ -2153,381 +1945,3 @@ function DocumentList({
   );
 }
 
-function RoleEditor({
-  projectId,
-  onError,
-}: {
-  projectId: string;
-  onError: (error: string) => void;
-}) {
-  const [roles, setRoles] = useState<Roles | null>(null);
-  const [name, setName] = useState("");
-  const [permissions, setPermissions] = useState<string[]>([
-    "read",
-    "retrieve",
-  ]);
-  const [notice, setNotice] = useState("");
-  const [editing, setEditing] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
-  const alive = useRef(true);
-  useEffect(() => {
-    let active = true;
-    alive.current = true;
-    void api<Roles>(`/projects/${projectId}/roles`)
-      .then((data) => {
-        if (active) setRoles(data);
-      })
-      .catch((error) => {
-        if (active) onError(errorText(error));
-      });
-    return () => {
-      active = false;
-      alive.current = false;
-    };
-  }, [projectId, onError]);
-  async function save(event: FormEvent) {
-    event.preventDefault();
-    if (
-      pending ||
-      !roles ||
-      permissions.some((item) => !roles.allowed_permissions.includes(item))
-    )
-      return;
-    setPending(true);
-    setNotice("");
-    onError("");
-    try {
-      const updated = await api<Role>(
-        `/projects/${encodeURIComponent(projectId)}/roles${editing ? `/${encodeURIComponent(editing)}` : ""}`,
-        json(editing ? "PUT" : "POST", { name, permissions }),
-      );
-      if (!alive.current) return;
-      setRoles({
-        ...roles,
-        custom: editing
-          ? roles.custom.map((item) => (item.id === editing ? updated : item))
-          : [...roles.custom, updated],
-      });
-      setName("");
-      setEditing(null);
-      setPermissions(
-        ["read", "retrieve"].filter((item) =>
-          roles.allowed_permissions.includes(item),
-        ),
-      );
-      setNotice(
-        editing
-          ? "ロールを更新しました。割り当て済みの利用者に反映されます。"
-          : "ロールを作成しました。利用者への割り当てはローカル管理者が行います。",
-      );
-    } catch (error) {
-      if (alive.current) onError(errorText(error));
-    } finally {
-      if (alive.current) setPending(false);
-    }
-  }
-  return (
-    <div className="role-editor">
-      <p className="muted">
-        ロールは現在のプロジェクト内で有効です。管理操作の権限は委任できません。
-      </p>
-      {notice && <p role="status">{notice}</p>}
-      <label>
-        テンプレート
-        <select
-          aria-label="ロールテンプレート"
-          disabled={pending || !roles || !!editing}
-          onChange={(event) => {
-            const template = roles?.templates.find(
-              (role) => role.id === event.target.value,
-            );
-            if (template)
-              setPermissions(
-                template.permissions.filter((permission) =>
-                  roles?.allowed_permissions.includes(permission),
-                ),
-              );
-          }}
-        >
-          <option value="">テンプレートを選択</option>
-          {roles?.templates.map((role) => (
-            <option value={role.id} key={role.id}>
-              {role.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <form onSubmit={save}>
-        <label>
-          {editing ? "ロール名" : "新しいロール名"}
-          <input
-            disabled={pending || !roles}
-            value={name}
-            maxLength={64}
-            required
-            onChange={(event) => setName(event.target.value)}
-          />
-        </label>
-        <p className="field-label">許可する操作</p>
-        <div className="permission-chips">
-          {[
-            ...new Set([...(roles?.allowed_permissions ?? []), ...permissions]),
-          ].map((permission) => (
-            <button
-              type="button"
-              disabled={pending || !roles}
-              key={permission}
-              aria-pressed={permissions.includes(permission)}
-              onClick={() =>
-                setPermissions((items) =>
-                  items.includes(permission)
-                    ? items.filter((item) => item !== permission)
-                    : [...items, permission],
-                )
-              }
-            >
-              {permissionLabels[permission] ?? permission}
-            </button>
-          ))}
-        </div>
-        <p className="permission-preview">
-          現在のプロジェクトで「{name || "新しいロール"}」に、
-          {permissions
-            .map((permission) => permissionLabels[permission] ?? permission)
-            .join("・") || "操作なし"}
-          を許可します。
-        </p>
-        {editing && (
-          <p>
-            保存すると、このプロジェクトで割り当て済みの利用者の操作権限に即時反映されます。
-          </p>
-        )}
-        {roles &&
-          permissions.some(
-            (item) => !roles.allowed_permissions.includes(item),
-          ) && (
-            <p role="alert">
-              本人の許可範囲外の操作があります。該当する操作を外してから保存してください。
-            </p>
-          )}
-        <button
-          type="submit"
-          disabled={
-            !name.trim() ||
-            pending ||
-            !roles ||
-            permissions.some(
-              (item) => !roles.allowed_permissions.includes(item),
-            )
-          }
-        >
-          {editing ? "ロールの変更を保存" : "ロールを作成"}
-        </button>
-        {editing && (
-          <button
-            type="button"
-            disabled={pending}
-            onClick={() => {
-              setEditing(null);
-              setName("");
-              setNotice("");
-              onError("");
-              setPermissions(
-                ["read", "retrieve"].filter((item) =>
-                  roles?.allowed_permissions.includes(item),
-                ),
-              );
-            }}
-          >
-            編集を取り消す
-          </button>
-        )}
-      </form>
-      <h2>作成済みロール</h2>
-      {roles?.custom.length ? (
-        roles.custom.map((role) => (
-          <div className="list-row" key={role.id}>
-            <strong>{role.name}</strong>
-            <span>
-              {role.permissions
-                .map((permission) => permissionLabels[permission] ?? permission)
-                .join("・")}
-            </span>
-            <button
-              type="button"
-              disabled={pending}
-              aria-label={`${role.name}を編集`}
-              onClick={() => {
-                setEditing(role.id);
-                setName(role.name);
-                setPermissions([...role.permissions]);
-                setNotice("");
-                onError("");
-              }}
-            >
-              編集
-            </button>
-          </div>
-        ))
-      ) : (
-        <p className="empty">追加のロールはありません。</p>
-      )}
-    </div>
-  );
-}
-
-function AdminUsers({ currentUserId }: { currentUserId?: string }) {
-  const [refreshKey, setRefreshKey] = useState(0);
-  return (
-    <>
-      <ProvisionUser onCreated={() => setRefreshKey((key) => key + 1)} />
-      <AdminList key={refreshKey} kind="users" currentUserId={currentUserId} />
-    </>
-  );
-}
-
-function AdminList({
-  kind,
-  currentUserId,
-}: {
-  kind: "users" | "audit";
-  currentUserId?: string;
-}) {
-  const [rows, setRows] = useState<Record<string, string | number | boolean>[]>(
-    [],
-  );
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [disableConfirmation, setDisableConfirmation] = useState<string | null>(
-    null,
-  );
-  const pending = useRef(false);
-  const mounted = useRef(false);
-  useEffect(() => {
-    let active = true;
-    mounted.current = true;
-    void api<Record<string, string | number | boolean>[]>(`/admin/${kind}`)
-      .then((data) => {
-        if (active) setRows(data);
-      })
-      .catch((error) => {
-        if (active) setError(errorText(error));
-      });
-    return () => {
-      active = false;
-    };
-  }, [kind]);
-  useEffect(
-    () => () => {
-      mounted.current = false;
-    },
-    [],
-  );
-  async function toggle(row: Record<string, string | number | boolean>) {
-    if (pending.current) return;
-    pending.current = true;
-    setBusy(true);
-    setError("");
-    try {
-      const updated = await api<Record<string, string | number | boolean>>(
-        `/admin/users/${encodeURIComponent(String(row.id))}/enabled`,
-        json("PUT", { enabled: !row.enabled }),
-      );
-      if (mounted.current) {
-        setRows((current) =>
-          current.map((item) => (item.id === updated.id ? updated : item)),
-        );
-        if (!updated.enabled) setDisableConfirmation(null);
-      }
-    } catch (error) {
-      if (mounted.current) setError(errorText(error));
-    } finally {
-      pending.current = false;
-      if (mounted.current) setBusy(false);
-    }
-  }
-  return (
-    <>
-      <p className="muted">
-        {kind === "users"
-          ? "利用者はWeb画面から追加できます。所属・ロール・明示的な拒否はプロジェクト画面で管理します。管理者に個人会話の閲覧権限は付与されません。"
-          : "操作のメタデータのみを記録します。会話・資料の本文や資格情報は表示しません。"}
-      </p>
-      {error && <p role="alert">{error}</p>}
-      <div className="list">
-        {rows.map((row) => (
-          <div className="list-row" key={String(row.id)}>
-            {kind === "users" ? (
-              <>
-                <strong>{row.username}</strong>
-                <span>
-                  {row.system_admin ? "システム管理者" : "利用者"} ·{" "}
-                  {row.enabled ? "有効" : "無効"}
-                  {row.must_rotate ? " · 初回変更待ち" : ""}
-                </span>
-                {row.enabled ? (
-                  <>
-                    <IconButton
-                      label={`${row.username}を無効にする`}
-                      disabled={busy || row.id === currentUserId}
-                      onClick={() => {
-                        setError("");
-                        setDisableConfirmation(String(row.id));
-                      }}
-                    >
-                      <UserX size={18} />
-                    </IconButton>
-                    {disableConfirmation === String(row.id) && (
-                      <div
-                        role="group"
-                        aria-label={`${row.username}のアカウント無効化確認`}
-                      >
-                        <p>
-                          「{row.username}」（利用者ID: {row.id}
-                          ）のアカウントを無効にします。
-                          この利用者のすべてのログインセッションが取り消され、再有効化するまでログインできなくなります。
-                        </p>
-                        <button
-                          type="button"
-                          disabled={busy}
-                          aria-label={`${row.username}を無効にする（確認）`}
-                          onClick={() => void toggle(row)}
-                        >
-                          アカウントを無効にする
-                        </button>
-                        <button
-                          type="button"
-                          disabled={busy}
-                          aria-label={`${row.username}の無効化を取り消す`}
-                          onClick={() => setDisableConfirmation(null)}
-                        >
-                          取り消す
-                        </button>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <IconButton
-                    label={`${row.username}を有効にする`}
-                    disabled={busy || row.id === currentUserId}
-                    onClick={() => void toggle(row)}
-                  >
-                    <UserCheck size={18} />
-                  </IconButton>
-                )}
-              </>
-            ) : (
-              <>
-                <span>
-                  {new Date(Number(row.at) * 1000).toLocaleString("ja-JP")}
-                </span>
-                <code>{row.operation}</code>
-                <span>{row.outcome}</span>
-              </>
-            )}
-          </div>
-        ))}
-      </div>
-    </>
-  );
-}
