@@ -159,18 +159,89 @@ def test_a_repeat_that_has_stopped_is_reported_but_not_a_failure(
     assert "x3" in old, old
 
 
+def test_quota_counts_only_provided_models_ac1(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC1: provided 2 (both cooling) + 3 record-only (expired) => usable is 0.
+
+    Reverting the fix would count the 3 expired record-only models as ready,
+    so the line would not report 0 usable.
+    """
+    check = load()
+    monkeypatch.setattr(check, "ROOT", tmp_path)  # type: ignore[arg-type]
+    monkeypatch.setattr(
+        check,
+        "installed_models",
+        lambda: ["opencode/a-free", "opencode/b-free"],
+    )
+    state = tmp_path / ".jobloop"
+    state.mkdir()
+    now = time.time()
+    state.joinpath("roster.json").write_text(
+        json.dumps(
+            {
+                "opencode/a-free": {"cooldown_until": now + 600},
+                "opencode/b-free": {"cooldown_until": now + 600},
+                "opencode/gone-1-free": {"cooldown_until": now - 9999},
+                "opencode/gone-2-free": {"cooldown_until": now - 9999},
+                "opencode/gone-3-free": {"cooldown_until": now - 9999},
+            }
+        ),
+        encoding="utf-8",
+    )
+    line = check.quota()  # type: ignore[attr-defined]
+    assert "使えるのは 0 件" in line, line
+    assert line.startswith("ok"), line
+
+
+def test_quota_reports_available_when_some_provided_are_usable_ac2(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC2: provided 3 with 1 cooling => usable 2, not a FAIL."""
+    check = load()
+    monkeypatch.setattr(check, "ROOT", tmp_path)  # type: ignore[arg-type]
+    monkeypatch.setattr(
+        check,
+        "installed_models",
+        lambda: [
+            "opencode/a-free",
+            "opencode/b-free",
+            "opencode/c-free",
+        ],
+    )
+    state = tmp_path / ".jobloop"
+    state.mkdir()
+    now = time.time()
+    state.joinpath("roster.json").write_text(
+        json.dumps(
+            {
+                "opencode/a-free": {"cooldown_until": now + 600},
+                "opencode/b-free": {"cooldown_until": now - 9999},
+                "opencode/c-free": {"cooldown_until": now - 9999},
+            }
+        ),
+        encoding="utf-8",
+    )
+    line = check.quota()  # type: ignore[attr-defined]
+    assert "使えるのは 2 件" in line, line
+    assert not line.startswith("FAIL"), line
+
+
 def test_the_quota_line_never_claims_a_ready_count(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The roster is the union of every model ever seen, not what the CLI offers.
 
-    The first version of this line said `2 ready` while `jobloop status` said
-    `available models: none`, because two models the CLI had stopped offering
-    were still in the file with expired cooldowns. Only `Roster.available`
-    intersects the two, and this script cannot call it without invoking the CLI.
+    Record-only models that the CLI no longer offers must not be counted as
+    usable. Only the provided/eligible intersection matters.
     """
     check = load()
     monkeypatch.setattr(check, "ROOT", tmp_path)  # type: ignore[arg-type]
+    monkeypatch.setattr(
+        check,
+        "installed_models",
+        lambda: ["opencode/resting-free"],
+    )
     state = tmp_path / ".jobloop"
     state.mkdir()
     now = time.time()
@@ -185,8 +256,8 @@ def test_the_quota_line_never_claims_a_ready_count(
         encoding="utf-8",
     )
     line = check.quota()  # type: ignore[attr-defined]
-    assert "1 of 3 recorded models resting" in line, line
-    assert "ready" not in line, "a ready count from this file cannot be true"
+    assert "使えるのは 0 件" in line, line
+    assert "gone/from-the-cli" not in line, line
     assert "soonest back in 10 min" in line, line
 
 
