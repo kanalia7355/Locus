@@ -44,6 +44,39 @@ SYNTHETIC = (
     r"sk-synthetic-0[1-4]-not-a-real-key)$"
 )
 
+# One `detect_secrets` invocation is one command line, and Windows caps that at
+# ~32,767 characters. The fixed scanner arguments alone cost ~550 bytes, so a
+# full publishable inventory (808 tracked files, ~32,213 bytes of `./<path>`)
+# crossed the cap on 2026-11-24 and the whole scan died with
+# `FileNotFoundError: [WinError 206]` before any finding was read. Batches are
+# cut below this ceiling; the threshold is injectable so a test can force a split
+# without depending on the host OS's real limit.
+MAX_SCAN_PATH_LENGTH = 30_000
+
+
+def split_paths(paths: list[str], max_length: int = MAX_SCAN_PATH_LENGTH) -> list[list[str]]:
+    """Cut `paths` into batches whose joined command line stays under `max_length`.
+
+    The batching unit is accumulated path text rather than file count — path
+    shapes vary, so a count-based cut cannot guarantee the cap. Batches
+    concatenate back into the input: no path is dropped at a boundary.
+    """
+    batches: list[list[str]] = []
+    batch: list[str] = []
+    used = 0
+    for path in paths:
+        extra = len(path) + 1 if batch else len(path)
+        if batch and used + extra > max_length:
+            batches.append(batch)
+            batch = []
+            used = 0
+            extra = len(path)
+        batch.append(path)
+        used += extra
+    if batch:
+        batches.append(batch)
+    return batches
+
 
 def reviewed_public_reference(name: str, entry: dict[str, object]) -> bool:
     """Only five public integrity references in the exact owner-approved bytes."""
@@ -105,43 +138,57 @@ def main() -> int:
     return scan(paths)
 
 
-def scan(paths: list[str]) -> int:
+def scan(paths: list[str], max_length: int = MAX_SCAN_PATH_LENGTH) -> int:
     # The scanner reads sources with the interpreter's default encoding and
     # silently skips files it cannot decode. On a non-UTF-8 locale (Windows
     # cp932) that hid every finding in a file containing Japanese text, so the
     # local gate reported 0 while the UTF-8 hosted runners reported findings.
-    result = subprocess.run(  # noqa: S603 — fixed interpreter/module, no shell
-        [
-            sys.executable,
-            "-m",
-            "detect_secrets",
-            "-c",
-            "2",
-            "scan",
-            "--all-files",
-            "--no-verify",
-            "--exclude-files",
-            EXCLUDED,
-            "--exclude-secrets",
-            SYNTHETIC,
-            *paths,
-        ],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        env={**os.environ, "PYTHONUTF8": "1"},
-        timeout=120,
-    )
-    if result.returncode:
-        print("Secret scanner failed; review local tool setup.")
-        return result.returncode
-    findings = json.loads(result.stdout)["results"]
-    findings = {
-        name: remaining
-        for name, entries in findings.items()
-        if (remaining := [entry for entry in entries if not reviewed_public_reference(name, entry)])
-    }
+    #
+    # The paths go to one scanner invocation at a time. A single command line
+    # past the host cap kills the scan with `FileNotFoundError: [WinError 206]`
+    # before any finding is read (2026-11-24, `T-PH9-411`); batches keep every
+    # invocation under `max_length`, and the batches together cover exactly the
+    # same set of paths a single run would have.
+    findings: dict[str, list[dict[str, object]]] = {}
+    for batch in split_paths(paths, max_length):
+        result = subprocess.run(  # noqa: S603 — fixed interpreter/module, no shell
+            [
+                sys.executable,
+                "-m",
+                "detect_secrets",
+                "-c",
+                "2",
+                "scan",
+                "--all-files",
+                "--no-verify",
+                "--exclude-files",
+                EXCLUDED,
+                "--exclude-secrets",
+                SYNTHETIC,
+                *batch,
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            env={**os.environ, "PYTHONUTF8": "1"},
+            timeout=120,
+        )
+        if result.returncode:
+            print("Secret scanner failed; review local tool setup.")
+            return result.returncode
+        batch_findings = json.loads(result.stdout)["results"]
+        findings.update(
+            {
+                name: remaining
+                for name, entries in batch_findings.items()
+                if (
+                    remaining := [
+                        entry for entry in entries if not reviewed_public_reference(name, entry)
+                    ]
+                )
+            }
+        )
     for name, entries in findings.items():
         print(f"Potential secret: {name}, lines {[entry['line_number'] for entry in entries]}")
     print(f"Offline secret scan: {sum(len(entries) for entries in findings.values())} findings")
