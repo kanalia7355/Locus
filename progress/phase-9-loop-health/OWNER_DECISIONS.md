@@ -101,3 +101,56 @@ appeared:
  M tests/test_shift_check.py
 
 **Answer** (2026-11-24 12:30, orchestrator): `T-PH9-402` / `T-PH9-403` と同じ形で、**ワークスペースは完全に空**（コミット 0・変更 0）、作業の 100% が本体チェックアウトにあった（`scripts/shift_check.py` 本体 336 行 / ws 321 行、`tests/test_shift_check.py` 353 / 282）。原因は `T-PH9-406` に起票済みの経路で、その修正はまだ入っていない。本体の差分をこの票の許可パスだけで切り出してワークスペースへ適用し、本体は戻した。**消していない。コードは 1 行も書いていない。** **試行は消費せず `review`。** 詳細は `tasks/T-PH9-407.md`。
+
+## T-PH9-410 — worker wrote outside its workspace (2026-11-24T12:36:58+09:00)
+
+**Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
+
+**Context**
+
+model=opencode/iceman-free
+workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH9-410
+marker=C:\Users\hirot\Locus\.jobloop\orchestrator-busy present=False
+appeared:
+ M jobloop/roster.py
+ M scripts/supervise_loop.py
+ M tests/test_jobloop.py
+
+
+**Answer** (2026-11-24 13:30, orchestrator): ワークスペースに変更が 1 件も無く、作業は全部本体にあった。中身で帰属を確かめた（`roster.py` の `except Exception` ＋ stderr 行はこの票の受入条件 2・4、`supervise_loop.py` の `math.isfinite` は受入条件 1）。許可パスだけ切り出してワークスペースへ移送し、本体は戻した。**消していない。コードは書いていない。試行は消費せず `review`。** 詳細は `tasks/T-PH9-410.md`。
+
+## T-PH9-404 — integration branch is dirty (2026-11-24T12:42:21+09:00)
+
+**Question**: The main checkout has uncommitted changes, so the reviewed commit was not merged. Decide how to integrate it.
+
+**Context**
+
+commit=319a089b7037c97e2e7eea40b3a6b57fd4afb3be
+foreign (判定に使った未コミットのパス):
+ M jobloop/roster.py  → T-PH9-401, T-PH9-404, T-PH9-409, T-PH9-410 の許可パス
+ M scripts/supervise_loop.py  → T-PH6-109, T-PH6-113, T-PH6-124, T-PH9-408, T-PH9-410 の許可パス
+ M tests/test_jobloop.py  → T-PH6-109, T-PH6-113, T-PH6-124, T-PH6-127, T-PH9-401, T-PH9-403, T-PH9-404, T-PH9-405, T-PH9-406, T-PH9-408, T-PH9-409, T-PH9-410 の許可パス
+
+not used for decision (判定に使っていない: progress/ と平易化ページ):
+ M progress/phase-9-loop-health/OWNER_DECISIONS.md
+ M progress/phase-9-loop-health/tasks/T-PH9-404.md
+ M progress/phase-9-loop-health/tasks/T-PH9-408.md
+ M progress/phase-9-loop-health/tasks/T-PH9-410.md
+
+
+**Answer** (2026-11-24 13:30, orchestrator): この票の落ち度ではない。`foreign` は `T-PH9-410` が本体に書いた `jobloop/roster.py` と `scripts/supervise_loop.py` で、中身が 410 の受入条件そのものだった。この票の成果は無傷（`319a089` が積まれ、レビュー 1 周済み）。**私の計測ミスを記録する**: `git merge-base FETCH_HEAD HEAD` で数えたら `FETCH_HEAD` が無く `HEAD..HEAD` にフォールバックして「コミット 0 件」と出たため、**成果が消えたと誤認しかけた**。黙って 0 を返す数え方は消失と区別できない。本体は綺麗にした。**試行も周回も動かさず `review`。** 詳細は `tasks/T-PH9-404.md`。
+
+## T-PH9-406 — worker wrote outside its workspace (2026-11-24T13:03:48+09:00)
+
+**Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
+
+**Context**
+
+model=opencode/iceman-free
+workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH9-406
+marker=C:\Users\hirot\Locus\.jobloop\orchestrator-busy present=False
+appeared:
+ M jobloop/selfrepair.py
+ M tests/test_selfrepair.py
+
+**Answer** (2026-11-24 13:30, orchestrator): **スコープを広げた。私の書き落としである。** この票は `redact` の自己修復を直せと要求しているが、`redact` の実体は `jobloop/selfrepair.py` にあり、それを `allowed_paths` に入れていなかった。**変更が必要とするモジュールは「スコープが狭すぎた」側の誤りなので、公開の場で広げる**（`jobloop/selfrepair.py` と `tests/test_selfrepair.py` を追加）。作業は失われていない — ワークスペースの `tests/test_selfrepair.py` は 143 行で本体の写し（81 行）より充実しており、`jobloop/selfrepair.py` は同一だった。本体の写しは退避して外した。**試行は消費せず `review`。** 詳細は `tasks/T-PH9-406.md`。
