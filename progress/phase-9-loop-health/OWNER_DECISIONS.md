@@ -269,3 +269,17 @@ not used for decision (判定に使っていない: progress/ と平易化ペー
  M progress/phase-9-loop-health/tasks/T-PH9-411.md
 
 **Answer** (2026-11-24 15:30, orchestrator): 巻き添えである。`foreign` は `T-PH9-411` の仕事で、この票の作業はワークスペースに健在。本体は綺麗にした。**試行は消費せず `review`。** **皮肉だが**: この票が直す経路（記録が本体の絶対パスを教える）が未修正なので逃亡が続き、その巻き添えでこの票が止まっている。**単一監督に戻した 15:00 以降も逃亡は起きている**ので（`T-PH9-411` が実例）、二重起動は単独犯ではなく、この経路は実在する。**通すのが最優先。** 詳細は `tasks/T-PH9-406.md`。
+
+## T-PH9-406 — the merge conflicted (2026-11-24T15:29:14+09:00)
+
+**Question**: The reviewed work no longer applies to the integration branch, so the merge was aborted and nothing was committed. Decide whether the job redoes its work on the current branch.
+
+**Context**
+
+commit=c6c0c4a7eab03e38676cf533e1ceffc5254ed0a5
+branch=loop/T-PH9-406-t-ph9-406
+Auto-merging jobloop/controller.py
+CONFLICT (content): Merge conflict in jobloop/controller.py
+Auto-merging tests/test_jobloop.py
+CONFLICT (content): Merge conflict in tests/test_jobloop.py
+Automatic merge failed; fix conflicts and then commit the result.
