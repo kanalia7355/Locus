@@ -3,6 +3,7 @@
 These tests use fake workers, so no provider is contacted.
 """
 
+import json
 import subprocess
 import sys
 import time
@@ -1858,3 +1859,161 @@ def test_a_cycle_commits_its_own_records_even_when_nothing_was_delivered(
     left = Controller.dirt(repository)
     assert "mine.txt" in left, "never stage a path outside progress/"
     assert "T-JOB-1.md" in left, "and do not commit the records around it either"
+
+
+# --- supervisor idle cooldown cap (T-PH9-408) --------------------------------
+
+
+def load_supervise_loop():
+    import importlib.util
+
+    root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location(
+        "supervise_loop", root / "scripts" / "supervise_loop.py"
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_idle_wait_wakes_for_the_earliest_provided_cooldown(tmp_path: Path) -> None:
+    """AC1: when backoff would sleep through a cooldown expiry, wake for it."""
+    module = load_supervise_loop()
+    now = 1_000_000.0
+    state_file = tmp_path / "roster.json"
+    state_file.write_text(
+        json.dumps({"opencode/a-free": {"cooldown_until": now + 180}}),
+        encoding="utf-8",
+    )
+    waiting = module.idle_wait(
+        120.0, 10, state_file=state_file, models=["opencode/a-free"], now=now
+    )
+    assert module.backoff(120.0, 10) == 1200.0
+    assert waiting == 180.0 + module.IDLE_COOLDOWN_MARGIN
+
+
+def test_idle_wait_keeps_backoff_when_no_near_cooldown(tmp_path: Path) -> None:
+    """AC2: do not poll faster when no provided cooldown is near."""
+    module = load_supervise_loop()
+    now = 1_000_000.0
+    pause, idle_rounds = 120.0, 10
+    expected = module.backoff(pause, idle_rounds)
+    assert expected == 1200.0
+
+    far = tmp_path / "far.json"
+    far.write_text(
+        json.dumps({"opencode/a-free": {"cooldown_until": now + 3600}}),
+        encoding="utf-8",
+    )
+    assert (
+        module.idle_wait(pause, idle_rounds, state_file=far, models=["opencode/a-free"], now=now)
+        == expected
+    )
+
+    empty = tmp_path / "empty.json"
+    empty.write_text("{}", encoding="utf-8")
+    assert (
+        module.idle_wait(pause, idle_rounds, state_file=empty, models=["opencode/a-free"], now=now)
+        == expected
+    )
+
+    none_provided = tmp_path / "none.json"
+    none_provided.write_text(
+        json.dumps({"opencode/a-free": {"cooldown_until": now + 180}}),
+        encoding="utf-8",
+    )
+    assert (
+        module.idle_wait(pause, idle_rounds, state_file=none_provided, models=[], now=now)
+        == expected
+    )
+
+    stale = tmp_path / "stale.json"
+    stale.write_text(
+        json.dumps({"opencode/old-free": {"cooldown_until": now + 180}}),
+        encoding="utf-8",
+    )
+    assert (
+        module.idle_wait(
+            pause,
+            idle_rounds,
+            state_file=stale,
+            models=["opencode/new-free"],
+            now=now,
+        )
+        == expected
+    )
+
+
+def test_idle_wait_ignores_corrupted_cooldown_entries(tmp_path: Path) -> None:
+    """Corrupted roster entries must not crash the supervisor; fall back to backoff."""
+    module = load_supervise_loop()
+    now = 1_000_000.0
+    pause, idle_rounds = 120.0, 10
+    expected = module.backoff(pause, idle_rounds)
+
+    bad_number = tmp_path / "bad-number.json"
+    bad_number.write_text(
+        json.dumps({"opencode/a-free": {"cooldown_until": "not-a-number"}}),
+        encoding="utf-8",
+    )
+    assert (
+        module.idle_wait(
+            pause, idle_rounds, state_file=bad_number, models=["opencode/a-free"], now=now
+        )
+        == expected
+    )
+
+    bad_entry = tmp_path / "bad-entry.json"
+    bad_entry.write_text(json.dumps({"opencode/a-free": 42}), encoding="utf-8")
+    assert (
+        module.idle_wait(
+            pause, idle_rounds, state_file=bad_entry, models=["opencode/a-free"], now=now
+        )
+        == expected
+    )
+
+
+def test_idle_rounds_reset_after_work(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """AC4: a cycle that attempted work resets idle_rounds to 0."""
+    module = load_supervise_loop()
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    state = tmp_path / ".jobloop"
+    state.mkdir()
+    (state / "roster.json").write_text("{}", encoding="utf-8")
+    waits: list[float] = []
+    monkeypatch.setattr(module.time, "sleep", lambda seconds: waits.append(seconds))
+    monkeypatch.setattr(module, "heartbeat", lambda *args, **kwargs: None)
+    outputs = iter(
+        [
+            (0, "-: idle - no actionable job is left\n"),
+            (0, "T-JOB-1: delivered - abc merged into loop/local-development\n"),
+            (0, "-: idle - no actionable job is left\n"),
+        ]
+    )
+    monkeypatch.setattr(module, "stream", lambda argv: next(outputs))
+    monkeypatch.setattr(
+        module.subprocess,
+        "run",
+        lambda *args, **kwargs: type("R", (), {"stdout": "", "stderr": "", "returncode": 0})(),
+    )
+    import jobloop.cli as cli
+
+    monkeypatch.setattr(cli, "installed_models", lambda executable=None: [])
+    module.main(
+        [
+            "--phase",
+            "p",
+            "--pause",
+            "120",
+            "--cycles",
+            "3",
+            "--minutes",
+            "0.1",
+            "--max-jobs",
+            "1",
+        ]
+    )
+    # idle -> backoff(120,1)=240, worked -> pause=120, idle after reset -> 240
+    assert waits == [240.0, 120.0, 240.0]
