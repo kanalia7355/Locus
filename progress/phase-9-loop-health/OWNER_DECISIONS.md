@@ -68,3 +68,18 @@ appeared:
 ?? tests/test_production_startup.py
 
 **Answer** (2026-11-23 23:30, orchestrator): **いま本体にこの票のファイルは 1 つも無い**。22:50 に移送した作業はワークスペースに 4 ファイルとして残っている。この停止は同じサイクル中に別の票が汚した分を拾ったものである。**試行は消費せず `review`。** 原因と対処は `T-PH9-406`。詳細は `tasks/T-PH9-403.md`。
+
+## T-PH9-408 — review cycle limit reached (2026-11-24T11:49:12+09:00)
+
+**Question**: The reviewer still requires changes, and the review cycle budget is spent (attempts 2/3, review cycles 2/2).
+
+**Context**
+
+VERDICT
+- CHANGES_REQUIRED
+
+FINDINGS
+- Medium, scripts/supervise_loop.py:122-139, `cooldown_wait` does not fully guard corrupted roster state: (a) a non-finite `cooldown_until` (`NaN`/`Infinity`, which `float()` accepts and Python's `json` parser accepts) is not skipped — `remaining <= 0` is False for `NaN`, so the entry yields a `nan` wait that shadows any real earlier cooldown (since `min(backoff, nan) == backoff`), causing the supervisor to miss a wake-up for a model that is actually about to return; (b) a roster file that is not valid UTF-8 raises `UnicodeDecodeError` out of `Roster._state()` (which only catches `OSError`/`JSONDecodeError`) and crashes the idle branch. Fix: wrap `roster._state()` in `try/except Exception` (return `None` on failure) and skip any entry whose `until` is not finite (e.g. `if not math.isfinite(until): continue`).
+
+UNVERIFIED
+- Whether `jobloop.cli.installed_models()` (spawns `opencode models`, up to 180s) on every idle cycle is acceptable latency in the target environment; not exercised by the test suite, which patches it. Also, I did not re-run the suite in the read-only review context; relied on the controller's recorded gate results (67 passed, lint/format/secret-scan green).
