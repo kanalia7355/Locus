@@ -95,7 +95,7 @@ UNVERIFIED
 
 model=opencode/iceman-free
 workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH9-407
-marker=C:\Users\hirot\Locus\.jobloop\orchestrator-busy present=False
+marker=<repo-root>\.jobloop\orchestrator-busy present=False
 appeared:
  M scripts/shift_check.py
  M tests/test_shift_check.py
@@ -110,7 +110,7 @@ appeared:
 
 model=opencode/iceman-free
 workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH9-410
-marker=C:\Users\hirot\Locus\.jobloop\orchestrator-busy present=False
+marker=<repo-root>\.jobloop\orchestrator-busy present=False
 appeared:
  M jobloop/roster.py
  M scripts/supervise_loop.py
@@ -148,9 +148,67 @@ not used for decision (判定に使っていない: progress/ と平易化ペー
 
 model=opencode/iceman-free
 workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH9-406
-marker=C:\Users\hirot\Locus\.jobloop\orchestrator-busy present=False
+marker=<repo-root>\.jobloop\orchestrator-busy present=False
 appeared:
  M jobloop/selfrepair.py
  M tests/test_selfrepair.py
 
 **Answer** (2026-11-24 13:30, orchestrator): **スコープを広げた。私の書き落としである。** この票は `redact` の自己修復を直せと要求しているが、`redact` の実体は `jobloop/selfrepair.py` にあり、それを `allowed_paths` に入れていなかった。**変更が必要とするモジュールは「スコープが狭すぎた」側の誤りなので、公開の場で広げる**（`jobloop/selfrepair.py` と `tests/test_selfrepair.py` を追加）。作業は失われていない — ワークスペースの `tests/test_selfrepair.py` は 143 行で本体の写し（81 行）より充実しており、`jobloop/selfrepair.py` は同一だった。本体の写しは退避して外した。**試行は消費せず `review`。** 詳細は `tasks/T-PH9-406.md`。
+
+## T-PH9-410 — worker wrote outside its workspace (2026-11-24T13:47:07+09:00)
+
+**Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
+
+**Context**
+
+model=opencode/iceman-free
+workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH9-410
+marker=<repo-root>\.jobloop\orchestrator-busy present=False
+appeared:
+ M jobloop/roster.py
+ M scripts/supervise_loop.py
+ M tests/test_jobloop.py
+
+
+**Answer** (2026-11-24 14:30, orchestrator): 13:30 に移送した作業は**ワークスペースに健在**（`jobloop/roster.py`・`scripts/supervise_loop.py`・`tests/test_jobloop.py` の 3 件）。本体に再び現れた分は **`T-PH9-409` の仕事と同じファイルで重なっていた**ので、混ぜずに本体を戻した（詳細は `tasks/T-PH9-409.md`）。**この票は何も失っていない。試行も周回も動かさず `review`。** なお `T-PH9-406` のワーカーがこの票の受入条件 1・2 と同じ主題の検査を自分のワークスペースに書いてしまっていたので、**この票の検査が正本である**と 406 側に伝えた。詳細は `tasks/T-PH9-410.md`。
+
+## T-PH9-406 — worker stopped for a decision (2026-11-24T13:59:26+09:00)
+
+**Question**: The required `python -m pytest tests/test_jobloop.py tests/test_selfrepair.py -q` still has 3 failures in `tests/test_jobloop.py` because `jobloop/roster.py` raises `UnicodeDecodeError` on non-UTF8 roster files; fixing that requires changing `jobloop/roster.py`, which is outside T-PH9-406 allowed_paths. May I include the minimal `jobloop/roster.py` fix (treat unreadable/non-UTF8 roster state as em
+
+**Context**
+
+_root -q` (workdir `C:\Users\hirot\.jobloop-Locus\workspaces\T-PH9-406`)  
+  Result: `11 passed in 1.26s`
+- `python -m pytest tests/test_jobloop.py tests/test_selfrepair.py -q` (workdir `C:\Users\hirot\.jobloop-Locus\workspaces\T-PH9-406`)  
+  Result: `3 failed, 78 passed in 20.22s`  
+  Failures: `tests/test_jobloop.py::test_idle_wait_skips_nonfinite_cooldown_and_uses_real_one`, `tests/test_jobloop.py::test_roster_state_treats_unreadable_file_as_empty`, `tests/test_jobloop.py::test_unreadable_roster_does_not_crash_idle_wait` — all fail with `UnicodeDecodeError` from `jobloop/roster.py:67` (`Path.read_text(encoding="utf-8")`) when reading a deliberately non-UTF8 roster file.
+- `python -m ruff format jobloop/controller.py jobloop/selfrepair.py tests/test_jobloop.py tests/test_selfrepair.py` (workdir `C:\Users\hirot\.jobloop-Locus\workspaces\T-PH9-406`)  
+  Result: `1 file reformatted, 3 files left unchanged`
+- `python -m ruff check backend tests scripts jobloop` (workdir `C:\Users\hirot\.jobloop-Locus\workspaces\T-PH9-406`)  
+  Result: `All checks passed!`
+- `python -m ruff format --check backend tests scripts jobloop` (workdir `C:\Users\hirot\.jobloop-Locus\workspaces\T-PH9-406`)  
+  Result: `190 files already formatted`
+- `python scripts/secret_scan.py jobloop/controller.py jobloop/selfrepair.py tests/test_jobloop.py tests/test_selfrepair.py` (workdir `C:\Users\hirot\.jobloop-Locus\workspaces\T-PH9-406`)  
+  Result: `Offline secret scan: 0 findings`
+
+
+**Answer** (2026-11-24 14:30, orchestrator): **いいえ。`jobloop/roster.py` には触らないこと。** よく聞いてくれた（勝手に広げずに止まったのは正しい）。落ちている 3 件は **`T-PH9-410` の受入条件 1・2 と同じ主題**で、410 は `review` にあり既にその修正を持っている。測った結果、3 件は統合ブランチにもこのワークスペースの `HEAD` にも無く、**作業木にだけある**（票の取り違えで書かれた）。**その 3 件をこの票の変更から外すこと。** この票の成果は `jobloop/controller.py`（記録に絶対パスを書かない）と `jobloop/selfrepair.py`（`redact` を書き換える側に倒す）とその検査である。外せば `test_cmd` は通る見込み。通らなければまた聞いてよい。**試行は消費せず `review`。** 詳細は `tasks/T-PH9-406.md`。
+
+## STATUS
+needs-owner-decision: The required `python -m pytest tests/test_jobloop.py tests/test_selfrepair.py -q` still has 3 failures in `tests/test_jobloop.py` because `jobloop/roster.py` raises `UnicodeDecodeError` on non-UTF8 roster files; fixing that requires changing `jobloop/roster.py`, which is outside T-PH9-406 allowed_paths. May I include the minimal `jobloop/roster.py` fix (treat unreadable/non-UTF8 roster state as empty and record the fact) so AC5 can pass, or should this be handled as a separate scoped job?
+
+## T-PH9-409 — worker wrote outside its workspace (2026-11-24T14:04:37+09:00)
+
+**Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
+
+**Context**
+
+model=opencode/iceman-free
+workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH9-409
+marker=<repo-root>\.jobloop\orchestrator-busy present=False
+appeared:
+ M jobloop/roster.py
+ M tests/test_jobloop.py
+
+**Answer** (2026-11-24 14:30, orchestrator): この票の作業は**本体にしか無く**、しかも本体の `jobloop/roster.py` に **`T-PH9-410` の仕事が同じファイルで重なっていた**（この票: `EXHAUSTION_RETRY_WINDOW_SECONDS` / `EXHAUSTION_COOLDOWN_CAP` と倍々の説明。410: `import sys` と `except Exception`）。**パス単位で切り分けられないので、手で行を選ぶのは当て推量になる。やらない。** 410 は自分のワークスペースに同じ仕事を持っているので、本体の写しは退避して本体を戻した。**この票はワークスペースでやり直しになる（正直に書く）。** 失われないよう、測った 3 つの値と方針（窓 30 分・上限 24 時間・通常消費なら連続記録を戻す）は裁定本文に記録した。**試行は消費せず `doing`。** 詳細は `tasks/T-PH9-409.md`。

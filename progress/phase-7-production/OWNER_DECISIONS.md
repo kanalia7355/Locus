@@ -894,3 +894,19 @@ appeared:
 ?? tests/test_production_startup.py
 
 **Answer** (2026-11-23 23:30, orchestrator): 本体に現れたのは**この票の許可パスそのもの**（`main.py` が `from app.deployment import ...` を足している）。ワークスパースにも同じ仕事があり、**2 つは食い違っていた**（`deployment.py` 本体 145 / ws 197 行、`test_production_startup.py` 本体 433 / ws 282 行、`main.py` 本体 958 / ws 941 行）。どちらも相手の上位集合でないので**混ぜず**、正しい木（ワークスパース）を残して本体の版はパッチとファイルに退避して外した。**本体側にしか無かった分はやり直しになる**（正直に書く）。原因はこの票でないので**試行は消費せず `doing`**。原因と対処は `T-PH9-406`。詳細は `tasks/T-PH7-223.md`。
+
+## T-PH7-211 — worker wrote outside its workspace (2026-11-24T14:23:51+09:00)
+
+**Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
+
+**Context**
+
+model=opencode/deepseek-v4.1-flash-free
+workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH7-211
+marker=<repo-root>\.jobloop\orchestrator-busy present=False
+containment opencode/deepseek-v4.1-flash-free: 1/2 stops/dispatches
+appeared:
+ M jobloop/roster.py
+ M tests/test_jobloop.py
+
+**Answer** (2026-11-24 14:30, orchestrator): 巻き添えである。`appeared` の 2 行（`jobloop/roster.py`・`tests/test_jobloop.py`）は**この票の許可パスに 1 つも入っていない** — `T-PH9-409` と `T-PH9-410` が本体に残した分が派遣中に計上された。この票の作業はワークスペースに健在（`service.py` 変更、`storage.py` と `tests/test_storage_seam.py` 新規）。本体は綺麗にした。**試行は消費せず `doing`。残り 1 回。** 詳細は `tasks/T-PH7-211.md`。

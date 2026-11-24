@@ -2628,3 +2628,49 @@ not used for decision (判定に使っていない: progress/ と平易化ペー
  M progress/phase-9-loop-health/tasks/T-PH9-410.md
 
 **Answer** (2026-11-24 13:30, orchestrator): 今日 3 度目で、3 度ともこの票の落ち度ではない。`foreign` は `T-PH9-410` の仕事（`jobloop/roster.py`・`scripts/supervise_loop.py`）。レビュー済みコミット `b43ece2` は無傷。本体は綺麗にした。**試行は消費せず `review`。** 原因（`T-PH9-406`）が入るまで同じ形は続く見込みである。詳細は `tasks/T-PH6-127.md`。
+
+## T-PH6-104 — integration branch is dirty (2026-11-24T13:38:39+09:00)
+
+**Question**: The main checkout has uncommitted changes, so the reviewed commit was not merged. Decide how to integrate it.
+
+**Context**
+
+commit=96d0da9a05c8135a972a399b9486227d751e8049
+foreign (判定に使った未コミットのパス):
+ M jobloop/roster.py  → T-PH9-401, T-PH9-404, T-PH9-409, T-PH9-410 の許可パス
+ M scripts/supervise_loop.py  → T-PH6-109, T-PH6-113, T-PH6-124, T-PH9-408, T-PH9-410 の許可パス
+ M tests/test_jobloop.py  → T-PH6-109, T-PH6-113, T-PH6-124, T-PH6-127, T-PH9-401, T-PH9-403, T-PH9-404, T-PH9-405, T-PH9-406, T-PH9-408, T-PH9-409, T-PH9-410 の許可パス
+
+not used for decision (判定に使っていない: progress/ と平易化ページ):
+ M progress/phase-6-extensions/tasks/T-PH6-104.md
+ M progress/phase-6-extensions/tasks/T-PH6-112.md
+ M progress/phase-9-loop-health/tasks/T-PH9-404.md
+ M progress/phase-9-loop-health/tasks/T-PH9-406.md
+ M progress/phase-9-loop-health/tasks/T-PH9-410.md
+
+
+**Answer** (2026-11-24 14:30, orchestrator): 今日 5 度目で、この票の落ち度ではない。`foreign` は `T-PH9-409` と `T-PH9-410` の仕事（`jobloop/roster.py`・`scripts/supervise_loop.py`・`tests/test_jobloop.py`）。13:30 の裁定（`merge-base..HEAD` では許可パスの 3 ファイルだけ／§8.4/§8.5 の永続化は `T-PH6-131` へ移動）はそのまま有効。本体は綺麗にした。**試行も周回も動かさず `review`。** 詳細は `tasks/T-PH6-104.md`。
+
+## T-PH6-127 — integration branch is dirty (2026-11-24T13:50:27+09:00)
+
+**Question**: The main checkout has uncommitted changes, so the reviewed commit was not merged. Decide how to integrate it.
+
+**Context**
+
+commit=b43ece2d6a5f2c693d58750930e9bfeac4f2c62b
+foreign (判定に使った未コミットのパス):
+ M jobloop/roster.py  → T-PH9-401, T-PH9-404, T-PH9-409, T-PH9-410 の許可パス
+ M scripts/supervise_loop.py  → T-PH6-109, T-PH6-113, T-PH6-124, T-PH9-408, T-PH9-410 の許可パス
+ M tests/test_jobloop.py  → T-PH6-109, T-PH6-113, T-PH6-124, T-PH6-127, T-PH9-401, T-PH9-403, T-PH9-404, T-PH9-405, T-PH9-406, T-PH9-408, T-PH9-409, T-PH9-410 の許可パス
+
+not used for decision (判定に使っていない: progress/ と平易化ページ):
+ M progress/phase-6-extensions/OWNER_DECISIONS.md
+ M progress/phase-6-extensions/tasks/T-PH6-104.md
+ M progress/phase-6-extensions/tasks/T-PH6-112.md
+ M progress/phase-6-extensions/tasks/T-PH6-127.md
+ M progress/phase-9-loop-health/OWNER_DECISIONS.md
+ M progress/phase-9-loop-health/tasks/T-PH9-404.md
+ M progress/phase-9-loop-health/tasks/T-PH9-406.md
+ M progress/phase-9-loop-health/tasks/T-PH9-410.md
+
+**Answer** (2026-11-24 14:30, orchestrator): 今日 4 度目で、4 度ともこの票の落ち度ではない。`foreign` は `T-PH9-409` と `T-PH9-410` の仕事。レビュー済みコミット `b43ece2` は無傷。本体は綺麗にした。**試行は消費せず `review`。** 原因（`T-PH9-406`）は `review` にあり、入るまでこの形は続く。詳細は `tasks/T-PH6-127.md`。
