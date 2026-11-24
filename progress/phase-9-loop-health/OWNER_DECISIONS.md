@@ -83,3 +83,21 @@ FINDINGS
 
 UNVERIFIED
 - Whether `jobloop.cli.installed_models()` (spawns `opencode models`, up to 180s) on every idle cycle is acceptable latency in the target environment; not exercised by the test suite, which patches it. Also, I did not re-run the suite in the read-only review context; relied on the controller's recorded gate results (67 passed, lint/format/secret-scan green).
+
+
+**Answer** (2026-11-24 12:30, orchestrator): VERDICT を自分で読み、指摘を実装で確かめた。**2 件とも本物**（`NaN` の `cooldown_until` が最短の冷却を覆い隠す／`Roster._state()` が `UnicodeDecodeError` を捕まえずアイドル経路が落ちる。`installed_models()` の try/except は `idle_wait` を覆っていない）。**ただしどちらもこの票の受入条件に無い** — 壊れたロスターへの堅牢性を書き落としたのは私である。**`T-PH9-410` に移した（削っていない）。** `UNVERIFIED` の遅延懸念には私が答えた: 照会はアイドル分岐の中だけで、失敗時は通常の待機に落ちるので許容できる。**周回を 1 回戻し（2/2 → 1/2）、試行は動かさず `review` に戻す。** 受入条件は 1 文字も緩めていない。詳細は `tasks/T-PH9-408.md`。
+
+## T-PH9-407 — worker wrote outside its workspace (2026-11-24T11:59:10+09:00)
+
+**Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
+
+**Context**
+
+model=opencode/iceman-free
+workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH9-407
+marker=C:\Users\hirot\Locus\.jobloop\orchestrator-busy present=False
+appeared:
+ M scripts/shift_check.py
+ M tests/test_shift_check.py
+
+**Answer** (2026-11-24 12:30, orchestrator): `T-PH9-402` / `T-PH9-403` と同じ形で、**ワークスペースは完全に空**（コミット 0・変更 0）、作業の 100% が本体チェックアウトにあった（`scripts/shift_check.py` 本体 336 行 / ws 321 行、`tests/test_shift_check.py` 353 / 282）。原因は `T-PH9-406` に起票済みの経路で、その修正はまだ入っていない。本体の差分をこの票の許可パスだけで切り出してワークスペースへ適用し、本体は戻した。**消していない。コードは 1 行も書いていない。** **試行は消費せず `review`。** 詳細は `tasks/T-PH9-407.md`。

@@ -2540,3 +2540,48 @@ commit=96d0da9a05c8135a972a399b9486227d751e8049
 ?? tests/test_production_startup.py
 
 **Answer** (2026-11-23 23:30, orchestrator): 今日 3 度目で、3 度ともこの票の落ち度ではない。`foreign` は `T-PH9-402` と `T-PH7-223` が本体に書いた製品コードで、この票の成果（2 コミット・レビュー 1 周済み）は無傀。本体を綺麗にしたので `foreign` は 0 件。**試行は消費せず `review`。** 原因と対処は `T-PH9-406`。詳細は `tasks/T-PH6-104.md`。
+
+## T-PH6-104 — integration branch is dirty (2026-11-24T12:20:22+09:00)
+
+**Question**: The main checkout has uncommitted changes, so the reviewed commit was not merged. Decide how to integrate it.
+
+**Context**
+
+commit=96d0da9a05c8135a972a399b9486227d751e8049
+foreign (判定に使った未コミットのパス):
+ M scripts/shift_check.py  → T-PH6-109, T-PH6-113, T-PH6-124, T-PH9-402, T-PH9-407 の許可パス
+ M tests/test_shift_check.py  → T-PH6-109, T-PH6-113, T-PH6-124, T-PH9-402, T-PH9-407 の許可パス
+
+not used for decision (判定に使っていない: progress/ と平易化ページ):
+ M docs/report/OWNER_DECISIONS_PLAIN_GUIDE.html
+ M progress/phase-6-extensions/tasks/T-PH6-104.md
+ M progress/phase-9-loop-health/OWNER_DECISIONS.md
+ M progress/phase-9-loop-health/tasks/T-PH9-402.md
+ M progress/phase-9-loop-health/tasks/T-PH9-404.md
+ M progress/phase-9-loop-health/tasks/T-PH9-407.md
+
+
+**Answer** (2026-11-24 12:30, orchestrator): 今日 4 度目で、4 度ともこの票の落ち度ではない。`T-PH9-403` がマージされて証拠の書式が変わり、**記録自身が「`T-PH9-407` の許可パス」と書いている**。この票の成果（`96d0da9`、レビュー 1 周済み）は無傷で、本体は綺麗にした。**試行は消費せず `review`。** 詳細は `tasks/T-PH6-104.md`。
+
+## T-PH6-127 — integration branch is dirty (2026-11-24T12:25:36+09:00)
+
+**Question**: The main checkout has uncommitted changes, so the reviewed commit was not merged. Decide how to integrate it.
+
+**Context**
+
+commit=b43ece2d6a5f2c693d58750930e9bfeac4f2c62b
+foreign (判定に使った未コミットのパス):
+ M scripts/shift_check.py  → T-PH6-109, T-PH6-113, T-PH6-124, T-PH9-402, T-PH9-407 の許可パス
+ M tests/test_shift_check.py  → T-PH6-109, T-PH6-113, T-PH6-124, T-PH9-402, T-PH9-407 の許可パス
+
+not used for decision (判定に使っていない: progress/ と平易化ページ):
+ M docs/report/OWNER_DECISIONS_PLAIN_GUIDE.html
+ M progress/phase-6-extensions/OWNER_DECISIONS.md
+ M progress/phase-6-extensions/tasks/T-PH6-104.md
+ M progress/phase-6-extensions/tasks/T-PH6-127.md
+ M progress/phase-9-loop-health/OWNER_DECISIONS.md
+ M progress/phase-9-loop-health/tasks/T-PH9-402.md
+ M progress/phase-9-loop-health/tasks/T-PH9-404.md
+ M progress/phase-9-loop-health/tasks/T-PH9-407.md
+
+**Answer** (2026-11-24 12:30, orchestrator): この票の落ち度ではない。`foreign` の 2 件は記録自身が「`T-PH9-407` の許可パス」と書いており、同票が本体に書いたものである。この票の成果は無傷で、**レビュー済みコミット `b43ece2` が 1 件**ワークスペースに積まれている（11-22 から続いた e2e ゲート拡張が形になった）。本体を綺麗にしたので `foreign` は 0 件。**試行は消費せず `review`。** 詳細は `tasks/T-PH6-127.md`。
