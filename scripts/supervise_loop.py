@@ -31,6 +31,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 JST = timezone(timedelta(hours=9))
 
 
@@ -97,6 +99,68 @@ def backoff(pause: float, idle_rounds: int) -> float:
     return float(min(pause * (2.0**idle_rounds), pause * 10))
 
 
+# A positive margin: waking exactly at expiry can miss by a few seconds of
+# clock skew and waste another full backoff window, which is the bug this cap
+# exists to prevent.
+IDLE_COOLDOWN_MARGIN = 30.0
+
+
+def cooldown_wait(
+    state_file: Path, models: list[str], now: float, margin: float = IDLE_COOLDOWN_MARGIN
+) -> float | None:
+    """Seconds until the earliest provided-model cooldown expires, plus margin.
+
+    Only models the CLI currently offers count. A stale record for a model no
+    longer provided must not shorten the wait — that would be the same stale-
+    record bug as T-PH9-407, in a different place. Returns None when no
+    provided model is on cooldown, so the caller keeps its normal backoff.
+    """
+    if not models or margin <= 0:
+        return None
+    from jobloop.roster import Roster
+
+    roster = Roster(models=models, state_file=state_file, now=now)
+    state = roster._state()
+    soonest: float | None = None
+    for name in roster.models:
+        entry = state.get(name)
+        if not isinstance(entry, dict):
+            continue
+        try:
+            until = float(entry.get("cooldown_until", 0))
+        except (TypeError, ValueError):
+            continue
+        remaining = until - now
+        if remaining <= 0:
+            continue
+        wait = remaining + margin
+        if soonest is None or wait < soonest:
+            soonest = wait
+    return soonest
+
+
+def idle_wait(
+    pause: float,
+    idle_rounds: int,
+    *,
+    state_file: Path,
+    models: list[str],
+    now: float,
+    margin: float = IDLE_COOLDOWN_MARGIN,
+) -> float:
+    """Backoff, capped at the earliest provided-model cooldown expiry.
+
+    When a provided model comes back before the backoff would wake, wait for
+    that return instead of sleeping through it. When no cooldown is near — all
+    far away, none recorded, or no provided models — the backoff is unchanged.
+    """
+    waiting = backoff(pause, idle_rounds)
+    cap = cooldown_wait(state_file, models, now, margin=margin)
+    if cap is not None:
+        waiting = min(waiting, cap)
+    return waiting
+
+
 def tail_of(output: str) -> str:
     """The last few lines of a cycle's output, minus what is already in the log.
 
@@ -142,7 +206,7 @@ def stream(argv: list[str]) -> tuple[int, str]:
     return child.returncode, "\n".join(collected)
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--phase",
@@ -155,7 +219,7 @@ def main() -> int:
     parser.add_argument("--max-jobs", type=int, default=6)
     parser.add_argument("--pause", type=float, default=120.0, help="seconds between cycles")
     parser.add_argument("--cycles", type=int, default=0, help="0 means keep going")
-    arguments = parser.parse_args()
+    arguments = parser.parse_args(argv)
 
     state = ROOT / ".jobloop"
     stop = state / "stop"
@@ -216,7 +280,20 @@ def main() -> int:
             )
             told = "; ".join((diagnosis.stdout or "").strip().splitlines()) or "(nothing said)"
             idle_rounds += 1
-            waiting = backoff(arguments.pause, idle_rounds)
+            try:
+                from jobloop.cli import installed_models
+                from jobloop.roster import eligible
+
+                models = eligible(installed_models())
+            except Exception:
+                models = []
+            waiting = idle_wait(
+                arguments.pause,
+                idle_rounds,
+                state_file=state / "roster.json",
+                models=models,
+                now=time.time(),
+            )
             heartbeat(
                 beat,
                 f"cycle {cycle} idle everywhere, waiting {waiting:.0f}s :: {told[:600]}",
