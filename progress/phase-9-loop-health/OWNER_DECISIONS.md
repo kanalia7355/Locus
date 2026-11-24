@@ -284,6 +284,9 @@ Auto-merging tests/test_jobloop.py
 CONFLICT (content): Merge conflict in tests/test_jobloop.py
 Automatic merge failed; fix conflicts and then commit the result.
 
+
+**Answer** (2026-11-24 16:30, orchestrator): **現在の統合ブランチの上でやり直す。** マージは中止済み（`MERGE_HEAD`/`UU` なし、確認済み）。衝突は `jobloop/controller.py` と `tests/test_jobloop.py`。**原因は私の並べ方の誤り** — `T-PH9-404` が 14:4x にマージされ、この票と同じ 3 ファイル（`controller.py` 13 行・`roster.py` 175 行・`test_jobloop.py` 116 行）を動かした。406 と 410 を依存なしで同時に `review` に置いたのが私である。**古い枝をそのまま採らない**（11-21 に `T-PH6-113` で`test.fail` を復活させかけた）。枝に入った 404 の計数・休止は重複して書かないこと。**試行は消費せず `doing`。** この票は今の最優先である（未修正のこの経路で今日 6 件以上が逃げ、`T-PH6-104` は 6 回・`T-PH6-127` は 4 回止められた）。詳細は `tasks/T-PH9-406.md`。
+
 ## T-PH9-410 — the merge conflicted (2026-11-24T15:38:51+09:00)
 
 **Question**: The reviewed work no longer applies to the integration branch, so the merge was aborted and nothing was committed. Decide whether the job redoes its work on the current branch.
@@ -296,3 +299,5 @@ Auto-merging jobloop/roster.py
 CONFLICT (content): Merge conflict in jobloop/roster.py
 Auto-merging tests/test_jobloop.py
 Automatic merge failed; fix conflicts and then commit the result.
+
+**Answer** (2026-11-24 16:30, orchestrator): 同じ原因（`T-PH9-404` のマージ）で衝突した（`jobloop/roster.py`。`tests/test_jobloop.py` は自動合流できた）。**順番を付けた**: `depends_on` に `T-PH9-406` を追加し、406 の後に回す（両票が `tests/test_jobloop.py` を触るため）。**現在の枝でやり直し**、404 が入れた 175 行の上に防御を重ねること。15:30 に実測した `Roster.available()` の穴（`AttributeError`/`TypeError`）も同じ `available()` に入れる。**試行は消費せず（2/3）、周回は 1/2 のまま `doing`。** 詳細は `tasks/T-PH9-410.md`。

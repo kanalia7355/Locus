@@ -2695,3 +2695,54 @@ not used for decision (判定に使っていない: progress/ と平易化ペー
  M progress/phase-9-loop-health/tasks/T-PH9-411.md
 
 **Answer** (2026-11-24 15:30, orchestrator): 今日 6 度目で、この票の落ち度ではない。`foreign` は `T-PH9-411` の仕事。13:30 の裁定はそのまま有効。本体は綺麗にした。**試行も周回も動かさず `review`。** 詳細は `tasks/T-PH6-104.md`。
+
+## T-PH6-104 — review cycle limit reached (2026-11-24T15:42:24+09:00)
+
+**Question**: The reviewer still requires changes, and the review cycle budget is spent (attempts 3/3, review cycles 2/2).
+
+**Context**
+
+ed; add an opt-in test that exercises the product Docker path.
+- Medium, `tests/integration/test_live_sandbox_docker.py` (new file required): The integration tests have a module-level `pytestmark = pytest.mark.skip(...)` that skips every test unconditionally, contrary to the design's "opt-in の skip" / "skip された検査を証拠として扱わないこと" principle. The file also imports `loop_engine.docker_boundary.DockerBoundary`, violating the requirement to not import `loop_engine` and keep trust domains separate. Concrete failure: enabling `LOCUS_LIVE_DOCKER=1` produces only skips, and a Docker containment regression has no runnable product-path evidence. Smallest fix: remove the module-level skip, keep the env guard inside each test, avoid `loop_engine` import, and exercise the product Docker extraction path or a self-contained Docker invocation following the same flag vocabulary (`--network none --read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit --memory --cpus --tmpfs`).
+
+**UNVERIFIED**
+- The actual sandbox boundary implementation cannot be verified since the required files (`backend/app/sandbox.py`, `tests/test_sandbox_boundary.py`, `tests/integration/test_live_sandbox_docker.py`) do not exist in the current workspace.
+- Docker containment behavior (`DOCUMENT_EXTRACTION_BOUNDARY.md` §8 items 7-8) cannot be dynamically assessed without a working Docker engine and the product implementation.
+- The specific test patterns and synthetic extractor designs from prior review cycles (especially the `MY_CUSTOM_VAR` vs `EXTRACTED_VAR` mismatch in the env var stripping test) cannot be confirmed against the current codebase.
+- Real Docker runtime behavior cannot be dynamically verified; findings are based on static inspection of command construction and prior review feedback.
+- The controller evidence of "29 passed in 14.65s" and all-checks-passed reflects the existing codebase state but does not validate the sandbox boundary implementation since the relevant files are missing.
+
+
+**Answer** (2026-11-24 16:30, orchestrator): **docker の検査ファイルの所有権を `T-PH6-129` に移した。**レビュアーが挙げた 2 件（モジュール直下の `pytestmark = skip` で `LOCUS_LIVE_DOCKER=1` でも全件 skip／`loop_engine.docker_boundary` の import が信頼領域を跨ぐ）は**どちらも本物**だが、この票が直すものではない。**carve-out を本文に書くだけでは足りず、ファイルの所有権が移っていなかったのが私の誤り**である（同じ指摘が 3 度目）。`allowed_paths` から `tests/integration/test_live_sandbox_docker.py` を外し、欠陥 2 件は 129 の本文に書き写した（削っていない）。**これで同じ指摘が戻る経路が機械的に閉じた。****試行 1 回・周回 1 回を戻す（3/3 → 2/3、2/2 → 1/2）。2 度目の回復であることは記録に残す。** `review`。詳細は `tasks/T-PH6-104.md`。
+
+## T-PH6-127 — worker wrote outside its workspace (2026-11-24T15:48:57+09:00)
+
+**Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
+
+**Context**
+
+model=opencode/nemotron-3.5-lightning-free
+workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-127
+marker=C:\Users\hirot\Locus\.jobloop\orchestrator-busy present=False
+containment opencode/nemotron-3.5-lightning-free: 1/8 stops/dispatches
+appeared:
+?? REPORT
+
+
+**Answer** (2026-11-24 16:30, orchestrator): 現れたのは **`REPORT`（拡張子なし）1 件**で、中身は**この票自身の報告文**だった（置き場所が違うだけで、製品コードではない）。退避して本体から外した。成果は無傷（レビュー済み `b43ece2` が健在）。**試行は消費せず `review`。** **仕組みの穴を記録**: 掃き捨ての対象は `.txt`/`.log`/`.out` なので拡張子の無い `REPORT` は当たらず、しかも書かれた先は本体チェックアウトで掃除はワークスペースを見る。`T-PH9-405` にこの実例を足した。詳細は `tasks/T-PH6-127.md`。
+
+## T-PH6-112 — review cycle limit reached (2026-11-24T15:59:06+09:00)
+
+**Question**: The reviewer still requires changes, and the review cycle budget is spent (attempts 3/3, review cycles 2/2).
+
+**Context**
+
+d/exercised; the provided diff shows intended migrations but there is no executed evidence in this review cycle that `a11y.spec.ts` and `workspace.spec.ts` pass under the new flow. Smallest fix: run and, if needed, complete mechanical migration of `frontend/e2e/a11y.spec.ts` and `frontend/e2e/workspace.spec.ts` to the new sidebar/settings navigation (open gear → settings tabs, “会話”/“新しいチャット”, removed history/delegation/admin nav entries as shown in the diff intent) and record passing runs.
+- Low, frontend/src/App.test.tsx (new test “closes the settings dialog with Escape and a backdrop click”): test injects a temporary `keydown` handler to call `dialog.close()` because jsdom lacks `closedby` behavior, and backdrop detection relies on `getBoundingClientRect()`/coords edge cases in jsdom; this is test-only and `test:appearance` (real browser) passed, but the unit test may be brittle/non-deterministic across environments. Smallest fix: either assert the observable effect via the same user path covered by Playwright or adjust the unit test to not depend on fragile rect math while still exercising the intended close paths where feasible.
+
+UNVERIFIED
+- Full end-to-end execution of `frontend/e2e/a11y.spec.ts` and `frontend/e2e/workspace.spec.ts` against the updated UI was not verified in this review (controller evidence cited only `frontend-test:appearance` among e2e; job notes those full specs were not run in-session). I did not execute them here.
+- Backend authorization behavior was not re-tested here; changes are confined to `frontend/src`, `frontend/e2e`, and no backend files in the reviewed diff (allowed paths respected in diff). Server-side permission enforcement is assumed unchanged by this UI refactor.
+- I reviewed the provided “change under review” diff and cross-checked key files in the stated workspace context where noted; I did not perform a fresh full test run of the entire frontend suite beyond relying on controller-reported green gates for the listed checks.
+
+**Answer** (2026-11-24 16:30, orchestrator): Medium は**この票の受入条件の外**である。条件 5 が名指しするのは `frontend/e2e/appearance.spec.ts` だけ、条件 6 のゲートも `test:appearance` だけで、**`a11y.spec.ts` / `workspace.spec.ts` を通す要求は 1 つも無い**（全 spec へ広げるのは `T-PH6-127`、未merge）。レビュアー自身も `UNVERIFIED` に「自分も実行していない」と書いている。**指摘は良いので `T-PH6-132` に移した**（`T-PH6-112` と `T-PH6-127` の両方に依存させ、ゲートが見る状態になってから検査する）。Low（jsdom の座標依存）は実機の `test:appearance` が通っているのでこの票では直さない。**周回を 1 回戻し（2/2 → 1/2）、試行は動かさず `review`。受入条件は 1 文字も緩めていない。** 詳細は `tasks/T-PH6-112.md`。
