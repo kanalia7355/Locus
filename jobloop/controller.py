@@ -20,7 +20,7 @@ from pathlib import Path
 
 from jobloop import gates, prompts, selfrepair, worker
 from jobloop.roster import COOLDOWN_SECONDS, Roster
-from jobloop.tasks import ATTEMPT_LIMIT, REVIEW_CYCLE_LIMIT, Task, load_phase
+from jobloop.tasks import ATTEMPT_LIMIT, REVIEW_CYCLE_LIMIT, Task, load_phase, parse
 
 JST = timezone(timedelta(hours=9))
 GIT = shutil.which("git") or "git"
@@ -1309,7 +1309,7 @@ class Controller:
         paths = [line[3:].strip().strip('"').replace("\\", "/") for line in lines]
         foreign = [path for path in paths if not path.startswith(records) and path != guide]
         if foreign:
-            return "\n".join(lines)
+            return self.format_dirty_branch(lines, paths, records, guide)
         # Only add what exists. `git add` has no `--ignore-unmatch`, so naming
         # the guide page in a checkout that has not generated it yet raises
         # `fatal: pathspec ... did not match any files` — harmless while
@@ -1334,6 +1334,59 @@ class Controller:
             )[:100],
         )
         return ""
+
+    def format_dirty_branch(
+        self, lines: list[str], paths: list[str], records: str, guide: str
+    ) -> str:
+        """Report dirty-branch state with foreign paths separated and attributed.
+
+        Only foreign paths caused the stop; progress records and the regenerated
+        plain guide are the loop's own bookkeeping and are shown separately so a
+        reader does not mistake them for the reason the merge was refused.
+        """
+        foreign_lines: list[str] = []
+        bookkeeping: list[str] = []
+        for line, path in zip(lines, paths, strict=True):
+            if path.startswith(records) or path == guide:
+                bookkeeping.append(line)
+            else:
+                owners = self.owners_of_path(path)
+                if owners:
+                    note = f"  → {', '.join(owners)} の許可パス"
+                else:
+                    note = "  → どの票の許可パスにも無い"
+                foreign_lines.append(f"{line}{note}")
+        parts = [
+            "foreign (判定に使った未コミットのパス):",
+            *foreign_lines,
+        ]
+        if bookkeeping:
+            parts.extend(
+                [
+                    "",
+                    "not used for decision (判定に使っていない: progress/ と平易化ページ):",
+                    *bookkeeping,
+                ]
+            )
+        return "\n".join(parts)
+
+    def owners_of_path(self, path: str) -> list[str]:
+        """Task ids whose allowed_paths cover `path`, across every phase."""
+        owners: list[str] = []
+        progress = self.settings.repository / "progress"
+        if not progress.is_dir():
+            return owners
+        for task_file in sorted(progress.glob("*/tasks/*.md")):
+            try:
+                task = parse(task_file)
+            except Exception:  # noqa: S112 - a broken task file must not break the stop report
+                continue
+            for allowed in task.allowed_paths:
+                entry = allowed.replace("\\", "/")
+                if path == entry or path.startswith(entry.rstrip("/") + "/"):
+                    owners.append(task.id)
+                    break
+        return owners
 
     @staticmethod
     def commit_type(task: Task) -> str:

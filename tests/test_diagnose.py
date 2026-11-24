@@ -235,3 +235,34 @@ def test_three_honest_attempts_are_not_a_regression_of_the_outage_repair(tmp_pat
     shown = diagnose.report(findings)
     assert "a person's call by design" in shown
     assert "the same supplier error three times" in shown
+
+
+def test_dirty_branch_with_product_foreign_is_not_a_bookkeeping_regression(
+    tmp_path: Path,
+) -> None:
+    # The 2026-11-21 repair fixed record misclassification. A later stop caused
+    # by a real product file in the checkout is a different cause, and calling it
+    # a regression of that repair sends the shift looking in the wrong place.
+    phase = tmp_path / "phase-x"
+    decisions(
+        phase,
+        ENTRY.format(
+            job="T-A-1",
+            category="integration branch is dirty",
+            when="2026-12-05T04:00:00+09:00",
+            context=(
+                "commit=abc123\n"
+                "foreign (判定に使った未コミットのパス):\n"
+                "?? tests/test_storage_seam.py  → T-PH7-211 の許可パス\n"
+                "\n"
+                "not used for decision (判定に使っていない: progress/ と平易化ページ):\n"
+                " M progress/phase-7-production/OWNER_DECISIONS.md\n"
+            ),
+        ),
+    )
+    findings = diagnose.survey(tmp_path, ["phase-x"])
+    assert len(findings) == 1
+    assert findings[0].product_foreign_dirty
+    assert not findings[0].regression
+    assert not findings[0].repairable
+    assert "REGRESSION" not in diagnose.report(findings)
