@@ -684,6 +684,7 @@ class Controller:
         # uncommitted state only — see `dirt`, and the two jobs this wrongly
         # blocked on 2026-11-17 when the operator committed mid-run.
         outside = self.dirt(self.settings.repository)
+        self.roster.mark_dispatched(model)
         result = self.dispatch(model, brief, cwd=tree, timeout=self.settings.worker_timeout)
         after = self.dirt(self.settings.repository)
         # Judge on what *appeared*, not on inequality. An escaping worker leaves
@@ -700,6 +701,16 @@ class Controller:
             if not self.bookkeeping(line)
         ]
         if moved and not self.operator_busy():
+            containment = self.roster.mark_containment_stop(
+                model, orchestrator_busy=self.operator_busy()
+            )
+            containment_note = (
+                f"containment {model}: {containment['containment_stops']}/"
+                f"{containment['dispatches']} stops/dispatches"
+            )
+            if containment["rested"]:
+                containment_note += f" -> rested {COOLDOWN_SECONDS / 3600:.0f}h"
+                self.note(containment_note)
             return self.escalate(
                 task,
                 "worker wrote outside its workspace",
@@ -708,6 +719,7 @@ class Controller:
                 f"model={model}\nworkspace={tree}\n"
                 f"marker={self.settings.state_directory / 'orchestrator-busy'} "
                 f"present={self.operator_busy()}\n"
+                f"{containment_note}\n"
                 # Paths, not digests: the reader needs the filenames.
                 f"appeared:\n"
                 + "\n".join(f"{line[:2]} {self.changed_path(line)}" for line in moved[:25]),
@@ -1048,6 +1060,7 @@ class Controller:
         evidence = "\n".join(f"- {gate.name}: {gate.detail[:300]}" for gate in checks)
         before = self.fingerprint(tree)
         untracked = self.untracked(tree)
+        self.roster.mark_dispatched(reviewer)
         verdict = self.dispatch(
             reviewer,
             prompts.reviewer_brief(
