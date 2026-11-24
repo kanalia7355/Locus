@@ -283,3 +283,16 @@ CONFLICT (content): Merge conflict in jobloop/controller.py
 Auto-merging tests/test_jobloop.py
 CONFLICT (content): Merge conflict in tests/test_jobloop.py
 Automatic merge failed; fix conflicts and then commit the result.
+
+## T-PH9-410 — the merge conflicted (2026-11-24T15:38:51+09:00)
+
+**Question**: The reviewed work no longer applies to the integration branch, so the merge was aborted and nothing was committed. Decide whether the job redoes its work on the current branch.
+
+**Context**
+
+commit=872485682402cbc68f30dbc54fe0e777497d1e94
+branch=loop/T-PH9-410-t-ph9-410
+Auto-merging jobloop/roster.py
+CONFLICT (content): Merge conflict in jobloop/roster.py
+Auto-merging tests/test_jobloop.py
+Automatic merge failed; fix conflicts and then commit the result.
