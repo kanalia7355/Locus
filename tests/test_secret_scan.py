@@ -15,6 +15,8 @@ from pathlib import Path
 
 import pytest
 
+from scripts import secret_scan
+
 ROOT = Path(__file__).resolve().parents[1]
 SCANNER = ROOT / "scripts" / "secret_scan.py"
 
@@ -74,3 +76,47 @@ def test_anything_outside_the_closed_set_still_fails(tmp_path: Path, literal: st
     assert result.returncode != 0, (
         f"{literal!r} was waved through: " + result.stdout + result.stderr
     )
+
+
+def test_split_paths_batches_by_length_and_keeps_the_set() -> None:
+    paths = [f"./{'x' * 15}{index}" for index in range(4)]
+    batches = secret_scan.split_paths(paths, max_length=40)
+    assert [path for batch in batches for path in batch] == paths
+    assert len(batches) == 2
+    assert all(sum(len(path) + 1 for path in batch) <= 40 for batch in batches)
+
+
+def test_scan_batches_a_path_list_that_would_not_fit_one_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One command line past the cap kills the scan before any finding is read."""
+    monkeypatch.setattr(secret_scan, "ROOT", tmp_path)
+    (tmp_path / "clean.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "other.py").write_text("VALUE = 2\n", encoding="utf-8")
+    assert secret_scan.scan(["./clean.py", "./other.py"], max_length=10) == 0
+
+
+def test_scan_of_a_long_path_list_completes_in_batches(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The 2026-11-24 crash shape: a whole-inventory path list in one command."""
+    monkeypatch.setattr(secret_scan, "ROOT", tmp_path)
+    names = [f"f{index:03d}-" + "x" * 240 for index in range(140)]
+    for name in names:
+        (tmp_path / name).write_text("VALUE = 1\n", encoding="utf-8")
+    paths = ["./" + name for name in names]
+    assert secret_scan.scan(paths) == 0
+
+
+def test_a_scanner_startup_failure_is_reported_not_silently_clean(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A scan that cannot start must fail; it must never report 0 findings."""
+
+    def failing_run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            args=[], returncode=2, stdout="", stderr="scanner unavailable"
+        )
+
+    monkeypatch.setattr(secret_scan.subprocess, "run", failing_run)
+    assert secret_scan.scan(["./clean.py"]) == 2
