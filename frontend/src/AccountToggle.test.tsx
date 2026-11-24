@@ -19,7 +19,8 @@ beforeEach(() => {
 
 async function openUsers() {
   render(<App />);
-  fireEvent.click(await screen.findByRole("button", { name: /^利用者$/ }));
+  fireEvent.click(await screen.findByRole("button", { name: "設定" }));
+  fireEvent.click(await screen.findByRole("button", { name: "利用者" }));
   return screen.findByRole("button", { name: "aliceを無効にする" });
 }
 
@@ -78,10 +79,9 @@ it("does not apply a late users response to the audit page", async () => {
   fireEvent.click(
     screen.getByRole("button", { name: "aliceを無効にする（確認）" }),
   );
-  fireEvent.click(screen.getByText("運用・記録"));
   fireEvent.click(screen.getByRole("button", { name: /^操作記録$/ }));
   finish(new Response(JSON.stringify({ ...alice, enabled: false })));
-  await screen.findByRole("heading", { name: "操作記録" });
+  await screen.findByRole("heading", { name: "操作記録", level: 2 });
   expect(screen.queryByText("alice")).not.toBeInTheDocument();
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 });

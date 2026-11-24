@@ -179,7 +179,7 @@ async function tabUntil(
 async function signIn(page: Page): Promise<void> {
   const rotate = page.getByRole("heading", { name: "仮パスワードの変更" });
   const workspace = page.getByRole("heading", {
-    name: "資料を調べる",
+    name: "会話",
     exact: true,
   });
   for (const candidate of [rotatedPassword, uniquePassword]) {
@@ -209,7 +209,7 @@ async function signIn(page: Page): Promise<void> {
 
 async function ensureSignedIn(page: Page): Promise<void> {
   const workspace = page.getByRole("heading", {
-    name: "資料を調べる",
+    name: "会話",
     exact: true,
   });
   await page.goto("/");
@@ -308,7 +308,7 @@ test("keyboard only flow covers login, chat, sources, history and logout", async
   await tabUntil(page, /^変更して続ける$/);
   await page.keyboard.press("Enter");
   await expect(
-    page.getByRole("heading", { name: "資料を調べる", exact: true }),
+    page.getByRole("heading", { name: "会話", exact: true }),
   ).toBeVisible();
 
   const topbarOrder: string[] = [];
@@ -319,19 +319,16 @@ test("keyboard only flow covers login, chat, sources, history and logout", async
   expect(topbarOrder).toEqual(["サイドバーを閉じる", "プロジェクト", "ログアウト"]);
 
   const navigationOrder: string[] = [];
-  for (let index = 0; index < 8; index++) {
+  for (let index = 0; index < 5; index++) {
     await page.keyboard.press("Tab");
     navigationOrder.push(await activeName(page));
   }
   expect(navigationOrder).toEqual([
-    "資料を調べる",
+    "新しいチャット",
     "共有資料",
     "個人資料",
-    "調査履歴",
-    "利用者・アクセス",
-    "管理委任",
-    "データ・処理",
     "取り込み状況",
+    "設定",
   ]);
 
   await tabUntil(page, /^メッセージ$/);
@@ -363,19 +360,10 @@ test("keyboard only flow covers login, chat, sources, history and logout", async
   await expect(dialog).not.toBeVisible();
   await expect(citation.first()).toBeFocused();
 
-  await tabUntil(page, /^調査履歴$/);
-  await page.keyboard.press("Enter");
-  const historyHeading = page.getByRole("heading", {
-    name: "調査履歴",
-    exact: true,
-  });
-  await expect(historyHeading).toBeVisible();
-  await expect(historyHeading).toBeFocused();
-
   await tabUntil(page, /^成膜条件/);
   await page.keyboard.press("Enter");
   await expect(
-    page.getByRole("heading", { name: "資料を調べる", exact: true }),
+    page.getByRole("heading", { name: "会話", exact: true }),
   ).toBeVisible();
 
   await tabUntil(page, /^ログアウト$/, { backwards: true });

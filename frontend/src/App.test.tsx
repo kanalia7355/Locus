@@ -263,7 +263,7 @@ data: ${JSON.stringify(data)}
 
   it("preserves the sidebar control and excludes collapsed navigation from focus", async () => {
     render(<App />);
-    await screen.findByRole("heading", { name: "資料を調べる" });
+    await screen.findByRole("heading", { name: "会話" });
     fireEvent.click(screen.getByRole("button", { name: "サイドバーを閉じる" }));
     expect(
       screen.getByRole("button", { name: "サイドバーを開く" }),
@@ -554,19 +554,16 @@ data: ${JSON.stringify(data)}
       return new Response(JSON.stringify([]));
     });
     render(<App />);
-    fireEvent.click(
-      await screen.findByRole("button", { name: "モデル・同時利用" }),
-    );
-    expect(
-      await screen.findByText(
-        "LAN公開、回復、組織単位の委任拡張、保存期間は承認待ちです。プロジェクト単位の権限委任は「管理委任」から設定できます。",
-      ),
-    ).toBeVisible();
-    expect(
-      screen.queryByText("LAN公開、回復、管理委任、保存期間は承認待ちです。"),
-    ).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "設定" }));
+    fireEvent.click(await screen.findByRole("button", { name: "実験的" }));
+    expect(await screen.findByText("LAN公開")).toBeVisible();
+    expect(screen.getByText("回復")).toBeVisible();
+    expect(screen.getByText("組織単位の委任拡張")).toBeVisible();
+    expect(screen.getByText("保存期間")).toBeVisible();
+    expect(screen.getAllByText("準備中").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("承認待ち").length).toBeGreaterThan(0);
 
-    fireEvent.click(screen.getByRole("button", { name: "役割・管理権限" }));
+    fireEvent.click(screen.getByRole("button", { name: "役割" }));
     expect(
       await screen.findByText(
         "ロールは現在のプロジェクト内で有効です。管理操作の権限は委任できません。",
@@ -579,7 +576,7 @@ data: ${JSON.stringify(data)}
 
   it("moves focus to the page heading when the keyboard user changes pages", async () => {
     render(<App />);
-    await screen.findByRole("heading", { name: "資料を調べる" });
+    await screen.findByRole("heading", { name: "会話" });
     fireEvent.click(screen.getByRole("button", { name: "共有資料" }));
     const heading = await screen.findByRole("heading", { name: "共有資料" });
     await waitFor(() => expect(heading).toHaveFocus());
@@ -636,7 +633,7 @@ data: ${JSON.stringify(data)}
 
   it("closes the overlay sidebar with Escape and returns focus to its control", async () => {
     render(<App />);
-    await screen.findByRole("heading", { name: "資料を調べる" });
+    await screen.findByRole("heading", { name: "会話" });
     const toggle = screen.getByRole("button", { name: "サイドバーを閉じる" });
     setViewportWidth(375);
     const sidebar = document.querySelector("#workspace-sidebar")!;
@@ -697,7 +694,7 @@ data: ${JSON.stringify(data)}
 
   it("keeps the desktop sidebar open when Escape is pressed inside it", async () => {
     render(<App />);
-    await screen.findByRole("heading", { name: "資料を調べる" });
+    await screen.findByRole("heading", { name: "会話" });
     setViewportWidth(1280);
     const sidebar = document.querySelector("#workspace-sidebar")!;
     fireEvent.keyDown(sidebar, { key: "Escape" });
@@ -1397,5 +1394,103 @@ describe("source provenance modal", () => {
     await waitFor(() =>
       expect(screen.queryByRole("dialog", { name: "出典の原文" })).toBeNull(),
     );
+  });
+
+  // --- T-PH6-112: settings dialog / sidebar acceptance ---
+
+  async function openSettings() {
+    render(<App />);
+    await screen.findByRole("heading", { name: "会話" });
+    fireEvent.click(screen.getByRole("button", { name: "設定" }));
+    return screen.findByRole("dialog", { name: "設定" });
+  }
+
+  it("opens the settings dialog from the gear and exposes its accessible name", async () => {
+    const dialog = await openSettings();
+    expect(dialog.tagName).toBe("DIALOG");
+    expect(dialog).toHaveAttribute("open", "");
+    expect(screen.getByRole("dialog", { name: "設定" })).toBe(dialog);
+  });
+
+  it("closes the settings dialog with Escape and a backdrop click", async () => {
+    const dialog = await openSettings();
+    // jsdom does not implement closedby light-dismiss. Mirror the browser
+    // behaviour for this test only so the Esc requirement is exercised.
+    const dialogEl = dialog as HTMLDialogElement;
+    dialogEl.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") dialogEl.close();
+    });
+    dialog.focus();
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "設定" })).toBeNull(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "設定" }));
+    const reopened = await screen.findByRole("dialog", { name: "設定" });
+    fireEvent.click(reopened, { clientX: -1, clientY: -1 });
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "設定" })).toBeNull(),
+    );
+  });
+
+  it("switches settings tabs and updates the panel content", async () => {
+    await openSettings();
+    expect(
+      screen.getByRole("heading", { name: "外観", level: 2 }),
+    ).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "実験的" }));
+    expect(
+      await screen.findByRole("heading", { name: "実験的", level: 2 }),
+    ).toBeVisible();
+    expect(screen.getByText("LAN公開")).toBeVisible();
+  });
+
+  it("starts a new chat from the sidebar button", async () => {
+    render(<App />);
+    const field = await screen.findByRole("textbox", { name: "メッセージ" });
+    await waitFor(() => expect(field).toBeEnabled());
+    fireEvent.change(field, { target: { value: "成膜条件" } });
+    expect(field).toHaveValue("成膜条件");
+
+    fireEvent.click(screen.getByRole("button", { name: "新しいチャット" }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("textbox", { name: "メッセージ" }),
+      ).toHaveValue(""),
+    );
+    expect(screen.getByText("資料を参照して質問できます")).toBeVisible();
+  });
+
+  it("hides admin-only settings tabs for a non-admin user", async () => {
+    // Default mock user: system_admin false, permissions [read,retrieve,upload].
+    await openSettings();
+    expect(screen.getByRole("button", { name: "外観" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "モデル" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "実験的" })).toBeVisible();
+    for (const label of [
+      "利用者",
+      "役割",
+      "プロジェクト",
+      "保存先",
+      "実行状況",
+      "操作記録",
+    ]) {
+      expect(
+        screen.queryByRole("button", { name: label }),
+      ).not.toBeInTheDocument();
+    }
+  });
+
+  it("does not show operations gated by can() when permission is false", async () => {
+    // manage_roles is not granted to the default user; the roles tab must not
+    // appear even though the project exists.
+    await openSettings();
+    expect(
+      screen.queryByRole("button", { name: "役割" }),
+    ).not.toBeInTheDocument();
+    // Delegations tab is visible because project.id exists (not a can() gate),
+    // but role management is not.
+    expect(screen.getByRole("button", { name: "委任" })).toBeVisible();
   });
 });
