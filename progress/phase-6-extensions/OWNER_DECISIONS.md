@@ -2674,3 +2674,24 @@ not used for decision (判定に使っていない: progress/ と平易化ペー
  M progress/phase-9-loop-health/tasks/T-PH9-410.md
 
 **Answer** (2026-11-24 14:30, orchestrator): 今日 4 度目で、4 度ともこの票の落ち度ではない。`foreign` は `T-PH9-409` と `T-PH9-410` の仕事。レビュー済みコミット `b43ece2` は無傷。本体は綺麗にした。**試行は消費せず `review`。** 原因（`T-PH9-406`）は `review` にあり、入るまでこの形は続く。詳細は `tasks/T-PH6-127.md`。
+
+## T-PH6-104 — integration branch is dirty (2026-11-24T15:10:49+09:00)
+
+**Question**: The main checkout has uncommitted changes, so the reviewed commit was not merged. Decide how to integrate it.
+
+**Context**
+
+commit=96d0da9a05c8135a972a399b9486227d751e8049
+foreign (判定に使った未コミットのパス):
+ M scripts/secret_scan.py  → T-PH4-103, T-PH6-109, T-PH6-113, T-PH6-124, T-PH9-411 の許可パス
+ M tests/test_secret_scan.py  → T-PH6-109, T-PH6-113, T-PH6-124, T-PH9-411 の許可パス
+
+not used for decision (判定に使っていない: progress/ と平易化ページ):
+ M docs/report/OWNER_DECISIONS_PLAIN_GUIDE.html
+ M progress/phase-6-extensions/tasks/T-PH6-104.md
+ M progress/phase-9-loop-health/OWNER_DECISIONS.md
+ M progress/phase-9-loop-health/tasks/T-PH9-406.md
+ M progress/phase-9-loop-health/tasks/T-PH9-410.md
+ M progress/phase-9-loop-health/tasks/T-PH9-411.md
+
+**Answer** (2026-11-24 15:30, orchestrator): 今日 6 度目で、この票の落ち度ではない。`foreign` は `T-PH9-411` の仕事。13:30 の裁定はそのまま有効。本体は綺麗にした。**試行も周回も動かさず `review`。** 詳細は `tasks/T-PH6-104.md`。
