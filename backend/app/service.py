@@ -34,6 +34,7 @@ from app.password_rules import (
     LOCK_FAILURE_THRESHOLD,
     check_password_strength,
 )
+from app.sandbox import SUBPROCESS_GUARANTEES, SandboxResult, extract_with_sandbox
 from app.scanner import UNAVAILABLE, ScanResult
 from app.storage import (
     SqliteEngine,
@@ -607,6 +608,10 @@ class Service:
         # keep working with a fresh checkpoint and no failure code.
         self._engine.ensure_column("documents", "index_checkpoint", "INTEGER NOT NULL DEFAULT 0")
         self._engine.ensure_column("documents", "failure_code", "TEXT NOT NULL DEFAULT ''")
+        # Extraction sandbox kind ("docker" / "subprocess") and honest containment
+        # guarantees recorded per ingested document (DATA-006 / design §4-§5).
+        self._engine.ensure_column("documents", "sandbox", "TEXT NOT NULL DEFAULT ''")
+        self._engine.ensure_column("documents", "sandbox_guarantees", "TEXT NOT NULL DEFAULT '{}'")
         self._engine.conn.execute(
             "INSERT OR IGNORE INTO membership_roles (user_id,project_id,role) "
             "SELECT user_id,project_id,role FROM memberships"
@@ -2884,11 +2889,19 @@ class Service:
                 "created",
                 "conversation_id",
                 "failure_code",
+                "sandbox",
             )
             if key in available
         }
-        # Projections that omit the additive column still produce valid metadata.
+        # Projections that omit additive columns still produce valid metadata.
         data.setdefault("failure_code", "")
+        data.setdefault("sandbox", "")
+        raw_guarantees = row["sandbox_guarantees"] if "sandbox_guarantees" in available else "{}"
+        try:
+            guarantees = json.loads(raw_guarantees) if isinstance(raw_guarantees, str) else {}
+        except (TypeError, ValueError):
+            guarantees = {}
+        data["sandbox_guarantees"] = guarantees if isinstance(guarantees, dict) else {}
         return {
             **data,
             "stage": DOCUMENT_STAGES.get(row["status"], row["status"]),
@@ -2974,7 +2987,7 @@ class Service:
             results: list[Json] = []
             for candidate in db.execute(
                 "SELECT id,owner_id,project_id,kind,name,status,reason,conversation_id,"
-                "grants,created,failure_code "
+                "grants,created,failure_code,sandbox,sandbox_guarantees "
                 "FROM documents WHERE project_id=? AND status='ready' AND id<>? "
                 "ORDER BY id",
                 (source["project_id"], document),
@@ -3093,6 +3106,56 @@ class Service:
             return False
         return True
 
+    @staticmethod
+    def _extract_reason(result: SandboxResult) -> str:
+        """Map a failed SandboxResult to a user-safe quarantine reason (design §6)."""
+        if result.guarantees.get("wall_time") == "timed_out":
+            return "解析に時間がかかりすぎたため隔離中です。本文は検索に使いません"
+        if result.guarantees.get("output_bytes") == "truncated":
+            return "解析結果が上限を超えたため隔離中です。本文は検索に使いません"
+        return "本文を安全に抽出できなかったため隔離中です。本文は検索に使いません"
+
+    def _extract(self, name: str, raw_content: str) -> tuple[bool, str | None, str, str, str]:
+        """Run sandbox extraction and unwrap only ``body`` from the JSON envelope.
+
+        Returns ``(ok, body, sandbox, guarantees_json, failure_reason)``.
+        The JSON envelope is handled strictly in memory and never stored in ``documents``.
+        """
+        doc_format = format_for(name)
+        if doc_format is None:
+            return (
+                False,
+                None,
+                "subprocess",
+                json.dumps(SUBPROCESS_GUARANTEES, ensure_ascii=False),
+                "対応していない形式のため隔離中です。本文は検索に使いません",
+            )
+        result = extract_with_sandbox(doc_format.extractor, raw_content)
+        sandbox = result.sandbox if result.sandbox in {"docker", "subprocess"} else "subprocess"
+        guarantees_json = json.dumps(result.guarantees, ensure_ascii=False)
+        if not result.success or result.content is None:
+            return (False, None, sandbox, guarantees_json, self._extract_reason(result))
+        try:
+            envelope = json.loads(result.content)
+        except (TypeError, ValueError):
+            return (
+                False,
+                None,
+                sandbox,
+                guarantees_json,
+                "本文を安全に抽出できなかったため隔離中です。本文は検索に使いません",
+            )
+        body = envelope.get("body") if isinstance(envelope, dict) else None
+        if not isinstance(body, str) or not body:
+            return (
+                False,
+                None,
+                sandbox,
+                guarantees_json,
+                "本文を安全に抽出できなかったため隔離中です。本文は検索に使いません",
+            )
+        return (True, body, sandbox, guarantees_json, "")
+
     def process_next(self) -> bool:
         with self.db() as db:
             row = db.execute(
@@ -3100,7 +3163,7 @@ class Service:
             ).fetchone()
             if not row:
                 return False
-            # Recheck queued work BEFORE exposing content to a scanner adapter.
+            # Recheck queued work BEFORE exposing content to an extractor or scanner adapter.
             if not self._ingestion_allowed(db, row):
                 self._cancel_ingestion(
                     db, row["id"], "permission_revoked", "登録者の利用権限が失効しました"
@@ -3110,14 +3173,37 @@ class Service:
                 "UPDATE documents SET status='scanning',reason='',failure_code='' WHERE id=?",
                 (row["id"],),
             )
-        try:
-            outcome = self.scanner.scan(row["content"]).outcome
-        except Exception:
-            # A configured adapter that raises still fails closed; the check
-            # simply could not run, which is not a rejection verdict.
-            outcome = "unavailable"
-        self.scanner_last_outcome = outcome
-        # Scanner runs outside the transaction. Never publish stale work after revoke/delete/cancel.
+        # Resuming an interrupted 'indexing' row (index_checkpoint > 0) reuses its
+        # already-extracted content so page checkpoints remain intact and extraction
+        # never re-wraps or re-transforms a partially indexed body.
+        already_extracted = int(row["index_checkpoint"] or 0) > 0
+        if already_extracted:
+            extracted_ok = True
+            body: str | None = str(row["content"])
+            sandbox = str(row["sandbox"] or "subprocess")
+            guarantees_json = str(
+                row["sandbox_guarantees"]
+                if row["sandbox_guarantees"] and row["sandbox_guarantees"] != "{}"
+                else json.dumps(SUBPROCESS_GUARANTEES, ensure_ascii=False)
+            )
+            extract_reason = ""
+        else:
+            extracted_ok, body, sandbox, guarantees_json, extract_reason = self._extract(
+                str(row["name"]), str(row["content"])
+            )
+        outcome = "clean"
+        if extracted_ok:
+            assert body is not None
+            try:
+                outcome = self.scanner.scan(body).outcome
+            except Exception:
+                # A configured adapter that raises still fails closed; the check
+                # simply could not run, which is not a rejection verdict.
+                outcome = "unavailable"
+            self.scanner_last_outcome = outcome
+        # Extraction and scanner run outside the transaction. Never publish stale work
+        # after revoke/delete/cancel, and never write extracted content mid-flight so a
+        # crash + recover_jobs() retry always reads the original raw upload.
         with self.db() as db:
             live = db.execute("SELECT * FROM documents WHERE id=?", (row["id"],)).fetchone()
             if not live or live["status"] != "scanning":
@@ -3125,6 +3211,13 @@ class Service:
             if not self._ingestion_allowed(db, live):
                 self._cancel_ingestion(
                     db, row["id"], "permission_revoked", "登録者の利用権限が失効しました"
+                )
+                return True
+            if not extracted_ok or body is None:
+                db.execute(
+                    "UPDATE documents SET status='quarantined',reason=?,failure_code=?,"
+                    "sandbox=?,sandbox_guarantees=? WHERE id=?",
+                    (extract_reason, "extraction_failed", sandbox, guarantees_json, row["id"]),
                 )
                 return True
             if outcome != "clean":
@@ -3137,14 +3230,20 @@ class Service:
                 )
                 code = "scanner_rejected" if outcome == "rejected" else "scanner_unavailable"
                 db.execute(
-                    "UPDATE documents SET status='quarantined',reason=?,failure_code=? WHERE id=?",
-                    (reason, code, row["id"]),
+                    "UPDATE documents SET status='quarantined',reason=?,failure_code=?,"
+                    "sandbox=?,sandbox_guarantees=? WHERE id=?",
+                    (reason, code, sandbox, guarantees_json, row["id"]),
                 )
                 return True
             # Chunks are built in a resumable stage. _index commits each completed
             # page checkpoint while keeping the checked publication transaction
-            # free of stale scanner work.
-            db.execute("UPDATE documents SET status='indexing' WHERE id=?", (row["id"],))
+            # free of stale scanner work. Store only the unwrapped body, never the
+            # extractor's JSON envelope.
+            db.execute(
+                "UPDATE documents SET status='indexing',content=?,sandbox=?,"
+                "sandbox_guarantees=? WHERE id=?",
+                (body, sandbox, guarantees_json, row["id"]),
+            )
             indexing_row = db.execute("SELECT * FROM documents WHERE id=?", (row["id"],)).fetchone()
             try:
                 self._index(db, indexing_row)
