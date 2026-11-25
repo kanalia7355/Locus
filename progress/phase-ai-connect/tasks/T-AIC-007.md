@@ -1,15 +1,16 @@
 ---
 id: T-AIC-007
 phase: phase-ai-connect
-status: todo
-assignee: unassigned
-model: -
+status: review
+assignee: opencode
+model: opencode/flint-40b-free
 weight: light
 depends_on: T-AIC-002
 allowed_paths: backend/app/main.py, tests/test_model_catalog.py
 test_cmd: python -m pytest tests/test_model_catalog.py -q
-updated: 2026-11-25T18:50:00+09:00
+updated: 2026-11-25T20:26:12+09:00
 attempts: 0
+reviewer: opencode/iceman-free
 ---
 
 # Task `T-AIC-007`: リモートモデルを無効にしたとき、資格情報と応答の形を後始末する
@@ -73,3 +74,43 @@ attempts: 0
 6. 資格情報らしい文字列を検査に埋める必要がある場合は、**走査が許している値だけ**を
    使うこと（`sk-synthetic-0N-not-a-real-key` の形。他の値は走査が落ちる）。
 7. 変更が `allowed_paths` 内に収まっている。
+
+## CONTAINMENT UNVERIFIED (2026-11-25T20:26:07+09:00)
+
+The operator was editing the main checkout during this cycle, so the containment comparison was suspended. The worker's isolation was not verified for this attempt.
+
+## ATTEMPT 1 — implementation by opencode/flint-40b-free (2026-11-25T20:26:12+09:00)
+
+Baseline is green (24 passed, 2 skipped). Now let me add the failing regression tests first, per the method.Both new tests fail exactly as the job predicted. Now let me implement the fix in `backend/app/main.py`.The target suite is green. Now checking the neighboring suites for regressions.The scan flagged my synthetic key: the scanner only allows the closed set `sk-synthetic-0[1-4]-not-a-real-key`. Let me use an allowed fixture value.mypy was already red at HEAD (7 pre-existing errors); my early-return added one more of an already-existing error class. Let me restructure the GET to keep the original single-return shape and avoid adding new mypy errors.The only runtime-disable entry is the `candidate_id: null` branch of the single `PUT /api/admin/models/runtime` handler — confirmed single-entry. Let me strengthen the disable test's response assertion.Final regression sweep of the neighboring suites against the finished code:REPORT
+- what I changed and why, file by file:
+  - `backend/app/main.py`:
+    - Added a `clear_remote_runtime_credentials()` helper inside `create_app` (after the chat-runtime proxy): drops `remote_runtime._base_url` / `remote_runtime._api_key` under the remote runtime's settings lock.
+    - `PUT /api/admin/models/runtime` disable branch (`candidate_id is None`): after the disable `configure`, when the disabled target is the remote runtime it now calls the clearing helper, so the discovered endpoint/key do not survive in process memory; the disabled answer also drops `api_key_present` so a disabled runtime answers with the same item set as a never-configured one.
+    - `GET /api/admin/models/runtime`: when no model is configured, the adapter-fixed `api_key_present` is dropped, so the unconfigured response carries the same item set for local and remote runtimes.
+  - `tests/test_model_catalog.py`:
+    - `test_disabling_remote_model_clears_endpoint_and_key`: discover (openai-compatible) → configure → disable, then asserts the endpoint and key are cleared and the disable answer is unconfigured-shaped.
+    - `test_unconfigured_runtime_response_shape_is_local_and_remote_equal`: unconfigured runtime response must equal the local unconfigured status (same item set, no `provider`/`api_key_present`).
+- decision taken for the "unconfigured response items" alignment: **both omit `provider`/`api_key_present` when no model is configured**. Reason: the never-configured local shape is pinned by existing exact-equality assertions in `tests/test_local_model.py` (outside this task's allowed paths, so not modifiable here), and the frontend (`frontend/src/ModelRuntime.tsx`) only renders provider/API-key lines when `current.provider` is present, so omitting unconfigured fields is safe without touching `frontend/` (read-only during this task).
+- inconsistency found between documentation and code: the pre-existing code comment ("Only add provider/api_key_present when a model is configured. This preserves backward compatibility…") already encoded the intended unconfigured shape; the defect was that `OpenAICompatibleModel.status()` unconditionally emitted `api_key_present` and the handler never neutralized it for the unconfigured case.
+- risk left behind: after disable, the chat-runtime proxy still references the remote runtime object as its active target (now credential-free, model=None), so generation stays guarded by the `if not model` checks; registered-candidate bookkeeping (`registered`/`registered_sources`) is not cleared on disable, which was outside this task's scope.
+
+TEST
+- Commands and real results:
+  - `python -m pytest tests/test_model_catalog.py -q` → `26 passed, 2 skipped in 5.41s` (the 2 skips are pre-existing Windows symlink-fixture skips; before my change the same file was `24 passed, 2 skipped`).
+  - `python -m ruff check backend tests scripts jobloop` → `All checks passed!`
+  - `python -m ruff format --check backend tests scripts jobloop` → `192 files already formatted`
+  - `python scripts/secret_scan.py backend/app/main.py tests/test_model_catalog.py` → `Offline secret scan: 0 findings`
+  - Neighboring regression suites (`tests/test_provider_openai_compatible.py`, `tests/test_local_model.py`, `tests/test_model_slots.py`, `tests/test_chat_queue.py`, `tests/test_chat_drain.py`, `tests/test_api.py`, `tests/test_audit_regressions.py`, `tests/test_security.py`) → `116 passed`.
+  - `python -m mypy backend/app` → 7 pre-existing errors, identical set to the unmodified HEAD baseline (verified via stash); no new type errors introduced.
+- Failures first, then fix: both new tests failed before the implementation (disable test: `assert remote._base_url is None` → got `'https://api.example.invalid/v1'`; unconfigured-shape test: response contained extra `{'api_key_present': False}` vs local shape). After the implementation: all green as above.
+
+STATUS
+ready-for-review
+
+### Controller gates
+
+- `scope`: green
+- `task-verification`: green
+- `python-lint`: green
+- `python-format`: green
+- `secret-scan`: green

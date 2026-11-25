@@ -5,11 +5,11 @@ status: review
 assignee: opencode
 model: opencode/nemotron-3.5-lightning-free
 weight: medium
-updated: 2026-11-25T16:30:00+09:00
+updated: 2026-11-25T20:28:31+09:00
 attempts: 2
 allowed_paths: backend/app/connectors.py, backend/app/service.py, backend/app/main.py, tests/test_connectors.py
 test_cmd: python -m pytest tests/test_connectors.py tests/test_api.py -q
-reviewer: opencode/iceman-free
+reviewer: agy/gemini-4-argon-low
 review_cycles: 1
 ---
 
@@ -462,3 +462,56 @@ review cycle limit reached: The reviewer still requires changes, and the review 
 禁じられているので、私が決めて閉じることはできない。
 
 **受入条件は 1 文字も変えていない。**
+
+## RESUMED GATES (2026-11-25T20:26:41+09:00)
+
+- `scope`: green
+- `task-verification`: green
+- `python-lint`: green
+- `python-format`: green
+- `secret-scan`: green
+
+## RESUMED GATES (2026-11-25T20:27:03+09:00)
+
+- `scope`: green
+- `task-verification`: green
+- `python-lint`: green
+- `python-format`: green
+- `secret-scan`: green
+
+## RESUMED GATES (2026-11-25T20:27:28+09:00)
+
+- `scope`: green
+- `task-verification`: green
+- `python-lint`: green
+- `python-format`: green
+- `secret-scan`: green
+
+## RESUMED GATES (2026-11-25T20:27:57+09:00)
+
+- `scope`: green
+- `task-verification`: green
+- `python-lint`: green
+- `python-format`: green
+- `secret-scan`: green
+
+## RESUMED GATES (2026-11-25T20:28:31+09:00)
+
+- `scope`: green
+- `task-verification`: green
+- `python-lint`: green
+- `python-format`: green
+- `secret-scan`: green
+
+## REVIEW by agy/gemini-4-argon-low (2026-11-25T20:29:28+09:00)
+
+VERDICT
+- APPROVED
+
+FINDINGS
+- none
+
+UNVERIFIED
+- I did not execute tests or linters myself; I relied on the controller-reported evidence (`scope` with 4 changed paths within `allowed_paths`, `task-verification` exit 0 with 28 passed, `python-lint` exit 0, `python-format` exit 0, `secret-scan` exit 0) and read-only inspection of the diff and repository files.
+- Actual read-path refusal for revoked document origins is deferred to `T-STC-005` per the task specification; only the origin revocation state and `is_document_origin_revoked` hook were checked here.
+- Per the task `SCOPE` instructions, the partial-pagination listing-failure regression test (`T-STC-006`) and the origin-recording failure exception path after upload (`T-STC-007`) are tracked in their dedicated follow-up tasks and were not treated as blocking findings for `T-STC-001`.

@@ -1,12 +1,12 @@
 ---
 id: T-AIC-003
 phase: phase-ai-connect
-status: review
+status: done
 assignee: opencode
 model: opencode/flint-40b-free
 weight: light
-updated: 2026-11-25T19:58:48+09:00
-attempts: 0
+updated: 2026-11-25T20:01:00+09:00
+attempts: 1
 depends_on: T-AIC-002
 allowed_paths: frontend/src/ModelSettings.tsx, frontend/src/ModelRuntime.tsx, frontend/src/ModelSettings.test.tsx, frontend/src/ModelRuntime.test.tsx
 test_cmd: npm --prefix frontend test -- --run src/ModelSettings.test.tsx src/ModelRuntime.test.tsx && npm --prefix frontend run typecheck
