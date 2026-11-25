@@ -297,7 +297,9 @@ def create_app(
     )
     app.state.service = svc
     registry = AgentRegistry(
-        svc.conn,
+        # Transitional bridge: the registry port still speaks a concrete DB-API
+        # connection while the engine owns the handle (T-PH7-212 migrates the typing).
+        svc.conn,  # type: ignore[arg-type]
         svc.lock,
         authenticate=svc._authenticate,
         audit=svc._audit,
