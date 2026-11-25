@@ -542,6 +542,19 @@ export function App() {
   );
 }
 
+const WIDE_LAYOUT_MEDIA_QUERY = "(min-width: 48em)";
+
+function isWideLayout(): boolean {
+  // jsdom など matchMedia が未実装または常に false を返すスタブ環境では広い配置に倒す。
+  if (
+    typeof window.matchMedia !== "function" ||
+    !window.matchMedia("(min-width: 0px)").matches
+  ) {
+    return true;
+  }
+  return window.matchMedia(WIDE_LAYOUT_MEDIA_QUERY).matches;
+}
+
 function Workspace({
   user,
   onLogout,
@@ -557,9 +570,7 @@ function Workspace({
   const [projectId, setProjectId] = useState("");
   const [page, setPage] = useState<Page>("chat");
   const [sidebar, setSidebar] = useState(
-    () =>
-      localStorage.getItem("locus-sidebar") !== "closed" &&
-      window.innerWidth >= 768,
+    () => localStorage.getItem("locus-sidebar") !== "closed" && isWideLayout(),
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [documents, setDocuments] = useState<Document[]>([]);
@@ -882,7 +893,7 @@ function Workspace({
     setPage(next);
     setError("");
     setNotice("");
-    if (window.innerWidth < 768) setSidebar(false);
+    if (!isWideLayout()) setSidebar(false);
   }
   function newChat() {
     setCancelledJob(null);
