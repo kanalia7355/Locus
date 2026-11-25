@@ -22,12 +22,20 @@ JST = timezone(timedelta(hours=9))
 
 
 def installed_models() -> list[str]:
-    """The model identifiers the CLI currently reports, for quota counting."""
+    """Every model identifier the loop can reach, for quota counting.
+
+    Both tiers, because the roster the controller builds has both: counting only
+    the first one made this check report `0 available` on 2026-11-25 while the
+    second tier was in fact answering. A check that cannot see what the loop uses
+    reports a dead loop as dead when it is working — the same class of lie as
+    matching on `CommandLine`, which reported a dead loop as alive for 17 hours.
+    """
     if str(ROOT) not in sys.path:
         sys.path.insert(0, str(ROOT))
+    from jobloop.cli import agy_installed_models
     from jobloop.cli import installed_models as cli_installed_models
 
-    return cli_installed_models()
+    return cli_installed_models() + agy_installed_models()
 
 
 def run(*command: str, quiet: bool = False) -> str:
