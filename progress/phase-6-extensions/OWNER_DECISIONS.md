@@ -2746,3 +2746,21 @@ UNVERIFIED
 - I reviewed the provided “change under review” diff and cross-checked key files in the stated workspace context where noted; I did not perform a fresh full test run of the entire frontend suite beyond relying on controller-reported green gates for the listed checks.
 
 **Answer** (2026-11-24 16:30, orchestrator): Medium は**この票の受入条件の外**である。条件 5 が名指しするのは `frontend/e2e/appearance.spec.ts` だけ、条件 6 のゲートも `test:appearance` だけで、**`a11y.spec.ts` / `workspace.spec.ts` を通す要求は 1 つも無い**（全 spec へ広げるのは `T-PH6-127`、未merge）。レビュアー自身も `UNVERIFIED` に「自分も実行していない」と書いている。**指摘は良いので `T-PH6-132` に移した**（`T-PH6-112` と `T-PH6-127` の両方に依存させ、ゲートが見る状態になってから検査する）。Low（jsdom の座標依存）は実機の `test:appearance` が通っているのでこの票では直さない。**周回を 1 回戻し（2/2 → 1/2）、試行は動かさず `review`。受入条件は 1 文字も緩めていない。** 詳細は `tasks/T-PH6-112.md`。
+
+## T-PH6-127 — the merge conflicted (2026-11-25T10:10:52+09:00)
+
+**Question**: The reviewed work no longer applies to the integration branch, so the merge was aborted and nothing was committed. Decide whether the job redoes its work on the current branch.
+
+**Context**
+
+commit=b43ece2d6a5f2c693d58750930e9bfeac4f2c62b
+branch=loop/T-PH6-127-t-ph6-127
+Auto-merging frontend/e2e/a11y.spec.ts
+Auto-merging frontend/e2e/appearance.spec.ts
+CONFLICT (content): Merge conflict in frontend/e2e/appearance.spec.ts
+Auto-merging frontend/e2e/workspace.spec.ts
+CONFLICT (content): Merge conflict in frontend/e2e/workspace.spec.ts
+Auto-merging tests/test_jobloop.py
+Automatic merge failed; fix conflicts and then commit the result.
+
+**Answer** (2026-11-25 10:35, orchestrator): **現在の統合ブランチの上でやり直す。試行（2/3）も周回（1/2）も動かさず `doing`。** 原因は `T-PH9-406` と同じ仕組みの側で、より古い: 基点 `967daff`（**11-22 18:37**）で **82 commits 遅れ**。衝突した `appearance.spec.ts` と `workspace.spec.ts` はこの間に `T-PH6-112` が書き換えてマージ済みなので、**112 の入った後の 3 本の上で組み直す**こと。**私が手でワークスペースを現在の枝へリセットした**（`behind=0`/`ahead=0`/汚れなし）。元のコミットはタグ `stale/T-PH6-127-1125` に保全し、捨てていない。**受入条件は 1 文字も変えていない** — 3 本を走らせて落ちた表明を直すのはこの票の仕事である（本文 `Implementation Details` 3）。`T-PH6-132` に移したのは `T-PH6-112` 側の指摘で、この票の範囲を狭めるものではない。仕組みの欠陥は `T-PH9-414` に起票した。詳細は `tasks/T-PH6-127.md`。
