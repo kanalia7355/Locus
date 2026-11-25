@@ -301,3 +301,17 @@ Auto-merging tests/test_jobloop.py
 Automatic merge failed; fix conflicts and then commit the result.
 
 **Answer** (2026-11-24 16:30, orchestrator): 同じ原因（`T-PH9-404` のマージ）で衝突した（`jobloop/roster.py`。`tests/test_jobloop.py` は自動合流できた）。**順番を付けた**: `depends_on` に `T-PH9-406` を追加し、406 の後に回す（両票が `tests/test_jobloop.py` を触るため）。**現在の枝でやり直し**、404 が入れた 175 行の上に防御を重ねること。15:30 に実測した `Roster.available()` の穴（`AttributeError`/`TypeError`）も同じ `available()` に入れる。**試行は消費せず（2/3）、周回は 1/2 のまま `doing`。** 詳細は `tasks/T-PH9-410.md`。
+
+## T-PH9-406 — the merge conflicted (2026-11-25T10:04:32+09:00)
+
+**Question**: The reviewed work no longer applies to the integration branch, so the merge was aborted and nothing was committed. Decide whether the job redoes its work on the current branch.
+
+**Context**
+
+commit=c6c0c4a7eab03e38676cf533e1ceffc5254ed0a5
+branch=loop/T-PH9-406-t-ph9-406
+Auto-merging jobloop/controller.py
+CONFLICT (content): Merge conflict in jobloop/controller.py
+Auto-merging tests/test_jobloop.py
+CONFLICT (content): Merge conflict in tests/test_jobloop.py
+Automatic merge failed; fix conflicts and then commit the result.
