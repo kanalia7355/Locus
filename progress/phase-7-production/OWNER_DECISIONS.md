@@ -910,3 +910,30 @@ appeared:
  M tests/test_jobloop.py
 
 **Answer** (2026-11-24 14:30, orchestrator): 巻き添えである。`appeared` の 2 行（`jobloop/roster.py`・`tests/test_jobloop.py`）は**この票の許可パスに 1 つも入っていない** — `T-PH9-409` と `T-PH9-410` が本体に残した分が派遣中に計上された。この票の作業はワークスペースに健在（`service.py` 変更、`storage.py` と `tests/test_storage_seam.py` 新規）。本体は綺麗にした。**試行は消費せず `doing`。残り 1 回。** 詳細は `tasks/T-PH7-211.md`。
+
+## T-PH7-211 — the merge conflicted (2026-11-25T12:23:22+09:00)
+
+**Question**: The reviewed work no longer applies to the integration branch, so the merge was aborted and nothing was committed. Decide whether the job redoes its work on the current branch.
+
+**Context**
+
+commit=64557e69f16cb758946f75f1a18f966c807d9962
+branch=loop/T-PH7-211-t-ph7-211
+Auto-merging backend/app/service.py
+CONFLICT (content): Merge conflict in backend/app/service.py
+Automatic merge failed; fix conflicts and then commit the result.
+
+## T-PH7-223 — review cycle limit reached (2026-11-25T12:30:22+09:00)
+
+**Question**: The reviewer still requires changes, and the review cycle budget is spent (attempts 2/3, review cycles 2/2).
+
+**Context**
+
+ion isolates the `LOCUS_PRIVATE_INTERFACE` rejection reason.
+- Medium, tests/test_production_startup.py:145-164: Acceptance criterion 2 requires direct function-call rejection tests for the same missing/invalid combinations as `create_app()`, but `test_direct_check_production_rejected` covers only 4 combinations. Concrete failure: a regression where `check_production_configuration()` accepts an invalid case that `create_app()` rejects (or vice versa) for cert/key path, private-interface, allowed-host, or unknown TLS cases would escape direct-check coverage. Smallest fix: parametrize the direct check over the same env-var matrix used for `create_app()` (or equivalent full coverage) and assert `RuntimeError`.
+- Medium, tests/test_production_startup.py:171-282: Acceptance criteria 3, 6, and 7 are not fully asserted. Missing: TrustedHostMiddleware allowed hosts matching `LOCUS_ALLOWED_HOSTS` (AC3), rejection when `ALLOW_CLOUD_EGRESS=true` / `LOCAL_ONLY_MODE=false` even with complete production config (AC6), and assertion that rejection messages do not contain cert/key contents (AC7). Concrete failure: a regression could change TrustedHostMiddleware host allowlist, permit cloud/local-override flags in complete production config, or leak TLS file contents in errors without failing this test file. Smallest fix: add focused tests that inspect middleware/host behavior, add complete-config+flag-flip rejection cases, and create cert/key files with sentinel contents then assert those sentinels are absent from `str(excinfo.value)`.
+
+UNVERIFIED
+- Native TLS termination is not exercised end-to-end; tests only supply synthetic cert/key files and verify presence/readability checks.
+- Actual socket binding to `LOCUS_PRIVATE_INTERFACE` and real reverse-proxy/trusted-proxy deployment behavior were not exercised; this review is limited to the diff and provided controller evidence.
+- I did not re-run pytest/ruff/secret-scan; I relied on the controller evidence reported in the job prompt.
