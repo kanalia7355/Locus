@@ -24,9 +24,12 @@ loop finishes the job it is on rather than being cut off mid-flight.
 from __future__ import annotations
 
 import argparse
+import io
+import math
 import subprocess
 import sys
 import time
+from contextlib import redirect_stderr
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -129,6 +132,8 @@ def cooldown_wait(
         try:
             until = float(entry.get("cooldown_until", 0))
         except (TypeError, ValueError):
+            continue
+        if not math.isfinite(until):
             continue
         remaining = until - now
         if remaining <= 0:
@@ -287,13 +292,19 @@ def main(argv: list[str] | None = None) -> int:
                 models = eligible(installed_models())
             except Exception:
                 models = []
-            waiting = idle_wait(
-                arguments.pause,
-                idle_rounds,
-                state_file=state / "roster.json",
-                models=models,
-                now=time.time(),
-            )
+            roster_err = io.StringIO()
+            with redirect_stderr(roster_err):
+                waiting = idle_wait(
+                    arguments.pause,
+                    idle_rounds,
+                    state_file=state / "roster.json",
+                    models=models,
+                    now=time.time(),
+                )
+            err_line = "; ".join(roster_err.getvalue().strip().splitlines())
+            if err_line:
+                print(err_line, file=sys.stderr)
+                told = f"{told}; {err_line}"
             heartbeat(
                 beat,
                 f"cycle {cycle} idle everywhere, waiting {waiting:.0f}s :: {told[:600]}",
