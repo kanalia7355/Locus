@@ -17,19 +17,24 @@ operations on one repository. A phase with nothing actionable exits in about two
 seconds, so walking all of them costs almost nothing and keeps the queue moving
 to the next phase the moment one runs dry.
 
-Stop it by creating `.jobloop/stop`. It is checked before every cycle, so the
-loop finishes the job it is on rather than being cut off mid-flight.
+Stop it by creating `.jobloop/stop`. It is checked before every cycle and every
+few seconds during waits, so the loop finishes the job it is on rather than
+being cut off mid-flight without making an operator wait twenty minutes during an
+idle pause. Only one supervisor may run at a time (`.jobloop/supervisor.pid`).
 """
 
 from __future__ import annotations
 
 import argparse
+import ctypes
+import errno
 import io
 import math
+import os
 import subprocess
 import sys
 import time
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, suppress
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -37,6 +42,96 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 JST = timezone(timedelta(hours=9))
+
+LOCK_FILENAME = "supervisor.pid"
+STOP_POLL_SECONDS = 5.0
+
+
+def pid_alive(pid: int) -> bool:
+    """Whether an OS process with `pid` is still running."""
+    if pid <= 0:
+        return False
+    if sys.platform == "win32":
+        process_query_limited_information = 0x1000
+        still_active = 259
+        error_access_denied = 5
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.argtypes = [ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
+        kernel32.OpenProcess.restype = ctypes.c_void_p
+        kernel32.GetExitCodeProcess.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong)]
+        kernel32.GetExitCodeProcess.restype = ctypes.c_int
+        kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+        kernel32.CloseHandle.restype = ctypes.c_int
+        handle = kernel32.OpenProcess(process_query_limited_information, 0, pid)
+        if not handle:
+            return ctypes.get_last_error() == error_access_denied
+        try:
+            code = ctypes.c_ulong(0)
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                return True
+            return code.value == still_active
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except OSError as error:
+        return error.errno == errno.EPERM
+    return True
+
+
+def read_lock_pid(lock: Path) -> int | None:
+    try:
+        raw = lock.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
+def acquire_lock(lock: Path) -> int | None:
+    """Take the single-supervisor lock; return the live holder's PID if already held."""
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    my_pid = os.getpid()
+    for _ in range(3):
+        try:
+            fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            holder = read_lock_pid(lock)
+            if holder is not None and holder != my_pid and pid_alive(holder):
+                return holder
+            with suppress(OSError):
+                lock.unlink()
+            continue
+        try:
+            os.write(fd, f"{my_pid}\n".encode())
+        finally:
+            os.close(fd)
+        return None
+    holder = read_lock_pid(lock)
+    if holder is not None and holder != my_pid and pid_alive(holder):
+        return holder
+    lock.write_text(f"{my_pid}\n", encoding="utf-8")
+    return None
+
+
+def release_lock(lock: Path) -> None:
+    if read_lock_pid(lock) == os.getpid():
+        with suppress(OSError):
+            lock.unlink()
+
+
+def wait_or_stop(seconds: float, stop: Path, step: float = STOP_POLL_SECONDS) -> bool:
+    """Sleep up to `seconds` in `step` slices, returning True immediately if `stop` appears."""
+    remaining = max(0.0, seconds)
+    while remaining > 0:
+        if stop.is_file():
+            return True
+        chunk = min(remaining, step)
+        time.sleep(chunk)
+        remaining -= chunk
+    return stop.is_file()
 
 
 def now() -> str:
@@ -229,92 +324,112 @@ def main(argv: list[str] | None = None) -> int:
     state = ROOT / ".jobloop"
     stop = state / "stop"
     beat = state / "supervisor.log"
+    lock = state / LOCK_FILENAME
     python = str(
         ROOT / (".venv/Scripts/python.exe" if sys.platform == "win32" else ".venv/bin/python")
     )
 
-    phases = arguments.phases or ["phase-6-extensions"]
-    heartbeat(beat, f"supervisor started for {', '.join(phases)}")
-    cycle = 0
-    idle_rounds = 0
-    while not stop.is_file():
-        cycle += 1
-        if arguments.cycles and cycle > arguments.cycles:
-            heartbeat(beat, f"stopping after {arguments.cycles} cycle(s)")
-            break
-        worked = False
-        for phase in phases:
-            if stop.is_file():
-                break
-            started = time.monotonic()
-            code, output = stream(
-                [
-                    python,
-                    "-m",
-                    "jobloop",
-                    "--phase",
-                    phase,
-                    "run",
-                    "--minutes",
-                    str(arguments.minutes),
-                    "--max-jobs",
-                    str(arguments.max_jobs),
-                ]
-            )
-            worked = worked or did_work(output)
-            spent = time.monotonic() - started
-            heartbeat(
-                beat,
-                f"cycle {cycle} {phase} ended after {spent:.0f}s exit={code} :: {tail_of(output)}",
-            )
-        if stop.is_file():
-            break
-        if not worked:
-            # Every phase found nothing to do, which with a queue full of blocked
-            # jobs is the shape every multi-hour stall has taken. Ask why, in one
-            # place: stops whose cause has since been repaired are restarted, and
-            # a signature holding two or more jobs with no repair becomes a job.
-            diagnosis = subprocess.run(  # noqa: S603 — repository entry point, no shell
-                [python, "-m", "jobloop", "diagnose", "--file"],
-                cwd=str(ROOT),
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                check=False,
-            )
-            told = "; ".join((diagnosis.stdout or "").strip().splitlines()) or "(nothing said)"
-            idle_rounds += 1
-            try:
-                from jobloop.cli import installed_models
-                from jobloop.roster import eligible
+    holder = acquire_lock(lock)
+    if holder is not None:
+        heartbeat(beat, f"supervisor refused: PID {holder} is already running")
+        return 1
 
-                models = eligible(installed_models())
-            except Exception:
-                models = []
-            roster_err = io.StringIO()
-            with redirect_stderr(roster_err):
-                waiting = idle_wait(
-                    arguments.pause,
-                    idle_rounds,
-                    state_file=state / "roster.json",
-                    models=models,
-                    now=time.time(),
+    try:
+        phases = arguments.phases or ["phase-6-extensions"]
+        heartbeat(beat, f"supervisor started (PID {os.getpid()}) for {', '.join(phases)}")
+        cycle = 0
+        idle_rounds = 0
+        stopped_by_marker = False
+        while True:
+            if stop.is_file():
+                stopped_by_marker = True
+                break
+            cycle += 1
+            if arguments.cycles and cycle > arguments.cycles:
+                heartbeat(beat, f"stopping after {arguments.cycles} cycle(s)")
+                break
+            worked = False
+            for phase in phases:
+                if stop.is_file():
+                    stopped_by_marker = True
+                    break
+                started = time.monotonic()
+                code, output = stream(
+                    [
+                        python,
+                        "-m",
+                        "jobloop",
+                        "--phase",
+                        phase,
+                        "run",
+                        "--minutes",
+                        str(arguments.minutes),
+                        "--max-jobs",
+                        str(arguments.max_jobs),
+                    ]
                 )
-            err_line = "; ".join(roster_err.getvalue().strip().splitlines())
-            if err_line:
-                print(err_line, file=sys.stderr)
-                told = f"{told}; {err_line}"
-            heartbeat(
-                beat,
-                f"cycle {cycle} idle everywhere, waiting {waiting:.0f}s :: {told[:600]}",
-            )
-        else:
-            idle_rounds = 0
-            waiting = arguments.pause
-        time.sleep(waiting)
-    heartbeat(beat, "supervisor stopped")
-    return 0
+                worked = worked or did_work(output)
+                spent = time.monotonic() - started
+                heartbeat(
+                    beat,
+                    f"cycle {cycle} {phase} ended after {spent:.0f}s exit={code}"
+                    f" :: {tail_of(output)}",
+                )
+            if stopped_by_marker or stop.is_file():
+                stopped_by_marker = True
+                break
+            if not worked:
+                # Every phase found nothing to do, which with a queue full of blocked
+                # jobs is the shape every multi-hour stall has taken. Ask why, in one
+                # place: stops whose cause has since been repaired are restarted, and
+                # a signature holding two or more jobs with no repair becomes a job.
+                diagnosis = subprocess.run(  # noqa: S603 — repository entry point, no shell
+                    [python, "-m", "jobloop", "diagnose", "--file"],
+                    cwd=str(ROOT),
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    check=False,
+                )
+                told = "; ".join((diagnosis.stdout or "").strip().splitlines()) or "(nothing said)"
+                idle_rounds += 1
+                try:
+                    from jobloop.cli import installed_models
+                    from jobloop.roster import eligible
+
+                    models = eligible(installed_models())
+                except Exception:
+                    models = []
+                roster_err = io.StringIO()
+                with redirect_stderr(roster_err):
+                    waiting = idle_wait(
+                        arguments.pause,
+                        idle_rounds,
+                        state_file=state / "roster.json",
+                        models=models,
+                        now=time.time(),
+                    )
+                err_line = "; ".join(roster_err.getvalue().strip().splitlines())
+                if err_line:
+                    print(err_line, file=sys.stderr)
+                    told = f"{told}; {err_line}"
+                heartbeat(
+                    beat,
+                    f"cycle {cycle} idle everywhere, waiting {waiting:.0f}s :: {told[:600]}",
+                )
+            else:
+                idle_rounds = 0
+                waiting = arguments.pause
+            if wait_or_stop(waiting, stop):
+                stopped_by_marker = True
+                break
+        if stopped_by_marker:
+            heartbeat(beat, "supervisor exiting: .jobloop/stop detected")
+        heartbeat(beat, "supervisor stopped")
+        return 0
+    finally:
+        release_lock(lock)
 
 
 if __name__ == "__main__":
