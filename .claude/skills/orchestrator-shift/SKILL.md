@@ -69,9 +69,32 @@ is there because skipping it cost hours:
 4. **`python -m jobloop diagnose`.** It groups every open stop by signature and
    says which are already-fixed, which are regressions, and which are yours.
 
-**If the shift has rulings to write, pause the loop first**: `.jobloop/stop`,
+**If the shift has rulings to write, stop the loop first**: `.jobloop/stop`,
 then wait for the `jobloop … run` process to disappear (the supervisor finishes
-its current cycle rather than being cut off). `orchestrator-busy` suspends the
+its current cycle rather than being cut off).
+
+**`.jobloop/stop` ends the supervisor; it does not pause it.** `supervise_loop`
+is a `while not stop.is_file()` loop, so the marker makes the process *exit* at
+its next wake, and **removing the marker does not bring it back**. Whether you
+notice depends on a race you do not control: the idle backoff doubles up to
+1200s, so a shift that clears the marker inside that window never sees the
+difference. On 2026-11-25 I set it at 00:19 and cleared it at 00:38 and the loop
+carried on; on 2026-11-26 I set it at 01:17, the supervisor woke at 01:18:40, saw
+it and wrote `supervisor stopped`, and clearing the marker at 01:25 left the queue
+dead. Nothing was lost only because every model was on cooldown until 01:24 — and
+I found it by reading the log tail, not from the marker.
+
+So a shift that sets the marker **owns restarting the supervisor**:
+
+```text
+.venv/Scripts/python.exe scripts/supervise_loop.py \
+  --phase phase-9-loop-health --phase phase-6-extensions --phase phase-7-production \
+  --phase phase-8-runner --phase phase-ai-connect --phase phase-storage-connect
+```
+
+and the proof is the one in **Close the shift** — a worker process created *after*
+the restart. `tail .jobloop/supervisor.log` tells you which of the two states you
+are in; "I removed the marker" tells you nothing. `orchestrator-busy` suspends the
 containment *comparison*; it does not stop dispatch. On 2026-11-22 a shift wrote
 ten rulings while the loop kept working, and the loop re-blocked `T-PH7-211` and
 spent `T-PH6-104`'s extended attempt on top of rulings that had just landed.
