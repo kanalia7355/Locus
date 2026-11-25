@@ -284,6 +284,36 @@ So: after repairing the harness, **run the thing the repair was about** and read
 the output. A green suite says the code does what the test says; it does not say
 the owner can now see the loop working.
 
+## Measure on the integration branch, not inside the job's workspace
+
+A workspace contains the job's own uncommitted change. Run a suite there and the
+numbers describe *that change applied*, not the branch — and if you then reason
+about the branch from them, every attribution is off.
+
+On 2026-11-25 at 22:20 and 22:28 I ruled that `T-PH6-127` was not responsible
+for fourteen e2e failures and that they were "pre-existing", on a
+`workspace.spec.ts` run taken inside `T-PH6-127`'s own workspace. On the
+integration branch the picture was different: twelve failures, and **eight of
+them were fixed by that job's own change**. I also described the workspace's
+`enter()` helper as a pointless circular wait, when it was a *previous attempt's*
+measured retry for a backend rate limit. Both rulings had to be withdrawn at
+00:35 the next morning, and `T-PH6-134` — a ticket created on that reading — had
+to be rewritten, because the defect it ordered a worker to fix does not exist on
+the branch.
+
+So: when the question is "whose fault is this failure", run it in the **main
+checkout on the integration branch** first, and then, if you need the
+attribution, apply only the files you are testing on top. A probe like that is
+two `cp`s and a `git checkout --` afterwards, and it is the difference between
+an attribution and a guess.
+
+The second half of the same mistake: **read the ticket's own earlier attempts
+before ruling.** `T-PH6-127`'s attempt 2 had reported `42 passed / 0 failed` on
+2026-11-23 and was stopped only by one swept scratch file. That is the single
+most useful fact in the ticket, it was in my own 22:50 ruling, and I did not
+carry it into the next night's reasoning — so I re-derived a worse version of a
+conclusion a free model had already reached and justified.
+
 ## Read the clock before you stamp a record
 
 Three times on 2026-11-25 a ruling carried a time that ran ahead of the work it
