@@ -923,6 +923,8 @@ Auto-merging backend/app/service.py
 CONFLICT (content): Merge conflict in backend/app/service.py
 Automatic merge failed; fix conflicts and then commit the result.
 
+**Answer** (2026-11-25 15:45, orchestrator): **現在の統合ブランチの上でやり直す。試行を 2/3 から 0/3 に、周回を 1 から 0 に戻し、`doing` で続行。** 2026-11-25 12:23 のレビューは **`APPROVED`**（指摘は Low 1 件）でゲートも緑だった。試行 2 回と周回 1 回はその成果を作るために使われ、その成果が 180 commits 遅れでマージできないので列から外す。**外した成果の代金をやり直しに請求してはならない**（今朝 10:35 に `T-PH6-127` でこれを破り 11:20 に訂正した。同じ誤りを繰り返さない）。実測: 基点 `aff6b5e`（**11-19 21:44**）で **180 commits 遅れ**、衝突は **`backend/app/service.py` の 1 ファイルだけ**、この票の変更は `service.py` 180 行・`storage.py` 300 行（新規）・`test_storage_seam.py` 453 行（新規）の計 844 行。**私が手で**元のコミット `64557e6` をタグ `stale/T-PH7-211-1125` に保全してワークスペースを現在の枝へリセットした（`behind=0`/`ahead=0`/汚れなし）。**捨てたものは無い。** やり直し方: 新規の `storage.py` と `test_storage_seam.py` は保全タグからそのまま持ってこられる見込みが高い。**`service.py` は 180 commits 動いているのでそのまま採らないこと** — 上書きすると他票の作業を巻き戻す。いまの `service.py` に同じ目的を改めて当てること。**衝突の解決を私が手でやることはしない**（300 行規模を推測で解くと、通ったかどうかという記録の唯一の値が壊れる）。前回のレビューの Low も直すこと: `backend/app/agents/registry.py:10` に `import sqlite3` が残り、受入条件 1 と食い違っている。受入条件は 1 文字も変えていない。仕組みの側は `T-PH9-414` に起票済み。詳細は `tasks/T-PH7-211.md`。
+
 ## T-PH7-223 — review cycle limit reached (2026-11-25T12:30:22+09:00)
 
 **Question**: The reviewer still requires changes, and the review cycle budget is spent (attempts 2/3, review cycles 2/2).
