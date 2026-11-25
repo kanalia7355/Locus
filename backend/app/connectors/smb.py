@@ -237,7 +237,7 @@ def is_reparse_point(path: Path) -> bool:
     except OSError:
         return True
     try:
-        attrs = os.stat(path, follow_symlinks=False).st_file_attributes  # type: ignore[attr-defined]
+        attrs = os.stat(path, follow_symlinks=False).st_file_attributes
     except AttributeError:
         # Non-Windows: st_file_attributes unavailable; symlink check above is enough.
         return False
@@ -308,7 +308,7 @@ class WindowsAclProvider:
         """
 
         try:
-            import win32security  # type: ignore[import-not-found]
+            import win32security  # type: ignore[import-untyped]
 
             # Placeholder for real ACL readout. The production implementation must
             # fill share and file decisions per mapped identity. Returning None
