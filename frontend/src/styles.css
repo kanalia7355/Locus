@@ -543,6 +543,8 @@ textarea:user-invalid {
   background: var(--color-soft);
 }
 .main {
+  container-type: inline-size;
+  container-name: chat-column;
   grid-column: 2;
   min-width: 0;
   min-height: 0;
@@ -1203,7 +1205,9 @@ dialog::backdrop {
   /* @starting-style + transition-behavior: allow-discrete entry animation.
      exit is immediate (no `overlay` keyword) for Firefox/Safari compatibility. */
   transition-behavior: allow-discrete;
-  transition: opacity 150ms ease, transform 150ms ease;
+  transition:
+    opacity 150ms ease,
+    transform 150ms ease;
 }
 /* Focus sentinels at the dialog's edges (see dialogControls in App.tsx). They
    must stay focusable, so they are clipped rather than display:none. */
@@ -1387,7 +1391,9 @@ dialog::backdrop {
   /* @starting-style + transition-behavior: allow-discrete entry animation.
      exit is immediate (no `overlay` keyword) for Firefox/Safari compatibility. */
   transition-behavior: allow-discrete;
-  transition: opacity 150ms ease, transform 150ms ease;
+  transition:
+    opacity 150ms ease,
+    transform 150ms ease;
 }
 @starting-style {
   .source-modal {
@@ -1537,6 +1543,48 @@ dialog::backdrop {
     min-height: 21.25rem;
   }
 }
+@supports (container-type: inline-size) {
+  .main {
+    padding: 1.5rem 0 1rem;
+  }
+  .main > * {
+    width: 100%;
+    max-width: 68.75rem;
+    margin-inline: auto;
+    padding-inline: 1rem;
+  }
+  @container chat-column (max-width: 47.999rem) {
+    .main > * {
+      max-width: 100%;
+      padding-inline: 1rem;
+    }
+    .messages {
+      padding-top: 2rem;
+    }
+    .chat-empty {
+      min-height: 15.625rem;
+    }
+  }
+  @container chat-column (min-width: 48rem) {
+    .main > * {
+      max-width: 68.75rem;
+      padding-inline: 1.875rem;
+    }
+    .page-heading {
+      padding-top: 0.25rem;
+    }
+    .main > :last-child {
+      padding-bottom: 0.5rem;
+    }
+    .messages {
+      padding-top: 2.25rem;
+    }
+    .chat-empty {
+      min-height: 21.25rem;
+    }
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
