@@ -25,9 +25,22 @@ const WIDTHS = [
 // the `v` flag that would fix it needs an es2024 target this project does not set.
 const EMOJI = /\p{Extended_Pictographic}/u;
 
+// 共有フィクスチャの口座はブロックごとに同じ形が繰り返される
+// （`tests/e2e_server.py`: `BLOCK = 20`、`range(40)`）。
+// `workspace.spec.ts` は project owner を要る検査を持つので第1ブロック
+// （オフセット 0）を保持し、このファイルは administrator しか要らないので
+// 第2ブロックへ動かす。`enter()` が仮パスワードを回して 1 口座 1 回しか
+// 使えないため、両方が同じブロックを引くと後に走る方のログインが落ちる。
+const APPEARANCE_ACCOUNT_OFFSET = 20;
+
+/** 検査の添字を、このファイルが使う口座名に移す。 */
+function account(index: number) {
+  return `test-researcher-${index + APPEARANCE_ACCOUNT_OFFSET}`;
+}
+
 async function enter(page: Page, index: number) {
   await page.goto("/");
-  await page.getByLabel("利用者ID").fill(`test-researcher-${index}`);
+  await page.getByLabel("利用者ID").fill(account(index));
   await page
     .getByLabel("パスワード", { exact: true })
     .fill("Synthetic-test-password-01!");
@@ -76,7 +89,7 @@ async function askSomething(page: Page) {
 async function signInAgain(page: Page, index: number) {
   for (let attempt = 0; attempt < 2; attempt++) {
     await page.goto("/");
-    await page.getByLabel("利用者ID").fill(`test-researcher-${index}`);
+    await page.getByLabel("利用者ID").fill(account(index));
     await page
       .getByLabel("パスワード", { exact: true })
       .fill("Changed-synthetic-password-01!");
@@ -546,7 +559,7 @@ test("the last utterance is not hidden under the grown input box", async ({
 // T-PH6-118 / T-PH6-110 受入条件5「明るい配色が一瞬見えてから暗くなることがない」。
 // 正攻法は <meta name="color-scheme"> とその直後の同期インラインスクリプト（CSS だけでは
 // 初期描画に間に合わない）。この2本はそのちらつきを機械的に代用する検査。
-// このファイルのテストはテスト利用者 (test-researcher-0..11) を各1回ずつ使い切る
+// このファイルのテストは第2ブロックの利用者 (test-researcher-20..31) を各1回ずつ使い切る
 // （enter() が仮パスワードを回すため再ログインできない）。新しいアカウントは
 // テスト用サーバ (tests/e2e_server.py) が range(12) しか provision せず、そのファイルは
 // 本ジョブの許可パス外なので、ここでは未ログインのエントリー画面で測る。
@@ -574,17 +587,17 @@ test.describe("color-scheme in a dark browser context", () => {
 // T-PH6-117: 参照範囲のポップオーバーを Popover API に載せ替えた。ここからは
 // 「ポップオーバーが top layer に出る」ことに依存する検査。このファイルは使い切りの
 // 合成アカウントで動き、新規ログイン分のアカウントは無いので、冒頭の横スクロール検査が
-// 一度だけ回し終えた test-researcher-1 に、このファイルが enter() で使うのと同じ合成の
+// 一度だけ回し終えた account(1) に、このファイルが enter() で使うのと同じ合成の
 // 変更後パスワードで入り直す。
 // 注意: このテストはファイル全体の実行順に依存する（fresh DB・workers:1・retries:0・
-// ファイル順）。-g でこの1件だけを抜き出すと test-researcher-1 は未回転のままなので、
+// ファイル順）。-g でこの1件だけを抜き出すと account(1) は未回転のままなので、
 // 変更後パスワードでは入れずログイン待ちで失敗する。ファイル全体で実行すること。
 test("the scope popup dismisses on an outside click and is not covered", async ({
   page,
 }) => {
   await page.setViewportSize(WIDTHS[0]);
   await page.goto("/");
-  await page.getByLabel("利用者ID").fill("test-researcher-1");
+  await page.getByLabel("利用者ID").fill(account(1));
   await page
     .getByLabel("パスワード", { exact: true })
     .fill("Changed-synthetic-password-01!");
@@ -694,7 +707,7 @@ test("a dark choice is dark from the first paint after reload", async ({
 // T-PH6-116: the source modal is a native <dialog> opened with showModal().
 // Its own 35-line Tab trap is gone, so these checks pin the property the trap
 // used to guarantee — focus stays inside the modal — in a real browser. The
-// file runs these after the earlier checks have rotated test-researcher-1.
+// file runs these after the earlier checks have rotated account(1).
 test("Tab does not move focus out of the source modal", async ({ page }) => {
   await page.setViewportSize(WIDTHS[0]);
   await signInAgain(page, 1);

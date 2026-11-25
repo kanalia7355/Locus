@@ -316,14 +316,15 @@ def frontend_gates(
             cwd=worktree / "frontend",
             timeout=timeout,
         )
-        # `appearance` drives the real screen in a browser and asserts the layout
-        # invariants a person would otherwise have to notice by scrolling around
-        # (nothing off the right edge, the top bar staying put, the message box
-        # staying reachable, no emoji, every icon button named). Unit tests never
-        # see these: they render components, not a laid-out page.
-        # It binds 127.0.0.1:8000 and :5174, so a dev server left running on
+        # `test:e2e` drives the real screen in a browser and asserts what a person
+        # would otherwise have to notice by scrolling around. It runs every spec in
+        # `frontend/e2e/`, not only `appearance.spec.ts`: narrowing it to that one
+        # file is how `workspace.spec.ts` and `a11y.spec.ts` were allowed to rot
+        # unseen, which is the defect this gate change closes (T-PH6-127).
+        # Unit tests never see any of it: they render components, not a laid-out
+        # page. It binds 127.0.0.1:8000 and :5174, so a dev server left running on
         # those ports will fail this gate — stop them before an unattended run.
-        for script in ("typecheck", "lint", "test:appearance")
+        for script in ("typecheck", "lint", "test:e2e")
     ]
 
 

@@ -55,13 +55,23 @@ test("first login, source retrieval, history and logout use actual API", async (
     name: "関連資料を確認",
     exact: true,
   });
-  await expect(
-    sourceDialog.getByRole("region", { name: "引用箇所 p.1 chunk 1" }),
-  ).toBeFocused();
-  // Native <dialog> keeps focus inside the modal, but it walks the DOM order
-  // rather than the old hand-written trap. From the cited chunk the next
-  // control is the related-documents button (the close button sits before the
-  // chunk), so name that control instead of asserting the trap's old target.
+  const selectedChunk = sourceDialog.getByRole("region", {
+    name: "引用箇所 p.1 chunk 1",
+  });
+  const closeButton = sourceDialog.getByRole("button", {
+    name: "閉じる",
+    exact: true,
+  });
+  // 初期フォーカスは「閉じる」である。製品の受入条件がそうなっている
+  // (T-PH6-125 / e53dfd6: entry animation 後の初期位置に置き、引用箇所は
+  // フォーカスを奪わずスクロールで見せる)。引用箇所へ寄せる表明は 11-06
+  // (2c32eaf) のもので、2 つの受入条件が矛盾していた。どちらが正しいかは
+  // オーナー判断として T-PH6-134 に出してある。ここでは現行の製品に合わせる。
+  // 引用箇所が見えていること・内容・Tab の行き先・Escape での復帰は落とさない。
+  await expect(closeButton).toBeFocused();
+  await expect(selectedChunk).toBeVisible();
+  // 引用箇所は tabindex=-1 なので Tab の行き先にはならない。閉じるの次に
+  // 来るのは関連資料ボタンである（DOM 順。閉じるは引用箇所より前にある）。
   await page.keyboard.press("Tab");
   await expect(related).toBeFocused();
   await related.click();
@@ -76,9 +86,9 @@ test("first login, source retrieval, history and logout use actual API", async (
   await relatedRegion
     .getByRole("button", { name: "合成サンプル_成膜条件.txt" })
     .click();
-  await expect(
-    sourceDialog.getByRole("region", { name: "引用箇所 p.1 chunk 1" }),
-  ).toBeFocused();
+  // 開き直しでも初期フォーカスは「閉じる」。引用箇所が出ていることは残す。
+  await expect(closeButton).toBeFocused();
+  await expect(selectedChunk).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).not.toBeVisible();
   await page.getByRole("button", { name: /^成膜条件を比較/ }).first().click();
@@ -189,7 +199,11 @@ test("citations open the actual page and chunk and reject stale targets", async 
   const dialog = page.getByRole("dialog", { name: "出典の原文" });
   const selected = dialog.getByRole("region", { name: "引用箇所 p.2 chunk 1" });
   await expect(selected).toBeVisible();
-  await expect(selected).toBeFocused();
+  // 初期フォーカスは「閉じる」（上と同じ理由。T-PH6-134 参照）。
+  // 引用箇所の可視性・内容・ページ位置は落とさない。
+  await expect(
+    dialog.getByRole("button", { name: "閉じる", exact: true }),
+  ).toBeFocused();
   await expect(selected).toContainText("uniqueanchor");
   await expect(dialog.locator(".source-document-name")).toHaveText(
     "合成サンプル_成膜条件.txt",
