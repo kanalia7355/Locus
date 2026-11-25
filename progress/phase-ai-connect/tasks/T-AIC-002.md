@@ -5,7 +5,7 @@ status: doing
 assignee: opencode
 model: opencode/iceman-free
 weight: medium
-updated: 2026-11-25T18:50:00+09:00
+updated: 2026-11-25T18:34:00+09:00
 attempts: 2
 depends_on: T-AIC-001, T-AIC-005
 allowed_paths: backend/app/model_catalog.py, backend/app/main.py, tests/test_model_catalog.py, tests/test_provider_openai_compatible.py, tests/test_local_model.py
@@ -16,7 +16,7 @@ review_cycles: 1
 
 # Task `T-AIC-002`: カタログ／runtime設定／管理APIの拡張
 
-## SCOPE — レビュアーへ（2026-11-25 18:50 追記。先に読むこと）
+## SCOPE — レビュアーへ（2026-11-25 18:34 追記。先に読むこと）
 
 - **残っている仕事は 1 件だけである。** 2026-11-25 15:20 のレビューが Medium として
   挙げた、**`discover_models` の最初の塊が `openai-compatible` のモデルを
@@ -336,7 +336,7 @@ UNVERIFIED
 
 review cycle limit reached: The reviewer still requires changes, and the review cycle budget is spent (attempts 2/3, review cycles 2/2).
 
-## ORCHESTRATOR RULING (2026-11-25 18:50)
+## ORCHESTRATOR RULING (2026-11-25 18:34)
 
 **周回を 1 回戻す（2/2 → 1/2）。試行は動かさない（2/3 のまま）。`doing` に置く。
 Medium は本物で条件の中なので直させる。Low 2 件は条件の外なので `T-AIC-007` に移した。
@@ -387,3 +387,5 @@ Ollama 側の状態の汚染である。条件外の指摘ではない。**直�
 **「レビュアーが条件外の指摘を出し続ける票を、誰が完了と決めるのか」を
 オーナーに伺う**（レビューの承認を私が与えることは禁じられているため）。
 `T-STC-001` で 2026-11-25 16:30 に立てたのと同じ線である。
+
+**（刻印の訂正）** この裁定の見出しは当初 18:50 と書いていたが、実際の作業とコミット（`00ffbc8`）は **18:34** である。記録の順序が狂わないよう刻印をコミット時刻に揃えた。内容は変えていない。
