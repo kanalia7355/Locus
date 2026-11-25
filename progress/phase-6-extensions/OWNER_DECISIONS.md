@@ -2920,3 +2920,24 @@ Automatic merge failed; fix conflicts and then commit the result.
 **私の見立ては B である。** 引用をたどる動作の目的は引用文を読むことなので、たどった先に立たせるのが素直で、しかも B は条件を捨てずに両立できる。**ただし A は実測で緑になっており、いますぐ待ち行列を動かしたいなら A である。**
 
 **この判断を待たずに `T-PH6-127` は A の形で進めさせている**（あの票は受入条件 5 で `frontend/src` を触れない）。**B を選ばれた場合は `T-PH6-134` が製品側を直し**、`T-PH6-127` が入れた表明を引用箇所側へ戻す。詳細と受入条件は `tasks/T-PH6-134.md`。
+
+## T-PH6-129 — worker stopped for a decision (2026-11-26T05:40:00+09:00)
+
+**Question**: T-PH6-129 の末尾にある 2026-11-24 22:30 の ORCHESTRATOR AMENDMENT は「この票は実機検証だけを持つ」「この機に docker engine が無いことは変わらない。だからこの票は実機が用意できるまで着手できない」と定めている一方、本文前半（2026-11-22 の Acceptance Criteria 1〜6 と 18:50 追記）はエンジン無しで検証可能な静的・退避修正（`_docker_argv` 分離、`--entrypoint python3` と `--user 1000:1000`、デーモン不在時の `SUBPROCESS_GUARANTEES` 返却、opt-in 検査の製品経路化）を未実施のまま残しており、`T-PH6-104` 完了に伴いエンジン無しの本機へ自動派遣されました。(A) エンジン不要の静的・退避修正一式をこ
+
+**Context**
+
+loop-Locus/workspaces/T-PH6-129/backend/app/sandbox.py#L438-L440): `extract_with_sandbox` docstring says `.content` holds the extracted body, whereas `_interpret` (line 256) returns the raw JSON stdout envelope (`{"body": ...}`).
+- any risk you are leaving behind
+  - Until `T-PH6-129`'s scope is clarified (or split between engine-free Docker-path honesty fixes and live-engine containment verification), calling `extract_with_sandbox(..., use_docker=True)` on a host where the `docker` CLI is installed without a running daemon returns `sandbox="docker"` with `"strong"` guarantees on a failed run, and `_run_docker` omits `--user 1000:1000` and `--entrypoint`.
+
+TEST
+- `docker info 2>&1` -> failed (exit 1): Client 28.5.1 present; Server error `open //./pipe/dockerDesktopLinuxEngine: The system cannot find the file specified.`
+- `docker version 2>&1` -> failed (exit 1): Client 28.5.1; Server pipe `//./pipe/dockerDesktopLinuxEngine` not found.
+- `Test-Path .loop/runtime/qa-image.json` -> `False`
+- `python -m pytest tests/test_sandbox_boundary.py tests/integration/test_live_sandbox_docker.py -q` -> `7 passed, 3 skipped in 2.81s` (note: the 3 skips in `test_live_sandbox_docker.py` are gated on `LOCUS_LIVE_DOCKER=1` and are not evidence of Docker containment).
+- `python -m ruff check backend tests scripts jobloop` -> `All checks passed!`
+- `python -m ruff format --check backend tests scripts jobloop` -> `200 files already formatted`
+
+STATUS
+needs-owner-decision: T-PH6-129 の末尾にある 2026-11-24 22:30 の ORCHESTRATOR AMENDMENT は「この票は実機検証だけを持つ」「この機に docker engine が無いことは変わらない。だからこの票は実機が用意できるまで着手できない」と定めている一方、本文前半（2026-11-22 の Acceptance Criteria 1〜6 と 18:50 追記）はエンジン無しで検証可能な静的・退避修正（`_docker_argv` 分離、`--entrypoint python3` と `--user 1000:1000`、デーモン不在時の `SUBPROCESS_GUARANTEES` 返却、opt-in 検査の製品経路化）を未実施のまま残しており、`T-PH6-104` 完了に伴いエンジン無しの本機へ自動派遣されました。(A) エンジン不要の静的・退避修正一式をこの `T-PH6-129` で実装し実機検証だけ別票（または保留）に切り出すか、(B) 22:30 裁定どおり `T-PH6-129` は Docker 実機が用意できるまで保留（未確定スコープまたは手動ブロック）とするか、方針を決めてください。
