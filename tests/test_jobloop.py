@@ -2727,3 +2727,70 @@ def test_advancing_base_preserves_commit_as_ref_and_reaches_zero_behind_zero_ahe
     ahead = git(tree, "rev-list", "--count", "FETCH_HEAD..HEAD").strip()
     assert behind == "0" and ahead == "0"
     assert (tree / "shared.txt").read_text(encoding="utf-8") == "someone else's change\n"
+
+
+def test_timeout_does_not_spend_attempt_and_rests_model_for_rotation(tmp_path: Path) -> None:
+    phase_with_task(tmp_path)
+    controller = controller_for(tmp_path, ["a-free", "b-free"])
+    controller.workspace = lambda task: tmp_path  # type: ignore[assignment]
+    seen: list[str] = []
+
+    def dispatch(model: str, prompt: str, **_: object) -> worker.Result:
+        seen.append(model)
+        return worker.Result(worker.Ending.TIMEOUT, "", model, ["no reply within 1800s"])
+
+    controller.dispatch = dispatch  # type: ignore[assignment]
+
+    first = controller.run_job(controller.select())
+    assert first.state == "rotated"
+    task = tasks.load_phase(controller.settings.phase_directory).tasks[0]
+    assert task.attempts == 0, "a timed-out dispatch must not spend an attempt"
+    body = task.path.read_text(encoding="utf-8")
+    assert "## TIMEOUT (" in body
+    assert "timed out after " in body and "s (" in body
+    assert f"consecutive 1/{controller_module.TIMEOUT_ESCALATE_LIMIT}" in body
+
+    second = controller.run_job(controller.select())
+    assert second.state == "rotated"
+    assert seen == ["a-free", "b-free"], (
+        "timed-out model must be rested so the next dispatch rotates"
+    )
+
+
+def test_completed_reply_failing_acceptance_still_spends_attempt(tmp_path: Path) -> None:
+    phase_with_task(tmp_path)
+    controller = controller_for(tmp_path, ["a-free", "b-free"])
+    controller.workspace = lambda task: tmp_path  # type: ignore[assignment]
+    controller.dispatch = lambda model, prompt, **_: worker.Result(  # type: ignore[assignment]
+        worker.Ending.COMPLETED, "done", model, []
+    )
+    outcome = controller.run_job(controller.select())
+    assert outcome.state == "attempt-failed"
+    task = tasks.load_phase(controller.settings.phase_directory).tasks[0]
+    assert task.attempts == 1
+
+
+def test_consecutive_timeouts_escalate_at_limit(tmp_path: Path) -> None:
+    phase_with_task(tmp_path)
+    models = [f"m{i}-free" for i in range(controller_module.TIMEOUT_ESCALATE_LIMIT)]
+    controller = controller_for(tmp_path, models)
+    controller.workspace = lambda task: tmp_path  # type: ignore[assignment]
+    controller.dispatch = lambda model, prompt, **_: worker.Result(  # type: ignore[assignment]
+        worker.Ending.TIMEOUT, "", model, ["no reply within 1800s"]
+    )
+
+    for idx in range(controller_module.TIMEOUT_ESCALATE_LIMIT - 1):
+        outcome = controller.run_job(controller.select())
+        assert outcome.state == "rotated"
+        assert f"consecutive {idx + 1}/{controller_module.TIMEOUT_ESCALATE_LIMIT}" in outcome.detail
+
+    final = controller.run_job(controller.select())
+    assert final.state == "escalated"
+    assert "timeout limit reached" in final.detail
+    task = tasks.load_phase(controller.settings.phase_directory).tasks[0]
+    assert task.attempts == 0
+    assert task.status == "blocked"
+    decisions = (controller.settings.phase_directory / "OWNER_DECISIONS.md").read_text(
+        encoding="utf-8"
+    )
+    assert "timeout limit reached" in decisions

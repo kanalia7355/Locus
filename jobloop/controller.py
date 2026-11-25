@@ -26,6 +26,9 @@ JST = timezone(timedelta(hours=9))
 GIT = shutil.which("git") or "git"
 SLUG = re.compile(r"[^a-z0-9]+")
 HEX = frozenset("0123456789abcdef")
+# Three consecutive timeouts across rested models indicate the job itself likely
+# exceeds the 1800s dispatch budget and needs a human to split it.
+TIMEOUT_ESCALATE_LIMIT = 3
 
 
 @dataclass
@@ -232,6 +235,17 @@ class Controller:
         from jobloop.tasks import parse
 
         return parse(task.path)
+
+    @staticmethod
+    def consecutive_timeouts(task: Task) -> int:
+        """Count consecutive TIMEOUT records since the last attempt or escalation."""
+        count = 0
+        for line in task.path.read_text(encoding="utf-8").splitlines():
+            if line.startswith("## TIMEOUT ("):
+                count += 1
+            elif line.startswith(("## ATTEMPT (", "## OWNER DECISION REQUESTED (")):
+                count = 0
+        return count
 
     def sweep(self, task: Task, tree: Path) -> set[str]:
         """Delete the scratch a worker left behind, and say so. Returns what went.
@@ -843,7 +857,9 @@ class Controller:
         # blocked on 2026-11-17 when the operator committed mid-run.
         outside = self.dirt(self.settings.repository)
         self.roster.mark_dispatched(model)
+        started = time.monotonic()
         result = self.dispatch(model, brief, cwd=tree, timeout=self.settings.worker_timeout)
+        elapsed = time.monotonic() - started
         after = self.dirt(self.settings.repository)
         # Judge on what *appeared*, not on inequality. An escaping worker leaves
         # new uncommitted paths behind; nothing a worker does makes the
@@ -920,6 +936,27 @@ class Controller:
                 )[:300],
                 model=model,
             )
+        if result.ending is worker.Ending.TIMEOUT:
+            # No reply arrived within the budget, so the job's work was never
+            # evaluated. Keep the attempt, rest the model so the next dispatch
+            # reaches a different one, and escalate once consecutive timeouts
+            # hit TIMEOUT_ESCALATE_LIMIT.
+            rested = self.roster.mark_unavailable(model, base_seconds=cooldown_for(result.errors))
+            count = self.consecutive_timeouts(task) + 1
+            detail = (
+                f"{model} timed out after {elapsed:.1f}s "
+                f"(consecutive {count}/{TIMEOUT_ESCALATE_LIMIT}, rested {rested / 60:.0f} min)"
+            )
+            self.record(task, f"TIMEOUT ({self.now()})", detail)
+            if count >= TIMEOUT_ESCALATE_LIMIT:
+                return self.escalate(
+                    task,
+                    "timeout limit reached",
+                    f"{count} consecutive dispatches timed out without a reply; "
+                    "the job may need to be split.",
+                    detail,
+                )
+            return Outcome(task.id, "rotated", detail[:300], model=model)
         if result.ending is not worker.Ending.COMPLETED:
             return self.failed_attempt(
                 task, model, f"{result.ending.value}: {'; '.join(result.errors[:3])}"
