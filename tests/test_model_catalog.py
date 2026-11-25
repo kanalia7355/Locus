@@ -299,3 +299,130 @@ def test_contained_cache_file_link_uses_only_checked_local_metadata(
         result = ModelCatalog({"root": root}).discover(["root"])
     assert result["models"][0]["size_bytes"] == len("synthetic")
     assert result["sources"][0]["status"] == "complete"
+
+
+def test_openai_compatible_discovery_normal(tmp_path: Path) -> None:
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        assert request.method == "GET"
+        assert str(request.url) == "https://api.example.invalid/v1/models"
+        assert request.headers.get("authorization") == "Bearer sk-synthetic-01-not-a-real-key"
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {"id": "gpt-4o-mini", "name": "GPT-4o mini"},
+                    {"id": "gpt-4.1", "name": "GPT-4.1"},
+                ]
+            },
+        )
+
+    catalog = ModelCatalog({}, transport=httpx.MockTransport(handler))
+    result = catalog.discover(
+        ["openai-compatible"],
+        base_url="https://api.example.invalid/v1",
+        api_key="sk-synthetic-01-not-a-real-key",
+    )
+    assert len(calls) == 1
+    assert result["inference_enabled"] is False
+    assert {item["name"] for item in result["models"]} == {"GPT-4o mini", "GPT-4.1"}
+    assert all(item["source_id"] == "openai-compatible" for item in result["models"])
+    assert all(item["status"] == "registered" for item in result["models"])
+    assert all(not item["inference_enabled"] for item in result["models"])
+    assert result["sources"][0]["status"] == "complete"
+    dumped = json.dumps(result)
+    assert "sk-synthetic-01-not-a-real-key" not in dumped
+    assert "Bearer" not in dumped
+
+
+def test_openai_compatible_discovery_unavailable_without_key() -> None:
+    calls: list[httpx.Request] = []
+    catalog = ModelCatalog(
+        {}, transport=httpx.MockTransport(lambda r: calls.append(r) or httpx.Response(200))
+    )
+    result = catalog.discover(["openai-compatible"], base_url="https://api.example.invalid/v1")
+    assert calls == []
+    assert result["models"] == []
+    assert result["sources"][0]["status"] == "unavailable"
+
+
+def test_openai_compatible_discovery_unavailable_on_error() -> None:
+    secret = "sk-synthetic-02-not-a-real-key"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"error": "unauthorized"})
+
+    catalog = ModelCatalog({}, transport=httpx.MockTransport(handler))
+    result = catalog.discover(
+        ["openai-compatible"],
+        base_url="https://api.example.invalid/v1",
+        api_key=secret,
+    )
+    assert result["models"] == []
+    assert result["sources"][0]["status"] == "unavailable"
+    dumped = json.dumps(result)
+    assert secret not in dumped
+
+
+@pytest.mark.parametrize(
+    "status,body,headers",
+    [
+        (200, b"null", {}),
+        (200, b"[]", {}),
+        (200, b'"string"', {}),
+        (200, b"x" * 1_048_577, {}),
+        (200, json.dumps({"data": [{"id": "ok"}]}).encode(), {"content-encoding": "gzip"}),
+    ],
+)
+def test_openai_compatible_bad_responses_are_unavailable(
+    status: int, body: bytes, headers: dict[str, str]
+) -> None:
+    secret = "sk-synthetic-01-not-a-real-key"
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(status, content=body, headers=headers)
+
+    catalog = ModelCatalog({}, transport=httpx.MockTransport(handler))
+    result = catalog.discover(
+        ["openai-compatible"],
+        base_url="https://api.example.invalid/v1",
+        api_key=secret,
+    )
+    assert result["models"] == []
+    assert result["sources"][0]["status"] == "unavailable"
+    assert len(calls) == 1
+    dumped = json.dumps(result)
+    assert secret not in dumped
+
+
+def test_openai_compatible_skips_malformed_items() -> None:
+    secret = "sk-synthetic-02-not-a-real-key"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {"id": "good-model", "name": "Good"},
+                    "bad-item",
+                    {"name": "missing-id"},
+                    {"id": ""},
+                    {"id": "also-good"},
+                ]
+            },
+        )
+
+    catalog = ModelCatalog({}, transport=httpx.MockTransport(handler))
+    result = catalog.discover(
+        ["openai-compatible"],
+        base_url="https://api.example.invalid/v1",
+        api_key=secret,
+    )
+    assert {item["name"] for item in result["models"]} == {"Good", "also-good"}
+    assert result["sources"][0]["status"] == "partial"
+    assert result["sources"][0]["rejected_entries"] == 3
+    assert secret not in json.dumps(result)
