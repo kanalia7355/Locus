@@ -615,8 +615,9 @@ def test_a_frontend_job_is_typechecked_and_a_backend_job_is_not(tmp_path: Path) 
         "frontend-typecheck",
         "frontend-lint",
         # Unit tests render components; only this one lays out a real page and
-        # can see that the top bar scrolled away or text ran off the edge.
-        "frontend-test:appearance",
+        # can see that the top bar scrolled away or text ran off the edge. It is
+        # the whole `e2e/` suite, not one file: see the comment in `frontend_gates`.
+        "frontend-test:e2e",
     ]
 
 

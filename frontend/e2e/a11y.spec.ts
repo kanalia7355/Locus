@@ -349,7 +349,7 @@ test("keyboard only flow covers login, chat, sources, history and logout", async
     await page.keyboard.press("Tab");
     expect(
       await page.evaluate(() => {
-        const element = document.querySelector('dialog, [role="dialog"]');
+        const element = document.querySelector('dialog[open], [role="dialog"]');
         return !!element && !!document.activeElement
           ? element.contains(document.activeElement)
           : false;
@@ -396,7 +396,7 @@ test("keyboard focus stays inside the source dialog and returns to its trigger",
   await expect(dialog).toBeVisible();
   const inside = () =>
     page.evaluate(() => {
-      const element = document.querySelector('dialog, [role="dialog"]');
+      const element = document.querySelector('dialog[open], [role="dialog"]');
       return !!element && !!document.activeElement
         ? element.contains(document.activeElement)
         : false;
