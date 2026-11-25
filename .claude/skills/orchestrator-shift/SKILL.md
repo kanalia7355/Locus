@@ -380,7 +380,18 @@ A ruling is a file in the repository, and the gates apply to it.
    — not only the unit tests. Vitest green with a broken screen is the failure
    this repository has had most often. jsdom has no layout.
 2. **Confirm the loop moved.** A new `opencode.exe` with a creation time *after*
-   your restart is the only proof. "The supervisor is running" is not.
+   your restart is the only proof that dispatch resumed. "The supervisor is
+   running" is not.
+
+   **But a live worker process is not proof that work is happening.** `opencode
+   run` is a launcher: it starts, asks the supplier, and on a quota refusal exits
+   within seconds. On 2026-11-26 at 02:27:31 I saw two fresh `opencode.exe` PIDs,
+   reported to the owner that `tidepool-alpha-free` had taken the job and that
+   the free tier was back — and at 02:28:02 the log said
+   `rotated - opencode/tidepool-alpha-free is out of usage`. The process had
+   lived 31 seconds. **The proof that work is happening is an outcome line**
+   (`delivered`, `attempt-failed`, `escalated`), or a worker still alive minutes
+   later. A process that exists tells you a dispatch was attempted, nothing more.
 3. **Remove `.jobloop/orchestrator-busy`** — after the last write, not before.
 4. **Push.** Thirty commits once sat on this machine for a day because pushing
    was opt-in and only fired after a merge.
