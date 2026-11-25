@@ -3019,3 +3019,26 @@ def test_consecutive_timeouts_escalate_at_limit(tmp_path: Path) -> None:
         encoding="utf-8"
     )
     assert "timeout limit reached" in decisions
+
+
+def test_mypy_strict_passes_on_jobloop_and_rejects_no_any_return(tmp_path: Path) -> None:
+    """`python -m mypy jobloop` must pass with 0 errors and reject `no-any-return`."""
+    from mypy import api as mypy_api
+
+    root = Path(__file__).resolve().parents[1]
+    bad = tmp_path / "bad_return.py"
+    bad.write_text(
+        "from typing import Any\n\ndef f(x: Any) -> str:\n    return x\n",
+        encoding="utf-8",
+    )
+    bad_out, _bad_err, bad_code = mypy_api.run(
+        ["--config-file", str(root / "pyproject.toml"), str(bad)]
+    )
+    assert bad_code != 0
+    assert "no-any-return" in bad_out
+
+    clean_out, clean_err, clean_code = mypy_api.run(
+        ["--config-file", str(root / "pyproject.toml"), str(root / "jobloop")]
+    )
+    assert clean_code == 0, clean_out + clean_err
+    assert "Success: no issues found" in clean_out
