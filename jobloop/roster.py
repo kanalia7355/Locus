@@ -16,7 +16,7 @@ import math
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, SupportsFloat, SupportsIndex, cast
 
 # Only providers that answer at no cost are eligible. `opencode/*-free` is the
 # documented free tier; `ollama/*` runs locally. Paid `openai/*` routes stay out
@@ -134,7 +134,9 @@ class Roster:
             # An unreadable roster must not kill the whole loop; record and treat as empty.
             print(f"roster unreadable: {self.state_file}: {exc}", file=sys.stderr)
             return {}
-        return loaded if isinstance(loaded, dict) else {}
+        if not isinstance(loaded, dict):
+            return {}
+        return cast(dict[str, dict[str, float]], loaded)
 
     def _entry_for_write(self, state: dict[str, Any], model: str) -> dict[str, float]:
         existing = state.get(model)
@@ -346,8 +348,10 @@ class Roster:
 
 
 def _finite_float(value: object) -> float | None:
+    if not isinstance(value, (int, float, str, bytes, bytearray, SupportsFloat, SupportsIndex)):
+        return None
     try:
-        parsed = float(value)  # type: ignore[arg-type]
+        parsed = float(value)
     except (TypeError, ValueError):
         return None
     return parsed if math.isfinite(parsed) else None
@@ -392,7 +396,8 @@ def _containment_report_from_disk() -> str:
             print(f"roster unreadable: {path}: {exc}", file=sys.stderr)
             continue
         if isinstance(loaded, dict):
-            return _containment_summary_from_state(loaded)
+            state = cast(dict[str, dict[str, float]], loaded)
+            return _containment_summary_from_state(state)
     return ""
 
 
@@ -412,13 +417,14 @@ def _patch_diagnose_report() -> None:
         def survey(progress: Path, phases: list[str]) -> list[Any]:
             global _LAST_PROGRESS_PATH
             _LAST_PROGRESS_PATH = Path(progress)
-            return list(original_survey(progress, phases))
+            surveyed: list[Any] = list(original_survey(progress, phases))
+            return surveyed
 
         survey._containment_patched = True  # type: ignore[attr-defined]
         diagnose.survey = survey
 
     def report(findings: list[Any]) -> str:
-        base = str(original_report(findings))
+        base: str = str(original_report(findings))
         extra = containment_report()
         if not extra:
             extra = _containment_report_from_disk()
