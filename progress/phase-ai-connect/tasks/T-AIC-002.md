@@ -1,12 +1,12 @@
 ---
 id: T-AIC-002
 phase: phase-ai-connect
-status: review
+status: done
 assignee: opencode
 model: opencode/flint-40b-free
 weight: medium
-updated: 2026-11-25T19:38:10+09:00
-attempts: 2
+updated: 2026-11-25T19:40:03+09:00
+attempts: 3
 depends_on: T-AIC-001, T-AIC-005
 allowed_paths: backend/app/model_catalog.py, backend/app/main.py, tests/test_model_catalog.py, tests/test_provider_openai_compatible.py, tests/test_local_model.py
 test_cmd: python -m pytest tests/test_model_catalog.py tests/test_provider_openai_compatible.py tests/test_local_model.py -q
