@@ -2803,3 +2803,37 @@ attempts=2/3 weight=medium model=opencode/nemotron-3.5-lightning-free
 2026-11-25T11:25:34 run :: T-PH6-121: attempt-failed - timeout: no reply within 1800s
 
 **Answer** (2026-11-25 12:20, orchestrator): **試行を 2/3 から 0/3 に戻し、`doing` で続行。** 2 回の試行はどちらも `timeout: no reply within 1800s` で**同一文言**である。同一文言の連続は仕事が受入条件を満たせなかったことではなく、モデルが予算内に一度も答えなかったということなので、枠切れや供給障害と同じく試行を消費しない扱いが筋である（2026-11-20 に `404 Endpoint is unavailable` で 5 件が 8 分で 3/3 になった件と同型）。答えが返っていないので、この票の出来については何も分かっていない。**3 回目も同じ時間切れなら、予算を伸ばすのではなく票を割る**（予算の判断は `T-PH9-415` が入って実測が出てから）。仕組みの欠陥は `T-PH9-415` に起票した。詳細は `tasks/T-PH6-121.md`。
+
+## T-PH6-127 — attempt limit reached (2026-11-25T13:36:03+09:00)
+
+**Question**: Three attempts did not satisfy the acceptance criteria; the job needs a human decision.
+
+**Context**
+
+task-verification: exit 1
+    [chromium] › e2e\appearance.spec.ts:886:1 › the sidebar account row stays on screen at every supported width 
+    [chromium] › e2e\workspace.spec.ts:56:1 › first login, source retrieval, hi; frontend-test:appearance: exit 1
+        npx playwright show-trace test-results\appearance-the-sidebar-acc-f8853-en-at-every-supported-width-chromium\trace.zip
+
+    ─────────────────────────────────────────────────────────────
+
+## T-PH6-121 — attempt limit reached after a review (2026-11-25T14:45:50+09:00)
+
+**Question**: The reviewer still requires changes, and the attempt budget is spent (attempts 3/3, review cycles 1/2).
+
+**Context**
+
+d change mobile padding-top (32→24) and min-height (250→200). This violates the "no visual change" detail and leaves acceptance #2's reading-width branching inert for the main element. Smallest fix: restore `max-width: 1100px` (and base padding) to `.main`, and move container-driven box properties onto a descendant that `.main` can actually query (e.g. `.chat`), or relocate the container to a true ancestor of `.main` whose size equals the chat-column width.
+- Medium — frontend/e2e/appearance.spec.ts:939-944,954-959 — "chat column width differs between sidebar open and closed at 1280px" measures `.main`'s overall width, which differs between sidebar states purely because the grid column changes (`--sidebar-width` 0 vs 220px) and would still differ if the container-query change were reverted; it does not assert any container-query-driven property and would not fail on regression. Smallest fix: assert a value actually governed by `@container` (e.g. computed `padding-top` of `.messages` or the effective reading-column `max-width`) differs, or send a message and compare `.user-message` width.
+- Low — frontend/src/styles.css:1524,1539 — at a container width of exactly 48rem both `@container chat-column (min-width: 48rem)` and `(max-width: 48rem)` match, and because the narrow block is defined later its padding (16px) overrides the wide block's (28px 30px 24px), unlike the original `@media (min-width: 48rem)` which applied the wide values at the breakpoint. Smallest fix: make the narrow branch `(max-width: 47.999rem)` (or otherwise mutually exclusive).
+
+UNVERIFIED
+- I did not execute the test suite or a browser myself; I relied on the controller's recorded gates (all green) and on CSS semantics. I could not confirm from the diff that a RED run was observed before the change (acceptance #3 pre-condition). I could not directly inspect rendered appearance; the visual-regression conclusion is derived from the fact that container queries never style their own container element.
+
+## T-PH6-104 — attempt limit reached (2026-11-25T14:49:08+09:00)
+
+**Question**: Three attempts did not satisfy the acceptance criteria; the job needs a human decision.
+
+**Context**
+
+the worker changed nothing
