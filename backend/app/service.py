@@ -650,7 +650,12 @@ class Service:
             fail(422, "利用者IDは3〜64文字の英数字・_.-で指定してください")
         ok, reason = check_password_strength(password, username)
         if not ok:
-            fail(422, reason)
+            # reason is str | None per type annotation, but check_password_strength
+            # always returns a str when ok is False. Handle None defensively.
+            if reason is None:
+                fail(422, "パスワードの強さに問題があります")
+            else:
+                fail(422, reason)
         user_id = uid()
         try:
             db.execute(
@@ -1577,7 +1582,12 @@ class Service:
             username = user["username"]
             ok, reason = check_password_strength(new, username)
             if not ok:
-                fail(422, reason)
+                # reason is str | None per type annotation, but check_password_strength
+                # always returns a str when ok is False. Handle None defensively.
+                if reason is None:
+                    fail(422, "パスワードの強さに問題があります")
+                else:
+                    fail(422, reason)
             if len(current) < 14 or len(current) > 128 or current == new:
                 fail(422, "異なる14〜128文字のパスワードを設定してください")
 
@@ -1643,7 +1653,12 @@ class Service:
                 fail(401, "利用者IDまたは回復コードを確認してください")
             ok, reason = check_password_strength(new_password, username)
             if not ok:
-                fail(422, reason)
+                # reason is str | None per type annotation, but check_password_strength
+                # always returns a str when ok is False. Handle None defensively.
+                if reason is None:
+                    fail(422, "パスワードの強さに問題があります")
+                else:
+                    fail(422, reason)
             try:
                 PASSWORDS.verify(user["password_hash"], new_password)
             except VerificationError:
