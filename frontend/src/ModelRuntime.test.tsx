@@ -194,3 +194,45 @@ it("requires explicit save for 120 seconds and shows the saved deadline", async 
   await screen.findByText("待機上限：30秒");
   expect(screen.getByLabelText("モデル応答の待機時間")).toHaveValue("30");
 });
+
+it("shows the remote provider and api key presence without a key input", async () => {
+  const fetch = vi.fn(
+    async () =>
+      new Response(
+        JSON.stringify({
+          enabled: true,
+          model: "gpt-4o-mini",
+          timeout_seconds: 30,
+          provider: "openai-compatible",
+          api_key_present: true,
+        }),
+      ),
+  );
+  vi.stubGlobal("fetch", fetch);
+  render(<ModelRuntime candidate="gpt-4o-mini" />);
+  expect(await screen.findByText(/OpenAI互換API/)).toBeVisible();
+  expect(screen.getByText(/APIキー：設定済み/)).toBeVisible();
+  expect(
+    screen.getByText(/外部APIへデータを送信することを確認しました/),
+  ).toBeVisible();
+  expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+});
+
+it("shows the local provider name and no api key line for ollama", async () => {
+  const fetch = vi.fn(
+    async () =>
+      new Response(
+        JSON.stringify({
+          enabled: true,
+          model: "llama-local",
+          timeout_seconds: 30,
+          provider: "ollama",
+          api_key_present: false,
+        }),
+      ),
+  );
+  vi.stubGlobal("fetch", fetch);
+  render(<ModelRuntime candidate={null} />);
+  expect(await screen.findByText(/Ollama ローカル/)).toBeVisible();
+  expect(screen.queryByText(/APIキー/)).not.toBeInTheDocument();
+});
