@@ -394,7 +394,10 @@ class Controller:
         with file.open("a", encoding="utf-8") as handle:
             handle.write(entry)
         self.set_fields(task, status="blocked")
-        self.record(task, f"OWNER DECISION REQUESTED ({self.now()})", f"{category}: {question}")
+        recorded = f"{category}: {question}"
+        if category == "the merge conflicted":
+            recorded = f"{recorded}\n\n{context.strip()}"
+        self.record(task, f"OWNER DECISION REQUESTED ({self.now()})", recorded)
         return Outcome(task.id, "escalated", f"{category}: {question}")
 
     # --- worktrees -----------------------------------------------------------
@@ -467,6 +470,128 @@ class Controller:
             f"`{self.settings.integration_branch}` and had no work in progress, so it was "
             "reset onto the current branch. Nothing of this job's own was discarded.",
         )
+
+    def preserve_stale_commit(self, task: Task, worktree: Path) -> str:
+        """Save `worktree`'s HEAD under a `stale/<id>-<MMDD>` tag without moving HEAD."""
+        stamp = self.now()
+        mmdd = stamp[5:7] + stamp[8:10]
+        prefix = f"stale/{task.id}-{mmdd}"
+        head = git(worktree, "rev-parse", "HEAD").strip()
+        existing = {
+            line.strip()
+            for line in git(worktree, "tag", "--list", f"{prefix}*", check=False).splitlines()
+            if line.strip()
+        }
+        ref = prefix
+        suffix = 2
+        while ref in existing:
+            pointed = git(worktree, "rev-parse", f"{ref}^{{commit}}", check=False).strip()
+            if pointed == head:
+                return ref
+            ref = f"{prefix}-{suffix}"
+            suffix += 1
+        git(worktree, "tag", ref, head)
+        return ref
+
+    def advance_base(self, task: Task, worktree: Path) -> str:
+        """Preserve this job's own commits as a `stale/...` ref and move onto integration.
+
+        Never called automatically by `refresh()`: whether an unattended job may
+        abandon a conflicted base on its own is an open decision. This is the
+        explicit path that replaces doing the tag-and-reset by hand, and it
+        refuses a dirty tree so uncommitted work is never discarded.
+        """
+        if self.dirt(worktree).strip():
+            raise RuntimeError(f"cannot advance {task.id}: workspace has uncommitted changes")
+        git(worktree, "fetch", str(self.settings.repository), self.settings.integration_branch)
+        behind = git(worktree, "rev-list", "--count", "HEAD..FETCH_HEAD", check=False).strip()
+        ref = self.preserve_stale_commit(task, worktree)
+        git(worktree, "reset", "--hard", "FETCH_HEAD")
+        git(worktree, "checkout", "-B", self.branch_for(task))
+        self.record(
+            task,
+            f"WORKSPACE BASE ADVANCED ({self.now()})",
+            f"Preserved this job's previous commit at `{ref}` (`git show {ref}`) and reset "
+            f"the workspace ({behind or '0'} commit(s) behind) onto "
+            f"`{self.settings.integration_branch}`.",
+        )
+        return ref
+
+    def already_conflicted_ahead(self, task: Task, worktree: Path) -> str:
+        """Non-empty commit sha when `worktree` is behind & ahead and HEAD already conflicted."""
+        if not self._has_conflict_record(task):
+            return ""
+        if self.dirt(worktree).strip():
+            return ""
+        with suppress(RuntimeError):
+            git(worktree, "fetch", str(self.settings.repository), self.settings.integration_branch)
+            behind = git(worktree, "rev-list", "--count", "HEAD..FETCH_HEAD", check=False).strip()
+            ahead = git(worktree, "rev-list", "--count", "FETCH_HEAD..HEAD", check=False).strip()
+            if not behind or behind == "0" or not ahead or ahead == "0":
+                return ""
+            head = git(worktree, "rev-parse", "HEAD", check=False).strip()
+            if head and self._commit_recorded_as_conflicted(task, head):
+                return head
+        return ""
+
+    def _has_conflict_record(self, task: Task) -> bool:
+        """Fast disk-only check whether `task` has any recorded `the merge conflicted` entry."""
+        decisions = self.settings.phase_directory / "OWNER_DECISIONS.md"
+        if decisions.is_file():
+            text = decisions.read_bytes().decode("utf-8", errors="replace")
+            if "the merge conflicted" in text and task.id in text:
+                return True
+        for path in (task.path, self.settings.phase_directory / "tasks" / task.path.name):
+            if path.is_file():
+                body = path.read_bytes().decode("utf-8", errors="replace")
+                if "the merge conflicted:" in body:
+                    return True
+        return False
+
+    def _commit_recorded_as_conflicted(self, task: Task, head: str) -> bool:
+        """True when `head` is already recorded under `the merge conflicted` for `task`."""
+        decisions = self.settings.phase_directory / "OWNER_DECISIONS.md"
+        if decisions.is_file():
+            text = decisions.read_bytes().decode("utf-8", errors="replace").replace("\r\n", "\n")
+            for entry in re.split(r"^##\s+", text, flags=re.MULTILINE)[1:]:
+                header = entry.split("\n", 1)[0]
+                if (
+                    header.startswith(f"{task.id} ")
+                    and "the merge conflicted" in header
+                    and f"commit={head}" in entry
+                ):
+                    return True
+        for path in (task.path, self.settings.phase_directory / "tasks" / task.path.name):
+            if path.is_file():
+                body = path.read_bytes().decode("utf-8", errors="replace").replace("\r\n", "\n")
+                for section in re.split(r"^##\s+", body, flags=re.MULTILINE)[1:]:
+                    if "the merge conflicted:" in section and f"commit={head}" in section:
+                        return True
+        return False
+
+    def conflict_measurements(self, task: Task, worktree: Path) -> tuple[str, str]:
+        """Measure merge-base commit/date, commits behind, own diffstat, and save a `stale/` ref."""
+        ref = self.preserve_stale_commit(task, worktree)
+        git(worktree, "fetch", str(self.settings.repository), self.settings.integration_branch)
+        behind = git(worktree, "rev-list", "--count", "HEAD..FETCH_HEAD", check=False).strip()
+        base = git(worktree, "merge-base", "FETCH_HEAD", "HEAD", check=False).strip()
+        base_date = (
+            git(worktree, "show", "-s", "--format=%ai", base, check=False).strip()
+            if base
+            else "unknown"
+        )
+        stat = (
+            git(worktree, "diff", "--stat", f"{base}..HEAD", check=False).strip()
+            if base
+            else "(merge-base unavailable)"
+        )
+        report = (
+            f"base={base or 'unknown'} ({base_date})\n"
+            f"behind={behind or '0'} commit(s) behind {self.settings.integration_branch}\n"
+            f"preserved_ref={ref}\n"
+            f"own_changes (merge-base..HEAD):\n{stat or '(none)'}"
+        )
+        return ref, report
 
     @staticmethod
     def branch_for(task: Task) -> str:
@@ -691,6 +816,16 @@ class Controller:
         if not model:
             return Outcome(task.id, "no-model", "every eligible free model is on cooldown")
         tree = self.workspace(task)
+        conflicted = self.already_conflicted_ahead(task, tree)
+        if conflicted:
+            return self.escalate(
+                task,
+                "the merge conflicted",
+                "The workspace still holds a commit whose merge into the integration branch "
+                "already conflicted, and `refresh()` refuses to discard ahead commits. "
+                "Preserve and advance the workspace base before retrying.",
+                f"commit={conflicted}\n" + self.conflict_measurements(task, tree)[1],
+            )
         # Before the brief is built, not only after the worker returns: the next
         # worker must not find a previous attempt's scratch and stop to ask about
         # files it is forbidden to touch.
@@ -876,6 +1011,15 @@ class Controller:
         if not tree.is_dir():
             return Outcome(task.id, "no-workspace", f"{tree} does not exist")
         model = task.model or "unknown"
+        conflicted = self.already_conflicted_ahead(task, tree)
+        if conflicted:
+            return self.escalate(
+                task,
+                "the merge conflicted",
+                "The workspace still holds a commit whose merge into the integration branch "
+                "already conflicted; not re-running the gates on an unchanged stale tree.",
+                f"commit={conflicted}\n" + self.conflict_measurements(task, tree)[1],
+            )
         # Check for a reviewer before re-running anything. A resume runs the
         # job's whole gate suite, and with the pool empty that work is thrown
         # away at the next step: on 2026-11-22 `T-PH8-302` re-ran its gates
@@ -1259,13 +1403,14 @@ class Controller:
             # and the queue dies whole. `T-PH6-113` did exactly that on
             # 2026-11-20 and took eleven jobs and seven hours with it.
             git(self.settings.repository, "merge", "--abort", check=False)
+            _ref, details = self.conflict_measurements(task, tree)
             return self.escalate(
                 task,
                 "the merge conflicted",
                 "The reviewed work no longer applies to the integration branch, so the merge "
                 "was aborted and nothing was committed. Decide whether the job redoes its "
                 "work on the current branch.",
-                f"commit={head}\nbranch={branch}\n{merged[-800:]}",
+                f"commit={head}\nbranch={branch}\n{details}\n{merged[-800:]}",
             )
         broken = self.loop_still_works()
         if broken:

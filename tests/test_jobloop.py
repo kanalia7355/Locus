@@ -2543,3 +2543,187 @@ def test_a_role_is_a_preference_so_a_spent_family_never_stalls_the_queue(tmp_pat
     assert both.pick(role="light") == "agy/gemini-4-hydrogen-low", (
         "with the assigned family available, the assignment is what decides"
     )
+
+
+# --- conflicted workspace commits (T-PH9-414) --------------------------------
+
+
+def conflicted_workspace(tmp_path: Path) -> tuple[Controller, Path, str, str]:
+    """A repository and workspace whose reviewed commit conflicts with the moved branch."""
+    phase_with_task(tmp_path, TASK.replace("backend/app/service.py", "shared.txt"))
+    repository = tmp_path
+    git(repository, "init", "-b", "loop/local-development", check=False)
+    git(repository, "config", "user.email", "t@example.invalid")
+    git(repository, "config", "user.name", "t")
+    (repository / ".gitignore").write_text(".jobloop/\n", encoding="utf-8")
+    (repository / "shared.txt").write_text("base\n", encoding="utf-8")
+    git(repository, "add", "-A")
+    git(repository, "commit", "--date=2026-11-24T12:31:00+09:00", "-m", "base")
+    base = git(repository, "rev-parse", "HEAD").strip()
+
+    controller = controller_for(tmp_path, ["a-free", "b-free"])
+    controller.settings.python = sys.executable
+    controller.settings.push = False
+    task = tasks.load_phase(controller.settings.phase_directory).tasks[0]
+    tree = controller.workspace(task)
+    git(tree, "config", "user.email", "w@example.invalid")
+    git(tree, "config", "user.name", "w")
+    (tree / "shared.txt").write_text("the job's own change\n", encoding="utf-8")
+
+    # The integration branch moves ahead in two commits, one of them conflicting,
+    # and one touching an unrelated file that must not appear in the job's diffstat.
+    (repository / "shared.txt").write_text("someone else's change\n", encoding="utf-8")
+    git(repository, "add", "-A")
+    git(repository, "commit", "-m", "conflicting merge on integration")
+    (repository / "other_job.py").write_text("unrelated = True\n", encoding="utf-8")
+    git(repository, "add", "-A")
+    git(repository, "commit", "-m", "unrelated job merged later")
+
+    outcome = controller.deliver(
+        tasks.load_phase(controller.settings.phase_directory).tasks[0],
+        tree,
+        "a-free",
+        "b-free",
+        [],
+    )
+    assert outcome.state == "escalated" and "merge conflicted" in outcome.detail
+    head = git(tree, "rev-parse", "HEAD").strip()
+    return controller, tree, base, head
+
+
+def test_merge_conflict_escalation_records_base_behind_own_diffstat_and_ref(
+    tmp_path: Path,
+) -> None:
+    """AC4: conflict escalation records base date, commits behind, own stat, and ref."""
+    controller, tree, base, head = conflicted_workspace(tmp_path)
+    decisions = (controller.settings.phase_directory / "OWNER_DECISIONS.md").read_text(
+        encoding="utf-8"
+    )
+    assert f"commit={head}" in decisions
+    assert base[:7] in decisions, "the merge-base commit must be named"
+    assert "2026-11-24" in decisions and "12:31" in decisions, "base commit date/time must be shown"
+    assert "behind=" in decisions or "behind" in decisions
+    # 2 commits on integration branch + 1 progress commit recorded by deliver = 3 commits behind.
+    behind = git(tree, "rev-list", "--count", "HEAD..FETCH_HEAD").strip()
+    assert int(behind) >= 2
+    assert f"{behind} commit" in decisions or f"behind={behind}" in decisions
+    assert "shared.txt" in decisions, "merge-base..HEAD diffstat must show this job's file"
+    assert "other_job.py" not in decisions, (
+        "diffstat must be merge-base..HEAD, never FETCH_HEAD..HEAD"
+    )
+    assert "stale/T-JOB-1-" in decisions, "the preservation ref name must be recorded"
+    tag = next(
+        part.split("=", 1)[-1].strip().strip("`")
+        for line in decisions.splitlines()
+        for part in line.split()
+        if "stale/T-JOB-1-" in part
+    )
+    shown = git(tree, "show", tag)
+    assert "the job's own change" in shown
+    task_record = (controller.settings.phase_directory / "tasks" / "T-JOB-1.md").read_text(
+        encoding="utf-8"
+    )
+    assert base[:7] in task_record and "2026-11-24" in task_record
+    assert f"behind={behind}" in task_record
+    assert "shared.txt" in task_record and "other_job.py" not in task_record
+    assert f"preserved_ref={tag}" in task_record
+
+
+def test_already_conflicted_ahead_commit_does_not_rerun_gates_on_next_cycle(
+    tmp_path: Path,
+) -> None:
+    """AC1: when behind > 0 and ahead > 0 and HEAD is already recorded as conflicted, skip gates."""
+    controller, _tree, _base, _head = conflicted_workspace(tmp_path)
+    task = tasks.load_phase(controller.settings.phase_directory).tasks[0]
+    # Simulate an operator putting the job back into `review` without advancing the base.
+    controller.set_fields(task, status="review", model="a-free")
+
+    import jobloop.gates as gates_module
+
+    original_within = gates_module.within_scope
+    original_run = gates_module.run_command
+    gates_module.within_scope = lambda *_a, **_k: pytest.fail(  # type: ignore[assignment]
+        "scope gate must not run for an ahead commit already recorded as conflicted"
+    )
+    gates_module.run_command = lambda *_a, **_k: pytest.fail(  # type: ignore[assignment]
+        "gates must not be re-run for an ahead commit already recorded as conflicted"
+    )
+    try:
+        outcome = controller.resume(tasks.load_phase(controller.settings.phase_directory).tasks[0])
+        assert outcome.state == "escalated" and "merge conflicted" in outcome.detail
+        assert tasks.load_phase(controller.settings.phase_directory).tasks[0].status == "blocked"
+
+        # Simulate an operator putting the job back into `doing` without advancing the base
+        # (the exact 2026-11-24 16:30 ruling on T-PH9-406): `run_job` / `run` must not
+        # dispatch a worker or re-run gates on the same conflicted commit either.
+        controller.set_fields(task, status="doing", model="a-free")
+        controller.dispatch = lambda *_a, **_k: pytest.fail("must not dispatch on stale conflict")  # type: ignore[assignment]
+        outcomes = controller.run(minutes=0.2, max_jobs=3)
+        assert outcomes[0].state == "escalated" and "merge conflicted" in outcomes[0].detail
+        assert tasks.load_phase(controller.settings.phase_directory).tasks[0].status == "blocked"
+    finally:
+        gates_module.within_scope = original_within
+        gates_module.run_command = original_run
+
+
+def test_unconflicted_ahead_commit_still_runs_gates_on_resume(tmp_path: Path) -> None:
+    """Neighbouring case: an ahead commit with no prior conflict record still runs its gates."""
+    phase_with_task(tmp_path, TASK.replace("backend/app/service.py", "shared.txt"))
+    repository = tmp_path
+    git(repository, "init", "-b", "loop/local-development", check=False)
+    git(repository, "config", "user.email", "t@example.invalid")
+    git(repository, "config", "user.name", "t")
+    (repository / ".gitignore").write_text(".jobloop/\n", encoding="utf-8")
+    (repository / "shared.txt").write_text("base\n", encoding="utf-8")
+    git(repository, "add", "-A")
+    git(repository, "commit", "-m", "base")
+
+    controller = controller_for(tmp_path, ["a-free", "b-free"])
+    controller.settings.python = sys.executable
+    controller.settings.push = False
+    task = tasks.load_phase(controller.settings.phase_directory).tasks[0]
+    tree = controller.workspace(task)
+    git(tree, "config", "user.email", "w@example.invalid")
+    git(tree, "config", "user.name", "w")
+    (tree / "shared.txt").write_text("clean ahead change\n", encoding="utf-8")
+    git(tree, "add", "-A")
+    git(tree, "commit", "-m", "reviewed work")
+
+    # Integration moves on a different file, so behind=1 and ahead=1, with no conflict record.
+    (repository / "other.txt").write_text("other\n", encoding="utf-8")
+    git(repository, "add", "-A")
+    git(repository, "commit", "-m", "non-conflicting move")
+
+    controller.set_fields(task, status="review", model="a-free")
+    controller.dispatch = lambda model, prompt, **_: worker.Result(  # type: ignore[assignment]
+        worker.Ending.COMPLETED, "VERDICT\n- APPROVED\n\nFINDINGS\n- none", model
+    )
+    outcome = controller.resume(tasks.load_phase(controller.settings.phase_directory).tasks[0])
+    assert outcome.state == "delivered", outcome.detail
+
+
+def test_advancing_base_preserves_commit_as_ref_and_reaches_zero_behind_zero_ahead(
+    tmp_path: Path,
+) -> None:
+    """AC2 & AC3: advancing the base saves the job's commit in a ref and leaves behind=0/ahead=0."""
+    controller, tree, _base, head = conflicted_workspace(tmp_path)
+    task = tasks.load_phase(controller.settings.phase_directory).tasks[0]
+
+    # Without an explicit instruction/call to advance the base, refresh() still refuses!
+    controller.refresh(task, tree)
+    assert git(tree, "rev-parse", "HEAD").strip() == head, (
+        "unattended refresh() must still refuse to reset an ahead workspace"
+    )
+
+    ref = controller.advance_base(task, tree)
+    assert ref.startswith("stale/T-JOB-1-")
+    assert git(tree, "rev-parse", f"{ref}^{{commit}}").strip() == head
+    shown = git(tree, "show", ref)
+    assert "+the job's own change" in shown
+
+    # After advancing the base, refresh() sees behind=0 and ahead=0.
+    controller.refresh(tasks.load_phase(controller.settings.phase_directory).tasks[0], tree)
+    behind = git(tree, "rev-list", "--count", "HEAD..FETCH_HEAD").strip()
+    ahead = git(tree, "rev-list", "--count", "FETCH_HEAD..HEAD").strip()
+    assert behind == "0" and ahead == "0"
+    assert (tree / "shared.txt").read_text(encoding="utf-8") == "someone else's change\n"
