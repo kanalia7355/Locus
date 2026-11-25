@@ -327,3 +327,24 @@ Automatic merge failed; fix conflicts and then commit the result.
 outside allowed_paths: ['test_output.txt']
 
 **Answer** (2026-11-25 14:35, orchestrator): **屑である。削除して `doing` に戻し、試行は消費しない（1/3 のまま）。** 実測: `test_output.txt`（183 バイト）の中身は pytest の出力そのもの（`77 passed in 25.57s`）で、変更が参照している実体ではない。この票の実作業は `selfrepair.py` / `test_jobloop.py` / `test_selfrepair.py` の 3 ファイルに未コミットで健在。**ワーカーの逸脱ではなく、範囲が狭すぎたのでもない。** `gates.litter` が掃かなかった理由が本当の原因で、仕組みの側にある: 掃き出しは拡張子ではなく**参照**で判定し、範囲内のテキストが緩いパスを言及していれば掃かずに止める（正しい設計）。ところがこの票は範囲に `tests/test_jobloop.py` を含み、**そのファイル自身が `"test_output.txt"` を試験データとして持っている** — 屑掃除そのものの試験だからである（436・444・474・477・480 行）。つまり**屑掃除の試験を含む票は、自分の試験データに守られて自分の屑を掃けない**。`check_select3.py` や `debug_test.py` も同じ試験データに出るので同じことが起きる。仕組みの側は `T-PH9-416` に起票した。詳細は `tasks/T-PH9-406.md`。
+
+## T-PH9-406 — worker stopped for a decision (2026-11-25T15:43:23+09:00)
+
+**Question**: AC3's tracked-file guard cannot pass inside this ticket's allowed_paths — six tracked, non-protected files still contain a repository root (`docs/APP_PROVISIONING.md`, `docs/report/IMPLEMENTATION_STATUS_AND_BLOCKERS.html`, `docs/requirements/LOOP_BOOTSTRAP_SPEC.md`, `progress/phase-6-extensions/OWNER_DECISIONS.md`, `progress/phase-9-loop-health/OWNER_DECISIONS.md`, `tests/test_release_test_ports.p
+
+**Context**
+
+:2726`, `progress/phase-9-loop-health/OWNER_DECISIONS.md:245`), and the latter also has absolute `workspace=`/workdir lines. The docs claim is not true of the tree.
+
+Risk left behind: AC3's guard is **not** delivered (see STATUS). Also unchanged and out of scope: `jobloop/roster.py` still lets `UnicodeDecodeError` escape on a non-UTF-8 roster (`T-PH9-410`).
+
+TEST
+
+- `python -m pytest tests/test_jobloop.py tests/test_selfrepair.py -q` — before changes: `77 passed in 25.26s`; after: `79 passed in 25.08s` (exit 0).
+- `python -m ruff check backend tests scripts jobloop` — `All checks passed!`
+- `python -m ruff format --check backend tests scripts jobloop` — `192 files already formatted`
+- `python scripts/secret_scan.py jobloop/controller.py jobloop/selfrepair.py tests/test_jobloop.py tests/test_selfrepair.py` — `Offline secret scan: 0 findings`
+- AC3 measurement (inline scan of `git ls-files`, excluding `jobloop.gates.PROTECTED`, over both the checkout root and the local `origin` path): 6 tracked non-protected files still contain a root — `docs/APP_PROVISIONING.md`, `docs/report/IMPLEMENTATION_STATUS_AND_BLOCKERS.html`, `docs/requirements/LOOP_BOOTSTRAP_SPEC.md`, `progress/phase-6-extensions/OWNER_DECISIONS.md`, `progress/phase-9-loop-health/OWNER_DECISIONS.md`, `tests/test_release_test_ports.py`. That is why no AC3 test was added: it would fail the verification command.
+
+STATUS
+needs-owner-decision: AC3's tracked-file guard cannot pass inside this ticket's allowed_paths — six tracked, non-protected files still contain a repository root (`docs/APP_PROVISIONING.md`, `docs/report/IMPLEMENTATION_STATUS_AND_BLOCKERS.html`, `docs/requirements/LOOP_BOOTSTRAP_SPEC.md`, `progress/phase-6-extensions/OWNER_DECISIONS.md`, `progress/phase-9-loop-health/OWNER_DECISIONS.md`, `tests/test_release_test_ports.py`) and the task forbids rewriting existing progress records — may I redact them by widening allowed_paths, or should AC3 exclude non-record documentation and pre-existing records?
