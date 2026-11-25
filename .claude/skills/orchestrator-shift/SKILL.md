@@ -414,6 +414,19 @@ A ruling is a file in the repository, and the gates apply to it.
    lived 31 seconds. **The proof that work is happening is an outcome line**
    (`delivered`, `attempt-failed`, `escalated`), or a worker still alive minutes
    later. A process that exists tells you a dispatch was attempted, nothing more.
+
+   **And a second-tier worker is not an `opencode.exe` at all.** An `agy/*`
+   dispatch runs `agy.EXE` (`...\AppData\Localgyingy.EXE --model
+   gemini-4-carbon-low --input-format stream-json ...`), and `shift_check.py`
+   queries only `python.exe` and `opencode.exe` — so the orphan check and the
+   "is a worker alive" line are both blind to it. On 2026-11-26 I looked for
+   `opencode.exe` at 05:17, found only the owner's `serve --service`, and had to
+   check again before concluding nothing was running: `T-PH6-121` was in fact
+   five minutes into a live dispatch with Playwright holding :8000 and :5174.
+   That matters more than it sounds, because **all five of that morning's merges
+   were implemented and reviewed by the second tier** — the only tier working was
+   the one the checks cannot see. Ticketed as `T-PH9-417`; until it lands, look
+   for `agy.EXE` by hand, and trust the outcome line over any process list.
 3. **Remove `.jobloop/orchestrator-busy`** — after the last write, not before.
 4. **Push.** Thirty commits once sat on this machine for a day because pushing
    was opt-in and only fired after a merge.
