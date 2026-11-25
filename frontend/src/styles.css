@@ -29,7 +29,6 @@
   font-family: var(--font-body);
   color: var(--color-ink);
   background: var(--color-paper);
-  font-size: 14px;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
@@ -115,7 +114,7 @@ button {
   background: var(--color-paper);
   border: 1px solid var(--color-line);
   border-radius: 5px;
-  padding: 7px 12px;
+  padding: 0.4375rem 0.75rem;
   white-space: nowrap;
 }
 button:hover {
@@ -141,14 +140,14 @@ select {
   border: 1px solid var(--color-line);
   border-radius: 4px;
   background: var(--color-paper);
-  padding: 9px 10px;
+  padding: 0.5625rem 0.625rem;
   min-width: 0;
   max-width: 100%;
 }
 label {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0.5rem;
 }
 label input {
   width: 100%;
@@ -162,11 +161,11 @@ h3 {
   min-width: 0;
 }
 h1 {
-  font-size: 17px;
+  font-size: 1.25rem;
   font-weight: 600;
 }
 h2 {
-  font-size: 16px;
+  font-size: 1.125rem;
   font-weight: 600;
 }
 p {
@@ -182,7 +181,7 @@ pre {
 .composer-note,
 .chat-notice {
   color: var(--color-muted);
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 input:user-invalid,
 select:user-invalid,
@@ -192,7 +191,7 @@ textarea:user-invalid {
 .field-error {
   margin: 0;
   color: var(--color-error);
-  font-size: 13px;
+  font-size: 0.8125rem;
   line-height: 1.8;
   overflow-wrap: anywhere;
 }
@@ -200,7 +199,7 @@ textarea:user-invalid {
   color: var(--color-error);
 }
 .loading {
-  padding: 32px;
+  padding: 2rem;
 }
 .primary {
   background: var(--color-accent);
@@ -211,29 +210,29 @@ textarea:user-invalid {
   background: var(--color-ink);
 }
 .access {
-  max-width: 440px;
-  padding: 32px 24px;
+  max-width: 27.5rem;
+  padding: 2rem 1.5rem;
   margin: 6dvh auto;
 }
 .access-brand {
-  font-size: 16px;
+  font-size: 1.125rem;
   font-weight: 600;
-  padding-bottom: 24px;
+  padding-bottom: 1.5rem;
   border-bottom: 1px solid var(--color-line);
 }
 .access-brand span {
   color: var(--color-muted);
-  margin-left: 8px;
+  margin-left: 0.5rem;
   font-weight: 400;
 }
 .access-form {
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  padding-top: 24px;
+  gap: 1.125rem;
+  padding-top: 1.5rem;
 }
 .access-form h1 {
-  font-size: 22px;
+  font-size: 1.5rem;
 }
 .access-form p {
   margin: 0;
@@ -242,8 +241,10 @@ textarea:user-invalid {
   display: inline-flex;
   justify-content: center;
   align-items: center;
-  width: 36px;
-  height: 36px;
+  /* 固定の width/height ではなく最小寸法にする（T-PH6-119）。アイコン自体は文字では
+     ないので文字サイズには追従させず、アイコンが大きくなった分だけ伸びられるようにする。 */
+  min-width: 36px;
+  min-height: 36px;
   padding: 0;
   border: 0;
   background: transparent;
@@ -253,15 +254,15 @@ textarea:user-invalid {
 }
 .tooltip {
   position: absolute;
-  top: calc(100% + 5px);
+  top: calc(100% + 0.3125rem);
   left: 50%;
   transform: translateX(-50%);
   display: none;
-  padding: 5px 8px;
+  padding: 0.3125rem 0.5rem;
   background: var(--color-accent);
   color: var(--color-on-accent);
   border-radius: 4px;
-  font-size: 11px;
+  font-size: 0.6875rem;
   z-index: 50;
   pointer-events: none;
 }
@@ -270,10 +271,10 @@ textarea:user-invalid {
   display: block;
 }
 .workspace {
-  --sidebar-width: 0px;
+  --sidebar-width: 0;
   display: grid;
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
-  grid-template-rows: 64px minmax(0, 1fr);
+  grid-template-rows: 4rem minmax(0, 1fr);
   height: 100dvh;
   transition: grid-template-columns 220ms ease;
 }
@@ -281,43 +282,46 @@ textarea:user-invalid {
   grid-column: 1 / -1;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 12px;
+  gap: 0.625rem;
+  padding: 0 0.75rem;
   border-bottom: 1px solid var(--color-line);
   background: var(--color-paper);
   z-index: 20;
   min-width: 0;
 }
 .topbar strong {
-  font-size: 14px;
+  /* 旧来の 14 相当のラベル。本文（1rem）とは別に、見かけの大きさを保つ（T-PH6-119）。 */
+  font-size: 0.875rem;
   white-space: nowrap;
 }
 .project-select {
   border: 0;
   color: var(--color-muted);
-  font-size: 12px;
+  font-size: 0.75rem;
   flex: 1;
-  width: 50px;
-  padding-inline: 4px;
+  width: 3.125rem;
+  padding-inline: 0.25rem;
 }
 .environment {
   display: none;
-  font-size: 11px;
+  font-size: 0.6875rem;
   color: var(--color-muted);
 }
 .user-name {
   display: none;
-  max-width: 150px;
+  max-width: 9.375rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--color-muted);
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 .sidebar {
   position: fixed;
-  width: 220px;
-  inset: 64px auto 0 0;
+  /* 文字サイズを大きくすると 13.75rem が画面より広くなり得る。狭い画面では
+     画面幅で止めて、右端の操作（設定）を画面外へ出さない（T-PH6-119）。 */
+  width: min(13.75rem, 100vw);
+  inset: 4rem auto 0 0;
   z-index: 15;
   background: var(--color-sidebar);
   display: flex;
@@ -335,12 +339,12 @@ textarea:user-invalid {
   visibility: visible;
 }
 .sidebar nav {
-  padding: 24px 14px;
+  padding: 1.5rem 0.875rem;
 }
 .nav-heading {
-  font-size: 12px;
+  font-size: 0.75rem;
   color: var(--color-muted);
-  margin: 0 10px 10px;
+  margin: 0 0.625rem 0.625rem;
 }
 .nav-item {
   display: block;
@@ -349,9 +353,9 @@ textarea:user-invalid {
   border: 0;
   background: transparent;
   border-radius: 0;
-  padding: 12px 10px;
-  margin-bottom: 2px;
-  font-size: 13px;
+  padding: 0.75rem 0.625rem;
+  margin-bottom: 0.125rem;
+  font-size: 0.8125rem;
 }
 .nav-item.selected {
   background: var(--color-selected);
@@ -360,19 +364,19 @@ textarea:user-invalid {
 }
 .nav-divider {
   border-top: 1px solid var(--color-line);
-  margin: 24px 10px;
+  margin: 1.5rem 0.625rem;
 }
 .sidebar details {
-  margin-top: 18px;
+  margin-top: 1.125rem;
 }
 .sidebar summary {
-  font-size: 11px;
+  font-size: 0.6875rem;
   color: var(--color-muted);
-  padding: 8px 10px;
+  padding: 0.5rem 0.625rem;
   cursor: pointer;
   list-style: none;
   display: flex;
-  gap: 6px;
+  gap: 0.375rem;
   align-items: center;
   justify-content: space-between;
   white-space: nowrap;
@@ -382,12 +386,12 @@ textarea:user-invalid {
 }
 .sidebar-foot {
   color: var(--color-muted);
-  font-size: 11px;
-  padding: 12px 24px;
+  font-size: 0.6875rem;
+  padding: 0.75rem 1.5rem;
 }
 .sidebar-backdrop {
   position: fixed;
-  inset: 64px 0 0;
+  inset: 4rem 0 0;
   z-index: 14;
   background: var(--color-backdrop);
   border: 0;
@@ -397,23 +401,23 @@ textarea:user-invalid {
   background: var(--color-backdrop);
 }
 .sidebar-top {
-  padding: 16px 14px 24px;
+  padding: 1rem 0.875rem 1.5rem;
   overflow-y: auto;
   flex: 1 1 auto;
 }
 .sidebar-new-chat {
-  padding: 0 0 16px;
+  padding: 0 0 1rem;
 }
 .new-chat-button {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
+  gap: 0.625rem;
+  padding: 0.625rem 0.75rem;
   border: 1px solid var(--color-line);
   border-radius: 8px;
   background: transparent;
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 500;
   color: var(--color-ink);
 }
@@ -429,7 +433,7 @@ textarea:user-invalid {
   outline-offset: 2px;
 }
 .sidebar-section {
-  margin-top: 18px;
+  margin-top: 1.125rem;
 }
 .conversation-list {
   list-style: none;
@@ -439,8 +443,8 @@ textarea:user-invalid {
 .conversation-item {
   display: flex;
   align-items: center;
-  gap: 4px;
-  margin-bottom: 2px;
+  gap: 0.25rem;
+  margin-bottom: 0.125rem;
 }
 .conversation-link {
   flex: 1 1 auto;
@@ -451,8 +455,8 @@ textarea:user-invalid {
   border: 0;
   background: transparent;
   border-radius: 6px;
-  padding: 10px 10px;
-  font-size: 13px;
+  padding: 0.625rem 0.625rem;
+  font-size: 0.8125rem;
   color: var(--color-ink);
 }
 .conversation-link:hover:not(:disabled) {
@@ -474,7 +478,7 @@ textarea:user-invalid {
   border: 0;
   background: transparent;
   color: var(--color-muted);
-  padding: 6px;
+  padding: 0.375rem;
   border-radius: 6px;
   opacity: 0;
 }
@@ -487,41 +491,41 @@ textarea:user-invalid {
   background: var(--color-error-paper);
 }
 .sidebar-empty {
-  font-size: 12px;
+  font-size: 0.75rem;
   color: var(--color-muted);
-  padding: 8px 10px;
+  padding: 0.5rem 0.625rem;
   margin: 0;
 }
 .sidebar-account {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 14px 16px;
+  gap: 0.5rem;
+  padding: 0.875rem 1rem;
   border-top: 1px solid var(--color-line);
   background: var(--color-sidebar);
 }
 .sidebar-account-user {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 0.625rem;
   min-width: 0;
 }
 .sidebar-avatar {
-  width: 28px;
-  height: 28px;
+  min-width: 1.75rem;
+  min-height: 1.75rem;
   border-radius: 50%;
   background: var(--color-selected);
   color: var(--color-ink);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 600;
   flex: 0 0 auto;
 }
 .sidebar-account-name {
-  font-size: 13px;
+  font-size: 0.8125rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -530,7 +534,7 @@ textarea:user-invalid {
   border: 0;
   background: transparent;
   color: var(--color-muted);
-  padding: 6px;
+  padding: 0.375rem;
   border-radius: 6px;
   flex: 0 0 auto;
 }
@@ -542,8 +546,8 @@ textarea:user-invalid {
   grid-column: 2;
   min-width: 0;
   min-height: 0;
-  padding: 24px 16px 16px;
-  max-width: 1100px;
+  padding: 1.5rem 1rem 1rem;
+  max-width: 68.75rem;
   width: 100%;
   margin: 0 auto;
   overflow-y: auto;
@@ -561,18 +565,18 @@ textarea:user-invalid {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 28px;
+  gap: 1rem;
+  margin-bottom: 1.75rem;
 }
 .notice {
-  padding: 10px 12px;
+  padding: 0.625rem 0.75rem;
   border: 1px solid var(--color-line);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 0.5rem;
   overflow-wrap: anywhere;
-  margin-bottom: 16px;
+  margin-bottom: 1rem;
 }
 .notice.error {
   background: var(--color-error-paper);
@@ -586,10 +590,10 @@ textarea:user-invalid {
      derive from these variables so a programmatic jump lands clear of both;
      sizes cover the one-line notice and the empty composer, and grow with
      their content on their own. */
-  --chat-notice-height: 34px;
-  --chat-notice-gap: 8px;
-  --composer-height: 134px;
-  --composer-gap: 16px;
+  --chat-notice-height: 2.125rem;
+  --chat-notice-gap: 0.5rem;
+  --composer-height: 8.375rem;
+  --composer-gap: 1rem;
 }
 
 .chat-notice {
@@ -598,7 +602,7 @@ textarea:user-invalid {
   z-index: 1;
   min-height: var(--chat-notice-height);
   margin: 0 0 var(--chat-notice-gap);
-  padding-block: 6px;
+  padding-block: 0.375rem;
   background: var(--color-paper);
   text-align: center;
 }
@@ -606,32 +610,32 @@ textarea:user-invalid {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding-top: 32px;
+  padding-top: 2rem;
   scroll-padding-block: calc(var(--chat-notice-height) + var(--chat-notice-gap))
     calc(var(--composer-height) + var(--composer-gap));
 }
 .chat-empty {
   display: flex;
-  min-height: 250px;
+  min-height: 15.625rem;
   align-items: center;
   justify-content: center;
   flex-direction: column;
   color: var(--color-muted);
-  padding-block: 48px;
+  padding-block: 3rem;
 }
 .chat-empty p {
   color: var(--color-ink);
-  margin-bottom: 4px;
+  margin-bottom: 0.25rem;
 }
 .chat-empty span {
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 .exchange {
-  margin-bottom: 40px;
+  margin-bottom: 2.5rem;
 }
 .user-message {
-  margin: 0 0 28px auto;
-  padding: 18px 20px;
+  margin: 0 0 1.75rem auto;
+  padding: 1.125rem 1.25rem;
   border-radius: 18px 18px 3px 18px;
   background: var(--color-soft);
   width: fit-content;
@@ -640,14 +644,14 @@ textarea:user-invalid {
   overflow-wrap: anywhere;
 }
 .answer h2 {
-  margin-bottom: 16px;
-  font-size: 16px;
+  margin-bottom: 1rem;
+  font-size: 1.125rem;
 }
 .citation-excerpt {
-  margin-bottom: 22px;
+  margin-bottom: 1.375rem;
 }
 .citation-excerpt blockquote {
-  margin: 0 0 14px;
+  margin: 0 0 0.875rem;
   white-space: pre-wrap;
   line-height: 1.9;
   overflow-wrap: anywhere;
@@ -671,14 +675,14 @@ textarea:user-invalid {
 .citation-table-viewport th,
 .citation-table-viewport td {
   border-bottom: 1px solid var(--color-line);
-  padding: 8px 12px;
+  padding: 0.5rem 0.75rem;
   max-width: 24rem;
   overflow-wrap: anywhere;
   vertical-align: top;
 }
 .citation-table-viewport th {
   color: var(--color-muted);
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 400;
 }
 .citation-table-viewport td:first-child {
@@ -697,7 +701,7 @@ textarea:user-invalid {
   white-space: normal;
   overflow-wrap: anywhere;
   text-decoration: underline;
-  text-underline-offset: 5px;
+  text-underline-offset: 0.3125rem;
 }
 .text-link:hover {
   background: transparent;
@@ -708,13 +712,13 @@ textarea:user-invalid {
   opacity: 1;
 }
 .footnote {
-  margin-block: 18px;
+  margin-block: 1.125rem;
 }
 .composer {
   flex-shrink: 0;
   border: 1px solid var(--color-line);
   border-radius: 23px;
-  padding: 14px 14px 8px;
+  padding: 0.875rem 0.875rem 0.5rem;
   margin-top: var(--composer-gap);
   min-height: var(--composer-height);
   background: var(--color-paper);
@@ -723,7 +727,7 @@ textarea:user-invalid {
   display: block;
   width: 100%;
   field-sizing: content;
-  min-block-size: 74px;
+  min-block-size: 4.625rem;
   max-block-size: 30dvh;
   resize: none;
   border: 0;
@@ -740,19 +744,23 @@ textarea:user-invalid {
   outline-offset: 3px;
 }
 .scope-picker {
-  flex-shrink: 0;
+  /* 文字サイズを大きくすると 1 行に収まらなくなる。幅の上限はここに置き、
+     狭いときは縮んでラベルを省略する（送信ボタンを画面外へ押し出さない。T-PH6-119）。 */
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 11.25rem;
 }
 .scope-chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  max-width: 180px;
-  padding: 6px 12px;
+  gap: 0.375rem;
+  max-width: 100%;
+  padding: 0.375rem 0.75rem;
   border: 1px solid var(--color-line);
   border-radius: 16px;
   background: transparent;
   color: var(--color-muted);
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 .scope-chip:hover {
   background: var(--color-soft);
@@ -774,17 +782,17 @@ textarea:user-invalid {
    getBoundingClientRect() で測って fixed で決める。z-index は不要。 */
 .scope-popup {
   position: fixed;
-  top: 8px;
-  left: 8px;
+  top: 0.5rem;
+  left: 0.5rem;
   margin: 0;
-  padding: 4px;
+  padding: 0.25rem;
   list-style: none;
-  min-width: 220px;
+  min-width: 13.75rem;
   background: var(--color-paper);
   border: 1px solid var(--color-line);
   border-radius: 12px;
   box-shadow: 0 6px 18px rgb(23 35 43 / 12%);
-  max-width: calc(100vw - 32px);
+  max-width: calc(100vw - 2rem);
   opacity: 0;
   transform: translateY(4px);
   visibility: hidden;
@@ -808,10 +816,10 @@ textarea:user-invalid {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 8px 10px;
+  gap: 0.75rem;
+  padding: 0.5rem 0.625rem;
   border-radius: 8px;
-  font-size: 13px;
+  font-size: 0.8125rem;
   color: var(--color-ink);
   cursor: pointer;
   white-space: nowrap;
@@ -842,7 +850,7 @@ textarea:user-invalid {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 0.5rem;
 }
 .composer-actions .icon-button:last-child {
   background: var(--color-accent);
@@ -852,31 +860,31 @@ textarea:user-invalid {
 .send-state {
   flex: 1;
   color: var(--color-muted);
-  font-size: 12px;
+  font-size: 0.75rem;
   text-align: right;
 }
 .composer-note {
-  margin: 10px 0 0;
+  margin: 0.625rem 0 0;
   text-align: center;
-  font-size: 11px;
+  font-size: 0.6875rem;
 }
 .attachments {
-  margin: 0 0 10px;
+  margin: 0 0 0.625rem;
   padding: 0;
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 0.375rem;
 }
 .attachments li {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 7px;
+  gap: 0.4375rem;
   background: var(--color-soft);
-  padding: 4px 8px;
+  padding: 0.25rem 0.5rem;
   border-radius: 5px;
-  font-size: 12px;
+  font-size: 0.75rem;
   min-width: 0;
 }
 .attachment-name {
@@ -890,35 +898,35 @@ textarea:user-invalid {
   flex-basis: 100%;
   color: var(--color-error);
   overflow-wrap: anywhere;
-  padding: 0 0 6px 22px;
+  padding: 0 0 0.375rem 1.375rem;
 }
 .section-toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 0.625rem;
 }
 .section-toolbar p {
   flex: 1;
-  min-width: 170px;
+  min-width: 10.625rem;
 }
 .document-row {
   border-bottom: 1px solid var(--color-line);
-  padding: 20px 0;
+  padding: 1.25rem 0;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 0.75rem;
 }
 .document-main {
   flex: 1;
   display: flex;
   align-items: flex-start;
-  gap: 12px;
+  gap: 0.75rem;
   min-width: 0;
 }
 .document-main svg {
-  margin-top: 3px;
+  margin-top: 0.1875rem;
   flex-shrink: 0;
   color: var(--color-muted);
 }
@@ -926,7 +934,7 @@ textarea:user-invalid {
   min-width: 0;
 }
 .document-main p {
-  margin: 8px 0 0;
+  margin: 0.5rem 0 0;
   overflow-wrap: anywhere;
 }
 .file-name {
@@ -934,59 +942,59 @@ textarea:user-invalid {
 }
 .document-actions {
   display: flex;
-  gap: 6px;
+  gap: 0.375rem;
 }
 .empty {
   color: var(--color-muted);
-  padding: 28px 0;
+  padding: 1.75rem 0;
 }
 .list {
-  margin-top: 24px;
+  margin-top: 1.5rem;
 }
 .list-row {
-  padding: 18px 0;
+  padding: 1.125rem 0;
   border-bottom: 1px solid var(--color-line);
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  font-size: 13px;
+  gap: 0.75rem;
+  font-size: 0.8125rem;
   overflow-wrap: anywhere;
 }
 .list-row code {
   overflow-wrap: anywhere;
 }
 .provision-user {
-  margin-bottom: 24px;
+  margin-bottom: 1.5rem;
 }
 .provision-user h2 {
-  font-size: 15px;
+  font-size: 1.0625rem;
 }
 .provision-user-form {
-  max-width: 560px;
-  margin-top: 16px;
+  max-width: 35rem;
+  margin-top: 1rem;
 }
 .provision-user-controls {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 0.5rem;
 }
 .provision-user-controls input {
   flex: 1;
-  min-width: 180px;
+  min-width: 11.25rem;
 }
 .provision-user-form > p {
   margin-bottom: 0;
 }
 .one-time-password {
-  margin-top: 16px;
-  padding: 12px 0;
+  margin-top: 1rem;
+  padding: 0.75rem 0;
   border-block: 1px solid var(--color-line);
 }
 .one-time-password p {
-  margin: 0 0 10px;
+  margin: 0 0 0.625rem;
 }
 .one-time-password code {
   min-width: 0;
@@ -996,33 +1004,33 @@ textarea:user-invalid {
 .publication {
   flex-basis: 100%;
   background: var(--color-soft);
-  padding: 16px;
+  padding: 1rem;
 }
 .publication button + button {
-  margin-left: 8px;
+  margin-left: 0.5rem;
 }
 .role-editor {
-  max-width: 700px;
+  max-width: 43.75rem;
 }
 .role-editor label {
-  margin: 20px 0;
+  margin: 1.25rem 0;
 }
 .role-editor h2 {
-  margin-top: 36px;
+  margin-top: 2.25rem;
 }
 .field-label {
-  font-size: 13px;
-  margin-bottom: 8px;
+  font-size: 0.8125rem;
+  margin-bottom: 0.5rem;
 }
 .permission-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 0.5rem;
 }
 .permission-chips button {
   border-radius: 16px;
-  font-size: 12px;
-  padding: 6px 12px;
+  font-size: 0.75rem;
+  padding: 0.375rem 0.75rem;
 }
 .permission-chips button[aria-pressed="true"] {
   background: var(--color-accent);
@@ -1031,12 +1039,12 @@ textarea:user-invalid {
 }
 .permission-preview {
   border-block: 1px solid var(--color-line);
-  padding: 16px 0;
-  font-size: 13px;
+  padding: 1rem 0;
+  font-size: 0.8125rem;
   overflow-wrap: anywhere;
 }
 .settings h2 {
-  margin-top: 32px;
+  margin-top: 2rem;
 }
 .settings p {
   color: var(--color-muted);
@@ -1046,21 +1054,21 @@ textarea:user-invalid {
 .admin-delegation-form,
 .admin-delegation-row {
   border-bottom: 1px solid var(--color-line);
-  padding: 18px 0;
+  padding: 1.125rem 0;
 }
 .admin-project-form,
 .admin-delegation-form {
-  max-width: 560px;
+  max-width: 35rem;
 }
 .admin-delegation-form label {
-  margin: 12px 0;
+  margin: 0.75rem 0;
 }
 .delegation-permissions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 0.5rem;
   border: 0;
-  padding: 12px 0;
+  padding: 0.75rem 0;
   margin: 0;
 }
 .delegation-permissions legend {
@@ -1076,20 +1084,20 @@ textarea:user-invalid {
 }
 .admin-delegation-row article {
   display: grid;
-  gap: 12px;
+  gap: 0.75rem;
 }
 .admin-delegation-row h3 {
   overflow-wrap: anywhere;
 }
 .admin-delegation-row dl {
   display: grid;
-  grid-template-columns: minmax(110px, 0.5fr) minmax(0, 2fr);
+  grid-template-columns: minmax(6.875rem, 0.5fr) minmax(0, 2fr);
   margin: 0;
 }
 .admin-delegation-row dt,
 .admin-delegation-row dd {
   margin: 0;
-  padding: 8px;
+  padding: 0.5rem;
   border-bottom: 1px solid var(--color-line);
   overflow-wrap: anywhere;
 }
@@ -1099,33 +1107,33 @@ textarea:user-invalid {
 .admin-delegation-row [role="group"] {
   display: grid;
   justify-items: start;
-  gap: 8px;
-  padding: 12px 0;
+  gap: 0.5rem;
+  padding: 0.75rem 0;
 }
 .admin-delegation-row [role="group"] p {
   margin: 0;
 }
-@media (max-width: 560px) {
+@media (max-width: 35em) {
   .admin-delegation-row dl {
     grid-template-columns: minmax(0, 1fr);
   }
   .admin-delegation-row dt {
-    padding-bottom: 2px;
+    padding-bottom: 0.125rem;
     border-bottom: 0;
   }
   .admin-delegation-row dd {
-    padding-top: 4px;
+    padding-top: 0.25rem;
   }
 }
 .admin-project-form h2,
 .admin-project-row h3 {
-  margin: 0 0 12px;
-  font-size: 15px;
+  margin: 0 0 0.75rem;
+  font-size: 1.0625rem;
 }
 .admin-project-form label,
 .admin-project-controls label {
   display: grid;
-  gap: 6px;
+  gap: 0.375rem;
   min-width: 0;
 }
 .admin-project-form input,
@@ -1144,12 +1152,12 @@ textarea:user-invalid {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 10px;
-  padding: 6px 0;
+  gap: 0.625rem;
+  padding: 0.375rem 0;
 }
 .admin-project-members li span {
   flex: 1;
-  min-width: 180px;
+  min-width: 11.25rem;
   overflow-wrap: anywhere;
 }
 .admin-project-controls label {
@@ -1157,29 +1165,29 @@ textarea:user-invalid {
 }
 .admin-settings-list {
   display: grid;
-  grid-template-columns: minmax(150px, 0.7fr) minmax(0, 2fr);
+  grid-template-columns: minmax(9.375rem, 0.7fr) minmax(0, 2fr);
   border-top: 1px solid var(--color-line);
 }
 .admin-settings-list dt,
 .admin-settings-list dd {
   margin: 0;
-  padding: 12px 8px;
+  padding: 0.75rem 0.5rem;
   border-bottom: 1px solid var(--color-line);
   overflow-wrap: anywhere;
 }
 .admin-settings-list dd {
   min-width: 0;
 }
-@media (max-width: 560px) {
+@media (max-width: 35em) {
   .admin-settings-list {
     grid-template-columns: minmax(0, 1fr);
   }
   .admin-settings-list dt {
-    padding-bottom: 2px;
+    padding-bottom: 0.125rem;
     border-bottom: 0;
   }
   .admin-settings-list dd {
-    padding-top: 4px;
+    padding-top: 0.25rem;
   }
 }
 /* The native modal keeps the page behind it from scrolling. Do not reach for
@@ -1212,8 +1220,8 @@ dialog::backdrop {
   border: 1px solid var(--color-line);
   border-radius: 8px;
   padding: 0;
-  width: min(920px, calc(100dvw - 32px));
-  max-height: min(86dvh, 720px);
+  width: min(57.5rem, calc(100dvw - 2rem));
+  max-height: min(86dvh, 45rem);
   overflow: hidden;
 }
 .settings-dialog[open] {
@@ -1225,10 +1233,10 @@ dialog::backdrop {
   min-height: 0;
 }
 .settings-tabs {
-  width: 220px;
-  flex: 0 0 220px;
+  width: 13.75rem;
+  flex: 0 0 13.75rem;
   border-right: 1px solid var(--color-line);
-  padding: 16px 10px;
+  padding: 1rem 0.625rem;
   overflow-y: auto;
   background: var(--color-sidebar);
 }
@@ -1236,15 +1244,15 @@ dialog::backdrop {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 0.625rem;
   text-align: left;
   border: 0;
   background: transparent;
   color: var(--color-ink);
-  padding: 10px 10px;
+  padding: 0.625rem 0.625rem;
   border-radius: 6px;
-  font-size: 13px;
-  margin-bottom: 2px;
+  font-size: 0.8125rem;
+  margin-bottom: 0.125rem;
 }
 .settings-tab:hover {
   background: var(--color-soft);
@@ -1270,19 +1278,19 @@ dialog::backdrop {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 20px 24px 16px;
+  gap: 0.75rem;
+  padding: 1.25rem 1.5rem 1rem;
   border-bottom: 1px solid var(--color-line);
 }
 .settings-panel-header h2 {
   margin: 0;
-  font-size: 16px;
+  font-size: 1.125rem;
 }
 .settings-panel-header form {
   margin: 0;
 }
 .settings-panel-body {
-  padding: 8px 24px 24px;
+  padding: 0.5rem 1.5rem 1.5rem;
   overflow-y: auto;
   min-height: 0;
 }
@@ -1294,8 +1302,8 @@ dialog::backdrop {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
-  padding: 16px 0;
+  gap: 1rem;
+  padding: 1rem 0;
   border-bottom: 1px solid var(--color-line);
 }
 .settings-row:last-child {
@@ -1306,31 +1314,32 @@ dialog::backdrop {
 }
 .settings-row-name {
   margin: 0;
-  font-size: 14px;
+  /* 旧来の 14 相当のラベル。説明（0.8125rem）との差を保つ（T-PH6-119）。 */
+  font-size: 0.875rem;
   font-weight: 600;
   color: var(--color-ink);
 }
 .settings-row-description {
-  margin: 4px 0 0;
-  font-size: 13px;
+  margin: 0.25rem 0 0;
+  font-size: 0.8125rem;
   color: var(--color-muted);
   line-height: 1.6;
 }
 .settings-row-status {
-  margin: 6px 0 0;
-  font-size: 12px;
+  margin: 0.375rem 0 0;
+  font-size: 0.75rem;
   color: var(--color-muted);
 }
 .settings-row-control {
   flex: 0 0 auto;
 }
 .settings-row-control select {
-  min-width: 160px;
+  min-width: 10rem;
 }
 .settings-tab-content {
-  padding: 8px 0;
+  padding: 0.5rem 0;
 }
-@media (max-width: 720px) {
+@media (max-width: 45em) {
   .settings-dialog-shell {
     flex-direction: column;
   }
@@ -1340,9 +1349,9 @@ dialog::backdrop {
     border-right: 0;
     border-bottom: 1px solid var(--color-line);
     display: flex;
-    gap: 4px;
+    gap: 0.25rem;
     overflow-x: auto;
-    padding: 12px;
+    padding: 0.75rem;
   }
   .settings-tab {
     width: auto;
@@ -1351,8 +1360,8 @@ dialog::backdrop {
   }
   .settings-panel-header,
   .settings-panel-body {
-    padding-left: 16px;
-    padding-right: 16px;
+    padding-left: 1rem;
+    padding-right: 1rem;
   }
   .settings-row {
     flex-direction: column;
@@ -1370,8 +1379,8 @@ dialog::backdrop {
   background: var(--color-paper);
   border: 1px solid var(--color-line);
   border-radius: 8px;
-  padding: 24px;
-  width: min(800px, calc(100dvw - 32px));
+  padding: 1.5rem;
+  width: min(50rem, calc(100dvw - 2rem));
   max-height: 86dvh;
   overflow-y: auto;
   /* ---- animation ---- */
@@ -1404,19 +1413,19 @@ dialog::backdrop {
 }
 .source-heading {
   position: sticky;
-  top: -24px;
+  top: -1.5rem;
   background: var(--color-paper);
-  padding-block: 8px;
+  padding-block: 0.5rem;
   z-index: 1;
 }
 .selected-source {
   border-left: 3px solid var(--color-ink);
-  padding-left: 12px;
+  padding-left: 0.75rem;
 }
 .related-documents {
   border-top: 1px solid var(--color-line);
-  margin-top: 24px;
-  padding-top: 16px;
+  margin-top: 1.5rem;
+  padding-top: 1rem;
   overflow-wrap: anywhere;
 }
 .related-documents button {
@@ -1426,12 +1435,12 @@ dialog::backdrop {
   text-align: left;
 }
 .provenance-diagram {
-  margin-block: 12px;
+  margin-block: 0.75rem;
 }
 .provenance-diagram svg {
   display: block;
   width: 100%;
-  min-width: 640px;
+  min-width: 40rem;
   height: auto;
 }
 .provenance-viewport {
@@ -1449,63 +1458,64 @@ dialog::backdrop {
 }
 .provenance-diagram text {
   fill: var(--color-ink);
-  font-size: 14px;
+  /* 図のラベルは旧来の 14 相当のまま（T-PH6-119）。 */
+  font-size: 0.875rem;
 }
 .provenance-diagram .provenance-count {
   fill: var(--color-muted);
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 .model-catalog fieldset {
   border: 1px solid var(--color-line);
-  margin-block: 16px;
-  padding: 12px;
+  margin-block: 1rem;
+  padding: 0.75rem;
 }
 .model-catalog fieldset label {
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 8px;
-  margin-block: 8px;
+  gap: 0.5rem;
+  margin-block: 0.5rem;
 }
 .model-catalog input[type="checkbox"] {
   width: auto;
 }
 .model-runtime {
-  margin-block: 16px;
+  margin-block: 1rem;
 }
 .model-runtime-confirmation {
   display: flex;
   flex-direction: row;
   align-items: flex-start;
-  gap: 8px;
+  gap: 0.5rem;
 }
 .model-runtime-confirmation input {
   flex: 0 0 auto;
-  margin-top: 4px;
+  margin-top: 0.25rem;
 }
 .model-candidate {
   border-top: 1px solid var(--color-line);
-  padding-block: 16px;
+  padding-block: 1rem;
   overflow-wrap: anywhere;
 }
-@media (min-width: 48rem) {
+@media (min-width: 48em) {
   .workspace.sidebar-open {
-    --sidebar-width: 220px;
+    --sidebar-width: 13.75rem;
   }
   .sidebar {
     position: sticky;
     grid-column: 1;
     grid-row: 2;
-    width: 220px;
-    height: calc(100dvh - 64px);
-    top: 64px;
+    width: 13.75rem;
+    height: calc(100dvh - 4rem);
+    top: 4rem;
   }
   .sidebar-backdrop {
     display: none;
   }
   .topbar {
-    padding: 0 24px;
-    gap: 14px;
+    padding: 0 1.5rem;
+    gap: 0.875rem;
   }
   .environment,
   .user-name {
@@ -1515,16 +1525,16 @@ dialog::backdrop {
     flex: 0 1 auto;
     width: auto;
     margin-right: auto;
-    max-width: 260px;
+    max-width: 16.25rem;
   }
   .main {
-    padding: 28px 30px 24px;
+    padding: 1.75rem 1.875rem 1.5rem;
   }
   .messages {
-    padding-top: 36px;
+    padding-top: 2.25rem;
   }
   .chat-empty {
-    min-height: 340px;
+    min-height: 21.25rem;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -1538,22 +1548,22 @@ dialog::backdrop {
 }
 
 .ingestion-progress {
-  margin: 20px 0;
-  padding: 16px 0;
+  margin: 1.25rem 0;
+  padding: 1rem 0;
   border-block: 1px solid var(--color-line);
 }
 .ingestion-progress h2 {
-  font-size: 15px;
+  font-size: 1.0625rem;
 }
 .ingestion-progress dl {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px 24px;
+  gap: 0.75rem 1.5rem;
 }
 .ingestion-progress dt {
-  font-size: 12px;
+  font-size: 0.75rem;
   color: var(--color-muted);
 }
 .ingestion-progress dd {
-  margin: 4px 0 0;
+  margin: 0.25rem 0 0;
 }
