@@ -5,7 +5,6 @@ import json
 import math
 import re
 import secrets
-import sqlite3
 import threading
 import time
 from collections import OrderedDict
@@ -36,6 +35,13 @@ from app.password_rules import (
     check_password_strength,
 )
 from app.scanner import UNAVAILABLE, ScanResult
+from app.storage import (
+    SqliteEngine,
+    StorageConnection,
+    StorageEngine,
+    StorageError,
+    StorageIntegrityError,
+)
 
 Json = dict[str, Any]
 PASSWORDS = PasswordHasher(time_cost=2, memory_cost=19456, parallelism=1)
@@ -167,12 +173,9 @@ class Service:
         scanner: Scanner | None = None,
         source_connector: SourceConnector | None = None,
         source_scheduler: SourceScheduler | None = None,
+        engine: StorageEngine | None = None,
     ) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
-        self.conn.row_factory = sqlite3.Row
-        self.conn.execute("PRAGMA foreign_keys = ON")
-        self.lock = threading.RLock()
+        self._engine = engine if engine is not None else SqliteEngine(path)
         self.scanner = scanner or UnavailableScanner()
         # Fail-closed visibility: only an adapter that can actually perform the
         # safety check counts as configured; the placeholder always quarantines.
@@ -206,7 +209,7 @@ class Service:
         self.chat_dispatch_lock = threading.Lock()
         self.last_chat_user: str | None = None
         self.dummy_hash = PASSWORDS.hash(secrets.token_urlsafe(32))
-        self.conn.executescript("""
+        self._engine.apply_schema("""
             CREATE TABLE IF NOT EXISTS users (
                 id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL,
                 must_rotate INTEGER NOT NULL, temp_expires REAL,
@@ -548,46 +551,42 @@ class Service:
                 PRIMARY KEY (user_id)
             );
         """)
-        chat_job_columns = {
-            row["name"] for row in self.conn.execute("PRAGMA table_info(chat_jobs)")
-        }
+        chat_job_columns = self._engine.columns("chat_jobs")
         if "cancel_requested" not in chat_job_columns:
-            self.conn.execute(
-                "ALTER TABLE chat_jobs ADD COLUMN cancel_requested INTEGER NOT NULL DEFAULT 0"
+            self._engine.ensure_column(
+                "chat_jobs", "cancel_requested", "INTEGER NOT NULL DEFAULT 0"
             )
         # Additive migrations preserve databases created before concurrent role holdings.
-        self._ensure_column("memberships", "denied_permissions", "TEXT NOT NULL DEFAULT '[]'")
-        self._ensure_column("roles", "denied_permissions", "TEXT NOT NULL DEFAULT '[]'")
+        self._engine.ensure_column(
+            "memberships", "denied_permissions", "TEXT NOT NULL DEFAULT '[]'"
+        )
+        self._engine.ensure_column("roles", "denied_permissions", "TEXT NOT NULL DEFAULT '[]'")
         # Ingestion resume checkpoint (last fully indexed page) and a short,
         # non-sensitive failure category for the UI. Additive: old databases
         # keep working with a fresh checkpoint and no failure code.
-        self._ensure_column("documents", "index_checkpoint", "INTEGER NOT NULL DEFAULT 0")
-        self._ensure_column("documents", "failure_code", "TEXT NOT NULL DEFAULT ''")
-        self.conn.execute(
+        self._engine.ensure_column("documents", "index_checkpoint", "INTEGER NOT NULL DEFAULT 0")
+        self._engine.ensure_column("documents", "failure_code", "TEXT NOT NULL DEFAULT ''")
+        self._engine.conn.execute(
             "INSERT OR IGNORE INTO membership_roles (user_id,project_id,role) "
             "SELECT user_id,project_id,role FROM memberships"
         )
 
-    def _ensure_column(self, table: str, column: str, definition: str) -> None:
-        columns = {row["name"] for row in self.conn.execute(f"PRAGMA table_info({table})")}
-        if column not in columns:
-            self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+    @property
+    def lock(self) -> Any:
+        """Write-serialization lock owned by the storage engine."""
+        return self._engine.lock
+
+    @property
+    def conn(self) -> StorageConnection:
+        """Read/write handle owned by the storage engine (``Service.conn`` compatibility)."""
+        return self._engine.conn
 
     @contextmanager
-    def db(self) -> Iterator[sqlite3.Connection]:
-        with self.lock:
-            # Include authorization SELECTs in the same write-serialized unit as publication.
-            # The connection context alone begins only at first DML in legacy sqlite3 mode.
-            self.conn.execute("BEGIN IMMEDIATE")
-            try:
-                yield self.conn
-            except BaseException:
-                if self.conn.in_transaction:
-                    self.conn.rollback()
-                raise
-            else:
-                if self.conn.in_transaction:
-                    self.conn.commit()
+    def db(self) -> Iterator[StorageConnection]:
+        with self._engine.transaction():
+            with self._engine.connection() as conn:
+                # Include authorization SELECTs in the same write-serialized unit as publication.
+                yield conn
 
     def recover_jobs(self) -> None:
         """Called only at application-worker startup, never by provisioning CLI connections."""
@@ -613,11 +612,10 @@ class Service:
             self.chat_dispatch.clear()
 
     def close(self) -> None:
-        with self.lock:
-            self.conn.close()
+        self._engine.close()
 
     def _audit(
-        self, db: sqlite3.Connection, actor: str, operation: str, target: str, outcome: str = "ok"
+        self, db: StorageConnection, actor: str, operation: str, target: str, outcome: str = "ok"
     ) -> None:
         db.execute(
             "INSERT INTO audit VALUES (?,?,?,?,?,?)",
@@ -639,7 +637,7 @@ class Service:
 
     def _provision(
         self,
-        db: sqlite3.Connection,
+        db: StorageConnection,
         username: str,
         password: str,
         *,
@@ -669,7 +667,7 @@ class Service:
                     int(system_admin),
                 ),
             )
-        except sqlite3.IntegrityError:
+        except StorageIntegrityError:
             fail(409, "利用者IDは使用済みです")
         self._audit(db, audit_actor, "account.provision", user_id)
         return user_id
@@ -714,7 +712,7 @@ class Service:
             self._audit(db, "local-cli", "project.create", project_id)
 
     def _replace_role_holding(
-        self, db: sqlite3.Connection, user_id: str, project_id: str, role: str
+        self, db: StorageConnection, user_id: str, project_id: str, role: str
     ) -> None:
         db.execute(
             "DELETE FROM membership_roles WHERE user_id=? AND project_id=?",
@@ -802,7 +800,7 @@ class Service:
                         "INSERT INTO project_owners (project_id,user_id) VALUES (?,?)",
                         (project_id, selected_owner_id),
                     )
-            except sqlite3.IntegrityError:
+            except StorageIntegrityError:
                 fail(409, "プロジェクトIDまたは所有者の指定を確認してください")
             self._audit(db, actor.id, "project.create", project_id)
             return {"id": project_id, "org_id": org_id, "name": name}
@@ -939,7 +937,7 @@ class Service:
                 for obj, permission in observations:
                     if self._observe_source(db, source_id, obj, permission):
                         performed = True
-                candidates: list[tuple[str, sqlite3.Row, Principal]] = []
+                candidates: list[tuple[str, Any, Principal]] = []
                 for binding in db.execute(
                     "SELECT b.document_id, b.source_id, b.object_id, b.revision AS bound_revision, "
                     "o.revision AS observed_revision, o.state "
@@ -1086,7 +1084,7 @@ class Service:
 
     def _observe_source(
         self,
-        db: sqlite3.Connection,
+        db: StorageConnection,
         source_id: str,
         obj: SourceObject,
         permission: str | None,
@@ -1123,9 +1121,7 @@ class Service:
         return False
 
     @staticmethod
-    def _source_binding_allows(
-        connector: SourceConnector, binding: sqlite3.Row, actor: Principal
-    ) -> bool:
+    def _source_binding_allows(connector: SourceConnector, binding: Any, actor: Principal) -> bool:
         """Evaluate a captured binding without holding the database transaction."""
         if str(binding["bound_revision"]) != str(binding["observed_revision"]):
             # Unknown or stale source state fails closed; staleness is never authorization.
@@ -1144,7 +1140,7 @@ class Service:
             return False
         return allowed is True
 
-    def _source_allows(self, db: sqlite3.Connection, actor: Principal, row: sqlite3.Row) -> bool:
+    def _source_allows(self, db: StorageConnection, actor: Principal, row: Any) -> bool:
         """Original-source ACL gate. Reads binding/revision/state from db within transaction.
         Unbound documents pass; bound ones must pass the DB checks.
         connector.can_read() is called by the caller outside the transaction (DATA-008)."""
@@ -1164,9 +1160,7 @@ class Service:
             return False
         return True
 
-    def _source_connector_allows(
-        self, db: sqlite3.Connection, actor: Principal, row: sqlite3.Row
-    ) -> bool:
+    def _source_connector_allows(self, db: StorageConnection, actor: Principal, row: Any) -> bool:
         """Check connector.can_read outside the process lock/tx, then re-verify.
 
         Must be called while holding self.lock inside self.db(). If a binding
@@ -1230,7 +1224,7 @@ class Service:
             return False
         return True
 
-    def _hide_source_document(self, db: sqlite3.Connection, document_id: str) -> None:
+    def _hide_source_document(self, db: StorageConnection, document_id: str) -> None:
         """Make a revoked source document invisible before chunk cleanup runs."""
         changed = db.execute(
             "UPDATE documents SET status='failed',reason=?,failure_code='source_denied' "
@@ -1240,7 +1234,7 @@ class Service:
         if changed:
             self._audit(db, "worker", "source.revoke", document_id)
 
-    def _cleanup_source_document(self, db: sqlite3.Connection, document_id: str) -> None:
+    def _cleanup_source_document(self, db: StorageConnection, document_id: str) -> None:
         """Delete source-derived chunks after a source revocation was observed."""
         db.execute("DELETE FROM chunks WHERE document_id=?", (document_id,))
         db.execute(
@@ -1251,7 +1245,7 @@ class Service:
 
     def _project_member_mutation(
         self,
-        db: sqlite3.Connection,
+        db: StorageConnection,
         actor: Principal,
         project_id: str,
         user_id: str,
@@ -1379,7 +1373,7 @@ class Service:
         while len(self.limits) > 1024:
             self.limits.popitem(last=False)
 
-    def _session(self, db: sqlite3.Connection, user_id: str, rotation: bool) -> str:
+    def _session(self, db: StorageConnection, user_id: str, rotation: bool) -> str:
         token = secrets.token_urlsafe(32)
         now = time.time()
         db.execute("DELETE FROM sessions WHERE expires < ? OR last_seen < ?", (now, now - 1800))
@@ -1527,7 +1521,7 @@ class Service:
             fail(401, "利用者IDまたはパスワードを確認してください")
 
     @staticmethod
-    def _public_user(user: sqlite3.Row) -> Json:
+    def _public_user(user: Any) -> Json:
         return {
             "id": user["id"],
             "username": user["username"],
@@ -1540,7 +1534,7 @@ class Service:
             return self._authenticate(db, token, allow_rotation=allow_rotation)
 
     def _authenticate(
-        self, db: sqlite3.Connection, token: str | None, *, allow_rotation: bool = False
+        self, db: StorageConnection, token: str | None, *, allow_rotation: bool = False
     ) -> Principal:
         session = db.execute(
             "SELECT s.*, u.username,u.system_admin,u.must_rotate,u.enabled "
@@ -1788,7 +1782,7 @@ class Service:
         with self.db() as db:
             db.execute("DELETE FROM sessions WHERE token_hash=?", (digest(token or ""),))
 
-    def _membership(self, db: sqlite3.Connection, actor: Principal, project: str) -> sqlite3.Row:
+    def _membership(self, db: StorageConnection, actor: Principal, project: str) -> Any:
         row = db.execute(
             "SELECT m.*,p.org_id,p.name FROM memberships m JOIN projects p "
             "ON p.id=m.project_id WHERE m.user_id=? AND m.project_id=?",
@@ -1796,9 +1790,9 @@ class Service:
         ).fetchone()
         if not row:
             fail(404, "対象が見つかりません")
-        return row  # type: ignore[no-any-return]
+        return row
 
-    def _held_roles(self, db: sqlite3.Connection, user_id: str, project: str) -> list[str]:
+    def _held_roles(self, db: StorageConnection, user_id: str, project: str) -> list[str]:
         rows = db.execute(
             "SELECT role FROM membership_roles WHERE user_id=? AND project_id=? ORDER BY role",
             (user_id, project),
@@ -1808,7 +1802,7 @@ class Service:
         return [row["role"] for row in rows]
 
     def _role_permissions(
-        self, db: sqlite3.Connection, role: str, project: str
+        self, db: StorageConnection, role: str, project: str
     ) -> tuple[frozenset[str], frozenset[str]]:
         if role in ROLE_PERMISSIONS:
             return ROLE_PERMISSIONS[role], frozenset()
@@ -1823,7 +1817,7 @@ class Service:
         )
 
     def _role_access(
-        self, db: sqlite3.Connection, user_id: str, project: str
+        self, db: StorageConnection, user_id: str, project: str
     ) -> tuple[set[str], set[str], set[str]]:
         membership = db.execute(
             "SELECT denied_permissions FROM memberships WHERE user_id=? AND project_id=?",
@@ -1842,7 +1836,7 @@ class Service:
 
     def _delegation_authority(
         self,
-        db: sqlite3.Connection,
+        db: StorageConnection,
         grantor_id: str,
         project: str,
         permissions: set[str],
@@ -1853,7 +1847,7 @@ class Service:
                 return False
             allowed, denied, roles = self._role_access(db, grantor_id, project)
             ceiling = self._permission_ceiling_for_grantor(db, grantor_id, project)
-        except (HTTPException, sqlite3.Error, ValueError, TypeError):
+        except (HTTPException, StorageError, ValueError, TypeError):
             return False
         owner = db.execute(
             "SELECT 1 FROM project_owners WHERE project_id=? AND user_id=?",
@@ -1890,11 +1884,11 @@ class Service:
         return float(now)
 
     def _delegated_permissions(
-        self, db: sqlite3.Connection, actor: Principal, project: str
+        self, db: StorageConnection, actor: Principal, project: str
     ) -> set[str]:
         try:
             user = db.execute("SELECT enabled FROM users WHERE id=?", (actor.id,)).fetchone()
-        except (sqlite3.Error, ValueError, TypeError):
+        except (StorageError, ValueError, TypeError):
             return set()
         if not user or not user["enabled"]:
             return set()
@@ -1910,7 +1904,7 @@ class Service:
             now = self._valid_delegation_now()
             if now is None:
                 return set()
-        except (sqlite3.Error, ValueError, TypeError, OverflowError):
+        except (StorageError, ValueError, TypeError, OverflowError):
             return set()
         permissions: set[str] = set()
         for grant in grants:
@@ -1953,9 +1947,7 @@ class Service:
                     self._audit(db, "system", "delegation.invalidate", grant["id"])
         return permissions
 
-    def _permissions(
-        self, db: sqlite3.Connection, actor: Principal, project: str
-    ) -> frozenset[str]:
+    def _permissions(self, db: StorageConnection, actor: Principal, project: str) -> frozenset[str]:
         allowed, denied, _roles = self._role_access(db, actor.id, project)
         allowed.update(self._delegated_permissions(db, actor, project))
         # Explicit deny wins over every role and delegation allow. Membership is still
@@ -1966,7 +1958,7 @@ class Service:
         return frozenset(effective)
 
     def _permission_ceiling(
-        self, db: sqlite3.Connection, actor: Principal, project: str
+        self, db: StorageConnection, actor: Principal, project: str
     ) -> frozenset[str]:
         """Permissions that a non-admin custom role may grant to other users."""
         membership = self._membership(db, actor, project)
@@ -1986,7 +1978,7 @@ class Service:
         return frozenset(ceiling)
 
     def _held_permission_ceiling(
-        self, db: sqlite3.Connection, actor: Principal, project: str
+        self, db: StorageConnection, actor: Principal, project: str
     ) -> frozenset[str]:
         """Intersection of held roles' own permissions; never union for delegation."""
         membership = self._membership(db, actor, project)
@@ -2111,7 +2103,7 @@ class Service:
             return normalized
 
     def _permission_ceiling_for_grantor(
-        self, db: sqlite3.Connection, grantor_id: str, project: str
+        self, db: StorageConnection, grantor_id: str, project: str
     ) -> frozenset[str]:
         """Apply concurrent-role ceilings independently of the active holding union."""
         roles = self._role_access(db, grantor_id, project)[2]
@@ -2550,7 +2542,7 @@ class Service:
         return self._end_delegation(actor, session_token, grant_id, "cancel")
 
     def require(
-        self, db: sqlite3.Connection, actor: Principal, project: str, permission: str
+        self, db: StorageConnection, actor: Principal, project: str, permission: str
     ) -> None:
         if permission not in self._permissions(db, actor, project):
             fail(403, "この操作は許可されていません")
@@ -2607,22 +2599,20 @@ class Service:
                 ),
             }
 
-    def _conversation(
-        self, db: sqlite3.Connection, actor: Principal, conversation: str
-    ) -> sqlite3.Row:
+    def _conversation(self, db: StorageConnection, actor: Principal, conversation: str) -> Any:
         row = db.execute(
             "SELECT * FROM conversations WHERE id=? AND owner_id=?", (conversation, actor.id)
         ).fetchone()
         if not row:
             fail(404, "会話が見つかりません")
         self.require(db, actor, row["project_id"], "retrieve")
-        return row  # type: ignore[no-any-return]
+        return row
 
     def _can_read(
         self,
-        db: sqlite3.Connection,
+        db: StorageConnection,
         actor: Principal,
-        row: sqlite3.Row,
+        row: Any,
         operation: str = "read",
         conversation: str | None = None,
     ) -> bool:
@@ -2654,22 +2644,22 @@ class Service:
 
     def _document(
         self,
-        db: sqlite3.Connection,
+        db: StorageConnection,
         actor: Principal,
         document: str,
         conversation: str | None = None,
-    ) -> sqlite3.Row:
+    ) -> Any:
         row = db.execute("SELECT * FROM documents WHERE id=?", (document,)).fetchone()
         if not row or not self._can_read(db, actor, row, conversation=conversation):
             fail(404, "資料が見つかりません")
-        return row  # type: ignore[no-any-return]
+        return row
 
     def _managed_document(
         self,
-        db: sqlite3.Connection,
+        db: StorageConnection,
         actor: Principal,
         document: str,
-    ) -> sqlite3.Row:
+    ) -> Any:
         row = db.execute(
             "SELECT * FROM documents WHERE id=? AND owner_id=?",
             (document, actor.id),
@@ -2679,10 +2669,10 @@ class Service:
         self.require(db, actor, row["project_id"], "upload")
         if row["kind"] == "attachment":
             self._conversation(db, actor, row["conversation_id"])
-        return row  # type: ignore[no-any-return]
+        return row
 
     @staticmethod
-    def _metadata(row: sqlite3.Row, actor_id: str) -> Json:
+    def _metadata(row: Any, actor_id: str) -> Json:
         available = set(row.keys())
         data: Json = {
             key: row[key]
@@ -2777,7 +2767,7 @@ class Service:
                     words.update(run[index : index + 2] for index in range(len(run) - 1))
                 return words
 
-            source_terms: dict[str, sqlite3.Row] = {}
+            source_terms: dict[str, Any] = {}
             for chunk in db.execute(
                 "SELECT * FROM chunks WHERE document_id=? ORDER BY page,ordinal", (document,)
             ).fetchall():
@@ -2795,7 +2785,7 @@ class Service:
                     db, actor, candidate, "retrieve", conversation
                 ) or not self._can_read(db, actor, candidate, "read", conversation):
                     continue
-                matches: dict[str, sqlite3.Row] = {}
+                matches: dict[str, Any] = {}
                 for chunk in db.execute(
                     "SELECT * FROM chunks WHERE document_id=? ORDER BY page,ordinal",
                     (candidate["id"],),
@@ -2824,7 +2814,7 @@ class Service:
                 results, key=lambda item: (-item["shared_term_count"], item["document"]["id"])
             )[:10]
 
-    def _check_ingestion_limits(self, db: sqlite3.Connection, actor: Principal) -> None:
+    def _check_ingestion_limits(self, db: StorageConnection, actor: Principal) -> None:
         """Ingestion bounds shared by manual upload and original-source ingestion."""
         queued = db.execute(
             "SELECT COUNT(*) FROM documents WHERE status IN ('queued','scanning','indexing')"
@@ -2883,7 +2873,7 @@ class Service:
                 db.execute("SELECT * FROM documents WHERE id=?", (document,)).fetchone(), actor.id
             )
 
-    def _ingestion_allowed(self, db: sqlite3.Connection, document: sqlite3.Row) -> bool:
+    def _ingestion_allowed(self, db: StorageConnection, document: Any) -> bool:
         user = db.execute("SELECT * FROM users WHERE id=?", (document["owner_id"],)).fetchone()
         if not user or not user["enabled"] or user["must_rotate"]:
             return False
@@ -2978,7 +2968,7 @@ class Service:
             return True
 
     @staticmethod
-    def _cancel_ingestion(db: sqlite3.Connection, document: str, code: str, reason: str) -> None:
+    def _cancel_ingestion(db: StorageConnection, document: str, code: str, reason: str) -> None:
         # Cancelled/revoked work must not leave indexable chunks behind.
         db.execute("DELETE FROM chunks WHERE document_id=?", (document,))
         db.execute(
@@ -2987,14 +2977,14 @@ class Service:
         )
 
     @staticmethod
-    def _insert_page(db: sqlite3.Connection, document: str, page: int, text: str) -> None:
+    def _insert_page(db: StorageConnection, document: str, page: int, text: str) -> None:
         for ordinal, offset in enumerate(range(0, len(text), CHUNK_CHARS), start=1):
             db.execute(
                 "INSERT INTO chunks VALUES (?,?,?,?,?)",
                 (uid(), document, page, ordinal, text[offset : offset + CHUNK_CHARS]),
             )
 
-    def _index(self, db: sqlite3.Connection, row: sqlite3.Row) -> None:
+    def _index(self, db: StorageConnection, row: Any) -> None:
         """Index pages from the persisted checkpoint, committing each page.
 
         Pages already marked complete are reused as-is. Only one page is written
@@ -3087,7 +3077,7 @@ class Service:
             self._audit(db, actor.id, "ingestion.cancel", document)
 
     def _owned_attachment(
-        self, db: sqlite3.Connection, actor: Principal, document: str
+        self, db: StorageConnection, actor: Principal, document: str
     ) -> str | None:
         row = db.execute(
             "SELECT conversation_id FROM documents WHERE id=? AND owner_id=?", (document, actor.id)
@@ -3101,7 +3091,7 @@ class Service:
             self._audit(db, actor.id, "document.delete", document)
 
     def _validated_grants(
-        self, db: sqlite3.Connection, project: str, grants: list[Json]
+        self, db: StorageConnection, project: str, grants: list[Json]
     ) -> list[Json]:
         """Publish-style grant validation, reused by original-source ingestion."""
         for grant in grants:
@@ -3171,7 +3161,7 @@ class Service:
             return rows
 
     def _citations(
-        self, db: sqlite3.Connection, actor: Principal, ids: list[str], conversation: str
+        self, db: StorageConnection, actor: Principal, ids: list[str], conversation: str
     ) -> list[Json]:
         citations = []
         for chunk_id in ids:
@@ -3190,7 +3180,7 @@ class Service:
         return citations
 
     def _generated(
-        self, db: sqlite3.Connection, actor: Principal, row: sqlite3.Row, conversation: str
+        self, db: StorageConnection, actor: Principal, row: Any, conversation: str
     ) -> Json:
         generated = db.execute(
             "SELECT * FROM generated_answers WHERE message_id=?", (row["id"],)
@@ -3230,7 +3220,7 @@ class Service:
             ]
             return {**dict(conv), "messages": messages, "attachments": attachments}
 
-    def _cancel_chat_if_requested(self, db: sqlite3.Connection, job: str) -> bool:
+    def _cancel_chat_if_requested(self, db: StorageConnection, job: str) -> bool:
         row = db.execute(
             "SELECT user_id FROM chat_jobs WHERE id=? AND status='running' AND cancel_requested=1",
             (job,),
@@ -3637,7 +3627,7 @@ class Service:
 
     def _claim_chat_turn(
         self, last_user: str | None
-    ) -> tuple[str, sqlite3.Row | None, ChatDispatch | None]:
+    ) -> tuple[str, Any | None, ChatDispatch | None]:
         """Claim the oldest eligible queued dialogue for execution.
 
         Pick order is the fair-share order shared by the sequential worker and
@@ -3674,7 +3664,7 @@ class Service:
                 return ("nothing", None, None)
         return ("started", row, dispatch)
 
-    def _run_chat_job(self, row: sqlite3.Row, dispatch: ChatDispatch, job_id: str) -> bool:
+    def _run_chat_job(self, row: Any, dispatch: ChatDispatch, job_id: str) -> bool:
         try:
             principal = self.authenticate(dispatch.token)
             self.send(
@@ -3758,7 +3748,7 @@ class Service:
         """
         if limit < 1:
             return []
-        claims: list[tuple[sqlite3.Row, ChatDispatch]] = []
+        claims: list[tuple[Any, ChatDispatch]] = []
         last_user = self.last_chat_user
         while len(claims) < limit:
             kind, row, dispatch = self._claim_chat_turn(last_user)
@@ -3774,7 +3764,7 @@ class Service:
         if not claims:
             return []
 
-        def run(row: sqlite3.Row, dispatch: ChatDispatch) -> None:
+        def run(row: Any, dispatch: ChatDispatch) -> None:
             self._run_chat_job(row, dispatch, row["id"])
 
         threads = [threading.Thread(target=run, args=(row, dispatch)) for row, dispatch in claims]
@@ -3784,7 +3774,7 @@ class Service:
             thread.join()
         return [row["id"] for row, _ in claims]
 
-    def _fail_chat(self, db: sqlite3.Connection, job: str, detail: str) -> None:
+    def _fail_chat(self, db: StorageConnection, job: str, detail: str) -> None:
         changed = db.execute(
             "UPDATE chat_jobs SET status='failed',updated=?,detail=? "
             "WHERE id=? AND status='queued'",
@@ -3874,7 +3864,7 @@ class Service:
                         json.dumps(sorted(denied)),
                     ),
                 )
-            except sqlite3.IntegrityError:
+            except StorageIntegrityError:
                 fail(409, "ロール名は使用済みです")
             self._audit(db, actor.id, "role.create", role_id)
             result = {"id": role_id, "name": name, "permissions": sorted(set(permissions))}
@@ -3929,7 +3919,7 @@ class Service:
                         project,
                     ),
                 )
-            except sqlite3.IntegrityError:
+            except StorageIntegrityError:
                 fail(409, "ロール名は使用済みです")
             self._audit(db, actor.id, "role.update", role_id)
             result = {"id": role_id, "name": name, "permissions": sorted(set(permissions))}
