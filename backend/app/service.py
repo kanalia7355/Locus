@@ -154,6 +154,29 @@ class Scanner(Protocol):
     def scan(self, content: str) -> ScanResult: ...
 
 
+_SYNC_CONNECTORS_MODULE = None
+
+
+def _sync_connectors_module() -> Any:
+    global _SYNC_CONNECTORS_MODULE
+    if _SYNC_CONNECTORS_MODULE is None:
+        import importlib.util
+        from pathlib import Path
+
+        spec = importlib.util.spec_from_file_location(
+            "app_connectors_sync_base", Path(__file__).with_name("connectors.py")
+        )
+        if spec is None or spec.loader is None:
+            raise RuntimeError("connectors module unavailable")
+        module = importlib.util.module_from_spec(spec)
+        import sys
+
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        _SYNC_CONNECTORS_MODULE = module
+    return _SYNC_CONNECTORS_MODULE
+
+
 class UnavailableScanner:
     def scan(self, content: str) -> ScanResult:
         return UNAVAILABLE
@@ -201,6 +224,13 @@ class Service:
             if source_scheduler is not None
             else SourceScheduler(interval_seconds=self.source_interval_seconds)
         )
+        # Sync-connector registry (new common base). Values never include credentials.
+        self.sync_connectors: dict[str, Any] = {}
+        self.sync_connector_credentials_configured: dict[str, bool] = {
+            "local_folder": False,
+            "google_drive": False,
+            "box": False,
+        }
         self.limits: OrderedDict[str, list[float]] = OrderedDict()
         self.chat_dispatch: dict[str, ChatDispatch] = {}
         self.chat_dispatch_lock = threading.Lock()
@@ -512,6 +542,17 @@ class Service:
                 source_id TEXT NOT NULL, object_id TEXT NOT NULL, revision TEXT NOT NULL,
                 sync_state TEXT NOT NULL DEFAULT 'pending',
                 PRIMARY KEY (document_id, source_id, object_id)
+            );
+            CREATE TABLE IF NOT EXISTS document_origins (
+                document_id TEXT PRIMARY KEY,
+                connector_id TEXT NOT NULL,
+                external_id TEXT NOT NULL,
+                external_revision TEXT NOT NULL DEFAULT '',
+                content_hash TEXT NOT NULL DEFAULT '',
+                source_label TEXT NOT NULL DEFAULT '',
+                synced_at REAL NOT NULL,
+                revoked INTEGER NOT NULL DEFAULT 0,
+                UNIQUE(connector_id, external_id)
             );
             CREATE TABLE IF NOT EXISTS messages (
                 id TEXT PRIMARY KEY, conversation_id TEXT REFERENCES conversations(id)
@@ -876,6 +917,65 @@ class Service:
                 "ingestion_status_counts": counts,
                 "configuration_available": False,
             }
+
+    def register_sync_connector(
+        self,
+        connector_id: str,
+        connector: Any,
+        *,
+        configured: bool | None = None,
+    ) -> None:
+        self.sync_connectors[connector_id] = connector
+        if configured is not None:
+            self.sync_connector_credentials_configured[connector_id] = bool(configured)
+        elif connector_id not in self.sync_connector_credentials_configured:
+            self.sync_connector_credentials_configured[connector_id] = False
+
+    def admin_connectors(self, actor: Principal) -> list[Json]:
+        if not actor.system_admin:
+            fail(403, "管理権限が必要です")
+        ids = set(self.sync_connector_credentials_configured) | set(self.sync_connectors)
+        return [
+            {
+                "connector_id": connector_id,
+                "configured": bool(
+                    self.sync_connector_credentials_configured.get(connector_id, False)
+                ),
+            }
+            for connector_id in sorted(ids)
+        ]
+
+    def sync_connector(
+        self, actor: Principal, connector_id: str, project: str, source: str
+    ) -> Json:
+        if not actor.system_admin:
+            fail(403, "管理権限が必要です")
+        connector = self.sync_connectors.get(connector_id)
+        if connector is None:
+            fail(404, "コネクタが見つかりません")
+        with self.db() as db:
+            if not db.execute("SELECT 1 FROM projects WHERE id=?", (project,)).fetchone():
+                fail(404, "プロジェクトが見つかりません")
+        module = _sync_connectors_module()
+        engine = module.SyncEngine(self)
+        result = engine.sync(
+            actor,
+            project,
+            connector,
+            source_label=str(source),
+            connector_id=connector_id,
+        )
+        with self.db() as db:
+            self._audit(db, actor.id, "connector.sync", connector_id)
+        # Return only aggregate counts; never include content or credentials.
+        return {
+            "connector_id": connector_id,
+            "project_id": project,
+            "registered": int(result.get("registered", 0)),
+            "updated": int(result.get("updated", 0)),
+            "skipped": int(result.get("skipped", 0)),
+            "failed": int(result.get("failed", 0)),
+        }
 
     def formats(self, actor: Principal) -> Json:
         """Accepted document formats, served from the single format table.
@@ -1248,6 +1348,104 @@ class Service:
             "WHERE id=? AND status='ready'",
             ("元保存先の利用権限が失効したため索引物を削除しました", document_id),
         )
+
+    # --- Connector origin tracking (T-STC-001 common base) -----------------
+
+    def get_document_origin(self, connector_id: str, external_id: str) -> Json | None:
+        with self.db() as db:
+            row = db.execute(
+                "SELECT document_id,connector_id,external_id,external_revision,"
+                "content_hash,source_label,synced_at,revoked "
+                "FROM document_origins WHERE connector_id=? AND external_id=?",
+                (connector_id, external_id),
+            ).fetchone()
+        if row is None:
+            return None
+        return {**dict(row), "revoked": bool(row["revoked"])}
+
+    def get_document_origin_by_document(self, document_id: str) -> Json | None:
+        with self.db() as db:
+            row = db.execute(
+                "SELECT document_id,connector_id,external_id,external_revision,"
+                "content_hash,source_label,synced_at,revoked "
+                "FROM document_origins WHERE document_id=?",
+                (document_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return {**dict(row), "revoked": bool(row["revoked"])}
+
+    def is_document_origin_revoked(self, document_id: str) -> bool:
+        """Hook for read-path refusal integration (T-STC-005)."""
+        origin = self.get_document_origin_by_document(document_id)
+        return bool(origin and origin["revoked"])
+
+    def record_document_origin(
+        self,
+        *,
+        document_id: str,
+        connector_id: str,
+        external_id: str,
+        external_revision: str,
+        content_hash: str,
+        source_label: str,
+    ) -> None:
+        with self.db() as db:
+            existing = db.execute(
+                "SELECT document_id FROM document_origins WHERE connector_id=? AND external_id=?",
+                (connector_id, external_id),
+            ).fetchone()
+            now = time.time()
+            if existing is None:
+                db.execute(
+                    "INSERT INTO document_origins "
+                    "(document_id,connector_id,external_id,external_revision,content_hash,"
+                    "source_label,synced_at,revoked) VALUES (?,?,?,?,?,?,?,0)",
+                    (
+                        document_id,
+                        connector_id,
+                        external_id,
+                        external_revision,
+                        content_hash,
+                        source_label,
+                        now,
+                    ),
+                )
+            else:
+                db.execute(
+                    "UPDATE document_origins SET document_id=?,external_revision=?,content_hash=?,"
+                    "source_label=?,synced_at=?,revoked=0 WHERE connector_id=? AND external_id=?",
+                    (
+                        document_id,
+                        external_revision,
+                        content_hash,
+                        source_label,
+                        now,
+                        connector_id,
+                        external_id,
+                    ),
+                )
+
+    def revoke_missing_document_origins(
+        self, connector_id: str, seen_external_ids: set[str]
+    ) -> int:
+        with self.db() as db:
+            rows = db.execute(
+                "SELECT external_id,revoked FROM document_origins WHERE connector_id=?",
+                (connector_id,),
+            ).fetchall()
+            missing = [
+                str(row["external_id"])
+                for row in rows
+                if not row["revoked"] and str(row["external_id"]) not in seen_external_ids
+            ]
+            if missing:
+                db.executemany(
+                    "UPDATE document_origins SET revoked=1,synced_at=? "
+                    "WHERE connector_id=? AND external_id=?",
+                    [(time.time(), connector_id, external_id) for external_id in missing],
+                )
+        return len(missing)
 
     def _project_member_mutation(
         self,
