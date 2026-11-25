@@ -325,3 +325,5 @@ Automatic merge failed; fix conflicts and then commit the result.
 **Context**
 
 outside allowed_paths: ['test_output.txt']
+
+**Answer** (2026-11-25 14:35, orchestrator): **屑である。削除して `doing` に戻し、試行は消費しない（1/3 のまま）。** 実測: `test_output.txt`（183 バイト）の中身は pytest の出力そのもの（`77 passed in 25.57s`）で、変更が参照している実体ではない。この票の実作業は `selfrepair.py` / `test_jobloop.py` / `test_selfrepair.py` の 3 ファイルに未コミットで健在。**ワーカーの逸脱ではなく、範囲が狭すぎたのでもない。** `gates.litter` が掃かなかった理由が本当の原因で、仕組みの側にある: 掃き出しは拡張子ではなく**参照**で判定し、範囲内のテキストが緩いパスを言及していれば掃かずに止める（正しい設計）。ところがこの票は範囲に `tests/test_jobloop.py` を含み、**そのファイル自身が `"test_output.txt"` を試験データとして持っている** — 屑掃除そのものの試験だからである（436・444・474・477・480 行）。つまり**屑掃除の試験を含む票は、自分の試験データに守られて自分の屑を掃けない**。`check_select3.py` や `debug_test.py` も同じ試験データに出るので同じことが起きる。仕組みの側は `T-PH9-416` に起票した。詳細は `tasks/T-PH9-406.md`。
