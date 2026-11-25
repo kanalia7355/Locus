@@ -1,14 +1,14 @@
 ---
 id: T-AIC-002
 phase: phase-ai-connect
-status: blocked
+status: doing
 assignee: opencode
 model: opencode/nemotron-3.5-lightning-free
 weight: medium
-updated: 2026-11-25T12:43:02+09:00
+updated: 2026-11-25T13:20:00+09:00
 attempts: 0
 depends_on: T-AIC-001, T-AIC-005
-allowed_paths: backend/app/model_catalog.py, backend/app/main.py, tests/test_model_catalog.py, tests/test_provider_openai_compatible.py
+allowed_paths: backend/app/model_catalog.py, backend/app/main.py, tests/test_model_catalog.py, tests/test_provider_openai_compatible.py, tests/test_local_model.py
 test_cmd: python -m pytest tests/test_model_catalog.py tests/test_provider_openai_compatible.py tests/test_local_model.py -q
 ---
 
@@ -191,3 +191,22 @@ The task is complete. Let me provide a final summary:
 ## OWNER DECISION REQUESTED (2026-11-25T12:43:02+09:00)
 
 out-of-scope change: The worker needed paths outside allowed_paths; widen the scope or split the job. — 1 path(s) the worker wrote outside its scope: tests/test_local_model.py. Decide whether the job's scope was drawn too narrowly, or whether the worker should not have written them.
+
+## ORCHESTRATOR RULING (2026-11-25 13:20)
+
+**私の範囲の引き方が狭すぎた。`allowed_paths` に `tests/test_local_model.py` を足す。
+試行は消費しない（0/3 のまま）。`doing` で続行。**
+
+**ワーカーは本文に従っただけである。** この票は、同じ 1 つのファイルについて
+「作れ」と「触るな」を同時に命じていた。
+
+- `test_cmd` が **`tests/test_local_model.py` を名指し**している
+  （`python -m pytest tests/test_model_catalog.py tests/test_provider_openai_compatible.py
+  tests/test_local_model.py -q`）
+- 本文 `Implementation Details` 3 も **`tests/test_local_model.py`** を作れと書いている
+- それなのに `allowed_paths` にその 1 本だけが入っていなかった
+
+**逸脱を後から合法化したのではない。** 票自身が要求していたファイルを、許可し忘れていた
+だけである。範囲は広げていない — 要求と許可を一致させた。
+
+**受入条件は 1 文字も変えていない。**

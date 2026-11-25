@@ -5,8 +5,8 @@ status: blocked
 assignee: opencode
 model: opencode/nemotron-3.5-lightning-free
 weight: medium
-updated: 2026-11-25T12:47:36+09:00
-attempts: 3
+updated: 2026-11-25T13:20:00+09:00
+attempts: 0
 allowed_paths: progress/phase-ai-connect/material/
 test_cmd: python -m pytest tests/test_agents_registry.py -q
 ---
@@ -165,3 +165,43 @@ The workspace was 66 commit(s) behind `loop/local-development` and had no work i
 ## OWNER DECISION REQUESTED (2026-11-25T12:47:36+09:00)
 
 attempt limit reached: Three attempts did not satisfy the acceptance criteria; the job needs a human decision.
+
+## ORCHESTRATOR RULING (2026-11-25 13:20)
+
+**試行を 3/3 から 0/3 に戻す。ただし `blocked` のまま置く — これはオーナーの判断を待つ。
+ワーカーに回してはならない。**
+
+**3 回の「the worker changed nothing」は正直な報告だった。** この票の成果物
+`progress/phase-ai-connect/material/USER_CREDENTIAL_DESIGN.md` は**既に統合ブランチに
+存在する**（33,069 バイト）。ワークスペースの HEAD 版と本体の HEAD 版はバイト単位で同一で、
+ワークスペースは `ahead=0` である。**残っている仕事が無いのだから、変えるものも無い。**
+その 3 回に対して予算を請求するのは誤りなので戻す。
+
+**なぜそうなったか — これは私の誤りである。** このファイルが統合ブランチに入ったのは、
+2026-11-23 の私の裁定コミット **`b7041a6`（「1 件の逸脱が 2 件を止めていた。
+切り分けて両方戻す」）** である。逸脱の切り分けをしたときに、**ワーカーの成果物を
+レビューを経ずに統合ブランチへ持ち込んだ。** 証拠はこの票の記録そのもので、
+`## REPORT` / `## TEST` / `## REVIEW` の 3 節が**いずれも空のテンプレートのまま**である。
+この票は一度もレビューされていない。
+
+**ワーカーに回せない理由**: 差分が 0 バイトなので、レビューに出しても
+「対象が 1 バイトも変わっていない」経路に入り、モデルを回し続けるだけで何も決まらない。
+実装に回しても、ワーカーは正しく「変えるものが無い」と答える。
+**状態を動かして解ける種類の詰まりではない。**
+
+**私が決めてはならない理由**: 残っているのはレビューだけであり、
+**レビューの承認を私が与えることは禁じられている**（`Never: Mark a job done yourself,
+or approve a review`）。受入条件 1〜8 を私が読んで「満たしている」と宣言することは、
+その禁止を回り込むことになる。
+
+**オーナーに伺う二択**（どちらも私には選べない）:
+
+1. **この設計書をレビュー無しで受け入れる。** 私の `b7041a6` が既に統合ブランチへ
+   入れてしまっているので、現状を事後承認する形になる。
+2. **`b7041a6` が入れた分を統合ブランチから外し、この票に正規の経路で納め直させる。**
+   成果物は git の履歴とワークスペースの両方に残っているので失われない。
+   ただし 1 票分の実装とレビューをやり直すことになる。
+
+**1 を選ぶ場合も、受入条件 7**（コード・スキーマ・dispatch を一切変更していないこと。
+`tests/test_agents_registry.py` が従来どおり PASS）**は機械で確かめられる**ので、
+それだけは別に確認できる。受入条件 1〜6 は文書の中身の判断なので人かレビュアーが要る。
