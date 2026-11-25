@@ -2862,3 +2862,13 @@ UNVERIFIED
 - The task-asserted measurement that `scrollWidth` equals `clientWidth` under `html, body { overflow-x: clip }` was not re-measured in this context.
 
 **Answer** (2026-11-25 18:20, orchestrator): **レビュアーの差し戻しは採らない。周回を 1 回戻し（2/2 → 1/2）、時間切れの 1 回を試行から戻し（3/3 → 2/3）、`review` に置く。受入条件は 1 文字も変えていない。** 17:32 のレビューは「`rem` 化で既定文字サイズでの見かけが 2〜3px 大きくなった」ことを Medium の差し戻し理由にし、根拠として票の「見た目を 1px も変えないことを目標にしないこと」を **“apparent size must be kept” と引用している。これは反対の意味である** — 同じ段落に「全部を `0.875rem` にするのは誤り（それでは基準を 14px に固定し直したのと同じ）」「結果として本文がいまより少し大きくなるのは正しい」と書いてある。**条件の読み違いであって成果の欠陥ではない。** 実測（変更前は本体の `styles.css:32,165,169`、変更後はワークスペース）: 本文 14px→16px（×1.14）、`h1` 17px→20px（×1.18）、`h2` 16px→18px（×1.13）で**ほぼ同じ比率**。対してレビュアーの修正案（`h1` 17px、`h2` 16px）は **`h2` を本文と同じ大きさにし `h1` との差を 1px にする** — Implementation Details 2 の「情報の階層を保つ」を壊すので、**従えば票は悪くなる**。**ただし私の不備が 1 つ**: 票は本文より大きい見出しの扱いを書いていなかった。Implementation Details 2 に 1 行足して明記し、SCOPE をレビュアー向けに票の冒頭へ置いた。**試行の戻し**: 2 回目の派遣（16:15）は `timeout: no reply within 1800s` で一度も返答しておらず、12:20 の原則どおり試行として数えない。**置き場所**: 作業は 3 ファイルとしてワークスペースに在り関門は全部緑（`test:appearance` も含む）ので、`doing` ではなく `review`。**別件の申し送り**（差し戻し理由にはしない）: `App.tsx:562,885` の `window.innerWidth >= 768` と `em` の区切り幅がずれる件。許可パスの外なので **`T-PH6-133` に移した**（落としたのではなく移した）。詳細は `tasks/T-PH6-119.md`。
+
+## T-PH6-127 — attempt limit reached (2026-11-25T21:42:29+09:00)
+
+**Question**: Three attempts did not satisfy the acceptance criteria; the job needs a human decision.
+
+**Context**
+
+task-verification: exit 1
+    [chromium] › e2e\workspace.spec.ts:122:1 › retrieved comparison tables expose accessible headers and ambiguous text stays plain 
+    [chromium] › e2e\workspace.spec.ts:204:1 › citations ope
