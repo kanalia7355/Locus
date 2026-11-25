@@ -9,7 +9,7 @@ Each entry is a judgement the controller refused to make itself.
 **Context**
 
 model=opencode/iceman-free
-workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH9-402
+workspace=<workspaces>\workspaces\T-PH9-402
 marker=.\.jobloop\orchestrator-busy present=False
 appeared:
  M scripts/shift_check.py
@@ -25,7 +25,7 @@ appeared:
 **Context**
 
 model=opencode/iceman-free
-workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH9-403
+workspace=<workspaces>\workspaces\T-PH9-403
 marker=.\.jobloop\orchestrator-busy present=False
 appeared:
  M jobloop/controller.py
@@ -42,7 +42,7 @@ appeared:
 **Context**
 
 model=opencode/iceman-free
-workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH9-402
+workspace=<workspaces>\workspaces\T-PH9-402
 marker=.\.jobloop\orchestrator-busy present=False
 appeared:
  M backend/app/main.py
@@ -60,7 +60,7 @@ appeared:
 **Context**
 
 model=opencode/iceman-free
-workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH9-403
+workspace=<workspaces>\workspaces\T-PH9-403
 marker=.\.jobloop\orchestrator-busy present=False
 appeared:
  M backend/app/main.py
@@ -94,7 +94,7 @@ UNVERIFIED
 **Context**
 
 model=opencode/iceman-free
-workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH9-407
+workspace=<workspaces>\workspaces\T-PH9-407
 marker=<repo-root>\.jobloop\orchestrator-busy present=False
 appeared:
  M scripts/shift_check.py
@@ -109,7 +109,7 @@ appeared:
 **Context**
 
 model=opencode/iceman-free
-workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH9-410
+workspace=<workspaces>\workspaces\T-PH9-410
 marker=<repo-root>\.jobloop\orchestrator-busy present=False
 appeared:
  M jobloop/roster.py
@@ -147,7 +147,7 @@ not used for decision (判定に使っていない: progress/ と平易化ペー
 **Context**
 
 model=opencode/iceman-free
-workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH9-406
+workspace=<workspaces>\workspaces\T-PH9-406
 marker=<repo-root>\.jobloop\orchestrator-busy present=False
 appeared:
  M jobloop/selfrepair.py
@@ -162,7 +162,7 @@ appeared:
 **Context**
 
 model=opencode/iceman-free
-workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH9-410
+workspace=<workspaces>\workspaces\T-PH9-410
 marker=<repo-root>\.jobloop\orchestrator-busy present=False
 appeared:
  M jobloop/roster.py
@@ -178,18 +178,18 @@ appeared:
 
 **Context**
 
-_root -q` (workdir `C:\Users\hirot\.jobloop-Locus\workspaces\T-PH9-406`)  
+_root -q` (workdir `<workspaces>\workspaces\T-PH9-406`)  
   Result: `11 passed in 1.26s`
-- `python -m pytest tests/test_jobloop.py tests/test_selfrepair.py -q` (workdir `C:\Users\hirot\.jobloop-Locus\workspaces\T-PH9-406`)  
+- `python -m pytest tests/test_jobloop.py tests/test_selfrepair.py -q` (workdir `<workspaces>\workspaces\T-PH9-406`)  
   Result: `3 failed, 78 passed in 20.22s`  
   Failures: `tests/test_jobloop.py::test_idle_wait_skips_nonfinite_cooldown_and_uses_real_one`, `tests/test_jobloop.py::test_roster_state_treats_unreadable_file_as_empty`, `tests/test_jobloop.py::test_unreadable_roster_does_not_crash_idle_wait` — all fail with `UnicodeDecodeError` from `jobloop/roster.py:67` (`Path.read_text(encoding="utf-8")`) when reading a deliberately non-UTF8 roster file.
-- `python -m ruff format jobloop/controller.py jobloop/selfrepair.py tests/test_jobloop.py tests/test_selfrepair.py` (workdir `C:\Users\hirot\.jobloop-Locus\workspaces\T-PH9-406`)  
+- `python -m ruff format jobloop/controller.py jobloop/selfrepair.py tests/test_jobloop.py tests/test_selfrepair.py` (workdir `<workspaces>\workspaces\T-PH9-406`)  
   Result: `1 file reformatted, 3 files left unchanged`
-- `python -m ruff check backend tests scripts jobloop` (workdir `C:\Users\hirot\.jobloop-Locus\workspaces\T-PH9-406`)  
+- `python -m ruff check backend tests scripts jobloop` (workdir `<workspaces>\workspaces\T-PH9-406`)  
   Result: `All checks passed!`
-- `python -m ruff format --check backend tests scripts jobloop` (workdir `C:\Users\hirot\.jobloop-Locus\workspaces\T-PH9-406`)  
+- `python -m ruff format --check backend tests scripts jobloop` (workdir `<workspaces>\workspaces\T-PH9-406`)  
   Result: `190 files already formatted`
-- `python scripts/secret_scan.py jobloop/controller.py jobloop/selfrepair.py tests/test_jobloop.py tests/test_selfrepair.py` (workdir `C:\Users\hirot\.jobloop-Locus\workspaces\T-PH9-406`)  
+- `python scripts/secret_scan.py jobloop/controller.py jobloop/selfrepair.py tests/test_jobloop.py tests/test_selfrepair.py` (workdir `<workspaces>\workspaces\T-PH9-406`)  
   Result: `Offline secret scan: 0 findings`
 
 
@@ -205,7 +205,7 @@ needs-owner-decision: The required `python -m pytest tests/test_jobloop.py tests
 **Context**
 
 model=opencode/iceman-free
-workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH9-409
+workspace=<workspaces>\workspaces\T-PH9-409
 marker=<repo-root>\.jobloop\orchestrator-busy present=False
 appeared:
  M jobloop/roster.py
@@ -241,8 +241,8 @@ Using quality-review to [set the review approach for this task].Using security-a
 **Context**
 
 model=opencode/flint-40b-free
-workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH9-411
-marker=C:\Users\hirot\Locus\.jobloop\orchestrator-busy present=False
+workspace=<workspaces>\workspaces\T-PH9-411
+marker=<repo>\.jobloop\orchestrator-busy present=False
 containment opencode/flint-40b-free: 1/5 stops/dispatches
 appeared:
  M scripts/secret_scan.py
@@ -348,3 +348,5 @@ TEST
 
 STATUS
 needs-owner-decision: AC3's tracked-file guard cannot pass inside this ticket's allowed_paths — six tracked, non-protected files still contain a repository root (`docs/APP_PROVISIONING.md`, `docs/report/IMPLEMENTATION_STATUS_AND_BLOCKERS.html`, `docs/requirements/LOOP_BOOTSTRAP_SPEC.md`, `progress/phase-6-extensions/OWNER_DECISIONS.md`, `progress/phase-9-loop-health/OWNER_DECISIONS.md`, `tests/test_release_test_ports.py`) and the task forbids rewriting existing progress records — may I redact them by widening allowed_paths, or should AC3 exclude non-record documentation and pre-existing records?
+
+**Answer** (2026-11-25 17:30, orchestrator): **ワーカーの報告は正しく、止めて訊いたのも正しい。範囲の引き方と条文の両方が私の誤りだったので両方を直した。`doing` で続行、試行は 1/3 のまま。** 実測（`git ls-files` 全 825 件）: 本体ルートを含む追跡ファイルは **50 件**、うち 44 件は `docs/plans/` 配下で**保護パス**なので対象外 — ワーカーの「6 件」は正しい。残りのうち **2 件は正当な試験データ**（`tests/test_release_test_ports.py` は開発サーバのコマンドラインを模し、`tests/test_selfrepair.py` は `REPO` 定数）で、**AC3 を字句どおり適用するとこの 2 本が永久に落ちる** — `T-PH9-416` と同じ「検査が自分の試験に負ける」形で、条文を書いた私の誤りである。残り **3 件は本物の違反**（手で保守されている文書）で、この票の許可パスの外にあったのでワーカーは正しく手を止めた。**範囲の引き方が狭すぎた。** `progress/` の 2 件（計 32 箇所）は**私が自分で消した**（決定記録をワーカーに編集させるのは避けた）。直した内容: (1) **AC3 の条文を書き換えた**（追記ではなく置換）。試験データとして本体パスを要するテストを**パス 1 件ずつ・理由つきで**除外してよいと明記し、前方一致やディレクトリ単位の除外は禁じた。**条文を落としたのではなく実現可能な側へ書き直した** — 守りたい性質は変えていない。(2) **許可パスに 3 文書を足した**（要求と許可を一致させた。逸脱の事後合法化ではない）。残りは 3 文書を `<repo>` のような相対表記に置き換えること（意味を残し、行ごと削らない）。**この票が通れば `T-PH9-414`・`415`・`416` が動き出すので今の最優先である。** 詳細は `tasks/T-PH9-406.md`。

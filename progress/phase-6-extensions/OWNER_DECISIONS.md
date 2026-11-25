@@ -435,7 +435,7 @@ main へマージさせていい。」「問題があればあとでその変更
 **Context**
 
 model=opencode/flint-40b-free
-workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-103
+workspace=<workspaces>\workspaces\T-PH6-103
 
 **Answer** (2026-11-16, orchestrator): メインチェックアウトを調査し復元した。
 逃げていたのは `backend/app/main.py` `backend/app/service.py` の変更と、新規の
@@ -576,7 +576,7 @@ timeout で停止させたワーカーの子プロセスが生き残って後か
 **Context**
 
 model=opencode/glm-5.3-flash-free
-workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-109
+workspace=<workspaces>\workspaces\T-PH6-109
 
 **Answer** (2026-11-17, orchestrator): 誤検知。ワーカーは自分のクローンの中にだけ書いており、メインチェックアウトにワーカー由来のファイルは無かった。原因は封じ込め判定が`HEAD` を含んでいたことで、ループ実行中のオーケストレーターのコミットで `HEAD` が動いた。判定を未コミットの状態だけに変更し、回帰テストで固定した。試行は消費していないので、ワークスペースを残したまま `resume-one` で再開する。詳細は各 task ファイルの裁定に記録。
 ## T-PH6-111 — worker wrote outside its workspace (2026-11-17T11:35:07+09:00)
@@ -609,7 +609,7 @@ workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-109
 **Context**
 
 model=opencode/glm-5.3-flash-free
-workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-111
+workspace=<workspaces>\workspaces\T-PH6-111
 
 **Answer** (2026-11-17, orchestrator): 誤検知。ワーカーは自分のクローンの中にだけ書いており、メインチェックアウトにワーカー由来のファイルは無かった。原因は封じ込め判定が`HEAD` を含んでいたことで、ループ実行中のオーケストレーターのコミットで `HEAD` が動いた。判定を未コミットの状態だけに変更し、回帰テストで固定した。試行は消費していないので、ワークスペースを残したまま `resume-one` で再開する。詳細は各 task ファイルの裁定に記録。
 
@@ -1066,7 +1066,7 @@ outside allowed_paths: ['frontend/errors.txt', 'frontend/filtered.txt', 'fronten
 **Context**
 
 model=opencode/nemotron-3.5-lightning-free
-workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-109
+workspace=<workspaces>\workspaces\T-PH6-109
 
 **Answer** (2026-11-18, orchestrator): 誤検知。3 件ともワーカーは自分のクローンの中だけに書いており、メインチェックアウトにワーカー由来のファイルは無い。原因は私がループ実行中にメインチェックアウトで作業したこと（スクリーンショット取り込み、報告の追加、push まわりの修正）。`.jobloop/orchestrator-busy` がある間は判定を停止し、停止したことをジョブに記録する仕組みにした。試行は戻した。
 ## T-PH6-113 — worker wrote outside its workspace (2026-11-18T00:01:45+09:00)
@@ -1099,7 +1099,7 @@ workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-109
 **Context**
 
 model=opencode/nemotron-3.5-lightning-free
-workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-113
+workspace=<workspaces>\workspaces\T-PH6-113
 
 **Answer** (2026-11-18, orchestrator): 誤検知。3 件ともワーカーは自分のクローンの中だけに書いており、メインチェックアウトにワーカー由来のファイルは無い。原因は私がループ実行中にメインチェックアウトで作業したこと（スクリーンショット取り込み、報告の追加、push まわりの修正）。`.jobloop/orchestrator-busy` がある間は判定を停止し、停止したことをジョブに記録する仕組みにした。試行は戻した。
 ## T-PH6-115 — worker wrote outside its workspace (2026-11-18T00:04:13+09:00)
@@ -1132,7 +1132,7 @@ workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-113
 **Context**
 
 model=opencode/nemotron-3.5-lightning-free
-workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-115
+workspace=<workspaces>\workspaces\T-PH6-115
 
 **Answer** (2026-11-18, orchestrator): 誤検知。3 件ともワーカーは自分のクローンの中だけに書いており、メインチェックアウトにワーカー由来のファイルは無い。原因は私がループ実行中にメインチェックアウトで作業したこと（スクリーンショット取り込み、報告の追加、push まわりの修正）。`.jobloop/orchestrator-busy` がある間は判定を停止し、停止したことをジョブに記録する仕組みにした。試行は戻した。
 
@@ -2062,7 +2062,7 @@ Automatic merge failed; fix conflicts and then commit the result.
 **Context**
 
 model=opencode/iceman-free
-workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-116
+workspace=<workspaces>\workspaces\T-PH6-116
 
 **Answer** (2026-11-22, orchestrator): **誤検知で、原因は私。** このシフトは裁定とループの修正を書きながらメインチェックアウトを編集し続けていた。メインチェックアウトにワーカー由来のファイルは 1 つも無い。`T-PH7-201` と同じ事象で、`orchestrator-busy` を置いていたのに抑止されなかった理由は未解明なので、封じ込めの停止記録に**マーカーの有無と実際に増えた行**を書き出すようにした（次回は記録が答える）。試行は消費しない。**直前の裁定（現在の枝で作り直す）と、前のシフトから未着手の 1 行（`.main` → `.messages`）はそのまま有効**。詳細は `tasks/T-PH6-116.md`。
 
@@ -2303,7 +2303,7 @@ outside allowed_paths: ['tests/e2e_server.py']
 **Context**
 
 model=opencode/nemotron-3.5-lightning-free
-workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-127
+workspace=<workspaces>\workspaces\T-PH6-127
 marker=.\.jobloop\orchestrator-busy present=False
 appeared:
 ?? progress/phase-storage-connect/tasks/T-STC-005.md
@@ -2401,7 +2401,7 @@ UNVERIFIED
 **Context**
 
 model=opencode/iceman-free
-workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-127
+workspace=<workspaces>\workspaces\T-PH6-127
 marker=.\.jobloop\orchestrator-busy present=False
 appeared:
              beat.parent.mkdir(parents=True, exist_ok=True)
@@ -2453,7 +2453,7 @@ commit=8ca0bda8377711cbba565cc0fbf5b36ed751f998
 **Context**
 
 model=opencode/deepseek-v4.1-flash-free
-workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-127
+workspace=<workspaces>\workspaces\T-PH6-127
 marker=.\.jobloop\orchestrator-busy present=False
 appeared:
 ?? REPORT.md
@@ -2510,7 +2510,7 @@ outside allowed_paths: ['frontend/appearance_output.txt']
 **Context**
 
 model=opencode/iceman-free
-workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-112
+workspace=<workspaces>\workspaces\T-PH6-112
 marker=.\.jobloop\orchestrator-busy present=False
 appeared:
  M frontend/src/App.tsx
@@ -2598,7 +2598,7 @@ and add tests that observe the persisted ingestion record fields, or get an expl
 UNVERIFIED
 - Docker containment criteria `docs/architecture/DOCUMENT_EXTRACTION_BOUNDARY.md` §8 items 7-8 were not executed. `tests/integration/test_live_sandbox_docker.py` is opt-in (`LOCUS_LIVE_DOCKER=1`) and requires a working Docker engine and `.loop/runtime/qa-image.json`; skipped/unrun opt-in checks are not evidence.
 - I did not re-run `python -m pytest tests/test_sandbox_boundary.py tests/test_api.py -q`, `python -m ruff check backend tests scripts jobloop`, `python -m ruff format --check backend tests scripts jobloop`, or `python scripts/secret_scan.py`; I relied on the controller evidence reported in the job message.
-- The prompt's "The change under review" diff block was empty; I reviewed the actual `git diff loop/local-development...HEAD -- backend/app/sandbox.py tests/test_sandbox_boundary.py tests/integration/test_live_sandbox_docker.py` in `C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-104` and inspected those files directly.
+- The prompt's "The change under review" diff block was empty; I reviewed the actual `git diff loop/local-development...HEAD -- backend/app/sandbox.py tests/test_sandbox_boundary.py tests/integration/test_live_sandbox_docker.py` in `<workspaces>\workspaces\T-PH6-104` and inspected those files directly.
 
 
 **Answer** (2026-11-24 13:30, orchestrator): Medium 2 件を 1 件ずつ処理した。**(1) 「ブランチが 30 ファイル違う」は測って否定した** — `merge-base..HEAD` ではこの票の変更は許可パスの 3 ファイルだけ（追加のみ）。土台が 121 コミット遅れているため先端同士の比較で差が膨らむ、記録済みの罠である。`deliver` は `merge --no-ff` なので巻き戻しも起きない。**(2) 「取り込み記録の永続化を観測する検査が無い」は認め、レビュアー自身が示した選択肢に従って§8.4/§8.5 をこの票では境界の結果レベルに狭め、永続化を `T-PH6-131` に移した**（削除ではなく移動、同じ強さ）。**(3) docker の `UNVERIFIED` 2 件はこの票の責任ではない**（2026-11-22 に `T-PH6-129` へ移済み。この機に docker engine は無い）。**試行を 1 回・周回を 1 回戻す（3/3 → 2/3、2/2 → 1/2）** — 2026-11-22 に私の切り出し漏れで試行 2 回が docker に消え、今回の周回 1 回は測れば否定できた誤警報に消えたためである。**受入条件は緩めていない。** `review` に戻す。詳細は `tasks/T-PH6-104.md`。
@@ -2722,8 +2722,8 @@ ed; add an opt-in test that exercises the product Docker path.
 **Context**
 
 model=opencode/nemotron-3.5-lightning-free
-workspace=C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-127
-marker=C:\Users\hirot\Locus\.jobloop\orchestrator-busy present=False
+workspace=<workspaces>\workspaces\T-PH6-127
+marker=<repo>\.jobloop\orchestrator-busy present=False
 containment opencode/nemotron-3.5-lightning-free: 1/8 stops/dispatches
 appeared:
 ?? REPORT
@@ -2782,7 +2782,7 @@ e2e/workspace.spec.ts(5,7): error TS6133: 'WORKSPACE_ACCOUNT_OFFSET' is declared
 > eslint . --max-warnings 0
 
 
-C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-127\frontend\e2e\workspace.spec.ts
+<workspaces>\workspaces\T-PH6-127\frontend\e2e\workspace.spec.ts
   5:7  error  'WORKSPACE_ACCOUNT_OFFSET' is assign; frontend-test:appearance: exit 1
         npx playwright show-trace test-results\appearance-the-sidebar-acc-f8853-en-at-every-supported-width-chromium\trace.zip
 
