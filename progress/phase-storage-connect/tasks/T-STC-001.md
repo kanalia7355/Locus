@@ -1,16 +1,16 @@
 ---
 id: T-STC-001
 phase: phase-storage-connect
-status: review
+status: blocked
 assignee: opencode
 model: opencode/nemotron-3.5-lightning-free
 weight: medium
-updated: 2026-11-25T15:30:00+09:00
-attempts: 2
+updated: 2026-11-25T15:24:54+09:00
+attempts: 3
 allowed_paths: backend/app/connectors.py, backend/app/service.py, backend/app/main.py, tests/test_connectors.py
 test_cmd: python -m pytest tests/test_connectors.py tests/test_api.py -q
 reviewer: opencode/iceman-free
-review_cycles: 1
+review_cycles: 2
 ---
 
 # Task `T-STC-001`: コネクタ共通基盤（IF／出所テーブル／同期エンジン／管理API）
@@ -396,3 +396,29 @@ lint / format / secret-scan 緑）。
 書いてある。
 
 **受入条件は 1 文字も変えていない。**
+
+## RESUMED GATES (2026-11-25T15:22:50+09:00)
+
+- `scope`: green
+- `task-verification`: green
+- `python-lint`: green
+- `python-format`: green
+- `secret-scan`: green
+
+## REVIEW by opencode/iceman-free (2026-11-25T15:24:54+09:00)
+
+VERDICT
+- CHANGES_REQUIRED
+
+FINDINGS
+- Medium, `backend/app/connectors.py:141-159` — `record_document_origin` runs after `service.upload()` commits but outside the `try/except` that handles upload failures, so an origin-recording error crashes the whole sync after the document is already persisted. Concrete failure: `upload()` returns a new queued document for `ext-1`, then `record_document_origin()` raises (e.g., transient DB/locking error); `SyncEngine.sync()` propagates the exception, `service.sync_connector()` never records the `connector.sync` audit, the API returns 500, and the next sync finds no origin for `ext-1` and registers a duplicate document. Smallest fix: include `record_document_origin()` in the same per-item `try/except`, and on failure count `origin_record_failed` (or equivalent) without re-raising; optionally note in code that the uploaded document is orphaned-untracked and a future reconciliation/dedupe policy may be needed.
+
+UNVERIFIED
+- I did not execute tests or gates myself; I relied on the controller-reported evidence (`scope`, `task-verification` exit 0 with 28 passed, `python-lint`, `python-format`, `secret-scan` all green) and read-only inspection of the diff and touched files.
+- I did not verify runtime behavior for the origin-recording failure path; the finding is based on static inspection of `backend/app/connectors.py:141-159` and the upload/origin write sequencing.
+- Actual read-path refusal for revoked origins is explicitly deferred to T-STC-005 per task spec; I only verified origin-state storage and the `is_document_origin_revoked` hook placement, not end-to-end refusal behavior.
+- Per the task SCOPE ruling (2026-11-25 15:30), I did not treat the absence of a partial-pagination listing-failure regression test as a finding; that case is tracked by `T-STC-006`.
+
+## OWNER DECISION REQUESTED (2026-11-25T15:24:54+09:00)
+
+review cycle limit reached: The reviewer still requires changes, and the review cycle budget is spent (attempts 3/3, review cycles 2/2).

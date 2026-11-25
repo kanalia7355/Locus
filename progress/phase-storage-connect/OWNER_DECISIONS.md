@@ -38,3 +38,21 @@ UNVERIFIED
 - Actual read-path refusal for revoked origins is explicitly deferred to T-STC-005 per task spec; I only verified origin state storage and the `is_document_origin_revoked` hook placement, not end-to-end refusal behavior.
 
 **Answer** (2026-11-25 15:30, orchestrator): **周回を 1 回戻す（2/2 → 1/2）。試行は 2/3 のまま `review` に置く。指摘は良いが受入条件の外なので `T-STC-006` に移した。** 2 周目の指摘は実装の不具合ではない: レビュアー自身が、1 周目の High（一覧がページ途中で失敗した後に見えなかった出自を取消す）は **`connectors.py:76-169` で直っていると確認している**。残るのは「それを守る退行テストが無い」1 件だけ。条文と突き合わせると、条件 1 は「フェイクコネクタで同期の往復（登録／差分／取消）がテストで検証されている」で、**ページ途中失敗の振る舞いは名指ししていない**。往復の検証は済み、ゲートは緑（`task-verification` exit 0、28 passed、lint/format/secret-scan 緑）。**移したのであって落としたのではない**: `T-STC-006` を起こし、`depends_on: T-STC-001` を付け、レビュアーが書いた失敗の筋（`A,B` 同期後、次の `list_items` が 1 ページ目を返して例外、`revoked == 0` かつ `B` が `revoked is False`）をそのまま受入条件に写し、**守りを外すと落ちることの確認**も条件に入れた。この票で直すものは無いので `doing` ではなく `review`。次のレビュアーが蒸し返さないよう、票の本文冒頭に SCOPE 節を足した。受入条件は 1 文字も変えていない。詳細は `tasks/T-STC-001.md`。
+
+## T-STC-001 — review cycle limit reached (2026-11-25T15:24:54+09:00)
+
+**Question**: The reviewer still requires changes, and the review cycle budget is spent (attempts 3/3, review cycles 2/2).
+
+**Context**
+
+VERDICT
+- CHANGES_REQUIRED
+
+FINDINGS
+- Medium, `backend/app/connectors.py:141-159` — `record_document_origin` runs after `service.upload()` commits but outside the `try/except` that handles upload failures, so an origin-recording error crashes the whole sync after the document is already persisted. Concrete failure: `upload()` returns a new queued document for `ext-1`, then `record_document_origin()` raises (e.g., transient DB/locking error); `SyncEngine.sync()` propagates the exception, `service.sync_connector()` never records the `connector.sync` audit, the API returns 500, and the next sync finds no origin for `ext-1` and registers a duplicate document. Smallest fix: include `record_document_origin()` in the same per-item `try/except`, and on failure count `origin_record_failed` (or equivalent) without re-raising; optionally note in code that the uploaded document is orphaned-untracked and a future reconciliation/dedupe policy may be needed.
+
+UNVERIFIED
+- I did not execute tests or gates myself; I relied on the controller-reported evidence (`scope`, `task-verification` exit 0 with 28 passed, `python-lint`, `python-format`, `secret-scan` all green) and read-only inspection of the diff and touched files.
+- I did not verify runtime behavior for the origin-recording failure path; the finding is based on static inspection of `backend/app/connectors.py:141-159` and the upload/origin write sequencing.
+- Actual read-path refusal for revoked origins is explicitly deferred to T-STC-005 per task spec; I only verified origin-state storage and the `is_document_origin_revoked` hook placement, not end-to-end refusal behavior.
+- Per the task SCOPE ruling (2026-11-25 15:30), I did not treat the absence of a partial-pagination listing-failure regression test as a finding; that case is tracked by `T-STC-006`.
