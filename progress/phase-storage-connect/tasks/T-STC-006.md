@@ -1,15 +1,15 @@
 ---
 id: T-STC-006
 phase: phase-storage-connect
-status: review
+status: done
 assignee: opencode
 model: agy/gemini-4-hydrogen-low
 weight: light
 depends_on: T-STC-001
 allowed_paths: tests/test_connectors.py
 test_cmd: python -m pytest tests/test_connectors.py -q
-updated: 2026-11-25T20:31:09+09:00
-attempts: 0
+updated: 2026-11-25T20:31:57+09:00
+attempts: 1
 reviewer: agy/gemini-4-argon-low
 ---
 
