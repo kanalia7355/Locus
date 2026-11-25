@@ -331,3 +331,40 @@ def test_connector_documents_follow_upload_scan_acl_and_limits(service: Service)
     assert result2["registered"] == 0
     assert result2["failed"] >= 1
     assert service.get_document_origin("fake2", "ext-0") is None
+
+
+def test_sync_does_not_revoke_when_listing_fails_mid_pagination(service: Service) -> None:
+    item_a = SourceItem("ext-a", "a.txt", "rev-1", "h1", 1, 1.0)
+    item_b = SourceItem("ext-b", "b.txt", "rev-1", "h2", 1, 1.0)
+
+    class PagedFailingConnector(FakeConnector):
+        def __init__(self) -> None:
+            super().__init__([item_a, item_b])
+            self.contents["ext-a"] = b"a"
+            self.contents["ext-b"] = b"b"
+            self.fail_on_page_2 = False
+
+        def list_items(self, cursor: str | None = None) -> tuple[list[Any], str | None]:
+            if not self.fail_on_page_2:
+                return super().list_items(cursor)
+            self.list_calls += 1
+            if cursor is None:
+                return [item_a], "page-2"
+            raise RuntimeError("page 2 failed")
+
+    connector = PagedFailingConnector()
+    service.register_sync_connector("fake", connector, configured=True)
+    actor = admin_actor(service)
+
+    first = SyncEngine(service).sync(actor, "project-a", connector, "label", connector_id="fake")
+    assert first["registered"] == 2
+
+    connector.fail_on_page_2 = True
+    second = SyncEngine(service).sync(actor, "project-a", connector, "label", connector_id="fake")
+
+    assert second["failed"] >= 1
+    assert second["reasons"].get("list_failed", 0) >= 1
+    assert second["revoked"] == 0
+    origin_b = service.get_document_origin("fake", "ext-b")
+    assert origin_b is not None
+    assert origin_b["revoked"] is False
