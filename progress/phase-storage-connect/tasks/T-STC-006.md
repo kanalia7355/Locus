@@ -1,15 +1,16 @@
 ---
 id: T-STC-006
 phase: phase-storage-connect
-status: todo
-assignee: unassigned
-model: -
+status: review
+assignee: opencode
+model: agy/gemini-4-hydrogen-low
 weight: light
 depends_on: T-STC-001
 allowed_paths: tests/test_connectors.py
 test_cmd: python -m pytest tests/test_connectors.py -q
-updated: 2026-11-25T15:30:00+09:00
+updated: 2026-11-25T20:31:09+09:00
 attempts: 0
+reviewer: agy/gemini-4-argon-low
 ---
 
 # Task `T-STC-006`: 一覧が途中で失敗したときに取消を走らせない守りに、退行テストを付ける
@@ -55,3 +56,46 @@ attempts: 0
 3. 既存の `tests/test_connectors.py` に退行がない。
 4. `python -m pytest tests/test_connectors.py -q` が緑。
 5. 変更が `allowed_paths` 内に収まっている（`tests/test_connectors.py` のみ）。
+
+## CONTAINMENT UNVERIFIED (2026-11-25T20:31:04+09:00)
+
+The operator was editing the main checkout during this cycle, so the containment comparison was suspended. The worker's isolation was not verified for this attempt.
+
+## ATTEMPT 1 — implementation by agy/gemini-4-hydrogen-low (2026-11-25T20:31:09+09:00)
+
+REPORT
+- `tests/test_connectors.py`: Added `test_sync_does_not_revoke_when_listing_fails_mid_pagination` to verify that when `list_items` succeeds on page 1 (returning `ext-a` and cursor `"page-2"`) and raises `RuntimeError` on page 2, `SyncEngine.sync` reports `failed >= 1` with `list_failed` in `reasons`, `revoked == 0`, and the unseen origin `ext-b` remains `revoked is False`.
+- No inconsistency found between documentation and code.
+- No remaining risk.
+
+TEST
+- `python -m pytest tests/test_connectors.py -q` (baseline before edits): `6 passed in 3.45s`
+- `python -m pytest tests/test_connectors.py -q` (with `if complete else 0` guard temporarily removed in `backend/app/connectors.py` to verify the regression test catches the bug): `1 failed, 6 passed in 4.03s` — `test_sync_does_not_revoke_when_listing_fails_mid_pagination` failed at `assert second["revoked"] == 0` (`assert 1 == 0`). `backend/app/connectors.py` was immediately restored afterwards.
+- `python -m ruff format tests/test_connectors.py`: `1 file reformatted`
+- `python -m pytest tests/test_connectors.py -q` (after final edit): `7 passed in 3.40s`
+- `python -m ruff check backend tests scripts jobloop`: `All checks passed!`
+- `python -m ruff format --check backend tests scripts jobloop`: `194 files already formatted`
+- `python scripts/secret_scan.py tests/test_connectors.py`: `Offline secret scan: 0 findings`
+- `git status --short`: ` M tests/test_connectors.py`
+
+STATUS
+ready-for-review
+
+### Controller gates
+
+- `scope`: green
+- `task-verification`: green
+- `python-lint`: green
+- `python-format`: green
+- `secret-scan`: green
+
+## REVIEW by agy/gemini-4-argon-low (2026-11-25T20:31:56+09:00)
+
+VERDICT
+- APPROVED
+
+FINDINGS
+- none
+
+UNVERIFIED
+- Hosted GitHub Actions CI execution (local deterministic verification ran and passed, including `python -m pytest tests/test_connectors.py -q` with 7 passed, lint, format, and secret scan).

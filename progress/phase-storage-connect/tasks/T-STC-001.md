@@ -1,12 +1,12 @@
 ---
 id: T-STC-001
 phase: phase-storage-connect
-status: review
+status: done
 assignee: opencode
 model: opencode/nemotron-3.5-lightning-free
 weight: medium
-updated: 2026-11-25T20:28:31+09:00
-attempts: 2
+updated: 2026-11-25T20:29:29+09:00
+attempts: 3
 allowed_paths: backend/app/connectors.py, backend/app/service.py, backend/app/main.py, tests/test_connectors.py
 test_cmd: python -m pytest tests/test_connectors.py tests/test_api.py -q
 reviewer: agy/gemini-4-argon-low
