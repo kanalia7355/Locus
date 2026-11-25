@@ -503,6 +503,32 @@ def test_redirected_command_output_is_removed_and_recorded_not_escalated(tmp_pat
     assert not (tree / "test_output.txt").exists()
     assert (tree / "committed.txt").read_text(encoding="utf-8") == "edited by the job"
 
+    # Test data in `tests/test_jobloop.py` itself must not shield loose scratch
+    # files (e.g. `test_output.txt` when `tests/test_jobloop.py` is in scope),
+    # while real usages (imports or `open(...)` calls) in test files still do.
+    self_test_text = Path(__file__).read_text(encoding="utf-8")
+    assert gates.litter(
+        ["tests/test_jobloop.py", "test_output.txt"],
+        ["tests/test_jobloop.py"],
+        contents={"tests/test_jobloop.py": self_test_text},
+    ) == ["test_output.txt"]
+    assert (
+        gates.litter(
+            ["helper.py"],
+            ["tests/test_api.py"],
+            contents={"tests/test_api.py": "import helper\n"},
+        )
+        == []
+    )
+    assert (
+        gates.litter(
+            ["attack_pattern.txt"],
+            ["tests/test_api.py"],
+            contents={"tests/test_api.py": 'open("attack_pattern.txt").read()\n'},
+        )
+        == []
+    )
+
 
 def test_a_timed_out_session_stops_writing_and_does_not_wedge_the_controller(
     tmp_path: Path,
