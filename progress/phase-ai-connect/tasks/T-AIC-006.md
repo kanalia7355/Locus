@@ -1,12 +1,12 @@
 ---
 id: T-AIC-006
 phase: phase-ai-connect
-status: doing
+status: blocked
 assignee: opencode
-model: ollama/gemma3:4b
+model: opencode/nemotron-3.5-lightning-free
 weight: medium
-updated: 2026-11-23T23:16:22+09:00
-attempts: 2
+updated: 2026-11-25T12:47:36+09:00
+attempts: 3
 allowed_paths: progress/phase-ai-connect/material/
 test_cmd: python -m pytest tests/test_agents_registry.py -q
 ---
@@ -157,3 +157,11 @@ The operator was editing the main checkout during this cycle, so the containment
 ## WORKSPACE REBASED (2026-11-23T23:16:12+09:00)
 
 The workspace was 2 commit(s) behind `loop/local-development` and had no work in progress, so it was reset onto the current branch. Nothing of this job's own was discarded.
+
+## WORKSPACE REBASED (2026-11-25T12:43:04+09:00)
+
+The workspace was 66 commit(s) behind `loop/local-development` and had no work in progress, so it was reset onto the current branch. Nothing of this job's own was discarded.
+
+## OWNER DECISION REQUESTED (2026-11-25T12:47:36+09:00)
+
+attempt limit reached: Three attempts did not satisfy the acceptance criteria; the job needs a human decision.

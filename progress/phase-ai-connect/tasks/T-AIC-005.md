@@ -1,12 +1,12 @@
 ---
 id: T-AIC-005
 phase: phase-ai-connect
-status: review
+status: done
 assignee: opencode
 model: opencode/iceman-free
 weight: medium
-updated: 2026-11-25T12:32:05+09:00
-attempts: 2
+updated: 2026-11-25T12:32:52+09:00
+attempts: 3
 allowed_paths: backend/app/harness.py, tests/test_harness_egress.py
 test_cmd: python -m pytest tests/test_harness_egress.py tests/test_agents_registry.py tests/test_api.py -q
 reviewer: opencode/nemotron-3.5-lightning-free

@@ -49,3 +49,19 @@ commit=a14b69c5b0c9733eee67b091180b03b510166ec2
 ?? tests/test_production_startup.py
 
 **Answer** (2026-11-23 23:30, orchestrator): 21:16 と同じ形で、この票は今日 2 回とも無実である。`foreign` は他票（`T-PH9-402`・`T-PH7-223`）が本体に書いた製品コード。`a14b69c` は許可パス 2 件とちょうど一致しレビュー済み。本体は綺麗にした。**試行は消費せず `review`。** 原因と対処は `T-PH9-406`。詳細は `tasks/T-AIC-005.md`。
+
+## T-AIC-002 — out-of-scope change (2026-11-25T12:43:02+09:00)
+
+**Question**: The worker needed paths outside allowed_paths; widen the scope or split the job. — 1 path(s) the worker wrote outside its scope: tests/test_local_model.py. Decide whether the job's scope was drawn too narrowly, or whether the worker should not have written them.
+
+**Context**
+
+outside allowed_paths: ['tests/test_local_model.py']
+
+## T-AIC-006 — attempt limit reached (2026-11-25T12:47:36+09:00)
+
+**Question**: Three attempts did not satisfy the acceptance criteria; the job needs a human decision.
+
+**Context**
+
+the worker changed nothing
