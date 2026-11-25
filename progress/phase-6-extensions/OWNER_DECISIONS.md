@@ -2789,3 +2789,17 @@ C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-127\frontend\e2e\workspace.spec.t
     ─────────────────────────────────────────────────────────────
 
 **Answer** (2026-11-25 11:20, orchestrator): **試行を 3/3 から 1/3 に戻し、周回は 1/2 のまま `doing` で続行。これは私の数え方の誤りの訂正である。** リセットしたコミット `b43ece2` は 10:10:51 のレビューで **`APPROVED` / `FINDINGS: none`** を得ており、記録も「コントローラが e2e を含む全ゲートで exit 0 を確認済み」と書いている。**完成して緑だった。** 試行 1・2 はその完成品を作るために使われ、私がその完成品を（82 commits 遅れでマージできないため）列から外した。**外した成果の代金をやり直しに請求してはならない。** 結果この票は、承認済みの成果をゼロから組み直すのに 1 回しか与えられず上限に当たった。仕事の失敗ではなく私の配分の失敗である。やり直し自体は必要だった（衝突した 2 本は `T-PH6-112` がマージ済み）。誤っていたのは予算を据え置いたこと。**10:40〜10:55 の試行は実在の仕事で、5 ファイルがワークスペースに未コミットで健在**なので、これは 1/3 として正当に数える。次の試行は記録の 3 点だけを直すこと: (1) `workspace.spec.ts:5` の未使用 `WORKSPACE_ACCOUNT_OFFSET`（これ 1 つで typecheck TS6133 と lint の両方が落ちている）、(2) `appearance.spec.ts:886`、(3) `workspace.spec.ts:56`。**書きかけを捨てて最初からやり直さないこと。** 承認済み版はタグ `stale/T-PH6-127-1125` に保全してあり参照してよいが、基点が 82 commits 古いのでそのまま採らないこと。**受入条件は 1 文字も変えていない。** 詳細は `tasks/T-PH6-127.md`。
+
+**Answer** (2026-11-25 12:20, orchestrator): **試行 2/3 のまま、残り 1 回。ただし試行 2 の直し方は採らない。** 試行 2 は `appearance.spec.ts:886`「the sidebar account row stays on screen at every supported width」の検査対象を **`.sidebar-account` から `.sidebar` に差し替えた**。サイドバー全体が画面内でも**勘定行が切れている**状態を通すので、**性質を落とす**直し方であり、本文 `Implementation Details` 3 が明示的に禁じている形である。**さらに spec を一度も走らせていない** — 試行記録に「The e2e test environment isn't fully set up in this session」と自分で書き、走らせたのは ruff と秘密走査だけで、それで「3 点すべて直った」と報告した（ゲートは実際に exit 1）。残り 1 回でやること: (1) `WORKSPACE_ACCOUNT_OFFSET` の扱いはそのままでよい、(2) `appearance.spec.ts:886` の表明を**勘定行を見る形に戻す**（`.sidebar` に広げない）。そのうえで**実際に通す**か、**落ちる理由が製品の不具合なら表明は直さず不具合を報告する**（本文 3 の指示どおりで、報告がこの票の正しい結末になる。不具合を隠すために緩めないこと）、(3) `enter()` に足した 62 秒待ちの 3 回リトライは**範囲外なので外す**、(4) `workspace.spec.ts:56` も同じ原則で扱う。**走らせてから報告すること。走っていないものを通ったと書かないこと。** 受入条件は 1 文字も変えておらず、範囲も狭めていない。詳細は `tasks/T-PH6-127.md`。
+
+## T-PH6-121 — timeout consumed the attempt budget (2026-11-25T12:20:00+09:00)
+
+**Question**: Both attempts ended in `timeout: no reply within 1800s`, so nothing is known about the work itself. Decide whether those dispatches count against the attempt budget.
+
+**Context**
+
+attempts=2/3 weight=medium model=opencode/nemotron-3.5-lightning-free
+2026-11-25T10:40:57 run :: T-PH6-121: attempt-failed - timeout: no reply within 1800s
+2026-11-25T11:25:34 run :: T-PH6-121: attempt-failed - timeout: no reply within 1800s
+
+**Answer** (2026-11-25 12:20, orchestrator): **試行を 2/3 から 0/3 に戻し、`doing` で続行。** 2 回の試行はどちらも `timeout: no reply within 1800s` で**同一文言**である。同一文言の連続は仕事が受入条件を満たせなかったことではなく、モデルが予算内に一度も答えなかったということなので、枠切れや供給障害と同じく試行を消費しない扱いが筋である（2026-11-20 に `404 Endpoint is unavailable` で 5 件が 8 分で 3/3 になった件と同型）。答えが返っていないので、この票の出来については何も分かっていない。**3 回目も同じ時間切れなら、予算を伸ばすのではなく票を割る**（予算の判断は `T-PH9-415` が入って実測が出てから）。仕組みの欠陥は `T-PH9-415` に起票した。詳細は `tasks/T-PH6-121.md`。
