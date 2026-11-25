@@ -2419,7 +2419,7 @@ def test_unreadable_roster_does_not_crash_and_records_fact(
     monkeypatch.setattr(cli, "installed_models", lambda executable=None: ["opencode/a-free"])
     monkeypatch.setattr(cli, "agy_installed_models", lambda executable=None: [])
     module.main(["--phase", "p", "--pause", "120", "--cycles", "1"])
-    assert waits == [240.0]
+    assert sum(waits) == pytest.approx(240.0)
     beat_text = (state_dir / "supervisor.log").read_text(encoding="utf-8")
     assert "roster unreadable" in beat_text.lower()
 
@@ -2533,6 +2533,7 @@ def test_idle_rounds_reset_after_work(tmp_path: Path, monkeypatch: pytest.Monkey
     state.mkdir()
     (state / "roster.json").write_text("{}", encoding="utf-8")
     waits: list[float] = []
+    cycle_waits: list[float] = []
     monkeypatch.setattr(module.time, "sleep", lambda seconds: waits.append(seconds))
     monkeypatch.setattr(module, "heartbeat", lambda *args, **kwargs: None)
     outputs = iter(
@@ -2542,7 +2543,14 @@ def test_idle_rounds_reset_after_work(tmp_path: Path, monkeypatch: pytest.Monkey
             (0, "-: idle - no actionable job is left\n"),
         ]
     )
-    monkeypatch.setattr(module, "stream", lambda argv: next(outputs))
+
+    def fake_stream(argv: list[str]) -> tuple[int, str]:
+        if waits:
+            cycle_waits.append(sum(waits))
+            waits.clear()
+        return next(outputs)
+
+    monkeypatch.setattr(module, "stream", fake_stream)
     monkeypatch.setattr(
         module.subprocess,
         "run",
@@ -2565,8 +2573,10 @@ def test_idle_rounds_reset_after_work(tmp_path: Path, monkeypatch: pytest.Monkey
             "1",
         ]
     )
+    if waits:
+        cycle_waits.append(sum(waits))
     # idle -> backoff(120,1)=240, worked -> pause=120, idle after reset -> 240
-    assert waits == [240.0, 120.0, 240.0]
+    assert cycle_waits == [pytest.approx(240.0), pytest.approx(120.0), pytest.approx(240.0)]
 
 
 # --- second tier: agy (owner decision 2026-11-25, E2) ------------------------
@@ -3172,3 +3182,149 @@ def test_working_model_resets_exhaustion_streak_and_attempts_stay_zero(
     rev_controller.roster.mark_exhausted("b-free")
     recorded_b = json.loads(state.read_text(encoding="utf-8"))["b-free"]
     assert float(recorded_b["cooldown_until"]) - (ready_time + 5.0) == base
+
+
+# --- single supervisor lock and responsive stop (T-PH9-413) ------------------
+
+
+def test_second_supervisor_refuses_when_live_pid_holds_lock(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC1 & AC4: live PID in lock stops a second launch and logs/prints the PID."""
+    module = load_supervise_loop()
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    state = tmp_path / ".jobloop"
+    state.mkdir()
+    lock = state / module.LOCK_FILENAME
+    lock.write_text("42424\n", encoding="utf-8")
+    monkeypatch.setattr(module, "pid_alive", lambda pid: pid == 42424)
+    monkeypatch.setattr(
+        module, "stream", lambda argv: pytest.fail("second supervisor must not start a cycle")
+    )
+
+    code = module.main(["--phase", "p", "--cycles", "1"])
+
+    out = capsys.readouterr().out
+    assert code != 0
+    assert "42424" in out
+    assert "refused" in out.lower() or "already running" in out.lower()
+    assert lock.read_text(encoding="utf-8").strip() == "42424", (
+        "live holder's lock must stay intact"
+    )
+    beat_text = (state / "supervisor.log").read_text(encoding="utf-8")
+    assert "42424" in beat_text
+    assert "supervisor started" not in beat_text
+
+
+def test_supervisor_stop_during_long_wait_exits_within_one_step_and_records_heartbeat(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC2 & AC4: placing `.jobloop/stop` during a 1200s wait exits after ~one step, not 1200s."""
+    module = load_supervise_loop()
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    state = tmp_path / ".jobloop"
+    state.mkdir()
+    (state / "roster.json").write_text("{}", encoding="utf-8")
+    stop = state / "stop"
+
+    step = module.STOP_POLL_SECONDS
+    assert 0 < step <= 15.0
+
+    slept: list[float] = []
+
+    def fake_sleep(seconds: float) -> None:
+        slept.append(seconds)
+        if len(slept) == 2:
+            stop.write_text("stop\n", encoding="utf-8")
+
+    monkeypatch.setattr(module.time, "sleep", fake_sleep)
+    monkeypatch.setattr(module, "stream", lambda argv: (0, "-: idle - no actionable job is left\n"))
+    monkeypatch.setattr(
+        module.subprocess,
+        "run",
+        lambda *args, **kwargs: type("R", (), {"stdout": "", "stderr": "", "returncode": 0})(),
+    )
+    import jobloop.cli as cli
+
+    monkeypatch.setattr(cli, "installed_models", lambda executable=None: [])
+
+    code = module.main(["--phase", "p", "--pause", "600", "--cycles", "0"])
+
+    assert code == 0
+    assert sum(slept) == pytest.approx(2 * step)
+    assert sum(slept) < 1200.0
+    assert not (state / module.LOCK_FILENAME).exists()
+    beat_text = (state / "supervisor.log").read_text(encoding="utf-8")
+    assert ".jobloop/stop" in beat_text
+
+
+def test_supervisor_takes_over_stale_lock_cleans_up_on_all_exits_and_keeps_full_wait(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC3: stale PID is reclaimed; normal/stop/exception exits remove lock; full wait unchanged."""
+    module = load_supervise_loop()
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    state = tmp_path / ".jobloop"
+    state.mkdir()
+    (state / "roster.json").write_text("{}", encoding="utf-8")
+    lock = state / module.LOCK_FILENAME
+
+    # 1) Stale PID in lock is reclaimed, full idle_wait total stays intact, normal exit cleans lock.
+    lock.write_text("99999999\n", encoding="utf-8")
+    monkeypatch.setattr(module, "pid_alive", lambda pid: False)
+    slept: list[float] = []
+    seen_lock_during_cycle: list[str] = []
+
+    def fake_stream(argv: list[str]) -> tuple[int, str]:
+        seen_lock_during_cycle.append(lock.read_text(encoding="utf-8").strip())
+        return (0, "-: idle - no actionable job is left\n")
+
+    monkeypatch.setattr(module.time, "sleep", lambda seconds: slept.append(seconds))
+    monkeypatch.setattr(module, "stream", fake_stream)
+    monkeypatch.setattr(
+        module.subprocess,
+        "run",
+        lambda *args, **kwargs: type("R", (), {"stdout": "", "stderr": "", "returncode": 0})(),
+    )
+    import jobloop.cli as cli
+
+    monkeypatch.setattr(cli, "installed_models", lambda executable=None: [])
+
+    assert module.main(["--phase", "p", "--pause", "120", "--cycles", "1"]) == 0
+    assert seen_lock_during_cycle == [str(module.os.getpid())]
+    # idle_rounds=1 with pause=120 -> backoff(120, 1) = 240.0 total sleep preserved!
+    assert sum(slept) == pytest.approx(240.0)
+    assert all(chunk <= module.STOP_POLL_SECONDS for chunk in slept)
+    assert not lock.exists(), "normal exit must remove the lock"
+
+    # 2) Pre-existing `.jobloop/stop` exit removes the lock and logs the stop marker exit.
+    (state / "stop").write_text("", encoding="utf-8")
+    assert module.main(["--phase", "p", "--cycles", "0"]) == 0
+    assert not lock.exists(), "stop exit must remove the lock"
+    (state / "stop").unlink()
+
+    # 3) Unhandled exception during cycle removes the lock too.
+    def boom_stream(argv: list[str]) -> tuple[int, str]:
+        assert lock.is_file()
+        raise RuntimeError("boom in stream")
+
+    monkeypatch.setattr(module, "stream", boom_stream)
+    with pytest.raises(RuntimeError, match="boom in stream"):
+        module.main(["--phase", "p", "--cycles", "1"])
+    assert not lock.exists(), "exception exit must remove the lock"
+
+
+def test_pid_alive_distinguishes_live_and_exited_processes() -> None:
+    """Real OS liveness probe sees our own PID and spawned child, and false after child exits."""
+    module = load_supervise_loop()
+    assert module.pid_alive(module.os.getpid()) is True
+    assert module.pid_alive(0) is False
+    assert module.pid_alive(-5) is False
+
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"])
+    try:
+        assert module.pid_alive(child.pid) is True
+    finally:
+        child.terminate()
+        child.wait(timeout=5)
+    assert module.pid_alive(child.pid) is False
