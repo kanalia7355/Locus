@@ -14,6 +14,7 @@ actually guarantee (DOCUMENT_EXTRACTION_BOUNDARY.md §5).
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -87,6 +88,7 @@ class SandboxResult:
     guarantees: dict[str, str]
     exit_code: int | None
     error_message: str | None
+    bytes_read: int | None = None
 
 
 @dataclass
@@ -96,6 +98,7 @@ class _Outcome:
     exit_code: int | None
     stdout: str
     stderr: str
+    bytes_read: int = 0
     exceeded: bool = False
     timed_out: bool = False
     spawn_failed: bool = False
@@ -107,6 +110,19 @@ class _Outcome:
 
 
 def _terminate(process: subprocess.Popen[bytes]) -> None:
+    """Kill the child process and its entire descendant tree."""
+    if sys.platform == "win32":
+        root = os.environ.get("SystemRoot", r"C:\Windows")
+        with suppress(OSError, subprocess.SubprocessError):
+            subprocess.run(
+                [rf"{root}\System32\taskkill.exe", "/PID", str(process.pid), "/T", "/F"],
+                capture_output=True,
+                check=False,
+                timeout=10,
+            )
+    else:
+        with suppress(OSError, ProcessLookupError):
+            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
     with suppress(OSError, ValueError):
         process.kill()
 
@@ -137,30 +153,39 @@ def _run_process(
             cwd=cwd,
             env=env,
             creationflags=creationflags,
+            start_new_session=sys.platform != "win32",
         )
     except OSError:
         return _Outcome(None, "", "", spawn_failed=True)
 
     budget = [output_limit]
+    total_read = [0]
     lock = threading.Lock()
     exceeded = threading.Event()
     stdout = bytearray()
     stderr = bytearray()
+    chunk_size = max(1, min(65536, output_limit))
 
     def consume(stream: object, sink: bytearray) -> None:
         assert hasattr(stream, "read")
         try:
             while True:
-                chunk = stream.read(65536)
+                chunk = stream.read(chunk_size)
                 if not chunk:
                     return
+                should_kill = False
                 with lock:
+                    total_read[0] += len(chunk)
                     allowed = min(len(chunk), budget[0])
                     sink.extend(chunk[:allowed])
                     budget[0] -= allowed
-                if allowed < len(chunk):
-                    exceeded.set()
+                    if allowed < len(chunk) and not exceeded.is_set():
+                        exceeded.set()
+                        should_kill = True
+                if should_kill:
                     _terminate(process)
+                    return
+                if exceeded.is_set():
                     return
         except (OSError, ValueError):
             return
@@ -201,6 +226,7 @@ def _run_process(
         exit_code=process.returncode,
         stdout=stdout.decode("utf-8", errors="replace"),
         stderr=stderr.decode("utf-8", errors="replace"),
+        bytes_read=total_read[0],
         exceeded=exceeded.is_set(),
         timed_out=timed_out,
     )
@@ -216,6 +242,7 @@ def _interpret(outcome: _Outcome, sandbox: str, guarantees: dict[str, str]) -> S
             guarantees=base,
             exit_code=None,
             error_message="解析環境を起動できませんでした",
+            bytes_read=outcome.bytes_read,
         )
     if outcome.timed_out:
         return SandboxResult(
@@ -225,6 +252,7 @@ def _interpret(outcome: _Outcome, sandbox: str, guarantees: dict[str, str]) -> S
             guarantees={**base, "wall_time": "timed_out"},
             exit_code=-1,
             error_message="実時間上限超過",
+            bytes_read=outcome.bytes_read,
         )
 
     base["wall_time"] = "verified"
@@ -258,6 +286,7 @@ def _interpret(outcome: _Outcome, sandbox: str, guarantees: dict[str, str]) -> S
         guarantees=base,
         exit_code=outcome.exit_code,
         error_message="; ".join(candidates)[:200] if candidates else None,
+        bytes_read=outcome.bytes_read,
     )
 
 

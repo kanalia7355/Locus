@@ -10,6 +10,7 @@ See DOCUMENT_EXTRACTION_BOUNDARY.md §8 for the full acceptance criteria.
 
 import json
 import os
+import time
 
 import app.sandbox
 
@@ -365,3 +366,102 @@ def test_extractor_stderr_diagnostic_does_not_corrupt_content() -> None:
     data = json.loads(content)
     assert data["body"] == synthetic
     assert guarantees.get("output_bytes") == "verified"
+
+
+# ---------------------------------------------------------------------------
+# 8. 出力上限は事後ではなく実行中に効く — 親の読み取り量と子孫プロセスの殺害
+# ---------------------------------------------------------------------------
+
+
+def test_extractor_output_limit_bounds_parent_read_bytes() -> None:
+    """An extractor emitting far more than output_limit must be cut off mid-run
+    so the parent never buffers the full stream in memory (T-PH6-130 AC1).
+
+    Asserting failure alone is insufficient because post-hoc counting also fails
+    after buffering everything; this test observes the actual bytes read by the
+    parent and asserts they stay bounded near output_limit.
+    """
+    limit = 64 * 1024  # 64 KiB
+    # Emit 16 MiB (256x limit) in small chunks so post-hoc buffering would read
+    # all 16 MiB while in-flight enforcement cuts off shortly after 64 KiB.
+    flood_source = """\
+import sys
+chunk = "x" * 16384
+for _ in range(1024):
+    sys.stdout.write(chunk)
+    sys.stdout.flush()
+"""
+    result = app.sandbox._run_subscript(
+        flood_source,
+        timeout=15.0,
+        output_limit=limit,
+        content="",
+    )
+    assert result.success is False
+    assert result.content is None
+    assert result.guarantees["output_bytes"] == "truncated"
+    assert result.error_message is not None
+    assert "出力バイト数上限超過" in result.error_message
+    assert result.bytes_read is not None
+    assert result.bytes_read > limit
+    # Must stay within limit + small pipe/read granularity slack, far below 16 MiB.
+    assert result.bytes_read <= limit + 256 * 1024, (
+        f"Parent buffered {result.bytes_read} bytes for output_limit={limit}; "
+        "cutoff did not stop reading in flight"
+    )
+
+
+def test_extractor_output_limit_kills_grandchild_process_tree() -> None:
+    """When an extractor spawns a grandchild holding stdout and exceeds output_limit,
+    killing the process tree terminates the grandchild promptly without waiting for
+    wall-time timeout (T-PH6-130 ID1).
+    """
+    limit = 64 * 1024
+    tree_flood_source = """\
+import subprocess, sys
+# Grandchild inherits stdout/stderr and sleeps long after the parent floods stdout.
+subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+chunk = "y" * 16384
+for _ in range(256):
+    sys.stdout.write(chunk)
+    sys.stdout.flush()
+"""
+    started = time.monotonic()
+    result = app.sandbox._run_subscript(
+        tree_flood_source,
+        timeout=20.0,
+        output_limit=limit,
+        content="",
+    )
+    elapsed = time.monotonic() - started
+    assert result.success is False
+    assert result.content is None
+    assert result.guarantees["output_bytes"] == "truncated"
+    # If only the direct child was killed, the surviving grandchild would hold the
+    # stdout pipe open and block reader.join / drain. Tree kill finishes well before timeout.
+    assert elapsed < 4.5, f"Process tree was not killed promptly (elapsed={elapsed:.2f}s)"
+
+
+def test_extractor_stderr_flood_also_bounded_in_flight() -> None:
+    """Unbounded stderr shares the output_limit budget with stdout and is cut off
+    in flight with bounded parent reads.
+    """
+    limit = 64 * 1024
+    stderr_flood_source = """\
+import sys
+chunk = "e" * 16384
+for _ in range(1024):
+    sys.stderr.write(chunk)
+    sys.stderr.flush()
+"""
+    result = app.sandbox._run_subscript(
+        stderr_flood_source,
+        timeout=15.0,
+        output_limit=limit,
+        content="",
+    )
+    assert result.success is False
+    assert result.content is None
+    assert result.guarantees["output_bytes"] == "truncated"
+    assert result.bytes_read is not None
+    assert limit < result.bytes_read <= limit + 256 * 1024
