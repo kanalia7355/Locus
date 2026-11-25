@@ -94,7 +94,29 @@ So a shift that sets the marker **owns restarting the supervisor**:
 
 and the proof is the one in **Close the shift** — a worker process created *after*
 the restart. `tail .jobloop/supervisor.log` tells you which of the two states you
-are in; "I removed the marker" tells you nothing. `orchestrator-busy` suspends the
+are in; "I removed the marker" tells you nothing.
+
+**Before you restart, check that one is not already running.** The same race runs
+the other way: if you clear the marker *inside* the idle wait, the supervisor
+never sees it and keeps going — and then your restart gives you **two
+supervisors walking the same phases on the same checkout**. On 2026-11-26 I set
+the marker at 02:29, cleared it at 02:42 and started a supervisor, while the one
+from 01:25 was still mid-wait and had never read the marker. Both ran for 34
+minutes; I found it only because the log showed `cycle 8` and `cycle 4` minutes
+apart — two counters. It was harmless only because every model was on cooldown.
+With a model available they would have dispatched two jobs at once, raced on the
+integration branch, and collided on the e2e gate's ports (:8000 and :5174).
+
+Two checks, either one is enough:
+
+```text
+grep -c "supervisor started" .jobloop/supervisor.log   # vs "supervisor stopped"
+Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" |
+  Where-Object { $_.CommandLine -like '*supervise_loop*' }
+```
+
+A `supervisor started` with no later `supervisor stopped` means one is alive.
+Kill the older tree before starting a new one, and confirm **one** remains. `orchestrator-busy` suspends the
 containment *comparison*; it does not stop dispatch. On 2026-11-22 a shift wrote
 ten rulings while the loop kept working, and the loop re-blocked `T-PH7-211` and
 spent `T-PH6-104`'s extended attempt on top of rulings that had just landed.
