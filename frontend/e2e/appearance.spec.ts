@@ -873,6 +873,163 @@ test("the settings dialog does not scroll sideways at supported widths", async (
   }
 });
 
+// T-PH6-119: ルートの `font-size: 14px` を撤去したことを測る。
+// 測り方について: Playwright には「ブラウザ既定の文字サイズ」を文脈ごとに与える口が無い。
+// `deviceScaleFactor` は画素密度、`--force-device-scale-factor` も同じで文字サイズの設定ではなく、
+// `page.emulateMedia` にも該当する項目が無い。そこで利用者が文字サイズを 2 倍にした結果と
+// 同じ状態を、`html { font-size: 32px }` の著者規則の注入で代用して測る（注入を使うのは
+// この 2 本だけ。他の画面検査は既定の文字サイズのまま）。
+// この手段が RED になる理由: `html` の詳細度は (0,0,1) で `:root` の (0,1,0) に負けるため、
+// ルートに font-size が残っている間は注入が効かず、本文の算出文字サイズは変わらない。
+// 実測 2026-11-25: `:root { font-size: 14px }` がある間は注入しても 14px のまま（RED）。
+// 撤去後は本文 16px、注入時は 32px になる。
+test("doubling the root text size enlarges the body text", async ({ page }) => {
+  await page.setViewportSize(WIDTHS[0]);
+  await page.goto("/");
+  // 受入条件 2: `font-size` 宣言がすべて相対単位であること。grep の代わりに、実際に
+  // 読み込まれたスタイルシートの宣言を毎回ここで読む（px などの絶対単位が 1 つでも
+  // あれば落ちる）。注入より前に読むのは、注入した 32px を数えないため。
+  const fontSizeValues = await page.evaluate(() => {
+    const found: string[] = [];
+    const walk = (rules: CSSRuleList) => {
+      for (let index = 0; index < rules.length; index++) {
+        const rule = rules.item(index);
+        if (rule instanceof CSSStyleRule) {
+          const value = rule.style.getPropertyValue("font-size").trim();
+          if (value) found.push(value);
+        } else if (rule instanceof CSSGroupingRule) {
+          walk(rule.cssRules);
+        }
+      }
+    };
+    for (const sheet of document.styleSheets) walk(sheet.cssRules);
+    return found;
+  });
+  expect(
+    fontSizeValues.length,
+    "no font-size declarations were found",
+  ).toBeGreaterThan(0);
+  // 絶対単位（px など）を禁じる。`inherit` のような相対キーワードは許す
+  // （`button, input, textarea, select { font: inherit }` は CSSOM で font-size にも展開される）。
+  expect(
+    fontSizeValues.filter((value) =>
+      /(^|[\d.])(px|pt|pc|cm|mm|in|q)\b/i.test(value),
+    ),
+    "font-size declarations in absolute units",
+  ).toEqual([]);
+  const normal = await page.evaluate(() =>
+    parseFloat(getComputedStyle(document.body).fontSize),
+  );
+  await page.addStyleTag({ content: "html { font-size: 32px; }" });
+  await page.waitForTimeout(100);
+  const measured = await page.evaluate(() => ({
+    root: parseFloat(getComputedStyle(document.documentElement).fontSize),
+    body: parseFloat(getComputedStyle(document.body).fontSize),
+  }));
+  expect(
+    measured.root,
+    `the injected root size was overridden (root stayed at ${measured.root}px)`,
+  ).toBe(32);
+  expect(
+    measured.body,
+    `body text stayed at ${measured.body}px when the root text size was doubled (was ${normal}px)`,
+  ).toBeGreaterThan(normal);
+});
+
+// T-PH6-119: 文字サイズを 2 倍にした状態での強化版。文字を大きくすると入力欄や
+// 送信ボタンが画面外へ押し出されるのが典型的な崩れ方なので、既存の 3 幅それぞれで
+// 横スクロールが無いことに加えて、両方が画面内にあることを測る。
+// 2 倍の作り方は上のテストと同じ注入（同じ理由で `:root` が残っている間は RED）。
+// 横スクロールの測り方について: このアプリは `html, body { overflow-x: clip }` なので、
+// ページの `scrollWidth` は常に `clientWidth` と等しく、はみ出しを報告しない
+// （実測 2026-11-25: 360px のページに 2000px の子を置いても 360 / 360）。
+// そこで「横スクロールが無い」は、はみ出した要素の右端を直接測って確かめる。
+// 内側で実際に横スクロールしている祖先（表や図のビューポート）の中身は、
+// その容器に収まっているので対象外にする。
+// 実測 2026-11-25: 撤去後、2 倍の状態で 3 幅とも右端を越える要素は無く、入力欄と送信ボタンは
+// 完全に画面内（`toBeInViewport({ ratio: 1 })`）。
+test("a doubled text size keeps the message box and send button on screen", async ({
+  page,
+}) => {
+  await page.setViewportSize(WIDTHS[0]);
+  // このファイルのテスト利用者は 1 本につき 1 つ使い切るので、新しい添字を使う。
+  await enter(page, 16);
+  await askSomething(page);
+  await page.addStyleTag({ content: "html { font-size: 32px; }" });
+  // 2 倍の状態が実際に効いていることを先に確かめる。効いていないまま測ると、
+  // ルートの font-size が残っている間でも「崩れていない」と読めてしまう。
+  const rootSize = await page.evaluate(() =>
+    parseFloat(getComputedStyle(document.documentElement).fontSize),
+  );
+  expect(
+    rootSize,
+    `the injected 2x root text size did not take effect (root is ${rootSize}px)`,
+  ).toBe(32);
+  for (const size of [WIDTHS[0], WIDTHS[1], WIDTHS[2]]) {
+    await page.setViewportSize(size);
+    await page.waitForTimeout(250);
+    // 768px 未満ではサイドバーは画面を覆うオーバーレイになる。デスクトップで開いたまま
+    // 縮めた状態は入力できないので、利用者と同じく閉じてから測る（覆われているのは
+    // 文字サイズの崩れではなく、既存の開閉の振る舞い）。
+    const closeSidebar = page.getByRole("button", {
+      name: "サイドバーを閉じる",
+    });
+    if (size.width < 768 && (await closeSidebar.isVisible())) {
+      await closeSidebar.click();
+      await page.waitForTimeout(250);
+    }
+    const overflow = await page.evaluate(() => {
+      const root = document.scrollingElement ?? document.documentElement;
+      return root.scrollWidth - root.clientWidth;
+    });
+    expect(
+      overflow,
+      `${size.name} scrolls sideways by ${overflow}px with doubled text`,
+    ).toBeLessThanOrEqual(1);
+    // `overflow-x: clip` の下では上の値は常に 0 なので、実際に右端を越えた要素を数える
+    // （測定方法はこのテストの直前のコメントを参照）。
+    const escaping = await page.evaluate(() => {
+      const limit = document.documentElement.clientWidth + 1;
+      const scrollsSideways = (node: Element) => {
+        for (
+          let el = node.parentElement;
+          el && el !== document.body;
+          el = el.parentElement
+        ) {
+          if (el.scrollWidth - el.clientWidth > 1) return true;
+        }
+        return false;
+      };
+      return [...document.querySelectorAll<HTMLElement>("body *")]
+        .filter((node) => {
+          const box = node.getBoundingClientRect();
+          return (
+            box.width > 0 &&
+            box.height > 0 &&
+            box.right > limit &&
+            !scrollsSideways(node)
+          );
+        })
+        .slice(0, 5)
+        .map((node) =>
+          `${node.tagName.toLowerCase()}.${node.className}`.slice(0, 80),
+        );
+    });
+    expect(
+      escaping,
+      `${size.name} pushes content past the right edge with doubled text`,
+    ).toEqual([]);
+    await expect(
+      page.getByRole("textbox", { name: "メッセージ", exact: true }),
+      `${size.name}: the message box is not on screen with doubled text`,
+    ).toBeInViewport({ ratio: 1 });
+    await expect(
+      page.getByRole("button", { name: "送信", exact: true }),
+      `${size.name}: the send button is not on screen with doubled text`,
+    ).toBeInViewport({ ratio: 1 });
+  }
+});
+
 test("the sidebar account row stays on screen at every supported width", async ({
   page,
 }) => {
