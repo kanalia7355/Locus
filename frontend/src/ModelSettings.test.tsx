@@ -107,3 +107,28 @@ it("reports incomplete discovery and clears old candidates on a failed refresh",
   expect(screen.queryByText("synthetic.gguf")).not.toBeInTheDocument();
   expect(screen.queryByRole("status")).not.toBeInTheDocument();
 });
+
+it("disables unconfigured remote sources and explains why", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (path: string) => {
+      if (path.endsWith("/sources"))
+        return new Response(
+          JSON.stringify([
+            { id: "ollama", label: "Ollama 登録モデル", kind: "ollama" },
+            { id: "openai-compatible", label: "OpenAI互換API", kind: "remote" },
+          ]),
+        );
+      return new Response(JSON.stringify({ detail: "not found" }), {
+        status: 404,
+      });
+    }),
+  );
+  render(<ModelSettings />);
+  const remote = await screen.findByRole("checkbox", { name: /OpenAI互換API/ });
+  expect(remote).toBeDisabled();
+  expect(screen.getByText(/サーバ側でAPIキーが未設定/)).toBeVisible();
+  expect(
+    screen.getByRole("checkbox", { name: /Ollama 登録モデル/ }),
+  ).toBeEnabled();
+});

@@ -61,22 +61,33 @@ export function ModelSettings() {
       </p>
       <fieldset disabled={busy}>
         <legend>検出する場所</legend>
-        {sources.map((source) => (
-          <label key={source.id}>
-            <input
-              type="checkbox"
-              checked={selected.includes(source.id)}
-              onChange={() => {
-                setSelected((items) =>
-                  items.includes(source.id)
-                    ? items.filter((id) => id !== source.id)
-                    : [...items, source.id],
-                );
-              }}
-            />
-            {source.label}
-          </label>
-        ))}
+        {sources.map((source) => {
+          // ソース名はAPIの値(label / id)をそのまま使う。鍵の入力導線は
+          // T-AIC-006 確定まで本票では作らないため、リモート側は未設定扱いにする。
+          const unconfigured = source.id === "openai-compatible";
+          return (
+            <label key={source.id}>
+              <input
+                type="checkbox"
+                checked={selected.includes(source.id)}
+                disabled={busy || unconfigured}
+                onChange={() => {
+                  setSelected((items) =>
+                    items.includes(source.id)
+                      ? items.filter((id) => id !== source.id)
+                      : [...items, source.id],
+                  );
+                }}
+              />
+              {source.label}
+              {unconfigured && (
+                <span className="muted">
+                  サーバ側でAPIキーが未設定のため選択できません。
+                </span>
+              )}
+            </label>
+          );
+        })}
       </fieldset>
       <button
         disabled={busy || !selected.length}

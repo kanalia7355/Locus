@@ -5,6 +5,9 @@ interface RuntimeState {
   enabled: boolean;
   model: string | null;
   timeout_seconds: 30 | 120;
+  // T-AIC-002 の管理API拡張。存在しないときは未設定（未構成）として扱う。
+  provider?: "ollama" | "openai-compatible";
+  api_key_present?: boolean;
 }
 
 export function ModelRuntime({ candidate }: { candidate: string | null }) {
@@ -78,6 +81,17 @@ export function ModelRuntime({ candidate }: { candidate: string | null }) {
               : "現在：原文検索"
             : "現在の設定を確認できません。"}
       </p>
+      {current?.provider && (
+        <p>
+          接続先プロバイダー：
+          {current.provider === "openai-compatible"
+            ? "OpenAI互換API"
+            : "Ollama ローカル"}
+        </p>
+      )}
+      {current?.provider === "openai-compatible" && (
+        <p>APIキー：{current.api_key_present ? "設定済み" : "未設定"}</p>
+      )}
       {current && <p>待機上限：{current.timeout_seconds}秒</p>}
       <p>
         生成回答を保存します。出典の権限が失われた回答は非表示になります。設定はサーバー再起動で無効になります。
@@ -89,7 +103,9 @@ export function ModelRuntime({ candidate }: { candidate: string | null }) {
           disabled={busy || loading}
           onChange={(event) => setConfirmed(event.target.checked)}
         />
-        Ollamaのクラウド機能を無効化し、ローカル専用であることを確認しました
+        {current?.provider === "openai-compatible"
+          ? "外部APIへデータを送信することを確認しました"
+          : "Ollamaのクラウド機能を無効化し、ローカル専用であることを確認しました"}
       </label>
       <label>
         モデル応答の待機時間
