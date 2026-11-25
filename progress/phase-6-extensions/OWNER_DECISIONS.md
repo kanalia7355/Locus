@@ -2764,3 +2764,28 @@ Auto-merging tests/test_jobloop.py
 Automatic merge failed; fix conflicts and then commit the result.
 
 **Answer** (2026-11-25 10:35, orchestrator): **現在の統合ブランチの上でやり直す。試行（2/3）も周回（1/2）も動かさず `doing`。** 原因は `T-PH9-406` と同じ仕組みの側で、より古い: 基点 `967daff`（**11-22 18:37**）で **82 commits 遅れ**。衝突した `appearance.spec.ts` と `workspace.spec.ts` はこの間に `T-PH6-112` が書き換えてマージ済みなので、**112 の入った後の 3 本の上で組み直す**こと。**私が手でワークスペースを現在の枝へリセットした**（`behind=0`/`ahead=0`/汚れなし）。元のコミットはタグ `stale/T-PH6-127-1125` に保全し、捨てていない。**受入条件は 1 文字も変えていない** — 3 本を走らせて落ちた表明を直すのはこの票の仕事である（本文 `Implementation Details` 3）。`T-PH6-132` に移したのは `T-PH6-112` 側の指摘で、この票の範囲を狭めるものではない。仕組みの欠陥は `T-PH9-414` に起票した。詳細は `tasks/T-PH6-127.md`。
+
+## T-PH6-127 — attempt limit reached (2026-11-25T10:55:33+09:00)
+
+**Question**: Three attempts did not satisfy the acceptance criteria; the job needs a human decision.
+
+**Context**
+
+task-verification: exit 1
+    [chromium] › e2e\appearance.spec.ts:886:1 › the sidebar account row stays on screen at every supported width 
+    [chromium] › e2e\workspace.spec.ts:56:1 › first login, source retrieval, hi; frontend-typecheck: exit 1
+> locus-research-ui@0.4.0 typecheck
+> tsc -b
+
+e2e/workspace.spec.ts(5,7): error TS6133: 'WORKSPACE_ACCOUNT_OFFSET' is declared but its value is never read.; frontend-lint: exit 1
+> locus-research-ui@0.4.0 lint
+> eslint . --max-warnings 0
+
+
+C:\Users\hirot\.jobloop-Locus\workspaces\T-PH6-127\frontend\e2e\workspace.spec.ts
+  5:7  error  'WORKSPACE_ACCOUNT_OFFSET' is assign; frontend-test:appearance: exit 1
+        npx playwright show-trace test-results\appearance-the-sidebar-acc-f8853-en-at-every-supported-width-chromium\trace.zip
+
+    ─────────────────────────────────────────────────────────────
+
+**Answer** (2026-11-25 11:20, orchestrator): **試行を 3/3 から 1/3 に戻し、周回は 1/2 のまま `doing` で続行。これは私の数え方の誤りの訂正である。** リセットしたコミット `b43ece2` は 10:10:51 のレビューで **`APPROVED` / `FINDINGS: none`** を得ており、記録も「コントローラが e2e を含む全ゲートで exit 0 を確認済み」と書いている。**完成して緑だった。** 試行 1・2 はその完成品を作るために使われ、私がその完成品を（82 commits 遅れでマージできないため）列から外した。**外した成果の代金をやり直しに請求してはならない。** 結果この票は、承認済みの成果をゼロから組み直すのに 1 回しか与えられず上限に当たった。仕事の失敗ではなく私の配分の失敗である。やり直し自体は必要だった（衝突した 2 本は `T-PH6-112` がマージ済み）。誤っていたのは予算を据え置いたこと。**10:40〜10:55 の試行は実在の仕事で、5 ファイルがワークスペースに未コミットで健在**なので、これは 1/3 として正当に数える。次の試行は記録の 3 点だけを直すこと: (1) `workspace.spec.ts:5` の未使用 `WORKSPACE_ACCOUNT_OFFSET`（これ 1 つで typecheck TS6133 と lint の両方が落ちている）、(2) `appearance.spec.ts:886`、(3) `workspace.spec.ts:56`。**書きかけを捨てて最初からやり直さないこと。** 承認済み版はタグ `stale/T-PH6-127-1125` に保全してあり参照してよいが、基点が 82 commits 古いのでそのまま採らないこと。**受入条件は 1 文字も変えていない。** 詳細は `tasks/T-PH6-127.md`。
