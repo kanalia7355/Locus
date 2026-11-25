@@ -19,3 +19,20 @@ implementation/fix): **28 passed in 19.19s**. Initial run exposed test setup iss
 ## STATUS
 
 needs-owner-decision: `python scripts/secret_scan.py` reports 2 pre-existing potential-secret findings in files outside this job's allowed_paths (`progress/phase-6-extensions/OWNER_DECISIONS.md` line 2081, `progress/phase-6-extensions/tasks/T-PH6-104.md` line 1012). I cannot modify those files under the task boundary; may I treat these pre-existing out-of-scope findings as non-blocking for T-STC-001, or should the owner/controller remediate them separately before this job can pass the gate?
+
+## T-STC-001 — review cycle limit reached (2026-11-25T12:58:51+09:00)
+
+**Question**: The reviewer still requires changes, and the review cycle budget is spent (attempts 2/3, review cycles 2/2).
+
+**Context**
+
+VERDICT
+- CHANGES_REQUIRED
+
+FINDINGS
+- Medium, `tests/test_connectors.py:208-222` — The previously reported High bug (revoking origins after an incomplete listing when `list_items` fails mid-pagination) was fixed in `backend/app/connectors.py:76-169`, but there is no regression test covering it. Concrete failure scenario: a future edit removes the `complete` guard or moves `revoke_missing_document_origins` back outside it; all 6 current connector tests still pass because none simulate a connector that syncs items `A,B`, then on a later sync returns `A` on page 1 and raises on page 2, and then asserts `B` remains unrevoked with `revoked == 0`. Smallest fix: add a fake connector test that seeds two origins, makes the next `list_items` call return the first page then raise `RuntimeError`, asserts the sync result reports `list_failed`/`failed >= 1` and `revoked == 0`, and asserts the unseen origin is still `revoked is False`.
+
+UNVERIFIED
+- I did not execute tests or gates myself; I relied on controller-reported evidence (`task-verification` exit 0, 28 passed; lint/format/secret-scan green) and read-only inspection of the diff and touched files.
+- I did not verify runtime behavior of the fixed partial-listing path end-to-end; the missing-regression-test finding is based on static inspection of `SyncEngine.sync` and the absence of a matching test case in `tests/test_connectors.py`.
+- Actual read-path refusal for revoked origins is explicitly deferred to T-STC-005 per task spec; I only verified origin state storage and the `is_document_origin_revoked` hook placement, not end-to-end refusal behavior.

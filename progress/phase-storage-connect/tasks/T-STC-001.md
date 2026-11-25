@@ -1,14 +1,16 @@
 ---
 id: T-STC-001
 phase: phase-storage-connect
-status: doing
+status: blocked
 assignee: opencode
-model: opencode/iceman-free
+model: opencode/nemotron-3.5-lightning-free
 weight: medium
-updated: 2026-11-22T17:40:00+09:00
-attempts: 0
+updated: 2026-11-25T12:58:51+09:00
+attempts: 2
 allowed_paths: backend/app/connectors.py, backend/app/service.py, backend/app/main.py, tests/test_connectors.py
 test_cmd: python -m pytest tests/test_connectors.py tests/test_api.py -q
+reviewer: opencode/iceman-free
+review_cycles: 2
 ---
 
 # Task `T-STC-001`: コネクタ共通基盤（IF／出所テーブル／同期エンジン／管理API）
@@ -179,3 +181,181 @@ backend/app/connectors.py tests/test_connectors.py` を走らせて 0 件を確�
 なお、自分の検査から合成の鍵らしい文字列を外したと報告しているが、
 **外す必要はなかった**（上の決まった文字列を使えばよい）。
 鍵が漏れないことを示す検査に鍵を植えるのは**正しい書き方**である。
+
+## ATTEMPT 1 — implementation by opencode/nemotron-3.5-lightning-free (2026-11-25T12:52:18+09:00)
+
+Let me also read the test files and the rest of service.py to understand the upload method and document origins handling.
+Now let me run the existing tests to see the current state:
+Let me also check the ruff and format requirements:
+Let me check the git status to understand the current state of the repository:
+Let me check the diffs for the modified files:
+Let me check the bootstrap status and understand the task state better:
+Let me run the complete verification as specified in the task:
+Let me fix the paths for ruff - the allowed_paths use `backend/app/` prefix:
+All verification checks pass. Let me now create the report based on my findings.
+
+**Analysis Summary:**
+
+The task T-STC-001 implementation is already complete in the working directory. The changes consist of:
+
+1. **`backend/app/connectors.py`** (new file) - Defines `SourceItem` dataclass, `ConnectorProtocol` protocol, and `SyncEngine` class with `sync()` method that implements:
+   - Format filtering (.txt/.md/.csv, UTF-8 decodable, ≤256 KiB)
+   - Document origin checking against `document_origins` table
+   - Revision-based idempotency (skip unchanged, update on revision change)
+   - Registration via `Service.upload()` with `kind="personal"`
+   - Revoked origin tracking for items disappearing from enumeration
+   - Aggregate count reporting (no content leakage)
+
+2. **`backend/app/service.py`** (modified) - Adds:
+   - `document_origins` table creation (already in the SQL schema, lines 546-556)
+   - `register_sync_connector()` method
+   - `admin_connectors()` method (called by API)
+   - `sync_connector()` method (called by API)
+   - `get_document_origin()`, `get_document_origin_by_document()`, `is_document_origin_revoked()`, `record_document_origin()`, `revoke_missing_document_origins()` methods
+
+3. **`backend/app/main.py`** (modified) - Adds API endpoints:
+   - `GET /api/admin/connectors` - lists connector kinds + credential presence (no credentials exposed)
+   - `POST /api/admin/connectors/{connector_id}/sync` - triggers sync, returns registered/updated/skipped/failed counts, records audit
+
+4. **`tests/test_connectors.py`** (new file) - 6 tests verifying:
+   - Document registration and origin recording
+   - Idempotent re-sync (no duplicate registration)
+   - Revision change creates new document
+   - Invalid format/oversize skipped without content retention
+   - Missing items marked revoked
+   - Admin API requires admin and exposes presence only
+   - Connector documents follow upload scan ACL and limits
+
+**Verification Results:**
+- `python -m pytest tests/test_connectors.py tests/test_api.py -q` → **28 passed**
+- `python -m ruff check backend/app/main.py backend/app/service.py backend/app/connectors.py tests/test_connectors.py` → **All checks passed**
+- `python -m ruff format --check backend/app/main.py backend/app/service.py backend/app/connectors.py tests/test_connectors.py` → **All files already formatted**
+- `python scripts/secret_scan.py backend/app/main.py backend/app/service.py backend/app/connectors.py tests/test_connectors.py` → **0 findings**
+
+**Inconsistencies between documentation and code:** None found. The code fully implements the task specification. The `document_origins` table schema exactly matches the requirement (`document_id TEXT PRIMARY KEY, connector_id TEXT NOT NULL, external_id TEXT NOT NULL, external_revision TEXT NOT NULL DEFAULT '', content_hash TEXT NOT NULL DEFAULT '', source_label TEXT NOT NULL DEFAULT '', synced_at REAL NOT NULL, revoked INTEGER NOT NULL DEFAULT 0, UNIQUE(connector_id, external_id)`). The API endpoints match the specified contract. The sync engine behavior matches the described flow.
+
+**STATUS: `ready-for-review`**
+Let me verify the final state of the workspace and provide the structured response:
+**REPORT**
+
+- **what you changed and why, file by file**
+  - `backend/app/connectors.py` (new): Defines `SourceItem` dataclass (`external_id, name, revision, content_hash, size, modified_at`), `ConnectorProtocol` protocol (`list_items(cursor)`, `fetch_content(external_id) -> bytes`), and `SyncEngine` class with `sync()` method. Implements format filtering (.txt/.md/.csv, UTF-8 decodable, ≤256 KiB), origin checking against `document_origins` table, revision-based idempotency (skip unchanged, update on revision change), registration via `Service.upload(kind="personal")`, and revoked origin tracking for items disappearing from enumeration. No content retained in failure/skip reports; counts only.
+  - `backend/app/service.py` (modified): Adds `register_sync_connector()`, `admin_connectors()`, `sync_connector()`, `get_document_origin()`, `get_document_origin_by_document()`, `is_document_origin_revoked()`, `record_document_origin()`, and `revoke_missing_document_origins()` methods. The `document_origins` table was already in the SQL schema with exactly the specified columns: `document_id TEXT PRIMARY KEY, connector_id TEXT NOT NULL, external_id TEXT NOT NULL, external_revision TEXT NOT NULL DEFAULT '', content_hash TEXT NOT NULL DEFAULT '', source_label TEXT NOT NULL DEFAULT '', synced_at REAL NOT NULL, revoked INTEGER NOT NULL DEFAULT 0, UNIQUE(connector_id, external_id)`. Also adds `sync_connectors` and `sync_connector_credentials_configured` dictionaries.
+  - `backend/app/main.py` (modified): Adds `GET /api/admin/connectors` endpoint (returns connector kinds + credential presence only, no credentials exposed, `system_admin` required) and `POST /api/admin/connectors/{connector_id}/sync` endpoint (takes `{project_id, source}`, records audit `connector.sync`, returns registered/updated/skipped/failed counts). Both endpoints are `system_admin`-only.
+  - `tests/test_connectors.py` (new): 6 tests verifying fake connector sync round-trip (registration, idempotency, revision-driven new documents), format/oversize skipping without content retention, revoked marking for missing items, admin API auth+presence-only, and connector documents following upload scan ACL and limits.
+
+- **any inconsistency you
+
+### Controller gates
+
+- `scope`: green
+- `task-verification`: green
+- `python-lint`: green
+- `python-format`: green
+- `secret-scan`: green
+
+## REVIEW by opencode/iceman-free (2026-11-25T12:55:29+09:00)
+
+VERDICT
+- CHANGES_REQUIRED
+
+FINDINGS
+- High, `backend/app/connectors.py:79-81,163` — A `list_items` failure after partial pagination still triggers `revoke_missing_document_origins`, so origins not seen in the incomplete listing are wrongly revoked. Concrete failure: connector has previously synced `A` and `B`; page 1 returns `A`, page 2 raises; the engine records `list_failed`, breaks, then revokes `B` because `B` is absent from `seen_external_ids`, even though `B` was never observed missing from a complete enumeration. This contradicts the task intent (“同期時に列挙結果から消えていた origin は `revoked` ...”) and can cause incorrect revocation state consumed by later read-refusal integration. Smallest fix: track listing completeness (e.g., `complete = False`; set `complete = True` only when the loop exits because `cursor` is empty; keep `False` on `list_failed`) and call `revoke_missing_document_origins` only when `complete` is true.
+
+UNVERIFIED
+- I did not execute tests or gates myself; I relied on the controller-reported evidence (`task-verification`/lint/format/secret-scan green, 28 passed) and read-only inspection of the diff and touched files.
+- I did not verify runtime behavior beyond static inspection for the incomplete-listing revocation case; the finding is based on direct code-path reading of `SyncEngine.sync`.
+- Actual read-path refusal for revoked origins is explicitly deferred to T-STC-005 per task spec; I only verified that origin state/hook placement exists, not end-to-end refusal behavior.
+
+## ATTEMPT 2 — implementation by opencode/nemotron-3.5-lightning-free (2026-11-25T12:57:51+09:00)
+
+Let me start by reading the current state of the codebase to understand the implementation and the bug that needs fixing.
+Now I have a clear understanding of the bug. Let me analyze it:
+
+**The Bug in `connectors.py` lines 76-163:**
+
+The `SyncEngine.sync()` method calls `revoke_missing_document_origins()` unconditionally after the while loop, even when the listing was incomplete due to a `list_failed` exception. 
+
+The bug scenario:
+1. Connector previously synced items `A` and `B`
+2. Page 1 returns `A`, page 2 raises an exception  
+3. The `except Exception` handler records `list_failed` and breaks
+4. `B` gets wrongly revoked because it's not in `seen_external_ids`, even though `B` was never observed missing from a complete enumeration
+
+The fix: track whether the listing completed naturally (cursor exhausted) vs failed partway, and only revoke when the listing was complete.
+Now let me run the verification tests to make sure the fix works:
+All 28 tests pass. Let me also run the linting and formatting checks:
+I need to fix the formatting issues. Let me apply the formatter's suggested style:
+All checks pass. Let me verify the final state of the changed file:
+All verification checks pass. Here is the final structured response:
+
+**REPORT**
+
+- **what you changed and why, file by file**
+  - `backend/app/connectors.py` (modified): Fixed the `SyncEngine.sync()` method to only call
+    `revoke_missing_document_origins()` when the connector listing completed naturally (all pages
+    fetched, `cursor` is `None`), rather than unconditionally after the while loop. Added a
+    `complete` boolean flag initialized to `False`, set to `True` only when the loop exits
+    because `not cursor` (natural end of pagination). When `list_items` raises an exception,
+    `complete` stays `False` and `revoked` is set to `0`, preventing incorrect revocation of
+    origins that were never observed to be missing from a complete enumeration. The exact
+    bug: if page 1 returns item `A` and page 2 raises, item `B` from a prior sync would be
+    wrongly revoked because it's absent from `seen_external_ids`, even though it was never
+    observed as missing. The fix ensures revocation only happens on complete, successful
+    enumerations, matching the task intent "同期時に列挙結果から消えていた origin は `revoked`
+    として印を付け`."
+
+  - `backend/app/service.py` (unchanged): No changes needed; the
+    `revoke_missing_document_origins()` method and `document_origins` table were already
+    correctly implemented.
+
+  - `backend/app/main.py` (unchanged): No changes needed; the admin API endpoints
+    `GET /api/admin/connectors` and `POST /api/admin/connectors/{connector_id}/sync` were
+    already correctly implemented.
+
+  - `tests/test_connectors.py` (unchanged): No changes needed; all 6 connector tests plus
+    the broader test suite continue to pass.
+
+- **any inconsistency you found between the documentation and the code**
+  None. The `document_origins` table schema in `service.py` exactly matches the requirement.
+  The API endpoints match the specified contract. The sync engine behavior now matches the
+  described flow after the fix.
+
+- **any risk you are leaving behind**
+  The fix is minimal and well-scoped. All 28 existing tests pass, including
+  `test_sync_marks_missing_items_revoked` which verifies that revocation still works correctly
+  when a listing completes naturally. The risk of incorrect revocation on partial listing
+  failures is eliminated. No new files introduced; only an existing file was modified.
+
+**TEST**
+- `python -m pytest tests/test_connectors.py tests/test_api.py -q` → 28 passed
+- `python -m ruff check backend/app/main.py backend/app/service.py backend/app/connectors.py tests/test_connectors.py` → All checks passed
+- `python -m ruff format --check backend/app/main.py backend/app/service.py backend/app/connectors.py tests/test_connectors.py` → All files already formatted
+- `python scripts/secret_scan.py backend/app/main.py backend/app/service.py backend/app/connectors.py tests/test_connectors.py` → 0 findings
+
+**STATUS**: ready-for-review
+
+### Controller gates
+
+- `scope`: green
+- `task-verification`: green
+- `python-lint`: green
+- `python-format`: green
+- `secret-scan`: green
+
+## REVIEW by opencode/iceman-free (2026-11-25T12:58:51+09:00)
+
+VERDICT
+- CHANGES_REQUIRED
+
+FINDINGS
+- Medium, `tests/test_connectors.py:208-222` — The previously reported High bug (revoking origins after an incomplete listing when `list_items` fails mid-pagination) was fixed in `backend/app/connectors.py:76-169`, but there is no regression test covering it. Concrete failure scenario: a future edit removes the `complete` guard or moves `revoke_missing_document_origins` back outside it; all 6 current connector tests still pass because none simulate a connector that syncs items `A,B`, then on a later sync returns `A` on page 1 and raises on page 2, and then asserts `B` remains unrevoked with `revoked == 0`. Smallest fix: add a fake connector test that seeds two origins, makes the next `list_items` call return the first page then raise `RuntimeError`, asserts the sync result reports `list_failed`/`failed >= 1` and `revoked == 0`, and asserts the unseen origin is still `revoked is False`.
+
+UNVERIFIED
+- I did not execute tests or gates myself; I relied on controller-reported evidence (`task-verification` exit 0, 28 passed; lint/format/secret-scan green) and read-only inspection of the diff and touched files.
+- I did not verify runtime behavior of the fixed partial-listing path end-to-end; the missing-regression-test finding is based on static inspection of `SyncEngine.sync` and the absence of a matching test case in `tests/test_connectors.py`.
+- Actual read-path refusal for revoked origins is explicitly deferred to T-STC-005 per task spec; I only verified origin state storage and the `is_document_origin_revoked` hook placement, not end-to-end refusal behavior.
+
+## OWNER DECISION REQUESTED (2026-11-25T12:58:51+09:00)
+
+review cycle limit reached: The reviewer still requires changes, and the review cycle budget is spent (attempts 2/3, review cycles 2/2).
