@@ -741,7 +741,11 @@ class Controller:
             # put on cooldown either way, and the job keeps its attempt.
             self.roster.mark_exhausted(model)
             return Outcome(task.id, "rotated", f"{model} {result.why_rotate}", model=model)
-        task = self.set_fields(task, status="doing", assignee="opencode", model=model)
+        # The assignee names the CLI that actually ran the session, not a fixed
+        # string: with the second tier in place (owner E2, 2026-11-25) a job can be
+        # run by `agy`, and a record that says `opencode` for it sends the next
+        # reader to the wrong log and the wrong process list.
+        task = self.set_fields(task, status="doing", assignee=model.split("/", 1)[0], model=model)
         if result.ending is worker.Ending.UNAVAILABLE:
             # The CLI could not run this model at all — a crash, an auth
             # problem, a provider it cannot route to. The job was never

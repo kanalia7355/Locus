@@ -174,10 +174,17 @@ class Roster:
         to the implementing family is the thing the assignment exists to prevent.
         """
         wanted = role if role in AGY_ROLES else "implement"
-        for name in self.available(exclude=exclude):
+        candidates = self.available(exclude=exclude)
+        for name in candidates:
             if not name.startswith(AGY_PREFIX) or agy_role(name) == wanted:
                 return name
-        return None
+        # The assignment is a preference, not a prohibition. The owner assigned
+        # roles so that work gets done, so a spent Hydrogen must not make a light
+        # job report `no-model` while Carbon sits there available — that would
+        # stall the queue in the name of a preference. Review keeps its real
+        # guarantee either way: `exclude` already holds the implementer out, which
+        # is the constraint that matters (CONSTRAINTS §5-5).
+        return candidates[0] if candidates else None
 
     def pick_reviewer(self, implementer: str) -> str | None:
         """A reviewer must not be the model that wrote the code (CONSTRAINTS §5-5)."""

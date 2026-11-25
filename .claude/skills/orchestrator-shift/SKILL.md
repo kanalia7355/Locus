@@ -274,6 +274,22 @@ So: after repairing the harness, **run the thing the repair was about** and read
 the output. A green suite says the code does what the test says; it does not say
 the owner can now see the loop working.
 
+## Read the clock before you stamp a record
+
+Three times on 2026-11-25 a ruling carried a time that ran ahead of the work it
+described: the 10:35 and 10:42 rulings were stamped after 10:29 work, the
+`T-AIC-002`/`T-PH6-127`/`T-PH6-121` rulings said 18:50, 19:05 and 19:20 when all
+three landed in one commit at 18:34, and that evening's decision record said
+21:10 for a 20:28 commit. Each one cost a correction commit, and the third was
+written after disclosing the second.
+
+The cause is not arithmetic. It is writing a time without looking at one: a long
+shift feels longer than it is, so an estimate drifts forward. **Run `date` before
+you write a timestamp into a ticket, a record or a report**, and when a ruling
+lands in a commit, the commit's own time is the authority — `git log --date=format:"%H:%M"`
+settles any disagreement. A record whose times are invented cannot be used to
+reconstruct what happened in what order, which is the one thing the record is for.
+
 ## Your own writing goes through the gates too
 
 A ruling is a file in the repository, and the gates apply to it.

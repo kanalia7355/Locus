@@ -2291,3 +2291,46 @@ def test_agy_model_discovery_prefixes_ids_and_skips_the_progress_line() -> None:
     assert found == ["agy/gemini-4-carbon-medium", "agy/gemini-4-argon-low"], (
         "every other part of the loop identifies a model by provider/id"
     )
+
+
+def test_the_record_names_the_cli_that_actually_ran_the_session(tmp_path: Path) -> None:
+    # The assignee was the fixed string `opencode`. With the second tier in place
+    # (owner E2, 2026-11-25) a job can be run by `agy`, and `T-PH9-406` was in fact
+    # dispatched to it at 20:34 that evening. A record that still said `opencode`
+    # would send the next reader to the wrong log and the wrong process list.
+    phase_with_task(tmp_path)
+    controller = controller_for(tmp_path, ["agy/gemini-4-carbon-low"])
+    controller.workspace = lambda task: tmp_path  # type: ignore[assignment]
+    controller.dispatch = lambda model, prompt, **_: worker.Result(  # type: ignore[assignment]
+        worker.Ending.UNAVAILABLE, "", model, ["agy executable not found"]
+    )
+    controller.run_job(controller.select())
+    task = tasks.load_phase(controller.settings.phase_directory).tasks[0]
+    assert task.fields["model"] == "agy/gemini-4-carbon-low"
+    assert task.fields["assignee"] == "agy", "the assignee is the provider, not a fixed string"
+
+
+def test_a_role_is_a_preference_so_a_spent_family_never_stalls_the_queue(tmp_path: Path) -> None:
+    # Found by the test above, not by reading: asking for `light` when only the
+    # Carbon family is available returned None, and the controller reported
+    # `no-model` with a usable model sitting right there. The owner assigned roles
+    # so that work gets done; a preference that stops work is not what was asked.
+    roster = Roster(
+        models=["agy/gemini-4-carbon-low"],
+        state_file=tmp_path / "roster.json",
+        now=1000.0,
+    )
+    assert roster.pick(role="light") == "agy/gemini-4-carbon-low"
+    assert roster.pick(role="review") == "agy/gemini-4-carbon-low"
+    # The guarantee that does hold absolutely is that a reviewer is never the
+    # implementer — that one comes from `exclude`, not from the role.
+    assert roster.pick_reviewer("agy/gemini-4-carbon-low") is None
+
+    both = Roster(
+        models=["agy/gemini-4-carbon-low", "agy/gemini-4-hydrogen-low"],
+        state_file=tmp_path / "both.json",
+        now=1000.0,
+    )
+    assert both.pick(role="light") == "agy/gemini-4-hydrogen-low", (
+        "with the assigned family available, the assignment is what decides"
+    )
