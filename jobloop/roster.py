@@ -12,6 +12,8 @@ identifiers the installed CLI actually reports.
 from __future__ import annotations
 
 import json
+import math
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -128,26 +130,40 @@ class Roster:
             return {}
         try:
             loaded = json.loads(self.state_file.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+        except Exception as exc:
+            # An unreadable roster must not kill the whole loop; record and treat as empty.
+            print(f"roster unreadable: {self.state_file}: {exc}", file=sys.stderr)
             return {}
         return loaded if isinstance(loaded, dict) else {}
+
+    def _entry_for_write(self, state: dict[str, Any], model: str) -> dict[str, float]:
+        existing = state.get(model)
+        if isinstance(existing, dict):
+            return existing
+        fresh: dict[str, float] = {}
+        state[model] = fresh
+        return fresh
 
     def available(self, *, exclude: tuple[str, ...] = ()) -> list[str]:
         spent = self._state()
         changed = False
         for name in self.models:
             entry = spent.get(name, {})
-            dispatches = int(entry.get("dispatches", 0))
-            stops = int(entry.get("containment_stops", 0))
+            if not isinstance(entry, dict):
+                continue
+            dispatches = _finite_int(entry.get("dispatches", 0))
+            stops = _finite_int(entry.get("containment_stops", 0))
+            until = _finite_float(entry.get("cooldown_until", 0))
+            if dispatches is None or stops is None or until is None:
+                continue
             if (
                 dispatches >= CONTAINMENT_MIN_DISPATCHES
                 and stops >= CONTAINMENT_RATE * dispatches
-                and float(entry.get("cooldown_until", 0)) <= self.now
+                and until <= self.now
                 and not entry.get("containment_rested")
             ):
-                entry = spent.setdefault(name, {})
                 entry["cooldown_until"] = self.now + COOLDOWN_SECONDS
-                entry["observations"] = float(entry.get("observations", 0)) + 1
+                entry["observations"] = (_finite_float(entry.get("observations", 0)) or 0.0) + 1
                 entry["containment_rested"] = 1.0
                 entry["containment_rested_dispatches"] = float(dispatches)
                 entry["containment_rested_stops"] = float(stops)
@@ -160,8 +176,13 @@ class Roster:
             if name not in exclude and not self._cooled_down(spent.get(name, {}))
         ]
 
-    def _cooled_down(self, entry: dict[str, float]) -> bool:
-        return float(entry.get("cooldown_until", 0)) > self.now
+    def _cooled_down(self, entry: object) -> bool:
+        if not isinstance(entry, dict):
+            return True
+        until = _finite_float(entry.get("cooldown_until", 0))
+        if until is None:
+            return True
+        return until > self.now
 
     def pick(self, *, exclude: tuple[str, ...] = (), role: str = "implement") -> str | None:
         """The best eligible model that is not excluded and not on cooldown.
@@ -192,9 +213,9 @@ class Roster:
 
     def mark_exhausted(self, model: str, *, seconds: float = COOLDOWN_SECONDS) -> None:
         state = self._state()
-        entry = state.setdefault(model, {})
+        entry = self._entry_for_write(state, model)
         entry["cooldown_until"] = self.now + seconds
-        entry["observations"] = float(entry.get("observations", 0)) + 1
+        entry["observations"] = (_finite_float(entry.get("observations", 0)) or 0.0) + 1
         self._save(state)
 
     def mark_unavailable(self, model: str, *, base_seconds: float) -> float:
@@ -216,18 +237,18 @@ class Roster:
         Returns the seconds it was rested for, so the caller can record it.
         """
         state = self._state()
-        entry = state.setdefault(model, {})
+        entry = self._entry_for_write(state, model)
         # Counted separately from `observations`, which keeps its existing
         # meaning: every rest, exhaustion and unavailability alike, so old
         # records stay readable as what they are.
-        streak = float(entry.get("unavailable_streak", 0)) + 1
+        streak = (_finite_float(entry.get("unavailable_streak", 0)) or 0.0) + 1
         entry["unavailable_streak"] = streak
         # Clamped: the streak is unbounded, since a dead provider is picked
         # again every six hours, and `2.0 ** 1460` would raise rather than rest.
         steps = min(streak - 1, 16)
-        seconds = min(base_seconds * 2.0**steps, COOLDOWN_SECONDS)
+        seconds = float(min(base_seconds * (2.0**steps), COOLDOWN_SECONDS))
         entry["cooldown_until"] = self.now + seconds
-        entry["observations"] = float(entry.get("observations", 0)) + 1
+        entry["observations"] = (_finite_float(entry.get("observations", 0)) or 0.0) + 1
         self._save(state)
         return seconds
 
@@ -236,14 +257,19 @@ class Roster:
         for containment rate, and mixing it with rest counts would make the rate
         meaningless."""
         state = self._state()
-        entry = state.setdefault(model, {})
-        entry["dispatches"] = float(entry.get("dispatches", 0)) + 1
+        entry = self._entry_for_write(state, model)
+        entry["dispatches"] = (_finite_float(entry.get("dispatches", 0)) or 0.0) + 1
         self._save(state)
 
     def containment_stats(self, model: str) -> tuple[int, int]:
         """Return (dispatches, containment_stops) for a model."""
         entry = self._state().get(model, {})
-        return int(entry.get("dispatches", 0)), int(entry.get("containment_stops", 0))
+        if not isinstance(entry, dict):
+            return 0, 0
+        return (
+            _finite_int(entry.get("dispatches", 0)) or 0,
+            _finite_int(entry.get("containment_stops", 0)) or 0,
+        )
 
     def mark_containment_stop(self, model: str, *, orchestrator_busy: bool) -> dict[str, object]:
         """Record a containment stop and rest the model when its rate crosses the
@@ -256,9 +282,9 @@ class Roster:
         down through the same COOLDOWN_SECONDS mechanism as usage exhaustion.
         """
         state = self._state()
-        entry = state.setdefault(model, {})
-        dispatches = int(entry.get("dispatches", 0))
-        stops = int(entry.get("containment_stops", 0))
+        entry = self._entry_for_write(state, model)
+        dispatches = _finite_int(entry.get("dispatches", 0)) or 0
+        stops = _finite_int(entry.get("containment_stops", 0)) or 0
         counted = not orchestrator_busy
         if counted:
             stops += 1
@@ -272,12 +298,11 @@ class Roster:
         ):
             entry["cooldown_until"] = self.now + COOLDOWN_SECONDS
             if not already_rested:
-                entry["observations"] = float(entry.get("observations", 0)) + 1
+                entry["observations"] = (_finite_float(entry.get("observations", 0)) or 0.0) + 1
             entry["containment_rested"] = 1.0
             entry["containment_rested_dispatches"] = float(dispatches)
             entry["containment_rested_stops"] = float(stops)
             rested = True
-        self._save(state)
         self._save(state)
         report = {
             "model": model,
@@ -307,7 +332,7 @@ class Roster:
         """
         state = self._state()
         entry = state.get(model)
-        if not entry or not entry.get("unavailable_streak"):
+        if not isinstance(entry, dict) or not entry.get("unavailable_streak"):
             return
         entry["unavailable_streak"] = 0
         self._save(state)
@@ -320,12 +345,27 @@ class Roster:
         self._update_containment_report(state)
 
 
+def _finite_float(value: object) -> float | None:
+    try:
+        parsed = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return parsed if math.isfinite(parsed) else None
+
+
+def _finite_int(value: object) -> int | None:
+    parsed = _finite_float(value)
+    return int(parsed) if parsed is not None else None
+
+
 def _containment_summary_from_state(state: dict[str, dict[str, float]]) -> str:
     lines: list[str] = []
     for model in sorted(state):
         entry = state.get(model, {})
-        dispatches = int(entry.get("dispatches", 0))
-        stops = int(entry.get("containment_stops", 0))
+        if not isinstance(entry, dict):
+            continue
+        dispatches = _finite_int(entry.get("dispatches", 0)) or 0
+        stops = _finite_int(entry.get("containment_stops", 0)) or 0
         rested = bool(entry.get("containment_rested"))
         if dispatches == 0 and stops == 0 and not rested:
             continue
@@ -348,7 +388,8 @@ def _containment_report_from_disk() -> str:
             continue
         try:
             loaded = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+        except Exception as exc:
+            print(f"roster unreadable: {path}: {exc}", file=sys.stderr)
             continue
         if isinstance(loaded, dict):
             return _containment_summary_from_state(loaded)
@@ -371,13 +412,13 @@ def _patch_diagnose_report() -> None:
         def survey(progress: Path, phases: list[str]) -> list[Any]:
             global _LAST_PROGRESS_PATH
             _LAST_PROGRESS_PATH = Path(progress)
-            return original_survey(progress, phases)
+            return list(original_survey(progress, phases))
 
         survey._containment_patched = True  # type: ignore[attr-defined]
         diagnose.survey = survey
 
     def report(findings: list[Any]) -> str:
-        base = original_report(findings)
+        base = str(original_report(findings))
         extra = containment_report()
         if not extra:
             extra = _containment_report_from_disk()

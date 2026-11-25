@@ -2300,6 +2300,231 @@ def test_idle_wait_ignores_corrupted_cooldown_entries(tmp_path: Path) -> None:
     )
 
 
+def test_idle_wait_skips_nonfinite_cooldown_and_uses_nearest_finite(tmp_path: Path) -> None:
+    """AC1/AC3: NaN or Infinity cooldown must not hide a real finite cooldown."""
+    module = load_supervise_loop()
+    now = 1_000_000.0
+    pause, idle_rounds = 120.0, 10
+    expected_backoff = module.backoff(pause, idle_rounds)
+
+    broken_first = tmp_path / "nan-then-finite.json"
+    broken_first.write_text(
+        json.dumps(
+            {
+                "opencode/a-free": {"cooldown_until": float("nan")},
+                "opencode/b-free": {"cooldown_until": now + 180},
+            }
+        ),
+        encoding="utf-8",
+    )
+    waiting = module.idle_wait(
+        pause,
+        idle_rounds,
+        state_file=broken_first,
+        models=["opencode/a-free", "opencode/b-free"],
+        now=now,
+    )
+    assert waiting == 180.0 + module.IDLE_COOLDOWN_MARGIN
+
+    infinities = tmp_path / "inf-then-finite.json"
+    infinities.write_text(
+        json.dumps(
+            {
+                "opencode/a-free": {"cooldown_until": float("inf")},
+                "opencode/b-free": {"cooldown_until": float("-inf")},
+                "opencode/c-free": {"cooldown_until": now + 180},
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert (
+        module.idle_wait(
+            pause,
+            idle_rounds,
+            state_file=infinities,
+            models=["opencode/a-free", "opencode/b-free", "opencode/c-free"],
+            now=now,
+        )
+        == 180.0 + module.IDLE_COOLDOWN_MARGIN
+    )
+
+    # AC3 (both directions on normal rosters): near cooldown caps wait, far cooldown keeps backoff.
+    normal_near = tmp_path / "normal-near.json"
+    normal_near.write_text(
+        json.dumps({"opencode/a-free": {"cooldown_until": now + 180}}),
+        encoding="utf-8",
+    )
+    assert (
+        module.idle_wait(
+            pause, idle_rounds, state_file=normal_near, models=["opencode/a-free"], now=now
+        )
+        == 180.0 + module.IDLE_COOLDOWN_MARGIN
+    )
+    normal_far = tmp_path / "normal-far.json"
+    normal_far.write_text(
+        json.dumps({"opencode/a-free": {"cooldown_until": now + 3600}}),
+        encoding="utf-8",
+    )
+    assert (
+        module.idle_wait(
+            pause, idle_rounds, state_file=normal_far, models=["opencode/a-free"], now=now
+        )
+        == expected_backoff
+    )
+
+
+def test_unreadable_roster_does_not_crash_and_records_fact(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC2/AC4: undecodable roster is treated as empty and recorded in stderr and heartbeat."""
+    module = load_supervise_loop()
+    now = 1_000_000.0
+    pause, idle_rounds = 120.0, 10
+    expected = module.backoff(pause, idle_rounds)
+
+    roster_file = tmp_path / "roster.json"
+    roster_file.write_bytes(b"\xff\xfe\x00not-utf8")
+
+    roster = Roster(models=["opencode/a-free"], state_file=roster_file, now=now)
+    assert roster._state() == {}
+    err = capsys.readouterr().err
+    assert "roster unreadable" in err.lower()
+    assert str(roster_file) in err or roster_file.name in err
+
+    capsys.readouterr()
+    assert (
+        module.idle_wait(
+            pause, idle_rounds, state_file=roster_file, models=["opencode/a-free"], now=now
+        )
+        == expected
+    )
+    err = capsys.readouterr().err
+    assert "roster unreadable" in err.lower()
+
+    # Also verify supervisor's idle cycle records the unreadable roster fact into heartbeat.
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    state_dir = tmp_path / ".jobloop"
+    state_dir.mkdir()
+    (state_dir / "roster.json").write_bytes(b"\xff\xfe\x00not-utf8")
+    waits: list[float] = []
+    monkeypatch.setattr(module.time, "sleep", lambda seconds: waits.append(seconds))
+    monkeypatch.setattr(module, "stream", lambda argv: (0, "-: idle - no actionable job is left\n"))
+    monkeypatch.setattr(
+        module.subprocess,
+        "run",
+        lambda *args, **kwargs: type("R", (), {"stdout": "", "stderr": "", "returncode": 0})(),
+    )
+    import jobloop.cli as cli
+
+    monkeypatch.setattr(cli, "installed_models", lambda executable=None: ["opencode/a-free"])
+    monkeypatch.setattr(cli, "agy_installed_models", lambda executable=None: [])
+    module.main(["--phase", "p", "--pause", "120", "--cycles", "1"])
+    assert waits == [240.0]
+    beat_text = (state_dir / "supervisor.log").read_text(encoding="utf-8")
+    assert "roster unreadable" in beat_text.lower()
+
+
+def test_roster_available_skips_non_dict_and_unparseable_entries(tmp_path: Path) -> None:
+    """Roster.available() must skip non-dict entries and non-numeric cooldown_until values."""
+    state_file = tmp_path / "roster.json"
+    state_file.write_text(
+        json.dumps(
+            {
+                "a-free": 42,
+                "b-free": {"cooldown_until": "soon"},
+                "c-free": {
+                    "dispatches": "bad",
+                    "containment_stops": "bad",
+                    "cooldown_until": 500.0,
+                },
+                "d-free": {"cooldown_until": 500.0},
+            }
+        ),
+        encoding="utf-8",
+    )
+    roster = Roster(
+        models=["a-free", "b-free", "c-free", "d-free", "e-free"],
+        state_file=state_file,
+        now=1000.0,
+    )
+    available = roster.available()
+    assert "a-free" not in available, "non-dict entry must be skipped"
+    assert "b-free" not in available, "string cooldown_until must be skipped"
+    assert "c-free" in available, "bad containment counters must not crash available()"
+    assert "d-free" in available, "expired finite cooldown must remain available"
+    assert "e-free" in available, "unrecorded model must remain available"
+
+
+def test_roster_available_skips_nonfinite_cooldown_including_neg_inf(tmp_path: Path) -> None:
+    """Roster.available() must skip NaN, +inf, and -inf cooldown_until entries.
+
+    `-inf` is the observable check for `math.isfinite`: without `isfinite`,
+    `-inf > now` is False (or `-inf <= now` is True), which would falsely treat
+    `-inf` as expired and available.
+    """
+    state_file = tmp_path / "roster.json"
+    state_file.write_text(
+        json.dumps(
+            {
+                "nan-free": {"cooldown_until": float("nan")},
+                "posinf-free": {"cooldown_until": float("inf")},
+                "neginf-free": {"cooldown_until": float("-inf")},
+                "ok-free": {"cooldown_until": 1500.0},
+            }
+        ),
+        encoding="utf-8",
+    )
+    roster = Roster(
+        models=["nan-free", "posinf-free", "neginf-free", "ok-free"],
+        state_file=state_file,
+        now=2000.0,
+    )
+    available = roster.available()
+    assert available == ["ok-free"]
+
+
+def test_roster_pick_and_mutations_with_broken_entries_do_not_crash(tmp_path: Path) -> None:
+    """Roster.pick() (including agy second-tier roles) and writers survive broken entries."""
+    state_file = tmp_path / "roster.json"
+    state_file.write_text(
+        json.dumps(
+            {
+                "opencode/a-free": 42,
+                "opencode/b-free": {"cooldown_until": "soon"},
+                "agy/gemini-4-carbon-low": {"cooldown_until": float("-inf")},
+                "agy/gemini-4-argon-low": {"cooldown_until": 1500.0},
+            }
+        ),
+        encoding="utf-8",
+    )
+    models = eligible(
+        [
+            "opencode/a-free",
+            "opencode/b-free",
+            "agy/gemini-4-carbon-low",
+            "agy/gemini-4-argon-low",
+        ]
+    )
+    roster = Roster(models=models, state_file=state_file, now=2000.0)
+    assert roster.pick(role="review") == "agy/gemini-4-argon-low"
+    assert roster.pick(role="implement") == "agy/gemini-4-argon-low"
+
+    # Mutating methods and stats also must not crash on broken existing entries.
+    assert roster.containment_stats("opencode/a-free") == (0, 0)
+    assert roster.containment_summary() == ""
+    roster.mark_responded("opencode/a-free")
+    roster.mark_dispatched("opencode/a-free")
+    assert roster.containment_stats("opencode/a-free") == (1, 0)
+
+    all_broken = tmp_path / "all-broken.json"
+    all_broken.write_text(
+        json.dumps({"a-free": 42, "b-free": {"cooldown_until": "soon"}}),
+        encoding="utf-8",
+    )
+    empty_pick = Roster(models=["a-free", "b-free"], state_file=all_broken, now=1000.0)
+    assert empty_pick.pick() is None
+
+
 def test_idle_rounds_reset_after_work(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """AC4: a cycle that attempted work resets idle_rounds to 0."""
     module = load_supervise_loop()
