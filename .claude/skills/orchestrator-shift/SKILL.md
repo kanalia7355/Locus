@@ -416,8 +416,8 @@ A ruling is a file in the repository, and the gates apply to it.
    later. A process that exists tells you a dispatch was attempted, nothing more.
 
    **And a second-tier worker is not an `opencode.exe` at all.** An `agy/*`
-   dispatch runs `agy.EXE` (`...\AppData\Localgyingy.EXE --model
-   gemini-4-carbon-low --input-format stream-json ...`), and `shift_check.py`
+   dispatch runs `agy.EXE`, the agy CLI under the user's local AppData, with
+   `--model gemini-4-carbon-low --input-format stream-json ...`. `shift_check.py`
    queries only `python.exe` and `opencode.exe` — so the orphan check and the
    "is a worker alive" line are both blind to it. On 2026-11-26 I looked for
    `opencode.exe` at 05:17, found only the owner's `serve --service`, and had to
