@@ -941,3 +941,11 @@ UNVERIFIED
 - I did not re-run pytest/ruff/secret-scan; I relied on the controller evidence reported in the job prompt.
 
 **Answer** (2026-11-25 15:30, orchestrator): **周回を 1 回戻す（2/2 → 1/2）。試行は 2/3 のまま `doing` で続行。指摘 5 件はすべてこの票の受入条件の中なので、1 件も他票へ移さない。** **1 周目の `APPROVED` が誤りだった**: 2026-11-21 の `opencode/beam-free` は `FINDINGS: none` で通したが、受入条件 1 と 2 は満たされていなかった。**この票は 2 周目まで、直すべき指摘を一度も受け取っていない**ので周回を戻す。ワーカーの失敗ではなく 1 周目のレビューの失敗である。条文と突き合わせた結果: 「読めないパス」は**条件 1** が名指し、「公開 IP」も**条件 1** が名指し、「検査関数を直接呼ぶテストも同じ組み合わせで」は**条件 2** が名指し、条件 3・6・7 は条文にそのままある。High（本番の更新要求が開発用 `ALLOWED_ORIGINS` で拒まれる）は製品の実害でこの票の守備範囲。**移せば受入条件を落としたことになるので移さない。** 残り 1 回は **High を最優先**（`main.py:301` の出自を本番ホストと scheme から導く。開発用は残す）、次に `deployment.py:97-100` の読取可否検査、`test_production_startup.py` の公開 IP の場合・直接呼び出しの組み合わせ・条件 3/6/7 の表明（条件 7 は番兵を仕込んで不在を表明）。受入条件は 1 文字も変えていない。詳細は `tasks/T-PH7-223.md`。
+
+## T-PH7-211 — attempt limit reached (2026-11-25T19:23:42+09:00)
+
+**Question**: Three attempts did not satisfy the acceptance criteria; the job needs a human decision.
+
+**Context**
+
+timeout: no reply within 1800s
