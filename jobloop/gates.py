@@ -132,9 +132,43 @@ def litter(names: list[str], allowed: list[str], *, contents: dict[str, str]) ->
             name == entry or name.startswith(entry.rstrip("/") + "/") for entry in normalised
         )
 
-    referenced = "\n".join(text for name, text in contents.items() if within(name))
+    referenced = "\n".join(
+        _referenced_text(name, text) for name, text in contents.items() if within(name)
+    )
     loose = [name for name in names if name not in inside and not name.startswith(PROTECTED)]
     return sorted(name for name in loose if not mentioned(name, referenced))
+
+
+_TEST_IMPORT = re.compile(r"^\s*(?:import|from)\s+.+$", re.MULTILINE)
+_TEST_FILE_CALL = re.compile(r"""\b(?:open|Path)\s*\(\s*["']([^"']+)["']""")
+
+
+def _is_test_file(name: str) -> bool:
+    """Whether `name` is a Python test file whose string literals may be test data."""
+    if not name.endswith(".py"):
+        return False
+    file_name = Path(name).name
+    return (
+        name.startswith("tests/")
+        or "/tests/" in name
+        or file_name.startswith("test_")
+        or file_name.endswith("_test.py")
+    )
+
+
+def _referenced_text(name: str, text: str) -> str:
+    """Extract text that can vouch for a loose path.
+
+    Non-test files (production code, configuration) are checked in full.
+    Python test files often contain scratch filenames as test data (e.g.
+    `tests/test_jobloop.py` listing `"test_output.txt"`), so only actual
+    usages — `import`/`from` statements and `open(...)`/`Path(...)` calls —
+    are extracted from test files.
+    """
+    if not _is_test_file(name):
+        return text
+    parts = _TEST_IMPORT.findall(text) + _TEST_FILE_CALL.findall(text)
+    return "\n".join(parts)
 
 
 # Extensions whose files are referred to without the extension, because the
