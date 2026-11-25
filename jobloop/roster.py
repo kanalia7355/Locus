@@ -59,6 +59,11 @@ PREFERRED = (
     "opencode/beam-free",
 )
 COOLDOWN_SECONDS = 6 * 60 * 60
+# If a model answers "out of usage" again within this window after its previous
+# cooldown expired, the allowance had not actually reset; double the next rest
+# up to EXHAUSTION_COOLDOWN_CAP so every provider is still tried at least daily.
+EXHAUSTION_RETRY_WINDOW_SECONDS = 30 * 60
+EXHAUSTION_COOLDOWN_CAP = 24 * 60 * 60
 # A containment stop means the worker wrote product code into the main checkout
 # instead of its workspace. One stop is not enough to blame the model: the
 # orchestrator's own edits have caused them before (2026-11-20, 2026-11-22). The
@@ -213,12 +218,36 @@ class Roster:
         """A reviewer must not be the model that wrote the code (CONSTRAINTS §5-5)."""
         return self.pick(exclude=(implementer,), role="review")
 
-    def mark_exhausted(self, model: str, *, seconds: float = COOLDOWN_SECONDS) -> None:
+    def mark_exhausted(self, model: str, *, seconds: float = COOLDOWN_SECONDS) -> float:
+        """Rest a spent model, doubling when re-exhausted right after cooldown.
+
+        When a model answers "out of usage" again within
+        `EXHAUSTION_RETRY_WINDOW_SECONDS` of its previous `cooldown_until`, its
+        allowance has not reset yet; double the cooldown as `mark_unavailable`
+        does, capped at `EXHAUSTION_COOLDOWN_CAP` so it is still tried at least
+        once a day. Exhaustion after a longer run is normal consumption and
+        resets the streak to 1.
+        """
         state = self._state()
         entry = self._entry_for_write(state, model)
-        entry["cooldown_until"] = self.now + seconds
+        prev_until = _finite_float(entry.get("cooldown_until"))
+        prev_streak = _finite_float(entry.get("exhausted_streak", 0)) or 0.0
+        if (
+            prev_until is not None
+            and prev_until > 0
+            and prev_streak >= 1.0
+            and self.now <= prev_until + EXHAUSTION_RETRY_WINDOW_SECONDS
+        ):
+            streak = prev_streak + 1.0
+        else:
+            streak = 1.0
+        entry["exhausted_streak"] = streak
+        steps = min(streak - 1.0, 16.0)
+        rest = float(min(seconds * (2.0**steps), max(seconds, EXHAUSTION_COOLDOWN_CAP)))
+        entry["cooldown_until"] = self.now + rest
         entry["observations"] = (_finite_float(entry.get("observations", 0)) or 0.0) + 1
         self._save(state)
+        return rest
 
     def mark_unavailable(self, model: str, *, base_seconds: float) -> float:
         """Rest a model the CLI could not run, twice as long for each repeat.
@@ -325,18 +354,25 @@ class Roster:
         _LATEST_CONTAINMENT_REPORT = _containment_summary_from_state(state)
 
     def mark_responded(self, model: str) -> None:
-        """Forget the failure streak: the model just answered a job.
+        """Forget failure and exhaustion streaks: the model just answered a job.
 
-        Without this the streak would describe the model's whole history, and a
-        model that had one bad afternoon would rest six hours at a time for the
-        rest of the phase. The controller calls it on the reply paths it
-        already has, for the implementer and for the reviewer.
+        Without this the streaks would describe the model's whole history, and a
+        model that had one bad afternoon or a long quota cycle would keep resting
+        for the stretched duration even after recovering. The controller calls it
+        on the reply paths it already has, for the implementer and for the reviewer.
         """
         state = self._state()
         entry = state.get(model)
-        if not isinstance(entry, dict) or not entry.get("unavailable_streak"):
+        if not isinstance(entry, dict):
             return
-        entry["unavailable_streak"] = 0
+        has_unavailable = bool(_finite_float(entry.get("unavailable_streak", 0)))
+        has_exhausted = bool(_finite_float(entry.get("exhausted_streak", 0)))
+        if not has_unavailable and not has_exhausted:
+            return
+        if has_unavailable:
+            entry["unavailable_streak"] = 0
+        if has_exhausted:
+            entry["exhausted_streak"] = 0
         self._save(state)
 
     def _save(self, state: dict[str, dict[str, float]]) -> None:
