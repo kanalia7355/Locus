@@ -1061,3 +1061,35 @@ test("the sidebar account row stays on screen at every supported width", async (
     ).toBeLessThanOrEqual(size.height + 1);
   }
 });
+
+// T-PH6-133: 配置の分かれ目（狭い配置 / 広い配置）が CSS と JavaScript で一致することを測る。
+// 2 倍の文字サイズはブラウザの既定フォントサイズを 32px に変更して再現する（@media の em は
+// html { font-size } ではなくブラウザの初期文字サイズで評価されるため、CDP の Page.setFontSizes を使う）。
+test("layout breakpoint matches between CSS and JS at default and doubled text size", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  // 既定の文字サイズ: 1280px では広い配置（サイドバーが開いている）
+  await page.setViewportSize(WIDTHS[0]);
+  await signInAgain(page, 15);
+  const sidebar = page.locator("#workspace-sidebar");
+  await expect(sidebar).toBeVisible();
+
+  // 既定の文字サイズ: 360px では狭い配置（新規チャットを開くとサイドバーが閉じる）
+  await page.setViewportSize(WIDTHS[2]);
+  await page.goto("/");
+  await expect(sidebar).not.toBeVisible();
+
+  // 2 倍相当の文字サイズで 1280px の窓を開いたとき、CSS が狭い配置なら JS も狭い配置になる
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Page.setFontSizes", {
+    fontSizes: { standard: 32, fixed: 32 },
+  });
+  await page.setViewportSize(WIDTHS[0]);
+  await page.goto("/");
+  const isNarrowCss = await page.evaluate(
+    () => !window.matchMedia("(min-width: 48em)").matches,
+  );
+  expect(isNarrowCss).toBe(true);
+  await expect(sidebar).not.toBeVisible();
+});
