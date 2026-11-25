@@ -7,8 +7,14 @@ import threading
 
 import httpx
 import pytest
+from app.local_model import LocalModel
+from app.main import create_app
+from app.model_catalog import ModelCatalog
 from app.provider_openai_compatible import OpenAICompatibleModel
+from app.service import Service
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
+from test_api import ORIGIN, login
 
 BASE_URL = "https://example.invalid/v1"
 AUTH_VALUE = "fixture-sample-001"
@@ -390,3 +396,293 @@ def test_api_key_not_in_exception_or_instance_after_failure():
     assert canary not in str(err.value.detail)
     assert canary not in str(vars(runtime))
     assert canary not in str(runtime.status())
+
+
+def test_admin_api_round_trip_openai_compatible(service: Service) -> None:
+    secret = "sk-synthetic-03-not-a-real-key"
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if request.method == "GET" and str(request.url) == "https://api.example.invalid/v1/models":
+            assert request.headers.get("authorization") == f"Bearer {secret}"
+            return httpx.Response(
+                200,
+                json={"data": [{"id": "gpt-4o-mini", "name": "GPT-4o mini"}]},
+            )
+        if (
+            request.method == "POST"
+            and str(request.url) == "https://api.example.invalid/v1/chat/completions"
+        ):
+            assert request.headers.get("authorization") == f"Bearer {secret}"
+            payload = json.loads(request.content)
+            assert payload["model"] == "gpt-4o-mini"
+            assert payload["stream"] is False
+            assert "tools" not in payload
+            return httpx.Response(
+                200,
+                json={
+                    "model": "gpt-4o-mini",
+                    "choices": [
+                        {
+                            "message": {"role": "assistant", "content": "合成回答"},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                },
+            )
+        return httpx.Response(404, json={"error": "not found"})
+
+    transport = httpx.MockTransport(handler)
+    catalog = ModelCatalog({}, transport=transport)
+    remote = OpenAICompatibleModel(transport=transport)
+    app = create_app(
+        service=service,
+        start_worker=False,
+        model_catalog=catalog,
+        remote_model=remote,
+    )
+
+    def client() -> TestClient:
+        return TestClient(app, base_url="http://127.0.0.1", client=("127.0.0.1", 50000))
+
+    admin, alice = client(), client()
+    login(admin, "admin", "01")
+    login(alice)
+
+    discover = admin.post(
+        "/api/admin/models/discover",
+        headers=ORIGIN,
+        json={
+            "sources": ["openai-compatible"],
+            "base_url": "https://api.example.invalid/v1",
+            "api_key": secret,
+        },
+    )
+    assert discover.status_code == 200, discover.text
+    discovered = discover.json()
+    assert discovered["sources"][0]["status"] == "complete"
+    candidate = discovered["models"][0]["id"]
+    assert discovered["models"][0]["source_id"] == "openai-compatible"
+
+    configured = admin.put(
+        "/api/admin/models/runtime",
+        headers=ORIGIN,
+        json={"candidate_id": candidate, "local_only_confirmed": False, "timeout_seconds": 30},
+    )
+    assert configured.status_code == 200, configured.text
+
+    runtime_status = admin.get("/api/admin/models/runtime")
+    assert runtime_status.status_code == 200
+    status_body = runtime_status.json()
+    assert status_body["provider"] == "openai-compatible"
+    assert status_body["api_key_present"] is True
+    assert status_body["model"] == "gpt-4o-mini"
+    assert secret not in json.dumps(status_body)
+
+    service.seed_synthetic("alice", "project-a")
+    conversation = alice.post(
+        "/api/conversations", json={"project_id": "project-a"}, headers=ORIGIN
+    ).json()["id"]
+    sent = alice.post(
+        f"/api/conversations/{conversation}/messages",
+        json={"text": "成膜条件", "scope": "all"},
+        headers=ORIGIN,
+    )
+    assert sent.status_code == 200, (sent.text, [str(c.url) for c in calls])
+    body = sent.json()
+    assert body.get("answer") == "合成回答", (body, [str(c.url) for c in calls])
+
+    audit = admin.get("/api/admin/audit").text
+    assert "model.configure" in audit
+    assert "remote-model-runtime" in audit
+    assert secret not in audit
+
+    # Key must not appear in runtime/catalog responses.
+    assert secret not in discover.text
+    assert secret not in configured.text
+    assert secret not in runtime_status.text
+
+
+def test_admin_api_stream_round_trip_openai_compatible(service: Service) -> None:
+    secret = "sk-synthetic-04-not-a-real-key"
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if request.method == "GET" and str(request.url) == "https://api.example.invalid/v1/models":
+            assert request.headers.get("authorization") == f"Bearer {secret}"
+            return httpx.Response(
+                200,
+                json={"data": [{"id": "gpt-4o-mini", "name": "GPT-4o mini"}]},
+            )
+        if (
+            request.method == "POST"
+            and str(request.url) == "https://api.example.invalid/v1/chat/completions"
+        ):
+            assert request.headers.get("authorization") == f"Bearer {secret}"
+            payload = json.loads(request.content)
+            assert payload["model"] == "gpt-4o-mini"
+            assert payload["stream"] is True
+            assert "tools" not in payload
+
+            async def body():
+                for chunk in sse_chunks("gpt-4o-mini", ["合成", "回答"]):
+                    yield chunk
+
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                content=body(),
+            )
+        return httpx.Response(404, json={"error": "not found"})
+
+    transport = httpx.MockTransport(handler)
+    catalog = ModelCatalog({}, transport=transport)
+    remote = OpenAICompatibleModel(transport=transport)
+    app = create_app(
+        service=service,
+        start_worker=False,
+        model_catalog=catalog,
+        remote_model=remote,
+    )
+
+    def client() -> TestClient:
+        return TestClient(app, base_url="http://127.0.0.1", client=("127.0.0.1", 50000))
+
+    admin, alice = client(), client()
+    login(admin, "admin", "01")
+    login(alice)
+
+    discover = admin.post(
+        "/api/admin/models/discover",
+        headers=ORIGIN,
+        json={
+            "sources": ["openai-compatible"],
+            "base_url": "https://api.example.invalid/v1",
+            "api_key": secret,
+        },
+    )
+    assert discover.status_code == 200, discover.text
+    candidate = discover.json()["models"][0]["id"]
+
+    configured = admin.put(
+        "/api/admin/models/runtime",
+        headers=ORIGIN,
+        json={"candidate_id": candidate, "local_only_confirmed": False, "timeout_seconds": 30},
+    )
+    assert configured.status_code == 200, configured.text
+
+    service.seed_synthetic("alice", "project-a")
+    conversation = alice.post(
+        "/api/conversations", json={"project_id": "project-a"}, headers=ORIGIN
+    ).json()["id"]
+
+    with alice.stream(
+        "POST",
+        f"/api/conversations/{conversation}/messages/stream",
+        json={"text": "成膜条件", "scope": "all"},
+        headers=ORIGIN,
+    ) as response:
+        assert response.status_code == 200, response.read()
+        assert response.headers["content-type"].startswith("text/event-stream")
+        received: list[tuple[str, dict]] = []
+        name = ""
+        for line in response.iter_lines():
+            if line.startswith("event: "):
+                name = line.removeprefix("event: ")
+            elif line.startswith("data: "):
+                received.append((name, json.loads(line.removeprefix("data: "))))
+
+    names = [event for event, _ in received]
+    assert "delta" in names
+    assert names[-1] == "message"
+    answer = received[-1][1]
+    assert answer["answer"] == "合成回答"
+
+    runtime_status = admin.get("/api/admin/models/runtime")
+    assert runtime_status.status_code == 200
+    status_body = runtime_status.json()
+    assert status_body["provider"] == "openai-compatible"
+    assert status_body["api_key_present"] is True
+    assert secret not in json.dumps(status_body)
+
+    audit = admin.get("/api/admin/audit").text
+    assert "model.configure" in audit
+    assert "remote-model-runtime" in audit
+    assert secret not in audit
+    assert secret not in discover.text
+    assert secret not in configured.text
+    assert secret not in runtime_status.text
+
+
+def test_admin_discover_openai_compatible_keeps_remote_models_off_local_runtime(
+    service: Service,
+) -> None:
+    secret = "sk-synthetic-04-not-a-real-key"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and str(request.url) == "https://api.example.invalid/v1/models":
+            assert request.headers.get("authorization") == f"Bearer {secret}"
+            return httpx.Response(
+                200, json={"data": [{"id": "gpt-4o-mini", "name": "GPT-4o mini"}]}
+            )
+        return httpx.Response(404, json={"error": "not found"})
+
+    transport = httpx.MockTransport(handler)
+    catalog = ModelCatalog({}, transport=transport)
+    local = LocalModel(transport=transport)
+    remote = OpenAICompatibleModel(transport=transport)
+    app = create_app(
+        service=service,
+        start_worker=False,
+        model_catalog=catalog,
+        local_model=local,
+        remote_model=remote,
+    )
+
+    def client() -> TestClient:
+        return TestClient(app, base_url="http://127.0.0.1", client=("127.0.0.1", 50000))
+
+    admin = client()
+    login(admin, "admin", "01")
+
+    discover = admin.post(
+        "/api/admin/models/discover",
+        headers=ORIGIN,
+        json={
+            "sources": ["openai-compatible"],
+            "base_url": "https://api.example.invalid/v1",
+            "api_key": secret,
+        },
+    )
+    assert discover.status_code == 200, discover.text
+    body = discover.json()
+    assert body["sources"][0]["status"] == "complete"
+    candidate = body["models"][0]["id"]
+    assert body["models"][0]["source_id"] == "openai-compatible"
+
+    # Remote candidates belong to the remote runtime only; the local runtime
+    # registry must stay empty so external models never pollute local state.
+    assert local.registered == {}
+    assert local.registered_sources == {}
+    assert remote.registered_sources.get(candidate) == "openai-compatible"
+
+    configured = admin.put(
+        "/api/admin/models/runtime",
+        headers=ORIGIN,
+        json={"candidate_id": candidate, "local_only_confirmed": False, "timeout_seconds": 30},
+    )
+    assert configured.status_code == 200, configured.text
+    assert configured.json()["provider"] == "openai-compatible"
+
+    runtime_status = admin.get("/api/admin/models/runtime")
+    assert runtime_status.status_code == 200
+    status_body = runtime_status.json()
+    assert status_body["provider"] == "openai-compatible"
+    assert status_body["api_key_present"] is True
+    assert status_body["model"] == "gpt-4o-mini"
+    assert secret not in json.dumps(status_body)
+    assert secret not in discover.text
+    assert secret not in configured.text
+    assert secret not in runtime_status.text

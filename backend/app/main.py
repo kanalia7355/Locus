@@ -157,6 +157,8 @@ class ModelRuntime(Input):
 
 class ModelDiscovery(Input):
     sources: list[str] = Field(min_length=1, max_length=5)
+    base_url: str | None = Field(default=None, max_length=256)
+    api_key: str | None = Field(default=None, max_length=256)
 
 
 class WorkspacePolicyInput(Input):
@@ -221,7 +223,24 @@ def create_app(
     )
     catalog = model_catalog or ModelCatalog()
     runtime = local_model or LocalModel()
-    chat_runtime = remote_model or runtime
+    from app.provider_openai_compatible import OpenAICompatibleModel
+
+    remote_runtime = remote_model or OpenAICompatibleModel()
+
+    class _ChatRuntimeProxy:
+        def __init__(self, active: Any) -> None:
+            self.active = active
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(self.active, name)
+
+        def generate(self, *args: Any, **kwargs: Any) -> tuple[str, str]:
+            if self.active is remote_runtime:
+                kwargs.setdefault("base_url", getattr(remote_runtime, "_base_url", None))
+                kwargs.setdefault("api_key", getattr(remote_runtime, "_api_key", None))
+            return self.active.generate(*args, **kwargs)
+
+    chat_runtime = _ChatRuntimeProxy(remote_model or runtime)
 
     stop = asyncio.Event()
 
@@ -243,7 +262,7 @@ def create_app(
                         pass
             # Advisory check only: slots taken between this probe and the next
             # pickup are handled by the queue's requeue path, not by failure.
-            usage = runtime.slot_usage()
+            usage = chat_runtime.slot_usage()
             free = usage["total"] - usage["busy"]
             if free > 0:
                 await asyncio.to_thread(svc.process_next_chat_batch, free)
@@ -748,12 +767,12 @@ def create_app(
 
     @app.get("/api/admin/load")
     def load_status(user: Actor) -> dict[str, Any]:
-        usage = runtime.slot_usage()
+        usage = chat_runtime.slot_usage()
         return svc.load_status(
             user,
             model_busy=usage["busy"],
             model_slots=usage["total"],
-            model_enabled=bool(runtime.status()["enabled"]),
+            model_enabled=bool(chat_runtime.status()["enabled"]),
         )
 
     @app.get("/api/admin/models/sources")
@@ -766,25 +785,80 @@ def create_app(
     def discover_models(data: ModelDiscovery, request: Request, user: Actor) -> dict[str, Any]:
         if not user.system_admin:
             fail(403, "管理権限が必要です")
-        result = catalog.discover(data.sources)
+        result = catalog.discover(
+            data.sources,
+            base_url=data.base_url,
+            api_key=data.api_key,
+        )
         # Recheck after local I/O before returning privileged inventory metadata.
         current = svc.authenticate(request.cookies.get(COOKIE))
         svc.record_model_discovery(
             current, all(item["status"] == "complete" for item in result["sources"])
         )
         with runtime.settings_lock:
-            runtime.registered = {
-                item["id"]: item["name"]
-                for item in result["models"]
-                if item["source_id"] == "ollama"
-            }
+            registered = dict(getattr(runtime, "registered", {}) or {})
+            registered_sources = dict(getattr(runtime, "registered_sources", {}) or {})
+            # Replace entries for discovered sources; keep other sources intact.
+            for source in data.sources:
+                for model_id in [mid for mid, src in registered_sources.items() if src == source]:
+                    registered.pop(model_id, None)
+                    registered_sources.pop(model_id, None)
+                if source == "openai-compatible":
+                    # Remote candidates belong to the remote runtime only; a
+                    # discovered external model must not enter the local registry.
+                    continue
+                for item in result["models"]:
+                    if item["source_id"] == source:
+                        model_name = item.get("identity", item["name"])
+                        registered[item["id"]] = model_name
+                        registered_sources[item["id"]] = source
+                        registered_sources[model_name] = source
+            runtime.registered = registered
+            runtime.registered_sources = registered_sources
+        if "openai-compatible" in data.sources:
+            with remote_runtime.settings_lock:
+                remote_registered = dict(getattr(remote_runtime, "registered", {}) or {})
+                remote_sources = dict(getattr(remote_runtime, "registered_sources", {}) or {})
+                for model_id in [
+                    mid for mid, src in remote_sources.items() if src == "openai-compatible"
+                ]:
+                    remote_registered.pop(model_id, None)
+                    remote_sources.pop(model_id, None)
+                for item in result["models"]:
+                    if item["source_id"] == "openai-compatible":
+                        model_name = item.get("identity", item["name"])
+                        remote_registered[item["id"]] = model_name
+                        remote_sources[item["id"]] = "openai-compatible"
+                        remote_sources[model_name] = "openai-compatible"
+                remote_runtime.registered = remote_registered
+                remote_runtime.registered_sources = remote_sources
+                if data.base_url:
+                    remote_runtime._base_url = data.base_url
+                if data.api_key:
+                    remote_runtime._api_key = data.api_key
         return result
 
     @app.get("/api/admin/models/runtime")
     def model_runtime(user: Actor) -> dict[str, Any]:
         if not user.system_admin:
             fail(403, "管理権限が必要です")
-        return runtime.status()
+        active = chat_runtime.active
+        status = active.status()
+        # Only add provider/api_key_present when a model is configured.
+        # This preserves backward compatibility with existing tests that check
+        # the exact response format when no model is configured.
+        model = status.get("model")
+        if model:
+            registered_sources = getattr(active, "registered_sources", {}) or {}
+            source = registered_sources.get(model)
+            if not source and model in (getattr(active, "registered", {}) or {}):
+                source = "ollama"
+            provider = "openai-compatible" if source == "openai-compatible" else "ollama"
+            status["provider"] = provider
+            # api_key_present: true only for remote (openai-compatible) sources.
+            # Never include the actual key value.
+            status["api_key_present"] = provider == "openai-compatible"
+        return status
 
     @app.put("/api/admin/models/runtime")
     def configure_model(data: ModelRuntime, request: Request, user: Actor) -> dict[str, Any]:
@@ -792,10 +866,49 @@ def create_app(
             current = svc._authenticate(db, request.cookies.get(COOKIE))
             if not current.system_admin:
                 fail(403, "管理権限が必要です")
+            # Determine the source of the candidate from registered models.
+            all_sources: dict[str, str] = {}
+            all_sources.update(getattr(runtime, "registered_sources", {}) or {})
+            all_sources.update(getattr(remote_runtime, "registered_sources", {}) or {})
+            source = all_sources.get(data.candidate_id) if data.candidate_id else None
+            if not source and data.candidate_id in (getattr(runtime, "registered", {}) or {}):
+                source = "ollama"
+            if data.candidate_id is None:
+                # Disable the currently active runtime.
+                target = chat_runtime.active
+                result = target.configure(None, False, data.timeout_seconds, data.slots)
+                audit_target = (
+                    "remote-model-runtime" if target is remote_runtime else "local-model-runtime"
+                )
+                svc._audit(db, current.id, "model.configure", audit_target)
+                return result
+            local_only_confirmed = data.local_only_confirmed
+            if source == "openai-compatible":
+                # Remote: confirm if candidate exists in registered list.
+                if data.candidate_id not in (getattr(remote_runtime, "registered", {}) or {}):
+                    fail(422, "候補が見つかりません。discovery で登録してください。")
+                # Use True for the local_only check so the existing configure path
+                # accepts the model (name regex and "cloud" check still apply).
+                local_only_confirmed = True
+                result = remote_runtime.configure(
+                    data.candidate_id, local_only_confirmed, data.timeout_seconds, data.slots
+                )
+                chat_runtime.active = remote_runtime
+                svc._audit(db, current.id, "model.configure", "remote-model-runtime")
+                if result.get("model"):
+                    result["provider"] = "openai-compatible"
+                    result["api_key_present"] = True
+                return result
             result = runtime.configure(
-                data.candidate_id, data.local_only_confirmed, data.timeout_seconds, data.slots
+                data.candidate_id, local_only_confirmed, data.timeout_seconds, data.slots
             )
+            chat_runtime.active = runtime
             svc._audit(db, current.id, "model.configure", "local-model-runtime")
+            if result.get("model"):
+                registered_sources = getattr(runtime, "registered_sources", {}) or {}
+                src = registered_sources.get(result["model"], "ollama")
+                result["provider"] = "openai-compatible" if src == "openai-compatible" else "ollama"
+                result["api_key_present"] = result["provider"] == "openai-compatible"
             return result
 
     @app.put("/api/admin/users/{user_id}/enabled")

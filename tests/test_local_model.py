@@ -349,7 +349,11 @@ def test_timeout_selection_is_strict_and_resets_on_disable(service: Service):
         json={"candidate_id": candidate, "local_only_confirmed": True, "timeout_seconds": 120},
     )
     assert configured.status_code == 200 and configured.json()["timeout_seconds"] == 120
-    assert admin.get("/api/admin/models/runtime").json() == configured.json()
+    assert admin.get("/api/admin/models/runtime").json() == {
+        **configured.json(),
+        "api_key_present": False,
+        "provider": "ollama",
+    }
     version = runtime.version
     for value in [0, 60, 121, True, False, "120", 120.0, None, []]:
         assert (

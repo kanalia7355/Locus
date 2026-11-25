@@ -100,7 +100,10 @@ class ModelCatalog:
         self.lock = threading.Lock()
 
     def sources(self) -> list[dict[str, str]]:
-        return [{"id": "ollama", "label": "Ollama 登録モデル", "kind": "ollama"}] + [
+        return [
+            {"id": "ollama", "label": "Ollama 登録モデル", "kind": "ollama"},
+            {"id": "openai-compatible", "label": "OpenAI互換API", "kind": "remote"},
+        ] + [
             {
                 "id": key,
                 "label": "Hugging Face 標準キャッシュ"
@@ -118,6 +121,7 @@ class ModelCatalog:
         return {
             "id": hashlib.sha256((source + "\0" + identity).encode()).hexdigest()[:24],
             "source_id": source,
+            "identity": identity[:200],
             "name": name[:200],
             "size_bytes": size,
             "format": format_name,
@@ -152,6 +156,84 @@ class ModelCatalog:
                     if not isinstance(value, dict) or not isinstance(value.get("models"), list):
                         raise ValueError("Invalid local model inventory")
                     return value["models"]  # type: ignore[no-any-return]
+
+    async def _openai_compatible(
+        self, base_url: str, api_key: str, timeout: float
+    ) -> tuple[list[dict[str, Any]], str, int, bool]:
+        """Discover models from an OpenAI-compatible API via GET {base_url}/models.
+
+        Returns (models, status, rejected_entries, truncated). Status is 'complete'
+        when the request succeeds, or 'unavailable' when it fails. Key and URL
+        credential information is never included in the status reason.
+        """
+        try:
+            async with asyncio.timeout(timeout):
+                async with httpx.AsyncClient(
+                    trust_env=False,
+                    follow_redirects=False,
+                    transport=self.transport,
+                    timeout=timeout,
+                ) as client:
+                    async with client.stream(
+                        "GET",
+                        f"{base_url.rstrip('/')}/models",
+                        headers={
+                            "Authorization": f"Bearer {api_key}",
+                            "Accept": "application/json",
+                            "Accept-Encoding": "identity",
+                        },
+                    ) as response:
+                        if (
+                            response.status_code != 200
+                            or response.headers.get("content-encoding", "identity") != "identity"
+                        ):
+                            return [], "unavailable", 0, False
+                        body = bytearray()
+                        async for part in response.aiter_bytes():
+                            if len(part) > MAX_BYTES - len(body):
+                                return [], "unavailable", 0, False
+                            body.extend(part)
+                        data = json.loads(body)
+                        if not isinstance(data, dict):
+                            return [], "unavailable", 0, False
+                        models = data.get("data", [])
+                        if not isinstance(models, list):
+                            return [], "unavailable", 0, False
+                        result: list[dict[str, Any]] = []
+                        rejected = 0
+                        truncated = len(models) > MAX_MODELS
+                        for item in models[:MAX_MODELS]:
+                            if not isinstance(item, dict):
+                                rejected += 1
+                                continue
+                            model_id = item.get("id")
+                            if not isinstance(model_id, str) or not 0 < len(model_id) <= 200:
+                                rejected += 1
+                                continue
+                            if any(ord(c) < 32 for c in model_id):
+                                rejected += 1
+                                continue
+                            model_name = item.get("name", model_id)
+                            if not isinstance(model_name, str) or not model_name:
+                                model_name = model_id
+                            if len(model_name) > 200 or any(ord(c) < 32 for c in model_name):
+                                model_name = model_id
+                            result.append(
+                                ModelCatalog._record(
+                                    "openai-compatible",
+                                    model_id,
+                                    model_name,
+                                    0,  # size unknown for remote
+                                    "unknown",
+                                    "registered",
+                                )
+                            )
+                        status = "complete"
+                        if truncated or rejected:
+                            status = "partial"
+                        return result, status, rejected, truncated
+        except (httpx.HTTPError, TimeoutError, ValueError):
+            return [], "unavailable", 0, False
 
     def _files(
         self, source: str, root: Path, deadline: float
@@ -214,9 +296,18 @@ class ModelCatalog:
                         rejected += 1
         return list(models.values()), truncated, rejected
 
-    def discover(self, sources: list[str]) -> dict[str, Any]:
+    def discover(
+        self,
+        sources: list[str],
+        *,
+        base_url: str | None = None,
+        api_key: str | None = None,
+    ) -> dict[str, Any]:
         selected = list(dict.fromkeys(sources))
-        if not selected or not set(selected) <= {"ollama", *self.roots}:
+        allowed = {"ollama", *self.roots}
+        if "openai-compatible" in selected:
+            allowed = allowed | {"openai-compatible"}
+        if not selected or not set(selected) <= allowed:
             raise HTTPException(422, "検出する場所を選択してください")
         if not self.lock.acquire(blocking=False):
             raise HTTPException(409, "モデルの検出中です。完了後に更新してください")
@@ -258,6 +349,17 @@ class ModelCatalog:
                                     size,
                                     "ollama",
                                     "registered-requires-runtime-validation",
+                                )
+                            )
+                    elif source == "openai-compatible":
+                        if not base_url or not api_key:
+                            status = "unavailable"
+                        else:
+                            found, status, rejected, truncated = asyncio.run(
+                                self._openai_compatible(
+                                    base_url,
+                                    api_key,
+                                    min(HTTP_SECONDS, deadline - time.monotonic()),
                                 )
                             )
                     else:
