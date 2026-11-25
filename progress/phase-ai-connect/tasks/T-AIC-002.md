@@ -1,20 +1,39 @@
 ---
 id: T-AIC-002
 phase: phase-ai-connect
-status: blocked
+status: doing
 assignee: opencode
 model: opencode/iceman-free
 weight: medium
-updated: 2026-11-25T15:20:43+09:00
+updated: 2026-11-25T18:50:00+09:00
 attempts: 2
 depends_on: T-AIC-001, T-AIC-005
 allowed_paths: backend/app/model_catalog.py, backend/app/main.py, tests/test_model_catalog.py, tests/test_provider_openai_compatible.py, tests/test_local_model.py
 test_cmd: python -m pytest tests/test_model_catalog.py tests/test_provider_openai_compatible.py tests/test_local_model.py -q
 reviewer: opencode/beam-free
-review_cycles: 2
+review_cycles: 1
 ---
 
 # Task `T-AIC-002`: カタログ／runtime設定／管理APIの拡張
+
+## SCOPE — レビュアーへ（2026-11-25 18:50 追記。先に読むこと）
+
+- **残っている仕事は 1 件だけである。** 2026-11-25 15:20 のレビューが Medium として
+  挙げた、**`discover_models` の最初の塊が `openai-compatible` のモデルを
+  ローカル runtime の `registered` にも入れてしまう**件。これは受入条件 5
+  （Ollama の発見・選択・応答に退行がない）の中にあるので、この票で直す。
+  レビュアーが示した最小の直し方（stale な項目の削除は全ての source に残したまま、
+  モデル追加の繰り返しの前で `openai-compatible` を `continue` で飛ばす）で足りる。
+- **同じレビューの Low 2 件は、この票の受入条件の外にあるので `T-AIC-007` に移した。
+  これらを理由に差し戻さないこと。**
+  - 無効化（`candidate_id` が `None`）で `_base_url` / `_api_key` を消していない件。
+    受入条件 3 が守るのは「**応答・監査・カタログに値が現れない**」ことで、
+    プロセス内のメモリは名指ししていない。
+  - 未設定時の応答の項目がローカルとリモートで揃っていない件
+    （`api_key_present` の有無）。どの条件も項目の集合を名指ししていない。
+- **判断は受入条件 1〜6 に対して行うこと。** 条件の外で気づいたことは
+  `## REVIEW` に所見として書き、`CHANGES_REQUIRED` の理由にしないこと。
+  良い指摘を捨てるためではない — 実際に 2 件は別票に残してある。
 
 ## TASK DEFINITION (Assigned by Orchestrator)
 
@@ -316,3 +335,55 @@ UNVERIFIED
 ## OWNER DECISION REQUESTED (2026-11-25T15:20:43+09:00)
 
 review cycle limit reached: The reviewer still requires changes, and the review cycle budget is spent (attempts 2/3, review cycles 2/2).
+
+## ORCHESTRATOR RULING (2026-11-25 18:50)
+
+**周回を 1 回戻す（2/2 → 1/2）。試行は動かさない（2/3 のまま）。`doing` に置く。
+Medium は本物で条件の中なので直させる。Low 2 件は条件の外なので `T-AIC-007` に移した。
+受入条件は 1 文字も変えていない。**
+
+### Medium は本物で、しかも条件の中にある
+
+レビュアーの指摘を自分で読んで確かめた
+（ワークスペースの `backend/app/main.py`、`discover_models`）:
+
+最初の塊は `for source in data.sources` で回り、**その source に一致するモデルを
+ローカルの `runtime.registered` / `registered_sources` に入れている**。
+`data.sources` に `openai-compatible` が入っていれば、リモートのモデルが
+ローカル runtime に入る。その後の `if "openai-compatible" in data.sources` の塊が
+**同じモデルをリモート runtime にも入れる**ので、両方に入る。
+
+**これは受入条件 5（Ollama の発見・選択・応答に退行がない）の中にある。**
+ローカル runtime の `registered` にリモートのモデルが混ざるのは、
+Ollama 側の状態の汚染である。条件外の指摘ではない。**直させる。**
+
+レビュアーが書いた最小の直し方（stale な項目の削除は全ての source に残したまま、
+モデル追加の繰り返しの前で `openai-compatible` を飛ばす）で足りる。
+**指摘した側が直し方まで正しく書いている。**
+
+### Low 2 件は条件の外なので移した。落としたのではない
+
+- **無効化で `_base_url` / `_api_key` を消していない件。**
+  受入条件 3 が守るのは「API キーの値が **runtime 応答・監査・カタログ応答**の
+  どこにも現れない」ことで、**プロセス内のメモリに残ることは名指ししていない**。
+  漏洩ではなく、残すべきでないものを残しているという話である。
+- **未設定時の応答の項目がローカルとリモートで揃っていない件**
+  （`api_key_present` の有無）。どの条件も応答の項目の集合を名指ししていない。
+
+**両方 `T-AIC-007` に起票した**（`depends_on: T-AIC-002`、
+`allowed_paths: backend/app/main.py, tests/test_model_catalog.py`）。
+`OpenAICompatibleModel.status()` が許可パスの外であることも、あの票に書いてある。
+
+### 周回を戻す理由と、戻さない理由
+
+戻す: **残っている仕事が 1 件に絞れており、試行がまだ 1 回残っている**（2/3）。
+周回の枠だけが尽きていて実装の枠は在る、という状態で止めるのは無駄である。
+
+試行は動かさない: 2 回の派遣はどちらも実際に成果を出して報告しており、
+**数え方の誤りは無い**。戻す理由が無い。
+
+**この戻しは 1 回だけにする。** 次のレビューがまた受入条件 1〜6 の外を理由に
+差し戻したら、周回をもう一度戻すことはしない。そのときは
+**「レビュアーが条件外の指摘を出し続ける票を、誰が完了と決めるのか」を
+オーナーに伺う**（レビューの承認を私が与えることは禁じられているため）。
+`T-STC-001` で 2026-11-25 16:30 に立てたのと同じ線である。
