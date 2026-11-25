@@ -3042,3 +3042,133 @@ def test_mypy_strict_passes_on_jobloop_and_rejects_no_any_return(tmp_path: Path)
     )
     assert clean_code == 0, clean_out + clean_err
     assert "Success: no issues found" in clean_out
+
+
+# --- repeated exhaustion cooldown (T-PH9-409) --------------------------------
+
+
+def test_repeated_exhaustion_right_after_cooldown_doubles_up_to_daily_cap(
+    tmp_path: Path,
+) -> None:
+    """AC1, AC2 & AC3 (cap): immediate re-exhaustion after cooldown doubles up to 24h."""
+    base = roster_module.COOLDOWN_SECONDS
+    window = roster_module.EXHAUSTION_RETRY_WINDOW_SECONDS
+    cap = roster_module.EXHAUSTION_COOLDOWN_CAP
+    assert window == 30 * 60
+    assert cap == 24 * 60 * 60
+
+    state = tmp_path / "roster.json"
+    now = 1_000_000.0
+    waits: list[float] = []
+    for step in range(6):
+        roster = Roster(models=["a-free"], state_file=state, now=now)
+        roster.mark_exhausted("a-free")
+        recorded = json.loads(state.read_text(encoding="utf-8"))["a-free"]
+        wait = float(recorded["cooldown_until"]) - now
+        waits.append(wait)
+        # Try again shortly after cooldown expires (within EXHAUSTION_RETRY_WINDOW_SECONDS).
+        now = float(recorded["cooldown_until"]) + (window / 2 if step % 2 == 0 else 25.0)
+
+    # AC1: 2nd cooldown right after expiry is longer than the 1st.
+    assert waits[0] == base
+    assert waits[1] > waits[0]
+    # AC2: 3 consecutive immediate exhaustions double each time (6h -> 12h -> 24h).
+    assert waits[1] == 2 * base
+    assert waits[2] == 4 * base
+    # AC3 (cap): never exceeds EXHAUSTION_COOLDOWN_CAP (tried at least once a day).
+    assert waits[3] == cap
+    assert all(wait <= cap for wait in waits)
+    assert Roster(models=["a-free"], state_file=state, now=now).pick() == "a-free"
+
+
+def test_exhaustion_after_retry_window_resets_to_normal_cooldown(tmp_path: Path) -> None:
+    """AC3 (elapsed window): exhaustion well after cooldown expiry returns to normal 6h."""
+    base = roster_module.COOLDOWN_SECONDS
+    window = roster_module.EXHAUSTION_RETRY_WINDOW_SECONDS
+    state = tmp_path / "roster.json"
+
+    t0 = 1_000_000.0
+    first = Roster(models=["a-free"], state_file=state, now=t0)
+    first.mark_exhausted("a-free")
+    until_1 = float(json.loads(state.read_text(encoding="utf-8"))["a-free"]["cooldown_until"])
+    assert until_1 - t0 == base
+
+    # Immediate re-exhaustion stretches cooldown to 12h.
+    t1 = until_1 + 60.0
+    second = Roster(models=["a-free"], state_file=state, now=t1)
+    second.mark_exhausted("a-free")
+    until_2 = float(json.loads(state.read_text(encoding="utf-8"))["a-free"]["cooldown_until"])
+    assert until_2 - t1 == 2 * base
+
+    # Exhaustion well after cooldown expiry (beyond EXHAUSTION_RETRY_WINDOW_SECONDS)
+    # represents normal allowance consumption, so it resets back to 6h.
+    t2 = until_2 + window + 1.0
+    third = Roster(models=["a-free"], state_file=state, now=t2)
+    third.mark_exhausted("a-free")
+    until_3 = float(json.loads(state.read_text(encoding="utf-8"))["a-free"]["cooldown_until"])
+    assert until_3 - t2 == base
+
+
+def test_working_model_resets_exhaustion_streak_and_attempts_stay_zero(
+    tmp_path: Path,
+) -> None:
+    """AC3 (responded) & AC4: answering resets stretched cooldown; exhaustion spends 0 attempts."""
+    base = roster_module.COOLDOWN_SECONDS
+    state = tmp_path / ".jobloop" / "roster.json"
+
+    # Build an exhaustion streak on both implementer and reviewer models.
+    t0 = 1_000_000.0
+    for model in ("a-free", "b-free"):
+        r1 = Roster(models=["a-free", "b-free"], state_file=state, now=t0)
+        r1.mark_exhausted(model)
+        u1 = float(json.loads(state.read_text(encoding="utf-8"))[model]["cooldown_until"])
+        r2 = Roster(models=["a-free", "b-free"], state_file=state, now=u1 + 25.0)
+        r2.mark_exhausted(model)
+        u2 = float(json.loads(state.read_text(encoding="utf-8"))[model]["cooldown_until"])
+        assert u2 - (u1 + 25.0) == 2 * base
+
+    # Wait for stretched cooldowns to expire, then let `a-free` answer a job as implementer.
+    ready_time = t0 + base + 25.0 + 2 * base + 10.0
+    phase_with_task(tmp_path)
+    controller = Controller(
+        settings_for(tmp_path),
+        Roster(models=["a-free", "b-free"], state_file=state, now=ready_time),
+        clock=lambda: 0.0,
+    )
+    controller.workspace = lambda task: tmp_path  # type: ignore[assignment]
+    controller.dispatch = lambda model, prompt, **_: worker.Result(  # type: ignore[assignment]
+        worker.Ending.COMPLETED, "REPORT\n- nothing changed", model
+    )
+    outcome = controller.run_job(controller.select())
+    assert outcome.state == "attempt-failed" and outcome.model == "a-free"
+
+    # Now `a-free` hits exhaustion immediately: because it answered a job, cooldown is 6h again.
+    controller.dispatch = lambda model, prompt, **_: worker.Result(  # type: ignore[assignment]
+        worker.Ending.EXHAUSTED, "", model, ["free usage quota exceeded"]
+    )
+    rotated = controller.run_job(controller.select())
+    assert rotated.state == "rotated" and rotated.model == "a-free"
+    task_after_rotate = tasks.load_phase(controller.settings.phase_directory).tasks[0]
+    assert task_after_rotate.attempts == 1, "AC4: exhaustion must not consume an attempt"
+    recorded_a = json.loads(state.read_text(encoding="utf-8"))["a-free"]
+    assert float(recorded_a["cooldown_until"]) - ready_time == base
+
+    # Also verify `b-free` resets its exhaustion streak when answering as a reviewer.
+    phase_with_task(tmp_path / "rev")
+    tree = reviewable_worktree(tmp_path / "rev")
+    rev_controller = Controller(
+        settings_for(tmp_path / "rev"),
+        Roster(models=["a-free", "b-free"], state_file=state, now=ready_time + 5.0),
+        clock=lambda: 0.0,
+    )
+    rev_controller.dispatch = lambda model, prompt, **_: worker.Result(  # type: ignore[assignment]
+        worker.Ending.COMPLETED, "VERDICT\n- CHANGES_REQUIRED", model
+    )
+    rev_task = rev_controller.select()
+    assert rev_task is not None
+    rev_outcome = rev_controller.review(rev_task, tree, "c-free", [])
+    assert rev_outcome.reviewer == "b-free"
+
+    rev_controller.roster.mark_exhausted("b-free")
+    recorded_b = json.loads(state.read_text(encoding="utf-8"))["b-free"]
+    assert float(recorded_b["cooldown_until"]) - (ready_time + 5.0) == base
