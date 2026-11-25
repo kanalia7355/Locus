@@ -40,6 +40,41 @@ def installed_models(executable: str | None = None) -> list[str]:
     return [line.strip() for line in result.stdout.splitlines() if "/" in line]
 
 
+def agy_installed_models(executable: str | None = None) -> list[str]:
+    """Second-tier identifiers, prefixed so the roster and worker can route them.
+
+    `agy models` prints `<id>\\t<label>` and no provider prefix, so the prefix is
+    added here: every other part of the loop identifies a model by `provider/id`,
+    and an unprefixed id would be indistinguishable from an OpenCode one. A
+    missing binary is not an error — the second tier is optional.
+    """
+    binary = executable or shutil.which("agy")
+    if not binary:
+        return []
+    try:
+        result = subprocess.run(  # noqa: S603 — fixed CLI, no shell
+            [binary, "models"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=180,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if result.returncode:
+        return []
+    names = []
+    for line in result.stdout.splitlines():
+        identifier = line.split("\t", 1)[0].strip()
+        # The first line is a progress message, and a label without a tab is not
+        # an identifier; a model id never contains a space.
+        if identifier and " " not in identifier and "/" not in identifier:
+            names.append(f"agy/{identifier}")
+    return names
+
+
 def build(arguments: argparse.Namespace) -> Controller:
     settings = Settings(
         repository=ROOT,
@@ -49,7 +84,7 @@ def build(arguments: argparse.Namespace) -> Controller:
         push=getattr(arguments, "push", False),
     )
     roster = Roster(
-        models=eligible(installed_models()),
+        models=eligible(installed_models() + agy_installed_models()),
         state_file=settings.state_directory / "roster.json",
         now=time.time(),
     )

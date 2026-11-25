@@ -188,6 +188,116 @@ def bounded(
     return subprocess.CompletedProcess(command, process.returncode, out, err)
 
 
+AGY_PREFIX = "agy/"
+
+
+def read_agy_result(stream: str) -> tuple[str, list[str], int, str]:
+    """Collect the answer, errors, token use and status from agy's NDJSON stream.
+
+    agy's shape is simpler than OpenCode's: the last `{"event":"result"}` line
+    carries the whole answer, a status and the usage. Measured 2026-11-25 against
+    `agy --model gemini-4-hydrogen-low --input-format stream-json
+    --output-format stream-json --print=''`.
+    """
+    text = ""
+    errors: list[str] = []
+    tokens = 0
+    status = ""
+    for line in stream.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if not line.startswith("{"):
+            # The CLI talking, which is where its own failures appear.
+            errors.append(line)
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            errors.append(line)
+            continue
+        if event.get("event") != "result":
+            continue
+        raw = event.get("result")
+        result: dict[str, Any] = raw if isinstance(raw, dict) else {}
+        status = str(result.get("status", ""))
+        if isinstance(result.get("response"), str):
+            text = str(result["response"])
+        failure = result.get("error")
+        if isinstance(failure, str) and failure.strip():
+            errors.append(failure)
+        counted = result.get("usage")
+        usage: dict[str, Any] = counted if isinstance(counted, dict) else {}
+        tokens = int(str(usage.get("total_tokens", 0) or 0))
+    return text, errors, tokens, status
+
+
+def run_agy(
+    model: str,
+    prompt: str,
+    *,
+    cwd: Path,
+    timeout: float,
+    executable: str | None = None,
+    runner: object | None = None,
+) -> Result:
+    """Run one bounded agy session in `cwd` (second tier; owner decision E2).
+
+    Two things differ from OpenCode and both were measured, not assumed:
+    `--print` *requires* its prompt as the flag's own argument, so a brief that
+    exceeds the Windows command line has to arrive on stdin — which means
+    `--print=''` plus `--input-format stream-json`, one NDJSON message. And agy
+    takes the process's working directory, so there is no `--standalone`
+    equivalent to forget: the session's `init` event reported the worktree.
+    """
+    binary = executable or shutil.which("agy")
+    if not binary:
+        return Result(Ending.UNAVAILABLE, "", model, ["agy executable not found"])
+    command = [
+        binary,
+        "--model",
+        model.removeprefix(AGY_PREFIX),
+        "--input-format",
+        "stream-json",
+        "--output-format",
+        "stream-json",
+        "--dangerously-skip-permissions",
+        "--disable-slash-commands",
+        "--print=",
+    ]
+    message = json.dumps(
+        {
+            "event": "user",
+            "message": {"role": "user", "content": [{"type": "text", "text": prompt}]},
+        },
+        ensure_ascii=False,
+    )
+    execute: Any = runner if callable(runner) else bounded
+    try:
+        completed = execute(  # noqa: S603 — fixed CLI, no shell
+            command,
+            cwd=str(cwd),
+            input=message + "\n",
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return Result(Ending.TIMEOUT, "", model, [f"no reply within {timeout:.0f}s"])
+    except OSError as error:
+        return Result(Ending.UNAVAILABLE, "", model, [str(error)])
+    text, errors, tokens, status = read_agy_result(completed.stdout or "")
+    stderr = (completed.stderr or "").strip()
+    if stderr:
+        errors.extend(stderr.splitlines())
+    if status == "SUCCESS" and text.strip():
+        # A session that answered and also logged noise still answered.
+        return Result(Ending.COMPLETED, text, model, errors=errors, tokens=tokens)
+    return Result(classify(errors), text, model, errors=errors or ["empty reply"], tokens=tokens)
+
+
 def run(
     model: str,
     prompt: str,
@@ -201,6 +311,10 @@ def run(
 
     `runner` exists for tests: any callable with subprocess.run's signature.
     """
+    if model.startswith(AGY_PREFIX):
+        return run_agy(
+            model, prompt, cwd=cwd, timeout=timeout, executable=executable, runner=runner
+        )
     binary = executable or shutil.which("opencode")
     if not binary:
         return Result(Ending.UNAVAILABLE, "", model, ["opencode executable not found"])

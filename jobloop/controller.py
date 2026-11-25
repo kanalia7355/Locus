@@ -664,7 +664,9 @@ class Controller:
                 f"found={leak}\nfile={task.path.name}\n"
                 f"frontmatter={'yes' if leak in head else 'no'}",
             )
-        model = self.roster.pick()
+        # A light job goes to the second tier's light family when the first tier
+        # is spent; a free model carries no role and is unaffected (owner E2).
+        model = self.roster.pick(role="light" if task.weight == "light" else "implement")
         if not model:
             return Outcome(task.id, "no-model", "every eligible free model is on cooldown")
         tree = self.workspace(task)
@@ -854,7 +856,7 @@ class Controller:
         # away at the next step: on 2026-11-22 `T-PH8-302` re-ran its gates
         # twice every two minutes for an hour to reach a reviewer that was
         # never there. Waiting should cost nothing.
-        if not self.roster.pick(exclude=(model,)):
+        if not self.roster.pick(exclude=(model,), role="review"):
             return Outcome(
                 task.id,
                 "no-reviewer",
@@ -1005,7 +1007,7 @@ class Controller:
         is the subset that wrote to the worktree. Only the second is a question
         for a person — the rest is a wait.
         """
-        reviewer = self.roster.pick(exclude=(model, *refused))
+        reviewer = self.roster.pick(exclude=(model, *refused), role="review")
         if not reviewer:
             if broke_the_rule:
                 # Every model was tried and each broke the read-only rule. That

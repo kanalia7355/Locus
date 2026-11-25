@@ -22,6 +22,24 @@ from typing import Any
 FREE_SUFFIX = "-free"
 FREE_PREFIXES = ("opencode/",)
 LOCAL_PREFIXES = ("ollama/",)
+# Second tier, used only once every first-tier model is cooled down. The owner
+# granted it on 2026-11-25 (E2 in `docs/plans/OWNER_DECISIONS_2026-11-25-ENTRIES.md`)
+# after the free tier was wholly spent for about six hours and nothing could run:
+# the reviewer is drawn from this same roster, so an exhausted first tier stops
+# review as well as implementation.
+#
+# The owner named three families and a role for each. Nothing else `agy models`
+# reports is eligible — not `gemini-4-neon-*`, not the Claude or GPT entries —
+# because a model the owner did not assign is a model nobody chose.
+AGY_PREFIX = "agy/"
+AGY_ROLES = {
+    "implement": "agy/gemini-4-carbon-",
+    "review": "agy/gemini-4-argon-",
+    "light": "agy/gemini-4-hydrogen-",
+}
+# Within one family, try the cheaper reasoning effort first and keep the costlier
+# ones as the fallback, so a spent allowance is not spent faster than it has to be.
+AGY_EFFORT_ORDER = ("-low", "-medium", "-high", "-xhigh")
 # Capability order for implementation work, best first. Unlisted eligible models
 # keep their CLI order after these, so a new free model is usable immediately but
 # never outranks a model we have evidence for.
@@ -51,8 +69,33 @@ _LATEST_CONTAINMENT_REPORT = ""
 _LAST_PROGRESS_PATH: Path | None = None
 
 
+def agy_role(name: str) -> str | None:
+    """Which assigned role an `agy/` identifier fills, or None if unassigned."""
+    for role, prefix in AGY_ROLES.items():
+        if name.startswith(prefix):
+            return role
+    return None
+
+
+def _agy_rank(name: str) -> tuple[int, int, str]:
+    """Order agy ids by role, then by reasoning effort, cheapest first."""
+    roles = list(AGY_ROLES)
+    role = agy_role(name)
+    effort = next(
+        (i for i, suffix in enumerate(AGY_EFFORT_ORDER) if name.endswith(suffix)),
+        len(AGY_EFFORT_ORDER),
+    )
+    return (roles.index(role) if role in roles else len(roles), effort, name)
+
+
 def eligible(identifiers: list[str]) -> list[str]:
-    """Keep the free and local identifiers, best-known capability first."""
+    """Keep the usable identifiers, first tier first, best-known capability first.
+
+    The order is the whole fallback policy: every free and local model comes
+    before every `agy/` one, so the second tier is reached only when `available()`
+    has cooled all of the first tier down. Nothing here spends money — `agy/` is
+    the owner's own subscription, granted for exactly this case.
+    """
     free = [
         name
         for name in identifiers
@@ -60,7 +103,16 @@ def eligible(identifiers: list[str]) -> list[str]:
         or name.startswith(LOCAL_PREFIXES)
     ]
     ranked = [name for name in PREFERRED if name in free]
-    return ranked + [name for name in free if name not in ranked]
+    first = ranked + [name for name in free if name not in ranked]
+    second = sorted(
+        (
+            name
+            for name in identifiers
+            if name.startswith(AGY_PREFIX) and agy_role(name) is not None
+        ),
+        key=_agy_rank,
+    )
+    return first + second
 
 
 @dataclass
@@ -111,14 +163,25 @@ class Roster:
     def _cooled_down(self, entry: dict[str, float]) -> bool:
         return float(entry.get("cooldown_until", 0)) > self.now
 
-    def pick(self, *, exclude: tuple[str, ...] = ()) -> str | None:
-        """The best eligible model that is not excluded and not on cooldown."""
-        candidates = self.available(exclude=exclude)
-        return candidates[0] if candidates else None
+    def pick(self, *, exclude: tuple[str, ...] = (), role: str = "implement") -> str | None:
+        """The best eligible model that is not excluded and not on cooldown.
+
+        `role` only narrows the second tier, where the owner assigned one family
+        per role (2026-11-25, E2): Carbon implements, Argon reviews, Hydrogen takes
+        the light work. First-tier free models carry no role, so they are offered
+        for any role and still come first. An `agy/` model whose role is not the
+        one being asked for is skipped rather than substituted — handing a review
+        to the implementing family is the thing the assignment exists to prevent.
+        """
+        wanted = role if role in AGY_ROLES else "implement"
+        for name in self.available(exclude=exclude):
+            if not name.startswith(AGY_PREFIX) or agy_role(name) == wanted:
+                return name
+        return None
 
     def pick_reviewer(self, implementer: str) -> str | None:
         """A reviewer must not be the model that wrote the code (CONSTRAINTS §5-5)."""
-        return self.pick(exclude=(implementer,))
+        return self.pick(exclude=(implementer,), role="review")
 
     def mark_exhausted(self, model: str, *, seconds: float = COOLDOWN_SECONDS) -> None:
         state = self._state()

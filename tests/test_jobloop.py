@@ -2133,3 +2133,161 @@ def test_idle_rounds_reset_after_work(tmp_path: Path, monkeypatch: pytest.Monkey
     )
     # idle -> backoff(120,1)=240, worked -> pause=120, idle after reset -> 240
     assert waits == [240.0, 120.0, 240.0]
+
+
+# --- second tier: agy (owner decision 2026-11-25, E2) ------------------------
+
+
+def test_the_second_tier_comes_after_every_free_model_and_only_assigned_families() -> None:
+    # The owner assigned three families and a role each. `agy models` also reports
+    # Neon, Claude and GPT entries; a model nobody assigned is a model nobody chose,
+    # so it must not enter the roster by accident.
+    ranked = eligible(
+        [
+            "opencode/iceman-free",
+            "agy/gemini-4-carbon-medium",
+            "ollama/gemma3:4b",
+            "agy/gemini-4-neon-high",
+            "agy/claude-opus-5-5-high",
+            "agy/gemini-4-argon-low",
+            "agy/gemini-4-hydrogen-low",
+            "agy/gemini-4-carbon-low",
+        ]
+    )
+    first = [name for name in ranked if not name.startswith("agy/")]
+    second = [name for name in ranked if name.startswith("agy/")]
+    assert ranked == first + second, "the free tier must be exhausted before agy is reached"
+    assert set(first) == {"opencode/iceman-free", "ollama/gemma3:4b"}
+    assert "agy/gemini-4-neon-high" not in ranked, "an unassigned family must stay out"
+    assert "agy/claude-opus-5-5-high" not in ranked, "an unassigned model must stay out"
+    assert second.index("agy/gemini-4-carbon-low") < second.index("agy/gemini-4-carbon-medium"), (
+        "within one family the cheaper effort is tried first"
+    )
+
+
+def test_the_second_tier_keeps_the_owners_role_assignment(tmp_path: Path) -> None:
+    models = eligible(
+        [
+            "opencode/iceman-free",
+            "agy/gemini-4-carbon-low",
+            "agy/gemini-4-argon-low",
+            "agy/gemini-4-hydrogen-low",
+        ]
+    )
+    state = tmp_path / "roster.json"
+    roster = Roster(models=models, state_file=state, now=1000.0)
+    # A free model carries no role, so it answers every role and still comes first.
+    assert roster.pick(role="implement") == "opencode/iceman-free"
+    assert roster.pick(role="review") == "opencode/iceman-free"
+    roster.mark_exhausted("opencode/iceman-free")
+    spent = Roster(models=models, state_file=state, now=1000.0)
+    assert spent.pick(role="implement") == "agy/gemini-4-carbon-low", "Carbon implements"
+    assert spent.pick(role="review") == "agy/gemini-4-argon-low", "Argon reviews"
+    assert spent.pick(role="light") == "agy/gemini-4-hydrogen-low", "Hydrogen takes light work"
+    # The assignment exists so that implementation and review are different
+    # families: asking for a reviewer must never hand back the implementing one.
+    assert spent.pick_reviewer("agy/gemini-4-carbon-low") == "agy/gemini-4-argon-low"
+
+
+def test_an_agy_result_line_is_read_and_a_spent_allowance_rotates() -> None:
+    # The measured shape (2026-11-25): the last `result` event carries everything.
+    ok = json.dumps(
+        {
+            "event": "result",
+            "result": {
+                "status": "SUCCESS",
+                "response": "PONG\n",
+                "usage": {"total_tokens": 16050},
+            },
+        }
+    )
+    text, errors, tokens, status = worker.read_agy_result('{"event":"init"}\n' + ok)
+    assert text.strip() == "PONG"
+    assert errors == []
+    assert tokens == 16050
+    assert status == "SUCCESS"
+
+    spent = json.dumps(
+        {
+            "event": "result",
+            "result": {"status": "ERROR", "response": "", "error": "usage limit reached"},
+        }
+    )
+    result = worker.run_agy(
+        "agy/gemini-4-carbon-low",
+        "brief",
+        cwd=Path("."),
+        timeout=5.0,
+        executable="agy",
+        runner=lambda *a, **k: subprocess.CompletedProcess(a[0], 0, spent, ""),
+    )
+    assert result.rotate, "a spent allowance must not consume the job's attempt"
+    assert result.ending is worker.Ending.EXHAUSTED
+
+
+def test_an_agy_brief_travels_on_stdin_because_print_needs_its_own_argument(
+    tmp_path: Path,
+) -> None:
+    # Measured 2026-11-25: `--print` takes its prompt as the flag's argument, and a
+    # whole job brief exceeds the Windows command line. So the prompt goes in as one
+    # NDJSON message on stdin, which needs an empty `--print=` to switch print mode on.
+    seen: dict[str, object] = {}
+
+    def fake(command: list[str], **options: object) -> subprocess.CompletedProcess[str]:
+        seen["command"] = command
+        seen["input"] = options.get("input")
+        seen["cwd"] = options.get("cwd")
+        answer = json.dumps(
+            {"event": "result", "result": {"status": "SUCCESS", "response": "done"}}
+        )
+        return subprocess.CompletedProcess(command, 0, answer, "")
+
+    brief = "x" * 40000
+    result = worker.run_agy(
+        "agy/gemini-4-argon-low",
+        brief,
+        cwd=tmp_path,
+        timeout=5.0,
+        executable="agy",
+        runner=fake,
+    )
+    command = seen["command"]
+    assert isinstance(command, list)
+    assert "--print=" in command, "print mode has to be on without taking the prompt"
+    assert not any(part.startswith("--print=") and len(part) > 8 for part in command), (
+        "the brief must not be passed on the command line"
+    )
+    assert "--model" in command and "gemini-4-argon-low" in command, (
+        "the provider prefix is the roster's, not the CLI's"
+    )
+    assert "--dangerously-skip-permissions" in command, "an unattended session cannot be prompted"
+    sent = seen["input"]
+    assert isinstance(sent, str)
+    message = json.loads(sent.strip())
+    assert message["event"] == "user", "the stream input key is `event`, not `type`"
+    assert message["message"]["content"][0]["text"] == brief
+    assert seen["cwd"] == str(tmp_path), "agy takes the process's working directory"
+    assert result.ending is worker.Ending.COMPLETED
+
+
+def test_agy_model_discovery_prefixes_ids_and_skips_the_progress_line() -> None:
+    from jobloop.cli import agy_installed_models
+
+    printed = (
+        "Fetching available models...\n"
+        "gemini-4-carbon-medium\tGemini 4 Carbon (Medium)\n"
+        "gemini-4-argon-low\tGemini 4 Argon (Low)\n"
+    )
+    import jobloop.cli as cli_module
+
+    original = cli_module.subprocess.run
+    try:
+        cli_module.subprocess.run = (  # type: ignore[assignment]
+            lambda *a, **k: subprocess.CompletedProcess(a[0], 0, printed, "")
+        )
+        found = agy_installed_models(executable="agy")
+    finally:
+        cli_module.subprocess.run = original  # type: ignore[assignment]
+    assert found == ["agy/gemini-4-carbon-medium", "agy/gemini-4-argon-low"], (
+        "every other part of the loop identifies a model by provider/id"
+    )
