@@ -90,6 +90,11 @@ class ProjectInput(Input):
     project_id: str = Field(min_length=1, max_length=64)
 
 
+class ConnectorSyncInput(Input):
+    project_id: str = Field(min_length=1, max_length=64)
+    source: str = Field(default="", max_length=256)
+
+
 class Upload(ProjectInput):
     name: str = Field(min_length=1, max_length=160)
     content: str = Field(min_length=1, max_length=262144)
@@ -745,6 +750,14 @@ def create_app(
     @app.get("/api/admin/storage")
     def storage_status(user: Actor) -> dict[str, Any]:
         return svc.storage_status(user)
+
+    @app.get("/api/admin/connectors")
+    def admin_connectors(user: Actor) -> list[dict[str, Any]]:
+        return svc.admin_connectors(user)
+
+    @app.post("/api/admin/connectors/{connector_id}/sync")
+    def sync_connector(connector_id: str, data: ConnectorSyncInput, user: Actor) -> dict[str, Any]:
+        return svc.sync_connector(user, connector_id, data.project_id, data.source)
 
     @app.get("/api/admin/load")
     def load_status(user: Actor) -> dict[str, Any]:
