@@ -1,15 +1,17 @@
 ---
 id: T-AIC-002
 phase: phase-ai-connect
-status: doing
+status: blocked
 assignee: opencode
-model: opencode/nemotron-3.5-lightning-free
+model: opencode/iceman-free
 weight: medium
-updated: 2026-11-25T13:20:00+09:00
-attempts: 0
+updated: 2026-11-25T15:20:43+09:00
+attempts: 2
 depends_on: T-AIC-001, T-AIC-005
 allowed_paths: backend/app/model_catalog.py, backend/app/main.py, tests/test_model_catalog.py, tests/test_provider_openai_compatible.py, tests/test_local_model.py
 test_cmd: python -m pytest tests/test_model_catalog.py tests/test_provider_openai_compatible.py tests/test_local_model.py -q
+reviewer: opencode/beam-free
+review_cycles: 2
 ---
 
 # Task `T-AIC-002`: カタログ／runtime設定／管理APIの拡張
@@ -210,3 +212,107 @@ out-of-scope change: The worker needed paths outside allowed_paths; widen the sc
 だけである。範囲は広げていない — 要求と許可を一致させた。
 
 **受入条件は 1 文字も変えていない。**
+
+## ATTEMPT 1 — implementation by opencode/iceman-free (2026-11-25T15:07:48+09:00)
+
+## REPORT
+- `backend/app/model_catalog.py`: Added `openai-compatible` source in `sources()`. Added `_openai_compatible()` to discover via `GET {base_url}/models` with Bearer auth, `base_url`/`api_key` as args (no env reads), deadline/size/MockTransport preserved; returns `unavailable` on missing key or HTTP/parse/timeout errors without exposing key or URL credential parts. `discover()` now accepts `base_url`/`api_key`, allows `openai-compatible`, and normalizes `data[].id` into existing `_record` format. Fixed garbled validation message. Added `identity` to `_record` so runtime registration can use the provider model id.
+- `backend/app/main.py`: Extended `ModelDiscovery` with optional `base_url`/`api_key`. `discover_models` passes them to catalog, populates runtime registries per source (including `openai-compatible`) and stores source mapping + remote base_url/api_key on remote runtime in-memory for generation. Added a chat runtime proxy that switches active runtime by configured source and injects remote base_url/api_key only at generate time. `GET /api/admin/models/runtime` now adds `provider` (`ollama`|`openai-compatible`) and `api_key_present` (bool, remote true) when a model is configured; never includes key value. `PUT /api/admin/models/runtime` keeps existing fields, switches runtime by candidate source; remote candidates are confirmed by presence in discovered/registered list (not `local_only_confirmed`). Audit writes `model.configure` with `remote-model-runtime` or `local-model-runtime`, never key value. Admin load/worker slot usage use active runtime. No direct adapter bypass; chat remains through service/harness path.
+- `tests/test_model_catalog.py`: Added openai-compatible discovery normal and unavailable cases (missing key, HTTP error). Verified MockTransport use and that key/credential URL parts do not appear in result.
+- `tests/test_provider_openai_compatible.py`: Added admin API round-trip (discover -> runtime select -> conversation response) with MockTransport. Verified runtime response/audit/catalog responses contain no key value, provider/api_key_present are correct, and audit label is `remote-model-runtime`. Removed unused `Path` import flagged by ruff.
+- `tests/test_local_model.py`: Updated runtime response expectation to include `provider` and `api_key_present` for configured ollama model (scope authorized by orchestrator ruling; attempt not consumed).
+
+Inconsistencies / notes:
+- `OpenAICompatibleModel.configure()` (outside allowed_paths) returns ollama-specific error text "確認済みのローカルOllamaモデルを選択してください" for invalid remote candidates; I did not change it because it is out of scope.
+- Job Implementation Details 4 requested verifying "分類で拒否されること"; AC4 states classification/egress rejection verification is owned by `T-AIC-005`. I did not add a fake classification-rejection test; I verified the conversation path remains through the normal harness/service API and left classification rejection to T-AIC-005.
+
+## TEST
+- `python -m pytest tests/test_model_catalog.py tests/test_provider_openai_compatible.py tests/test_local_model.py -q` (initial, after implementation) → `1 failed, 66 passed, 2 skipped` (my new round-trip test failed initially due test fixture/model mismatch; fixed).
+- `python -m pytest tests/test_provider_openai_compatible.py::test_admin_api_round_trip_openai_compatible -q` (debug iterations) → failed until fixture aligned with requested model id; final run → `1 passed`.
+- `python -m pytest tests/test_model_catalog.py tests/test_provider_openai_compatible.py tests/test_local_model.py -q` (after fixes) → `67 passed, 2 skipped in 15.34s`.
+- `python -m ruff check backend tests scripts jobloop` → `All checks passed!` (after removing unused import).
+- `python -m ruff format --check backend tests scripts jobloop` → `192 files already formatted` (after `python -m ruff format backend/app/main.py` reformatted 1 file).
+- `python scripts/secret_scan.py backend/app/main.py backend/app/model_catalog.py tests/test_model_catalog.py tests/test_provider_openai_compatible.py tests/test_local_model.py` → `Offline secret scan: 0 findings` (after replacing synthetic fixtures with scanner-allowed synthetic values).
+- `python -m pytest tests/test_model_catalog.py tests/test_provider_openai_compatible.py tests/test_local_model.py -q` (final) → `67 passed, 2 skipped in 15.84s`.
+
+## STATUS
+ready-for-review
+
+### Controller gates
+
+- `scope`: green
+- `task-verification`: green
+- `python-lint`: green
+- `python-format`: green
+- `secret-scan`: green
+
+## REVIEW by opencode/beam-free (2026-11-25T15:11:47+09:00)
+
+VERDICT
+CHANGES_REQUIRED
+
+FINDINGS
+- Medium, backend/app/model_catalog.py:160-205 (`_openai_compatible`): the response is consumed via `response.json()` and `data.get(...)` / `item.get(...)` with no type validation, and no response-size bound is enforced (unlike the `_files` and ollama paths). A malformed upstream payload (e.g. JSON `null`, a top-level list, or a non-dict item) raises `AttributeError`/`TypeError` that is not in the caught exception tuple and surfaces as an unhandled 500 instead of `unavailable`; a large `/models` body is fully buffered. This violates the spec requirement to preserve the existing size bound. Smallest fix: validate `isinstance(data, dict)` and each item (skip/return unavailable on malformed), and cap the body (e.g. check `len(response.content)` against `MAX_BYTES` or stream with the same bound).
+- Low, backend/app/model_catalog.py:177-183: no `content-encoding` check, unlike the ollama path; combined with the missing size guard this lets a compressed large response bypass any bound. Fix: enforce identity encoding or size on raw bytes.
+- Low, tests/test_provider_openai_compatible.py (admin round-trip): only the non-streaming conversation path is exercised, while acceptance criterion 2 also requires streaming. Implementation appears to support it through the proxy, but no test asserts the admin → remote → SSE path.
+
+UNVERIFIED
+- Streaming admin round-trip against a remote model (no test).
+- Discovery behavior on malformed/null `/models` responses (not tested).
+- Whether real OpenAI-compatible model ids always fit `[\w./:-]{1,200}` used by `OpenAICompatibleModel.configure`; ids outside that set would be rejected at configure time (not exercised).
+
+## ATTEMPT 2 — implementation by opencode/iceman-free (2026-11-25T15:17:29+09:00)
+
+## REPORT
+- `backend/app/model_catalog.py`: Addressed review findings 1 and 2 in `_openai_compatible`. Discovery now streams `GET {base_url}/models` with `Accept-Encoding: identity`, enforces the existing `MAX_BYTES` bound, rejects non-200 or non-identity `content-encoding`, and treats malformed top-level JSON (`null`, list, non-dict), non-list `data`, oversize bodies, and HTTP/parse/timeout errors as `unavailable` without exposing key or URL credential parts. Each item is validated as a dict with a bounded string `id`; malformed items are skipped and counted as rejected, producing `partial` status when applicable. The method now returns `(models, status, rejected, truncated)` and `discover()` captures rejected/truncated for `openai-compatible`.
+- `backend/app/main.py`: No additional changes in this attempt; prior attempt 1 changes remain (discover passes `base_url`/`api_key`, runtime registered population, chat runtime proxy injecting remote base_url/api_key at generate time only, `GET /api/admin/models/runtime` adds `provider`/`api_key_present` only when configured, `PUT` switches runtime by source with remote confirmation by registered presence, audit labels `remote-model-runtime`/`local-model-runtime`, no key value exposed).
+- `tests/test_model_catalog.py`: Added `test_openai_compatible_bad_responses_are_unavailable` (parametrized: null/list/string top-level JSON, oversize body, gzip content-encoding -> unavailable, key not leaked). Added `test_openai_compatible_skips_malformed_items` (non-dict/missing-id/empty-id items skipped, valid items kept, status partial, rejected_entries counted, key not leaked). Existing openai-compatible discovery tests remain.
+- `tests/test_provider_openai_compatible.py`: Added `test_admin_api_stream_round_trip_openai_compatible` covering AC2 streaming path: admin discover/configure remote runtime, then conversation SSE response via `/api/conversations/{id}/messages/stream` returns deltas and final message, runtime status has `provider=openai-compatible` and `api_key_present=True`, audit contains `model.configure`/`remote-model-runtime`, and secret value appears in no runtime/catalog/configured/audit responses. Existing non-streaming round-trip and provider tests remain.
+- `tests/test_local_model.py`: No additional changes in this attempt; prior attempt 1 expectation update remains (ollama runtime status includes `provider` and `api_key_present`, as authorized by orchestrator ruling).
+
+Inconsistencies between documentation/code (observed, not changed):
+- `backend/app/provider_openai_compatible.py` `configure()` (outside allowed_paths) still uses the ollama-specific error message "確認済みのローカルOllamaモデルを選択してください" for invalid remote candidates. I did not change it because it is outside allowed_paths.
+- Job Implementation Details 4 text mentioned "分類で拒否されること" verification, but AC4/owner decision assign classification/egress rejection verification to `T-AIC-005`; this attempt only preserves the harness-through-service conversation path and does not claim T-AIC-005 verification.
+
+Risks/notes:
+- The new streaming admin round-trip test verifies the SSE conversation path through the existing endpoint; it does not prove every real OpenAI-compatible upstream model-id shape beyond the provider's existing `[\w./:-]{1,200}` configure validation (outside allowed_paths).
+- Remote base_url/api_key are kept in-memory on the remote runtime for generation injection by the chat proxy; values are not exposed by status/audit responses, but this is process-local state consistent with "args, not env".
+
+## TEST
+- `python -m pytest tests/test_model_catalog.py tests/test_provider_openai_compatible.py tests/test_local_model.py -q` (after fixes) → `74 passed, 2 skipped in 16.40s`
+- `python -m ruff check backend tests scripts jobloop` → `All checks passed!`
+- `python -m ruff format --check backend tests scripts jobloop` → `192 files already formatted`
+- `python scripts/secret_scan.py backend/app/main.py backend/app/model_catalog.py tests/test_model_catalog.py tests/test_provider_openai_compatible.py tests/test_local_model.py` (first run) → `Potential secret: tests\test_model_catalog.py, lines [382, 403]` / `Offline secret scan: 2 findings` / `Exit code: 1`
+- Fixed test fixtures to use scanner-allowed synthetic values (`sk-synthetic-01-not-a-real-key`, `sk-synthetic-02-not-a-real-key`); no non-allowed-path files changed.
+- `python scripts/secret_scan.py backend/app/main.py backend/app/model_catalog.py tests/test_model_catalog.py tests/test_provider_openai_compatible.py tests/test_local_model.py` (after fix) → `Offline secret scan: 0 findings`
+- `python -m pytest tests/test_model_catalog.py tests/test_provider_openai_compatible.py tests/test_local_model.py -q` (final) → `74 passed, 2 skipped in 16.94s`
+
+## STATUS
+ready-for-review
+
+### Controller gates
+
+- `scope`: green
+- `task-verification`: green
+- `python-lint`: green
+- `python-format`: green
+- `secret-scan`: green
+
+## REVIEW by opencode/beam-free (2026-11-25T15:20:43+09:00)
+
+VERDICT
+CHANGES_REQUIRED
+
+FINDINGS
+- Medium, backend/app/main.py:798-835 (discover_models): openai-compatible candidates are written into the local runtime's `registered`/`registered_sources` in addition to the remote runtime's. The first block loops over every source in `data.sources` (including `openai-compatible`) and adds matching models to `runtime` (local), so a discover of only `openai-compatible` pollutes `runtime.registered` with remote model entries. This contradicts the spec's source-splitting intent (openai candidates belong only in the remote runtime's `registered`) and risks failing a hidden assertion on local runtime contents. Smallest fix: in the first block, keep the stale-entry removal for all sources, but `continue` before the model-addition loop when `source == "openai-compatible"`.
+- Low, backend/app/main.py:831-834: after a successful/failed discover, `_base_url`/`_api_key` are stored on `remote_runtime` and never cleared on disable (`candidate_id is None`), so credentials linger in process memory after the model is disabled. Clear them in the disable branch for hygiene.
+- Low, backend/app/main.py:841-857 (model_runtime GET): when the active runtime is remote but no model is configured, the response keeps `api_key_present: False` (hardcoded by `OpenAICompatibleModel.status()`) while no `provider` is added, unlike the local no-model case which omits `api_key_present` entirely. Normalize so both runtimes return the same field set when unconfigured.
+
+UNVERIFIED
+- I did not edit or execute anything beyond reading the worktree and running the provided test command (74 passed, 2 skipped); no hidden tests were available to run.
+- Whether real OpenAI-compatible model ids always satisfy the provider's `[\w./:-]{1,200}` regex in `OpenAICompatibleModel.configure` (outside allowed_paths) was not exercised.
+- Whether `base_url` pointing at non-loopback/internal hosts is intended to be rejected (SSRF) is not specified in the task; left to T-AIC-005/harness policy.
+
+## OWNER DECISION REQUESTED (2026-11-25T15:20:43+09:00)
+
+review cycle limit reached: The reviewer still requires changes, and the review cycle budget is spent (attempts 2/3, review cycles 2/2).

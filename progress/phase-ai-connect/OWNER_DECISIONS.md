@@ -69,3 +69,22 @@ outside allowed_paths: ['tests/test_local_model.py']
 the worker changed nothing
 
 **Answer** (2026-11-25 13:20, orchestrator): **試行を 3/3 から 0/3 に戻す。ただし `blocked` のまま置き、ワーカーには回さない — オーナーの判断を待つ。** 3 回の「the worker changed nothing」は**正直な報告**だった: 成果物 `material/USER_CREDENTIAL_DESIGN.md`（33,069 バイト）は**既に統合ブランチに存在し**、ワークスペースの HEAD 版と本体の HEAD 版はバイト単位で同一、ワークスペースは `ahead=0` である。残る仕事が無いのだから変えるものも無く、その 3 回に予算を請求するのは誤りなので戻した。**なぜそうなったかは私の誤りである**: このファイルが統合ブランチに入ったのは 2026-11-23 の私の裁定コミット **`b7041a6`**（「1 件の逸脱が 2 件を止めていた。切り分けて両方戻す」）で、逸脱を切り分けたときに**ワーカーの成果物をレビューを経ずに持ち込んだ**。証拠はこの票の `## REPORT` / `## TEST` / `## REVIEW` が**3 節とも空のテンプレートのまま**であること。**ワーカーに回せない**: 差分 0 バイトなのでレビューは「1 バイトも変わっていない」経路でモデルを回し続けるだけ、実装に回せばワーカーは正しく「変えるものが無い」と答える。**私も決められない**: 残っているのはレビューだけで、レビューの承認を私が与えることは禁じられている。**オーナーへの二択**: (1) この設計書をレビュー無しで受け入れる（私の `b7041a6` の事後承認）、(2) `b7041a6` が入れた分を統合ブランチから外し、正規の経路で納め直させる（成果物は git 履歴とワークスペースに残るので失われないが、実装とレビューをやり直す）。1 の場合も**受入条件 7**（コード・スキーマ・dispatch を変更していないこと）は機械で確かめられる。詳細は `tasks/T-AIC-006.md`。
+
+## T-AIC-002 — review cycle limit reached (2026-11-25T15:20:43+09:00)
+
+**Question**: The reviewer still requires changes, and the review cycle budget is spent (attempts 2/3, review cycles 2/2).
+
+**Context**
+
+T
+CHANGES_REQUIRED
+
+FINDINGS
+- Medium, backend/app/main.py:798-835 (discover_models): openai-compatible candidates are written into the local runtime's `registered`/`registered_sources` in addition to the remote runtime's. The first block loops over every source in `data.sources` (including `openai-compatible`) and adds matching models to `runtime` (local), so a discover of only `openai-compatible` pollutes `runtime.registered` with remote model entries. This contradicts the spec's source-splitting intent (openai candidates belong only in the remote runtime's `registered`) and risks failing a hidden assertion on local runtime contents. Smallest fix: in the first block, keep the stale-entry removal for all sources, but `continue` before the model-addition loop when `source == "openai-compatible"`.
+- Low, backend/app/main.py:831-834: after a successful/failed discover, `_base_url`/`_api_key` are stored on `remote_runtime` and never cleared on disable (`candidate_id is None`), so credentials linger in process memory after the model is disabled. Clear them in the disable branch for hygiene.
+- Low, backend/app/main.py:841-857 (model_runtime GET): when the active runtime is remote but no model is configured, the response keeps `api_key_present: False` (hardcoded by `OpenAICompatibleModel.status()`) while no `provider` is added, unlike the local no-model case which omits `api_key_present` entirely. Normalize so both runtimes return the same field set when unconfigured.
+
+UNVERIFIED
+- I did not edit or execute anything beyond reading the worktree and running the provided test command (74 passed, 2 skipped); no hidden tests were available to run.
+- Whether real OpenAI-compatible model ids always satisfy the provider's `[\w./:-]{1,200}` regex in `OpenAICompatibleModel.configure` (outside allowed_paths) was not exercised.
+- Whether `base_url` pointing at non-loopback/internal hosts is intended to be rejected (SSRF) is not specified in the task; left to T-AIC-005/harness policy.

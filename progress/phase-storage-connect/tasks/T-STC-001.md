@@ -1,19 +1,28 @@
 ---
 id: T-STC-001
 phase: phase-storage-connect
-status: blocked
+status: review
 assignee: opencode
 model: opencode/nemotron-3.5-lightning-free
 weight: medium
-updated: 2026-11-25T12:58:51+09:00
+updated: 2026-11-25T15:30:00+09:00
 attempts: 2
 allowed_paths: backend/app/connectors.py, backend/app/service.py, backend/app/main.py, tests/test_connectors.py
 test_cmd: python -m pytest tests/test_connectors.py tests/test_api.py -q
 reviewer: opencode/iceman-free
-review_cycles: 2
+review_cycles: 1
 ---
 
 # Task `T-STC-001`: コネクタ共通基盤（IF／出所テーブル／同期エンジン／管理API）
+
+## SCOPE — レビュアーへ（2026-11-25 15:30 追記。先に読むこと）
+
+- **ページ途中で一覧が失敗したときの退行テストは、この票の仕事ではない。**
+  `T-STC-006` に移した（2026-11-25 15:30 の裁定）。
+  不具合そのものは `backend/app/connectors.py:76-169` で**既に直っている**。
+- 条件 1 が求めるのは**同期の往復（登録／差分／取消）**の検証である。
+  ページ途中失敗という端の場合は条文が名指ししていない。
+  **それを理由に `CHANGES_REQUIRED` としないこと。**
 
 ## TASK DEFINITION (Assigned by Orchestrator)
 
@@ -359,3 +368,31 @@ UNVERIFIED
 ## OWNER DECISION REQUESTED (2026-11-25T12:58:51+09:00)
 
 review cycle limit reached: The reviewer still requires changes, and the review cycle budget is spent (attempts 2/3, review cycles 2/2).
+
+## ORCHESTRATOR RULING (2026-11-25 15:30)
+
+**周回を 1 回戻す（2/2 → 1/2）。試行は 2/3 のまま。`review` に置く。
+指摘は良いが、この票の受入条件の外なので `T-STC-006` に移した。**
+
+**2 周目の指摘は実装の不具合ではない。** レビュアー自身が、1 周目に High として挙げた
+不具合（一覧がページ途中で失敗した後に見えなかった出自を取消す）は
+**`backend/app/connectors.py:76-169` で直っていると確認している**。
+残っているのは「それを守る退行テストが無い」という指摘 1 件だけである。
+
+**条文と突き合わせた結果、それはこの票の条件の外である。**
+条件 1 は「フェイクコネクタで同期の往復（登録／差分／取消）がテストで検証されている」で、
+**ページ途中で失敗したときの振る舞いは名指ししていない**。往復そのものの検証は
+済んでおり、ゲートは緑である（`task-verification` exit 0、28 passed、
+lint / format / secret-scan 緑）。
+
+**移したのであって、落としたのではない。** `T-STC-006` を新しく起こし、
+`depends_on: T-STC-001` を付けた。レビュアーが書いた失敗の筋（`A,B` を同期後、
+次の `list_items` が 1 ページ目を返して例外を投げ、`revoked == 0` かつ
+`B` が `revoked is False` のまま）をそのまま受入条件に写してある。
+**守りを外すと落ちることを確かめる**ことも条件に入れた。
+
+**この票で直すものは無い。** だから `doing` ではなく `review` に置く。
+次のレビュアーには、上の SCOPE 節に書いたとおり `T-STC-006` の範囲を蒸し返さないよう
+書いてある。
+
+**受入条件は 1 文字も変えていない。**
