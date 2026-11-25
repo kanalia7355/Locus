@@ -220,7 +220,20 @@ RULING` section of the task file, and an `**Answer**` under the matching entry i
 - Widen a scope to make a worker's deviation legal after the fact.
 - Change or drop an acceptance criterion to clear a block. Moving a finding to a
   **new ticket** is allowed and is not the same thing — say which you did.
-- Mark a job `done` yourself, or approve a review.
+- Mark a job `done` yourself, or approve a review. **One narrow exception, granted
+  by the owner on 2026-11-25 (E3 in
+  `docs/plans/OWNER_DECISIONS_2026-11-25-ENTRIES.md`): the acceptance criteria are
+  the contract.** When every criterion is met, and the reviewer's
+  `CHANGES_REQUIRED` rests *only* on matters no criterion names, you may decide
+  the job merges. The grant is narrow on purpose, and it carries three
+  obligations: the out-of-criteria findings go to **new tickets** (never dropped
+  and never argued away), the criteria are **not rewritten** to make them met, and
+  the record says **which criterion was satisfied by what evidence and which
+  finding went to which ticket**. "It is a contract, so I merged it" is not a
+  record anyone can check later. Two incidents are behind the grant: `T-STC-001`
+  and `T-AIC-002` each spent every review cycle on good findings that no
+  criterion named, and each time restoring a cycle only bought the next
+  out-of-criteria finding.
 - Delete a file a worker actually wrote as part of its change. Scratch, yes;
   work, never.
 - Resolve a merge conflict by taking a stale branch wholesale. Check the base:
