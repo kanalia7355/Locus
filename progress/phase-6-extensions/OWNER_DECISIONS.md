@@ -2837,3 +2837,20 @@ UNVERIFIED
 **Context**
 
 the worker changed nothing
+
+## T-PH6-119 — review cycle limit reached (2026-11-25T17:32:13+09:00)
+
+**Question**: The reviewer still requires changes, and the review cycle budget is spent (attempts 3/3, review cycles 2/2).
+
+**Context**
+
+I've loaded the required skills and the task definition. Now let me examine the actual files under review rather than relying only on the diff text.Now let me check the remaining absolute-unit declarations and the e2e test file.Let me examine the new e2e tests and helpers.Let me check for any remaining absolute-unit or shorthand font declarations I may have missed.VERDICT
+- CHANGES_REQUIRED
+
+FINDINGS
+- **Medium** — `frontend/src/styles.css:164-170` (drift repeats at `frontend/src/styles.css:218`, `:235`, `:648`, `:972`, `:1131`, `:1287`, `:1556`): the `rem` conversion did not re-express the pre-change absolute `font-size` values from the removed `:root { font-size: 14px }` baseline, so several declarations now compute +2–3px larger than before at the default user text size. Concrete cases visible in the diff: `h1` 17px → `1.25rem` (now 20px), `h2` 16px → `1.125rem` (now 18px), `.access-form h1` 22px → `1.5rem` (now 24px), `.provision-user h2` / `.ingestion-progress h2` / `.admin-project h2`+`h3` 15px → `1.0625rem` (now 17px), `.answer h2` / `.settings-panel-header h2` / `.access-brand` 16px → `1.125rem` (now 18px). The task required apparent size to be kept ("見た目を 1px も変えないことを目標にしないこと") and sanctioned only the body growth, so these are regressions. Smallest fix: re-express each as the exact pre-change equivalent (e.g. `h1 { font-size: 1.0625rem }`, `h2 { font-size: 1rem }`, `.access-form h1 { font-size: 1.375rem }`, 15px labels → `0.9375rem`).
+
+UNVERIFIED
+- `<meta name="text-scale" content="scale">` browser support could not be independently checked here (task cites Chrome 146+/Edge 146+; Firefox/Safari handling unverified in this read-only context).
+- The controller-green evidence (`vitest run`, typecheck, lint, `test:appearance`) was taken on the controller side; this read-only review did not re-run them.
+- The task-asserted measurement that `scrollWidth` equals `clientWidth` under `html, body { overflow-x: clip }` was not re-measured in this context.
