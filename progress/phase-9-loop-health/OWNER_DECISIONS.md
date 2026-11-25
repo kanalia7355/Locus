@@ -317,3 +317,11 @@ CONFLICT (content): Merge conflict in tests/test_jobloop.py
 Automatic merge failed; fix conflicts and then commit the result.
 
 **Answer** (2026-11-25 10:35, orchestrator): **現在の統合ブランチの上でやり直す。試行は消費せず `doing`。** 原因はワーカーではなく仕組みである。`Controller.refresh()` は自分のコミットを持つワークスペースのリセットを意図的に拒否するため（2026-11-21 にレビュー済み 5 件を消した事故への対策で、拒否自体は正しい）、毎サイクル古い木でゲートが通り、マージだけが衝突し、`resume` は試行を消費しないので永久に繰り返していた。**2026-11-24 16:30 の同趣旨の裁定は実行されていなかった**（停止記録のコミットが昨日と同一の `c6c0c4a`）。状態を書き換えても基点は動かないので、あの裁定には実行する手段が無かった。実測: 基点 `30be2e8`（11-24 12:31）で **31 commits 遅れ**、作業はまだ必要（足す 5 本のテストはいずれも統合ブランチに無い）。**私が手でワークスペースを現在の枝へリセットした**（`behind=0`/`ahead=0`/汚れなし）。元のコミットはタグ `stale/T-PH9-406-1125` に保全し、捨てていない。古い枝をそのまま採らないこと。仕組みの欠陥は `T-PH9-414` に起票した。詳細は `tasks/T-PH9-406.md`。
+
+## T-PH9-406 — out-of-scope change (2026-11-25T13:21:07+09:00)
+
+**Question**: The worker needed paths outside allowed_paths; widen the scope or split the job. — 1 path(s) the worker wrote outside its scope: test_output.txt. Decide whether the job's scope was drawn too narrowly, or whether the worker should not have written them.
+
+**Context**
+
+outside allowed_paths: ['test_output.txt']
