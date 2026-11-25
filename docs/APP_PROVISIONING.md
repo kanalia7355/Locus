@@ -20,7 +20,7 @@ credential at either supplied App ID. Use the original key locally, without
 pasting it into chat, command arguments or files created by this tool. If the
 original key is unavailable, the App owner needs to provision a new key.
 
-From an interactive PowerShell terminal in `C:\Users\hirot\Locus`, run:
+From an interactive PowerShell terminal in `<repo>`, run:
 
 ```powershell
 .venv\Scripts\python.exe -m loop_engine.cli app-provision review --app-id 5555922 --installation-id 177234377

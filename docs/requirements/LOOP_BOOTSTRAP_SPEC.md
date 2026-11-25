@@ -5,7 +5,7 @@
 既存の「Codex Autonomous Loop Engineering — Implementation Specification」に基づき、VS CodeのCodex拡張から `$loop` を呼び出すだけで、自律的な実装・QA・PR作成・CI修正・安全な自動マージを開始できる環境を構築する。
 
 対象：
-- ローカル：`C:\Users\hirot\Locus`
+- ローカル：`<repo>`
 - GitHub：`kanalia7355/Locus`
 - GitHub認証：既存の `gh` 認証を利用
 - 開発環境：Windows / PowerShell / VS Code / Codex

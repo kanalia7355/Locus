@@ -86,17 +86,16 @@ def classify(category: str, context: str, *, repository: str = "") -> Repair | N
         # real command put the main checkout's path into the job file, and the
         # guard then refused to dispatch it. The loop poisoned itself.
         #
-        # But only in the evidence. The same path in the frontmatter is the
-        # ticket being wrong — a `test_cmd` naming an interpreter in another
-        # checkout, which is what caused the containment failures in the first
-        # place. Redacting that would leave a broken command and dispatch it.
-        if "frontmatter=yes" in context:
-            return None
-        if repository in context:
+        # The path is redacted whether it appears in the evidence or the
+        # frontmatter: origin does not stop a worker reading its own job file
+        # from learning where the main checkout is. `context` may hold the
+        # slash-converted form that `points_outside` matched.
+        forms = {repository, repository.replace("\\", "/"), repository.replace("/", "\\")}
+        if any(form in context for form in forms):
             return Repair(
                 "redact",
-                "the path came from evidence the controller itself recorded, "
-                "not from the job definition",
+                "the job file names the main checkout, so the path is rewritten: a "
+                "worker reading its own job file must not learn where that is",
                 (repository,),
             )
         return None

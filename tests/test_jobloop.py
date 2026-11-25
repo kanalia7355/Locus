@@ -709,12 +709,11 @@ def test_a_job_left_in_review_is_picked_up_again(tmp_path: Path) -> None:
 
 
 def test_a_path_in_the_body_is_told_apart_from_one_in_the_frontmatter(tmp_path: Path) -> None:
-    # The distinction decides whether the loop may redact it or must stop: a
-    # `test_cmd` naming another checkout has to be fixed by a person, while the
-    # same path in a recorded ruling is prose and can be redacted. Task files
-    # are CRLF, so `"\n---\n"` never matched, `head` became the whole file, and
-    # every path anywhere read as frontmatter. `T-PH7-201` was blocked on
-    # 2026-11-22 by a path inside a ruling because of that one `\r`.
+    # Task files are CRLF, so `"\n---\n"` never matched before CRLF
+    # normalisation, and `head` became the whole file. `T-PH7-201` was blocked
+    # on 2026-11-22 by a path inside a ruling because of that one `\r`.
+    # With T-PH9-406, both body and frontmatter occurrences of the main-checkout
+    # root are redacted via self-repair rather than left in the job file.
     root = str(tmp_path)
     directory = phase_with_task(tmp_path, TASK + f"\n## ORCHESTRATOR RULING\n\nsee {root}\n")
     path = directory / "tasks" / "T-JOB-1.md"
@@ -724,26 +723,210 @@ def test_a_path_in_the_body_is_told_apart_from_one_in_the_frontmatter(tmp_path: 
     outcome = controller.run_job(tasks.load_phase(directory).tasks[0])
     assert outcome.state == "self-repaired", outcome.detail
     assert root not in path.read_bytes().decode("utf-8"), "the body occurrence is redacted"
-    # The neighbouring case — the same path in the frontmatter, which must keep
-    # stopping the job — is pinned by
-    # `test_a_job_naming_the_main_checkout_is_never_dispatched`.
 
 
 def test_a_job_naming_the_main_checkout_is_never_dispatched(tmp_path: Path) -> None:
     # Sanitising the brief is not enough: the worker opens its own job file.
     # On 2026-11-16 one read the absolute interpreter path out of `test_cmd`,
     # ran that interpreter, and went on to edit the checkout it belonged to.
+    # With the T-PH9-406 fix, the absolute path in the job file (including
+    # backslash or forward-slash forms in frontmatter) is redacted by
+    # self-repair before any worker is dispatched.
     root = str(tmp_path)
+    slash_root = root.replace("\\", "/")
     directory = phase_with_task(
-        tmp_path, TASK.replace("test_cmd: ", f"test_cmd: {root}/.venv/bin/python ")
+        tmp_path, TASK.replace("test_cmd: ", f"test_cmd: {slash_root}/.venv/bin/python ")
     )
     controller = controller_for(tmp_path, ["a-free", "b-free"])
     dispatched: list[str] = []
     controller.dispatch = lambda model, prompt, **_: dispatched.append(model)  # type: ignore[assignment]
     outcome = controller.run_job(tasks.load_phase(directory).tasks[0])
-    assert outcome.state == "escalated" and "another checkout" in outcome.detail
+    assert outcome.state == "self-repaired"
     assert not dispatched, "the worker must never be started"
-    assert tasks.load_phase(directory).tasks[0].status == "blocked"
+    record = (directory / "tasks" / "T-JOB-1.md").read_bytes().decode("utf-8")
+    for form in {root, slash_root, root.replace("/", "\\")}:
+        assert form not in record, "the absolute checkout path must not remain in the job file"
+    assert controller.points_outside(tasks.load_phase(directory).tasks[0]) == ""
+
+
+def test_containment_record_omits_absolute_repository_root(tmp_path: Path) -> None:
+    # The worker reads its own job file. An absolute path there teaches it the
+    # main checkout's location — the same escape route this ticket closes.
+    phase_with_task(tmp_path)
+    controller = controller_for(tmp_path, ["a-free", "b-free"])
+    controller.workspace = lambda task: tmp_path / "ws"  # type: ignore[assignment]
+    (tmp_path / "ws").mkdir()
+    controller.dispatch = lambda model, prompt, **_: worker.Result(  # type: ignore[assignment]
+        worker.Ending.COMPLETED, "REPORT\n- done", model
+    )
+    seen: list[str] = []
+
+    def dirt(path: Path) -> str:
+        seen.append(str(path))
+        return "" if len(seen) == 1 else " M backend/app/service.py abc123\n"
+
+    controller.dirt = dirt  # type: ignore[assignment]
+    outcome = controller.run_job(controller.select())
+    assert outcome.state == "escalated" and "outside its workspace" in outcome.detail
+    root = str(controller.settings.repository)
+    body = (controller.settings.phase_directory / "tasks" / "T-JOB-1.md").read_text(
+        encoding="utf-8"
+    )
+    decisions = (controller.settings.phase_directory / "OWNER_DECISIONS.md").read_text(
+        encoding="utf-8"
+    )
+    for form in {root, root.replace("\\", "/"), root.replace("/", "\\")}:
+        assert form not in body, "the job record must not name the checkout"
+        assert form not in decisions, "the owner decision must not name the checkout"
+    assert "marker=.jobloop/orchestrator-busy present=False" in decisions
+
+
+def test_containment_record_keeps_present_for_both_marker_states(tmp_path: Path) -> None:
+    # present=True/False is how a reader tells "the operator was editing" from
+    # "the worker escaped". Dropping it loses the first fact the record is read for.
+    phase_with_task(tmp_path)
+    controller = controller_for(tmp_path, ["a-free", "b-free"])
+    controller.workspace = lambda task: tmp_path / "ws"  # type: ignore[assignment]
+    (tmp_path / "ws").mkdir()
+    controller.dispatch = lambda model, prompt, **_: worker.Result(  # type: ignore[assignment]
+        worker.Ending.COMPLETED, "REPORT\n- done", model
+    )
+    seen = {"n": 0}
+
+    def dirt(_path: Path) -> str:
+        seen["n"] += 1
+        return "" if seen["n"] == 1 else " M backend/app/service.py abc123\n"
+
+    controller.dirt = dirt  # type: ignore[assignment]
+
+    # Marker absent: a real containment stop records present=False.
+    outcome = controller.run_job(controller.select())
+    assert outcome.state == "escalated"
+    decisions = (controller.settings.phase_directory / "OWNER_DECISIONS.md").read_text(
+        encoding="utf-8"
+    )
+    assert "marker=.jobloop/orchestrator-busy present=False" in decisions
+
+    # Marker present: the comparison is suspended, and the record still says the
+    # marker was there.
+    busy_directory = phase_with_task(tmp_path / "busy", TASK)
+    busy = controller_for(tmp_path / "busy", ["a-free", "b-free"])
+    busy.workspace = lambda task: tmp_path / "busy-ws"  # type: ignore[assignment]
+    (tmp_path / "busy-ws").mkdir()
+    busy.operator_busy = lambda: True  # type: ignore[assignment]
+    busy.dispatch = lambda model, prompt, **_: worker.Result(  # type: ignore[assignment]
+        worker.Ending.COMPLETED,
+        "REPORT\n- done\n\nSTATUS\n- needs-owner-decision: which retry budget applies?",
+        model,
+    )
+    busy_seen = {"n": 0}
+
+    def busy_dirt(_path: Path) -> str:
+        busy_seen["n"] += 1
+        return "" if busy_seen["n"] == 1 else " M backend/app/service.py abc123\n"
+
+    busy.dirt = busy_dirt  # type: ignore[assignment]
+    busy_outcome = busy.run_job(busy.select())
+    assert busy_outcome.state == "escalated"
+    busy_body = (busy_directory / "tasks" / "T-JOB-1.md").read_text(encoding="utf-8")
+    assert "marker=.jobloop/orchestrator-busy present=True" in busy_body
+
+
+def _repository_root_for_scan(checkout: Path) -> Path:
+    """Resolve the repository root whose absolute path must never appear in records.
+
+    In the main checkout (and on CI) that is `checkout` itself. Inside a job
+    workspace (`<parent>/.jobloop-<name>/workspaces/<job>`), `origin` points at
+    the main checkout, which is the root workers must never be taught.
+    """
+    if checkout.parent.name == "workspaces" and checkout.parents[1].name.startswith(".jobloop-"):
+        origin = git(checkout, "remote", "get-url", "origin", check=False).strip()
+        if origin and Path(origin).is_dir():
+            return Path(origin).resolve()
+    return checkout.resolve()
+
+
+def _tracked_offenders_for_root(
+    checkout: Path,
+    root: Path,
+    *,
+    excluded_test_fixtures: dict[str, str],
+) -> list[str]:
+    """Tracked non-protected files whose text contains `root` in any slash form."""
+    forms = {
+        str(root),
+        str(root).replace("\\", "/"),
+        str(root).replace("/", "\\"),
+    }
+    listed = git(checkout, "ls-files", "-z")
+    tracked = [entry for entry in listed.split("\0") if entry]
+    offenders: list[str] = []
+    for rel in tracked:
+        normalized = rel.replace("\\", "/")
+        if normalized.startswith(gates.PROTECTED):
+            continue
+        if normalized in excluded_test_fixtures:
+            continue
+        text = (checkout / rel).read_bytes().decode("utf-8", "replace")
+        if any(form in text for form in forms):
+            offenders.append(normalized)
+    return offenders
+
+
+def test_tracked_files_do_not_record_absolute_repository_root(tmp_path: Path) -> None:
+    # Self-prove the guard in both directions first: a tracked non-protected
+    # file containing the runtime-computed root fails, while a protected file
+    # and the two named fixture paths do not.
+    probe = tmp_path / "repo"
+    probe.mkdir()
+    git(probe, "init", "-b", "main")
+    git(probe, "config", "user.email", "t@example.invalid")
+    git(probe, "config", "user.name", "t")
+    probe_root = probe.resolve()
+    (probe / "docs").mkdir()
+    (probe / "docs" / "plans").mkdir()
+    (probe / "progress" / "phase-x").mkdir(parents=True)
+    (probe / "tests").mkdir()
+    (probe / "docs" / "plans" / "PLAN.md").write_text(f"protected {probe_root}\n", encoding="utf-8")
+    (probe / "tests" / "test_selfrepair.py").write_text(
+        f"REPO = {probe_root!r}\n", encoding="utf-8"
+    )
+    (probe / "progress" / "phase-x" / "OWNER_DECISIONS.md").write_text(
+        f"marker={probe_root}/.jobloop/orchestrator-busy present=False\n",
+        encoding="utf-8",
+    )
+    git(probe, "add", "-A")
+    git(probe, "commit", "-m", "seed")
+
+    # Excluded one path at a time with reasons (no directory/prefix wildcards):
+    excluded_test_fixtures = {
+        # Models real dev-server command lines to prove port-release safety.
+        "tests/test_release_test_ports.py": "command-line fixture for is_ours()",
+        # Holds the synthetic `REPO` constant used to unit-test path redaction.
+        "tests/test_selfrepair.py": "REPO constant fixture for selfrepair unit tests",
+    }
+    assert _tracked_offenders_for_root(
+        probe, probe_root, excluded_test_fixtures=excluded_test_fixtures
+    ) == ["progress/phase-x/OWNER_DECISIONS.md"]
+
+    # Scan the repository. If running inside an un-rebased job workspace whose
+    # `progress/` snapshot predates the latest rulings on the main checkout,
+    # cross-check those `progress/` files directly against the main checkout.
+    checkout = Path(__file__).resolve().parents[1]
+    root = _repository_root_for_scan(checkout)
+    offenders = _tracked_offenders_for_root(
+        checkout, root, excluded_test_fixtures=excluded_test_fixtures
+    )
+    if offenders and checkout != root and all(p.startswith("progress/") for p in offenders):
+        live = _tracked_offenders_for_root(
+            root, root, excluded_test_fixtures=excluded_test_fixtures
+        )
+        offenders = [p for p in offenders if not p.startswith("progress/")] + [
+            p for p in live if p.startswith("progress/")
+        ]
+    assert offenders == [], (
+        "tracked files contain the repository root absolute path:\n" + "\n".join(offenders)
+    )
 
 
 def test_a_worker_that_edits_the_main_checkout_is_escalated(tmp_path: Path) -> None:

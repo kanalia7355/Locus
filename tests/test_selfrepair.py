@@ -6,7 +6,7 @@ is that it recovers from something it should have stopped for.
 
 from jobloop import selfrepair
 
-REPO = r"C:\Users\hirot\Locus"
+REPO = r"C:\checkout\Locus"
 
 
 def test_only_the_tooling_s_own_artefacts_are_cleaned() -> None:
@@ -38,13 +38,11 @@ def test_the_controllers_own_evidence_is_redacted_not_blamed_on_the_job() -> Non
     repair = selfrepair.classify("the job file names another checkout", evidence, repository=REPO)
     assert repair and repair.action == "redact"
 
-    # The same path in the frontmatter is the ticket being wrong: a `test_cmd`
-    # naming another checkout is exactly what caused the containment failures.
-    # Redacting that would leave a broken command and dispatch it anyway.
-    ticket = f"found={REPO}\nfile=T-PH6-111.md\nfrontmatter=yes"
-    assert (
-        selfrepair.classify("the job file names another checkout", ticket, repository=REPO) is None
-    )
+    # The same path in the frontmatter is now also redacted — the exemption
+    # for frontmatter=yes has been removed (T-PH9-406), including slash-converted forms.
+    ticket = f"found={REPO.replace(chr(92), '/')}\nfile=T-PH6-111.md\nfrontmatter=yes"
+    repair = selfrepair.classify("the job file names another checkout", ticket, repository=REPO)
+    assert repair and repair.action == "redact"
 
     # Without the repository configured there is nothing to match.
     assert selfrepair.classify("the job file names another checkout", evidence) is None

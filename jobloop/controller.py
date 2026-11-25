@@ -346,8 +346,11 @@ class Controller:
                     target.unlink(missing_ok=True)
         elif repair.action == "redact":
             text = task.path.read_bytes().decode("utf-8")
-            for form in repair.paths:
-                text = text.replace(form, "<repository>")
+            # The file may spell the path with either separator; `points_outside`
+            # reports whichever form it found, so replace all of them.
+            for raw in repair.paths:
+                for form in {raw, raw.replace("\\", "/"), raw.replace("/", "\\")}:
+                    text = text.replace(form, "<repository>")
             task.path.write_bytes(text.encode("utf-8"))
         # "sweep" needs nothing here: the page is committed with the records.
         self.record(
@@ -372,6 +375,10 @@ class Controller:
         said = selfrepair.describe(category, context)
         if said:
             question = f"{question} — {said}"
+        root = str(self.settings.repository)
+        for form in {root, root.replace("\\", "/"), root.replace("/", "\\")}:
+            question = question.replace(form, "<repository>")
+            context = context.replace(form, "<repository>")
         file = self.settings.phase_directory / "OWNER_DECISIONS.md"
         if not file.exists():
             file.write_text(
@@ -582,6 +589,20 @@ class Controller:
         """
         return (self.settings.state_directory / "orchestrator-busy").is_file()
 
+    @property
+    def busy_marker(self) -> str:
+        """The orchestrator-busy marker as a record names it: repository-relative.
+
+        The record is read by the next worker, so an absolute path here would
+        teach it where the main checkout is — the escape route this ticket
+        closes (T-PH9-406).
+        """
+        return (
+            (self.settings.state_directory / "orchestrator-busy")
+            .relative_to(self.settings.repository)
+            .as_posix()
+        )
+
     @staticmethod
     def dirt(worktree: Path) -> str:
         """Everything in the checkout that is not committed, as one string.
@@ -718,9 +739,8 @@ class Controller:
                 "worker wrote outside its workspace",
                 "The main checkout changed while the job ran, so this work is unreviewable. "
                 "Inspect and restore the checkout before the job is retried.",
-                f"model={model}\nworkspace={tree}\n"
-                f"marker={self.settings.state_directory / 'orchestrator-busy'} "
-                f"present={self.operator_busy()}\n"
+                f"model={model}\nworkspace={task.id}\n"
+                f"marker={self.busy_marker} present={self.operator_busy()}\n"
                 f"{containment_note}\n"
                 # Paths, not digests: the reader needs the filenames.
                 f"appeared:\n"
@@ -732,7 +752,8 @@ class Controller:
                 f"CONTAINMENT UNVERIFIED ({self.now()})",
                 "The operator was editing the main checkout during this cycle, so the "
                 "containment comparison was suspended. The worker's isolation was not "
-                "verified for this attempt.",
+                "verified for this attempt.\n\n"
+                f"marker={self.busy_marker} present={self.operator_busy()}",
             )
         if result.rotate:
             # Neither usage exhaustion (PROTOCOL §5.4) nor a provider outage is a
