@@ -270,6 +270,16 @@ measurement a worker would be required to produce. Three in one evening on
   reported without failing — the same reasoning `diagnose` applies with its
   repair dates.
 
+**A harness change takes effect at the next cycle, not the next dispatch.**
+`supervise_loop` runs each phase's cycle as one `python -m jobloop ... run`
+subprocess, so that process imports the modules once and keeps them for its whole
+run. On 2026-11-25 the phase-9 cycle started at 20:34 and dispatched five jobs
+through to 21:11; a fix committed at 20:42 did not reach the job dispatched at
+20:51, and the record it wrote still carried the old value. Before concluding a
+repair did not work, check whether the cycle that ran predates the commit —
+`git log --date=format:"%H:%M"` against the cycle's start line in
+`.jobloop/supervisor.log`.
+
 So: after repairing the harness, **run the thing the repair was about** and read
 the output. A green suite says the code does what the test says; it does not say
 the owner can now see the loop working.
