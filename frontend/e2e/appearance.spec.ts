@@ -782,7 +782,9 @@ test("the page behind the source modal does not scroll", async ({ page }) => {
   expect(documentTop, "the document itself scrolled behind the modal").toBe(0);
 });
 
-test("focus is restored to initial position after entry animation", async ({ page }) => {
+test("focus is restored to initial position after entry animation", async ({
+  page,
+}) => {
   // Acceptance: after the dialog entry animation completes, focus is on the
   // initial position ("閉じる"), not merely somewhere inside the dialog.
   await page.setViewportSize(WIDTHS[0]);
@@ -797,7 +799,9 @@ test("focus is restored to initial position after entry animation", async ({ pag
   ).toBeFocused();
 });
 
-test("prefers-reduced-motion disables dialog entry animation", async ({ page }) => {
+test("prefers-reduced-motion disables dialog entry animation", async ({
+  page,
+}) => {
   // Acceptance: with prefers-reduced-motion: reduce, the dialog entry animation
   // must not run. Emulate the media query before the page loads.
   await page.setViewportSize(WIDTHS[0]);
@@ -830,7 +834,6 @@ test("prefers-reduced-motion disables dialog entry animation", async ({ page }) 
     `animation-duration should be zero under prefers-reduced-motion; got "${durations.animation}"`,
   ).toBe(true);
 });
-
 
 // T-PH6-112: settings dialog and sidebar account row invariants.
 // Measured before adding: the gear button exists in the sidebar bottom row,
@@ -1063,7 +1066,10 @@ test("the sidebar account row stays on screen at every supported width", async (
     await expect(account).toBeVisible();
     const box = await account.boundingBox();
     expect(box, `${size.name}: account row has no box`).not.toBeNull();
-    expect(box!.x, `${size.name}: account row left edge off screen`).toBeGreaterThanOrEqual(-1);
+    expect(
+      box!.x,
+      `${size.name}: account row left edge off screen`,
+    ).toBeGreaterThanOrEqual(-1);
     expect(
       box!.x + box!.width,
       `${size.name}: account row right edge off screen`,
@@ -1105,4 +1111,140 @@ test("layout breakpoint matches between CSS and JS at default and doubled text s
   );
   expect(isNarrowCss).toBe(true);
   await expect(sidebar).not.toBeVisible();
+});
+
+test("chat column reading width and spacing adapt to sidebar state via container query", async ({
+  page,
+}) => {
+  // T-PH6-121: Verify both the 1280px reading-width difference between sidebar
+  // open and closed, and the container-query branch crossing when the viewport
+  // stays >= 48em (800px at default 16px root = 50em) while the sidebar opens
+  // (chat column 580px = 36.25rem < 48rem) vs closes (chat column 800px = 50rem >= 48rem).
+  // Under @media-only rules:
+  //   - At 1280px, .main has max-width: 68.75rem (1100px) and 1280 - 220 = 1060px
+  //     only differs slightly unless checked against the container-queried branch;
+  //     even more decisively, at 960px (>= 48em) or 1280px with a 1100px cap,
+  //     and at 800px (>= 48em = 768px), @media applies the wide branch in both
+  //     sidebar states instead of switching on the actual chat column width.
+  test.setTimeout(120_000);
+  await page.setViewportSize({ width: 1280, height: 820 });
+  await enter(page, 17);
+  await page
+    .getByRole("textbox", { name: "メッセージ", exact: true })
+    .fill(
+      "成膜条件と膜厚の比較について、サイドバーの開閉による本文の読み幅の変化を検証するための長い質問文を送信します。".repeat(
+        3,
+      ),
+    );
+  await page.getByRole("button", { name: "送信", exact: true }).click();
+  await expect(page.locator(".user-message").first()).toBeVisible();
+
+  const sidebarToggle = page.getByRole("button", {
+    name: /サイドバーを開く|サイドバーを閉じる/,
+  });
+  // At 1280px, sidebar starts open (chat column = 1060px < 68.75rem / 1100px).
+  const widthOpen1280 = await page
+    .locator(".user-message")
+    .first()
+    .evaluate((el) => el.getBoundingClientRect().width);
+
+  await sidebarToggle.click();
+  await expect(sidebarToggle).toHaveAttribute("aria-expanded", "false");
+  // Wait for the 220ms grid-template-columns transition to settle.
+  await page.waitForTimeout(300);
+  const widthClosed1280 = await page
+    .locator(".user-message")
+    .first()
+    .evaluate((el) => el.getBoundingClientRect().width);
+  const chatWidthClosed1280 = await page
+    .locator(".chat")
+    .evaluate((el) => el.getBoundingClientRect().width);
+
+  expect(
+    widthClosed1280,
+    "reading width at 1280px must grow when sidebar closes (1060px -> capped at 68.75rem / 1100px)",
+  ).toBeGreaterThan(widthOpen1280);
+  expect(
+    chatWidthClosed1280,
+    "chat reading column must remain capped at 68.75rem (1100px at 16px root) max-width at 1280px",
+  ).toBeLessThanOrEqual(1100.5);
+
+  // At 800px (>= 48em = 768px at 16px root), viewport @media stays on the
+  // desktop branch, so opening the sidebar shrinks the chat column to 580px
+  // (36.25rem < 48rem) and shrinks .user-message reading width accordingly.
+  // Only @container switches .messages padding-top (2.25rem / 36px -> 2rem / 32px)
+  // and .chat inline padding (1.875rem / 30px -> 1rem / 16px); @media-only keeps
+  // 36px and leaves inline padding on .main instead of switching descendants.
+  await page.setViewportSize({ width: 800, height: 820 });
+  await page.waitForTimeout(300);
+  const closedAt800 = await page.evaluate(() => {
+    const messages = document.querySelector<HTMLElement>(".messages")!;
+    const chat = document.querySelector<HTMLElement>(".chat")!;
+    return {
+      messagesPaddingTop: getComputedStyle(messages).paddingTop,
+      chatPaddingInline: getComputedStyle(chat).paddingLeft,
+    };
+  });
+
+  await sidebarToggle.click();
+  await expect(sidebarToggle).toHaveAttribute("aria-expanded", "true");
+  await page.waitForTimeout(300);
+  const openAt800 = await page.evaluate(() => {
+    const messages = document.querySelector<HTMLElement>(".messages")!;
+    const chat = document.querySelector<HTMLElement>(".chat")!;
+    return {
+      messagesPaddingTop: getComputedStyle(messages).paddingTop,
+      chatPaddingInline: getComputedStyle(chat).paddingLeft,
+    };
+  });
+
+  expect(closedAt800.messagesPaddingTop).toBe("36px");
+  expect(
+    openAt800.messagesPaddingTop,
+    "at 800px with sidebar open (580px column < 48rem), @container must drop .messages padding-top to narrow 2rem (32px)",
+  ).toBe("32px");
+  expect(closedAt800.chatPaddingInline).toBe("30px");
+  expect(
+    openAt800.chatPaddingInline,
+    "at 800px with sidebar open (580px column < 48rem), @container must drop .chat inline padding to narrow 1rem (16px)",
+  ).toBe("16px");
+});
+
+test("no horizontal scroll with sidebar open/closed at all supported widths", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await page.setViewportSize(WIDTHS[0]);
+  await enter(page, 18);
+  await askSomething(page);
+
+  const sidebarToggle = page.getByRole("button", {
+    name: /サイドバーを開く|サイドバーを閉じる/,
+  });
+
+  for (const size of WIDTHS) {
+    await page.setViewportSize(size);
+    await page.waitForTimeout(250);
+
+    for (const targetExpanded of ["false", "true"] as const) {
+      if (
+        (await sidebarToggle.getAttribute("aria-expanded")) !== targetExpanded
+      ) {
+        await sidebarToggle.click();
+        await expect(sidebarToggle).toHaveAttribute(
+          "aria-expanded",
+          targetExpanded,
+        );
+        await page.waitForTimeout(250);
+      }
+      const overflow = await page.evaluate(() => {
+        const root = document.scrollingElement ?? document.documentElement;
+        return root.scrollWidth - root.clientWidth;
+      });
+      expect(
+        overflow,
+        `${size.name} (sidebar expanded=${targetExpanded}) scrolls sideways by ${overflow}px`,
+      ).toBeLessThanOrEqual(1);
+    }
+  }
 });
