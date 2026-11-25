@@ -1,16 +1,16 @@
 ---
 id: T-AIC-002
 phase: phase-ai-connect
-status: doing
+status: review
 assignee: opencode
-model: opencode/iceman-free
+model: opencode/flint-40b-free
 weight: medium
-updated: 2026-11-25T18:34:00+09:00
+updated: 2026-11-25T19:38:10+09:00
 attempts: 2
 depends_on: T-AIC-001, T-AIC-005
 allowed_paths: backend/app/model_catalog.py, backend/app/main.py, tests/test_model_catalog.py, tests/test_provider_openai_compatible.py, tests/test_local_model.py
 test_cmd: python -m pytest tests/test_model_catalog.py tests/test_provider_openai_compatible.py tests/test_local_model.py -q
-reviewer: opencode/beam-free
+reviewer: opencode/iceman-free
 review_cycles: 1
 ---
 
@@ -389,3 +389,75 @@ Ollama 側の状態の汚染である。条件外の指摘ではない。**直�
 `T-STC-001` で 2026-11-25 16:30 に立てたのと同じ線である。
 
 **（刻印の訂正）** この裁定の見出しは当初 18:50 と書いていたが、実際の作業とコミット（`00ffbc8`）は **18:34** である。記録の順序が狂わないよう刻印をコミット時刻に揃えた。内容は変えていない。
+
+## ATTEMPT 3 — implementation by opencode/flint-40b-free (2026-11-25T19:36:46+09:00)
+
+Using the systematic-debugging, verification-before-completion, and local-ci-parity skills since this is attempt 3 of a failing workflow — I should follow them. Let me load the required context first.
+
+Now let me look at the end of the round-trip test file and the diff state so far:Now I'll add the regression test first (red phase). The Medium finding: a discover of only `openai-compatible` pollutes the **local** runtime's `registered` map too.The test was inserted correctly at the end of the file. Now let me run the new regression test to confirm it fails against the current (buggy) implementation:The test needs the `LocalModel` import:**Red confirmed** — the discover handler puts the remote model into the local runtime's registry. Now applying the fix (the orchestrator ruled this Medium finding must be fixed now, via the reviewer's suggested minimal fix):All 20 tests in that file pass now. Running the full controller verification command:Verification command green (75 passed, 2 skipped — baseline 74 passed + my new regression test). Now the controller's lint/format/secret gates:My new test introduced a formatting/lint violation. Running the formatter on that file, then re-checking:Lint and format are clean now. Running the secret scan on the changed paths:The scanner's closed synthetic-key allowlist only permits `sk-synthetic-0[1-4]-not-a-real-key` — my new key `sk-synthetic-05-...` fell outside it and was correctly flagged. Fixing it to an allowlisted synthetic fixture:Secret scan clean, lint and format clean. Final full verification round:All four gates green. Let me also run the type check mentioned in the local-CI-parity procedure, and review the final diff:Let me examine the exact mypy error locations to confirm none were introduced by this fix:REPORT
+- **Fix applied this cycle (Medium finding from review cycle 2/2, per the orchestrator ruling to return one review cycle):** `backend/app/main.py` (`discover_models`) — added the `if source == "openai-compatible": continue` guard before the model-addition loop of the local-runtime registration block, while keeping stale-entry removal for every discovered source. A discover of only `openai-compatible` no longer writes external-provider candidates into the local runtime's `registered`/`registered_sources`; they are registered only on the remote runtime (which already had its own branch). This resolves the polluring-of-local-state defect that would also contaminate the Ollama path's runtime state.
+- **Regression test added (red → green):** `tests/test_provider_openai_compatible.py` — new `test_admin_discover_openai_compatible_keeps_remote_models_off_local_runtime`: admin discovers `openai-compatible` via MockTransport, asserts the local runtime registry stays empty, the remote runtime holds the candidate, then switches runtime via PUT (provider/`api_key_present` present, no key value in responses). Failed before the fix with `AssertionError: assert {'392f44ddc2b...': 'gpt-4o-mini'} == {}`; passes after.
+- **Prior-attempt implementation state left in place (not re-litigated):** `backend/app/model_catalog.py` (`sources()` adds `openai-compatible`; `_openai_compatible` does `GET {base_url}/models` with Bearer, deadline/size limits, returns `(models, status, rejected, truncated)`, `unavailable` without key, no key/URL credential in reason); `backend/app/main.py` (source-split discover registration, runtime GET/PUT provider fields, audit labels); `tests/test_model_catalog.py`, `tests/test_local_model.py`, `tests/test_provider_openai_compatible.py` (round trips).
+
+Inconsistencies found between documentation/spec and code (not changed, per scope):
+- `backend/app/provider_openai_compatible.py` `configure()` still emits the Ollama-specific error `"確認済みのローカルOllamaモデルを選択してください"` for invalid remote candidates — outside allowed_paths, deferred.
+- Task file `progress/phase-ai-connect/tasks/T-AIC-002.md` `allowed_paths` omits `tests/test_local_model.py` while the job brief includes it; the brief is authoritative here.
+
+Risks left behind (accepted / deferred):
+- Two Low findings deferred to `T-AIC-007` per the orchestrator ruling (not fixed this cycle): credentials not cleared from remote runtime on disable; unconfigured-runtime response field set not normalized between local and remote.
+
+TEST
+- `python -m pytest tests/test_model_catalog.py tests/test_provider_openai_compatible.py tests/test_local_model.py -q` → **75 passed, 2 skipped in ~16.3s** (before fix: 74 passed, 2 skipped; new regression test was red before, green after; skips are pre-existing Windows symlink fixtures).
+- `python -m ruff check backend tests scripts jobloop` → `All checks passed!`
+- `python -m ruff format --check backend tests scripts jobloop` → `192 files already formatted` (after formatting the touched test file).
+- `python -m scripts/secret_scan.py <changed paths>` → `Offline secret scan: 0 findings` (new synthetic key corrected to allowlisted `sk-synthetic-04-not-a-real-key`; first run flagged `sk-synthetic-05-not-a-real-key` as outside the scanner's closed synthetic set).
+- `python -m mypy backend/app` → 7 pre-existing errors (proxy return types, runtime attribute declarations, return types), none on lines added by this fix; not part of the controller gates.
+
+STATUS
+- ready-for-review
+
+### Controller gates
+
+- `scope`: green
+- `task-verification`: green
+- `python-lint`: green
+- `python-format`: green
+- `secret-scan`: green
+
+## RESUMED GATES (2026-11-25T19:37:22+09:00)
+
+- `scope`: green
+- `task-verification`: green
+- `python-lint`: green
+- `python-format`: green
+- `secret-scan`: green
+
+## RESUMED GATES (2026-11-25T19:37:46+09:00)
+
+- `scope`: green
+- `task-verification`: green
+- `python-lint`: green
+- `python-format`: green
+- `secret-scan`: green
+
+## RESUMED GATES (2026-11-25T19:38:10+09:00)
+
+- `scope`: green
+- `task-verification`: green
+- `python-lint`: green
+- `python-format`: green
+- `secret-scan`: green
+
+## REVIEW by opencode/iceman-free (2026-11-25T19:40:02+09:00)
+
+VERDICT
+- APPROVED
+
+FINDINGS
+- none
+
+UNVERIFIED
+- I did not execute tests, linters, secret scan, or any command; I relied on the controller-reported gate results (`task-verification`, `python-lint`, `python-format`, `secret-scan` all exit/green as provided) and read the diff/workspace files read-only.
+- I did not verify behavior against a real OpenAI-compatible endpoint; tests and implementation use `httpx.MockTransport` and in-process fakes.
+- Classification/egress rejection is explicitly out of scope for this ticket (AC4/T-AIC-005); I only confirmed the diff keeps conversation handling on the existing service/chat-runtime path and does not add a direct adapter bypass.
+- The two previously reported Low items (credentials remaining in remote runtime memory after disable; unconfigured runtime response field-set normalization between local/remote) were ruled out of scope for T-AIC-002 and moved to T-AIC-007 by the orchestrator; I did not treat them as blocking findings.
