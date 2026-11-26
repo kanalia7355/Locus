@@ -3329,3 +3329,124 @@ def test_pid_alive_distinguishes_live_and_exited_processes() -> None:
         child.terminate()
         child.wait(timeout=5)
     assert module.pid_alive(child.pid) is False
+
+
+# --- second-tier agy worker visibility in shift_check (T-PH9-417) ------------
+
+
+def load_shift_check():
+    import importlib.util
+
+    root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location(
+        "shift_check", root / "scripts" / "shift_check.py"
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_shift_check_processes_queries_and_classifies_agy_workers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC1 & AC2: `processes()` queries `agy.EXE`, classifies job sessions, and excludes helpers."""
+    check = load_shift_check()
+    queries: list[tuple[str, ...]] = []
+    fake_wmi = "\n".join(
+        [
+            (
+                "45224|48460|python.exe|2026-11-26T02:42:53|"
+                r"C:\Locus\.venv\Scripts\python.exe scripts/supervise_loop.py"
+            ),
+            (
+                "5472|44240|agy.EXE|2026-11-26T05:12:41|"
+                r"C:\agy\bin\agy.EXE --model gemini-4-carbon-low "
+                "--input-format stream-json --output-format stream-json "
+                "--dangerously-skip-permissions --disable-slash-commands --print="
+            ),
+            (
+                "13668|24620|opencode.exe|2026-11-23T19:30:05|"
+                r"C:\opencode\bin\opencode.exe serve --service"
+            ),
+            (
+                "7001|44240|opencode.exe|2026-11-26T05:00:00|"
+                r"C:\opencode\bin\opencode.exe run --standalone --model opencode/a-free"
+            ),
+            (
+                "8001|99999|agy.EXE|2026-11-26T04:00:00|"
+                r"C:\agy\bin\agy.EXE remote-control start"
+            ),
+            (
+                "8002|99999|agy.EXE|2026-11-26T04:01:00|"
+                r"C:\agy\bin\agy.EXE"
+            ),
+        ]
+    )
+
+    def fake_run(*command: str, quiet: bool = False) -> str:
+        queries.append(command)
+        return fake_wmi
+
+    monkeypatch.setattr(check.sys, "platform", "win32")
+    monkeypatch.setattr(check, "run", fake_run)
+
+    found = check.processes()
+    assert queries, "processes() must run the WMI query on win32"
+    joined_query = " ".join(queries[0]).lower()
+    assert "agy.exe" in joined_query, "WMI filter must include agy.EXE"
+    assert "opencode.exe" in joined_query and "python.exe" in joined_query
+
+    by_pid = {pid: (parent, name, created, kind) for pid, parent, name, created, kind in found}
+    assert 5472 in by_pid and by_pid[5472][1] == "agy.EXE"
+    assert by_pid[5472][3] == "agy_session"
+    assert by_pid[13668][3] == "serve_service"
+    assert by_pid[7001][3] == "run_standalone"
+    # Non-worker agy invocations (daemon / interactive session) are not job sessions.
+    assert by_pid.get(8001, (0, "", "", None))[3] != "agy_session"
+    assert by_pid.get(8002, (0, "", "", None))[3] != "agy_session"
+
+
+def test_shift_check_orphans_and_liveness_handle_agy_workers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC2, AC3 & AC4: fake process list with `agy.EXE` proves orphan and liveness checks."""
+    check = load_shift_check()
+    monkeypatch.setattr(check, "ROOT", tmp_path)
+
+    # 1) Live parent for agy.EXE + parentless `serve --service` => no orphan, worker alive.
+    monkeypatch.setattr(check, "running", lambda pid: pid == 44240)
+    live_healthy = [
+        (45224, 48460, "python.exe", "2026-11-26T02:42:53", None),
+        (13668, 24620, "opencode.exe", "2026-11-23T19:30:05", "serve_service"),
+        (5472, 44240, "agy.EXE", "2026-11-26T05:12:41", "agy_session"),
+    ]
+    assert check.orphans(live_healthy) == "ok    no orphaned worker"
+    sup_with_agy = check.supervisor(live_healthy)
+    assert sup_with_agy.startswith("ok"), sup_with_agy
+    assert "1 loop process(es) alive" in sup_with_agy
+    assert "1 worker(s) alive" in sup_with_agy
+
+    # Without any active worker (only the owner's `serve --service`), active worker count is 0.
+    live_idle = [
+        (45224, 48460, "python.exe", "2026-11-26T02:42:53", None),
+        (13668, 24620, "opencode.exe", "2026-11-23T19:30:05", "serve_service"),
+    ]
+    sup_idle = check.supervisor(live_idle)
+    assert sup_idle == "ok    1 loop process(es) alive"
+
+    # When python died while an agy worker is still running, worker count is still shown on FAIL.
+    sup_dead_with_worker = check.supervisor(
+        [(5472, 44240, "agy.EXE", "2026-11-26T05:12:41", "agy_session")]
+    )
+    assert sup_dead_with_worker.startswith("FAIL"), sup_dead_with_worker
+    assert "1 worker(s) alive" in sup_dead_with_worker
+
+    # 2) Dead parent for `agy.EXE` => orphaned worker reported; `serve --service` stays excluded.
+    monkeypatch.setattr(check, "running", lambda pid: False)
+    orphan_line = check.orphans(live_healthy)
+    assert orphan_line.startswith("FAIL  orphaned worker session:"), orphan_line
+    assert "5472" in orphan_line
+    assert "2026-11-26T05:12" in orphan_line
+    assert "13668" not in orphan_line, "`serve --service` exclusion must remain intact"
