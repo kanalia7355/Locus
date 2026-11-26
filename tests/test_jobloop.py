@@ -2747,7 +2747,10 @@ def test_the_record_names_the_cli_that_actually_ran_the_session(tmp_path: Path) 
     controller = controller_for(tmp_path, ["agy/gemini-4-carbon-low"])
     controller.workspace = lambda task: tmp_path  # type: ignore[assignment]
     controller.dispatch = lambda model, prompt, **_: worker.Result(  # type: ignore[assignment]
-        worker.Ending.UNAVAILABLE, "", model, ["agy executable not found"]
+        worker.Ending.COMPLETED,
+        "REPORT\n- done\n\nTEST\n- passed\n\nSTATUS\nready-for-review\n",
+        model,
+        [],
     )
     controller.run_job(controller.select())
     task = tasks.load_phase(controller.settings.phase_directory).tasks[0]
@@ -3450,3 +3453,79 @@ def test_shift_check_orphans_and_liveness_handle_agy_workers(
     assert "5472" in orphan_line
     assert "2026-11-26T05:12" in orphan_line
     assert "13668" not in orphan_line, "`serve --service` exclusion must remain intact"
+
+
+def test_all_models_rotated_then_no_model_resets_frontmatter(tmp_path: Path) -> None:
+    # When all eligible models fail during rotation (including UNAVAILABLE such
+    # as "does not support tools") and no-model is reached, the task's
+    # frontmatter (`status`, `assignee`, `model`) must remain its pre-dispatch
+    # state. When a later model in the rotation succeeds, `model` and `assignee`
+    # must record that succeeding model.
+    directory = phase_with_task(tmp_path)
+    controller = controller_for(tmp_path, ["ollama/gemma3:4b", "opencode/b-free"])
+    controller.workspace = lambda task: tmp_path  # type: ignore[assignment]
+
+    task = tasks.load_phase(directory).tasks[0]
+    original_fields = dict(task.fields)
+
+    def rotating_dispatch(model: str, prompt: str, **_: object) -> worker.Result:  # type: ignore[assignment]
+        during = tasks.load_phase(directory).tasks[0]
+        assert during.fields.get("status") == "doing"
+        assert during.fields.get("model") == model
+        assert during.fields.get("assignee") == model.split("/", 1)[0]
+        if model == "ollama/gemma3:4b":
+            return worker.Result(
+                worker.Ending.UNAVAILABLE,
+                "",
+                model,
+                ["does not support tools"],
+            )
+        return worker.Result(
+            worker.Ending.OUTAGE,
+            "",
+            model,
+            ["provider outage"],
+        )
+
+    controller.dispatch = rotating_dispatch
+    outcome1 = controller.run_job(controller.select())
+    assert outcome1.state == "rotated", outcome1.detail
+    outcome2 = controller.run_job(controller.select())
+    assert outcome2.state == "rotated", outcome2.detail
+    outcome3 = controller.run_job(controller.select())
+    assert outcome3.state == "no-model", outcome3.detail
+
+    task = tasks.load_phase(directory).tasks[0]
+    for key in ("status", "assignee", "model"):
+        got = task.fields.get(key)
+        exp = original_fields.get(key)
+        assert got == exp, f"{key} was not preserved: got {got!r}, expected {exp!r}"
+
+    # AC3: when a later model in the rotation succeeds, `model` and `assignee`
+    # record that succeeding model.
+    directory2 = phase_with_task(tmp_path / "ac3")
+    controller2 = controller_for(tmp_path / "ac3", ["ollama/gemma3:4b", "opencode/b-free"])
+    controller2.workspace = lambda task: tmp_path / "ac3"  # type: ignore[assignment]
+
+    def second_succeeds(model: str, prompt: str, **_: object) -> worker.Result:  # type: ignore[assignment]
+        if model == "ollama/gemma3:4b":
+            return worker.Result(
+                worker.Ending.UNAVAILABLE,
+                "",
+                model,
+                ["does not support tools"],
+            )
+        return worker.Result(
+            worker.Ending.COMPLETED,
+            "REPORT\n- done\n\nTEST\n- passed\n\nSTATUS\nready-for-review\n",
+            model,
+            [],
+        )
+
+    controller2.dispatch = second_succeeds
+    assert controller2.run_job(controller2.select()).state == "rotated"
+    outcome = controller2.run_job(controller2.select())
+    assert outcome.model == "opencode/b-free"
+    task2 = tasks.load_phase(directory2).tasks[0]
+    assert task2.fields.get("model") == "opencode/b-free"
+    assert task2.fields.get("assignee") == "opencode"
