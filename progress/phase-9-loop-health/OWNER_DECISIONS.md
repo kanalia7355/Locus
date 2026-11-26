@@ -697,6 +697,9 @@ appeared:
  M jobloop/controller.py
 ?? tests/test_jobloop_containment.py
 
+
+**Answer** (2026-11-26 21:32, orchestrator): **決定は要らない。18:25 に処理済みで、いま `todo`・試行 0/3 で順番待ちに居る。** 18:00 の派遣は仕事を丸ごと本体チェックアウトに落とした（`jobloop/controller.py` に 82 行、`tests/test_jobloop_containment.py` に 171 行、ワークスペースは空）。全部 `escaped/2026-11-26/T-PH9-421-*` に保全し、18:21 に本体を戻した。**手で合流させていない。** 逸脱の escalation は試行を消費しないので 0/3 のままである。20:48 にワークスペースが現在の枝へ揃えられた（21 コミット遅れ、仕事は無し）。この票の値打ちは変わっていない —— `T-PH6-129` の承認済みコミットがよそのファイル 1 本で 3 回マージできなかった損は、この票が機械的に無くす。
+
 ## T-PH9-422 — worker wrote outside its workspace (2026-11-26T18:16:41+09:00)
 
 **Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
@@ -710,6 +713,9 @@ containment opencode/iceman-free: 2/30 stops/dispatches
 appeared:
  M jobloop/worker.py
 ?? tests/test_jobloop_worker_cwd.py
+
+
+**Answer** (2026-11-26 21:32, orchestrator): **決定は要らない。この票は 20:48 にマージされた（`2e7d5fd`）。** 18:16 の派遣は自分自身の題目どおりに逸脱し（`worker.py` に 250 行、検査 121 行が本体チェックアウトへ）、保全・復旧して `todo` に戻した（試行は消費されていない）。20:20 の再派遣は**逸脱せずに通った**ので、18:25 に記録した「次の派遣でもう一度逸脱したら opus が実装する」という境目は**発動していない**。無料モデルが実装し、第 2 層が独立にレビューした。**ただし入ったのは守りの形だけで、逸脱そのものは直っていない** —— 続きと、当番が測って分かったことは、このファイル末尾の `T-PH9-422 / T-PH9-423` の項目に書いた。
 
 ## 申し送り: モデルを休ませる話は、原因ではなかった（2026-11-26 18:25）
 
