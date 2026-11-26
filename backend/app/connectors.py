@@ -8,6 +8,7 @@ self-contained so task-scoped tests can load it directly.
 from __future__ import annotations
 
 import hashlib
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -145,14 +146,26 @@ class SyncEngine:
                     continue
 
                 document_id = str(result["id"])
-                self._service.record_document_origin(
-                    document_id=document_id,
-                    connector_id=connector_id,
-                    external_id=external_id,
-                    external_revision=revision,
-                    content_hash=computed_hash,
-                    source_label=source_label,
-                )
+                try:
+                    self._service.record_document_origin(
+                        document_id=document_id,
+                        connector_id=connector_id,
+                        external_id=external_id,
+                        external_revision=revision,
+                        content_hash=computed_hash,
+                        source_label=source_label,
+                    )
+                except Exception:
+                    # The upload already committed, so a failed origin write would
+                    # leave a document no origin row can update or revoke. Remove
+                    # it and report the item as failed; the next sync imports it
+                    # again, keeping "document exists" and "origin exists" in step.
+                    # Rollback is best effort: a second failure must not abort the
+                    # rest of the sync either.
+                    with suppress(Exception):
+                        self._service.delete_document(actor, document_id)
+                    fail("origin_failed")
+                    continue
                 if origin is None or origin["revoked"]:
                     counts["registered"] += 1
                 else:
