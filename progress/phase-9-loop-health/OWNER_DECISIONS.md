@@ -989,3 +989,24 @@ UNVERIFIED
 取り消しました（自分が同じファイルに書いた実測を読まずに裁定した）。
 **型は同じで、どちらも「条件に当たっているか」を自分の読みだけで決めた**
 ことが原因です。今回は実装の中身をワークスペースで確認してから書きました。
+
+## T-PH9-418 — the merge conflicted (2026-11-27T00:32:12+09:00)
+
+**Question**: The reviewed work no longer applies to the integration branch, so the merge was aborted and nothing was committed. Decide whether the job redoes its work on the current branch.
+
+**Context**
+
+commit=e0916b8bf6d7ad1517ed2efd3b8c81f23dde0e20
+branch=loop/T-PH9-418-t-ph9-418
+base=3da5c1e7ab1875106323c61cbb8c5628b83e4e21 (2026-11-26 13:29:55 +0900)
+behind=100 commit(s) behind loop/local-development
+preserved_ref=stale/T-PH9-418-1127
+own_changes (merge-base..HEAD):
+jobloop/controller.py |   7 ++++
+ jobloop/roster.py     |  23 ++++++++++-
+ tests/test_jobloop.py | 106 ++++++++++++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 134 insertions(+), 2 deletions(-)
+Auto-merging jobloop/controller.py
+Auto-merging tests/test_jobloop.py
+CONFLICT (content): Merge conflict in tests/test_jobloop.py
+Automatic merge failed; fix conflicts and then commit the result.
