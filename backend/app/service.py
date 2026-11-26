@@ -3107,18 +3107,27 @@ class Service:
         return True
 
     @staticmethod
-    def _extract_reason(result: SandboxResult) -> str:
-        """Map a failed SandboxResult to a user-safe quarantine reason (design §6)."""
+    def _extract_failure(result: SandboxResult) -> tuple[str, str]:
+        """Map a failed SandboxResult to a failure_code and user-safe quarantine reason (§6)."""
         if result.guarantees.get("wall_time") == "timed_out":
-            return "解析に時間がかかりすぎたため隔離中です。本文は検索に使いません"
+            return (
+                "extraction_timeout",
+                "解析に時間がかかりすぎたため隔離中です。本文は検索に使いません",
+            )
         if result.guarantees.get("output_bytes") == "truncated":
-            return "解析結果が上限を超えたため隔離中です。本文は検索に使いません"
-        return "本文を安全に抽出できなかったため隔離中です。本文は検索に使いません"
+            return (
+                "extraction_output_limit",
+                "解析結果が上限を超えたため隔離中です。本文は検索に使いません",
+            )
+        return (
+            "extraction_failed",
+            "本文を安全に抽出できなかったため隔離中です。本文は検索に使いません",
+        )
 
-    def _extract(self, name: str, raw_content: str) -> tuple[bool, str | None, str, str, str]:
+    def _extract(self, name: str, raw_content: str) -> tuple[bool, str | None, str, str, str, str]:
         """Run sandbox extraction and unwrap only ``body`` from the JSON envelope.
 
-        Returns ``(ok, body, sandbox, guarantees_json, failure_reason)``.
+        Returns ``(ok, body, sandbox, guarantees_json, failure_code, failure_reason)``.
         The JSON envelope is handled strictly in memory and never stored in ``documents``.
         """
         doc_format = format_for(name)
@@ -3128,13 +3137,15 @@ class Service:
                 None,
                 "subprocess",
                 json.dumps(SUBPROCESS_GUARANTEES, ensure_ascii=False),
+                "extraction_failed",
                 "対応していない形式のため隔離中です。本文は検索に使いません",
             )
         result = extract_with_sandbox(doc_format.extractor, raw_content)
         sandbox = result.sandbox if result.sandbox in {"docker", "subprocess"} else "subprocess"
         guarantees_json = json.dumps(result.guarantees, ensure_ascii=False)
         if not result.success or result.content is None:
-            return (False, None, sandbox, guarantees_json, self._extract_reason(result))
+            failure_code, failure_reason = self._extract_failure(result)
+            return (False, None, sandbox, guarantees_json, failure_code, failure_reason)
         try:
             envelope = json.loads(result.content)
         except (TypeError, ValueError):
@@ -3143,6 +3154,7 @@ class Service:
                 None,
                 sandbox,
                 guarantees_json,
+                "extraction_failed",
                 "本文を安全に抽出できなかったため隔離中です。本文は検索に使いません",
             )
         body = envelope.get("body") if isinstance(envelope, dict) else None
@@ -3152,9 +3164,10 @@ class Service:
                 None,
                 sandbox,
                 guarantees_json,
+                "extraction_failed",
                 "本文を安全に抽出できなかったため隔離中です。本文は検索に使いません",
             )
-        return (True, body, sandbox, guarantees_json, "")
+        return (True, body, sandbox, guarantees_json, "", "")
 
     def process_next(self) -> bool:
         with self.db() as db:
@@ -3168,6 +3181,7 @@ class Service:
                 self._cancel_ingestion(
                     db, row["id"], "permission_revoked", "登録者の利用権限が失効しました"
                 )
+                self._audit(db, "worker", "document.ingest", row["id"], "cancelled")
                 return True
             db.execute(
                 "UPDATE documents SET status='scanning',reason='',failure_code='' WHERE id=?",
@@ -3186,11 +3200,17 @@ class Service:
                 if row["sandbox_guarantees"] and row["sandbox_guarantees"] != "{}"
                 else json.dumps(SUBPROCESS_GUARANTEES, ensure_ascii=False)
             )
+            extract_code = ""
             extract_reason = ""
         else:
-            extracted_ok, body, sandbox, guarantees_json, extract_reason = self._extract(
-                str(row["name"]), str(row["content"])
-            )
+            (
+                extracted_ok,
+                body,
+                sandbox,
+                guarantees_json,
+                extract_code,
+                extract_reason,
+            ) = self._extract(str(row["name"]), str(row["content"]))
         outcome = "clean"
         if extracted_ok:
             assert body is not None
@@ -3212,13 +3232,15 @@ class Service:
                 self._cancel_ingestion(
                     db, row["id"], "permission_revoked", "登録者の利用権限が失効しました"
                 )
+                self._audit(db, "worker", "document.ingest", row["id"], "cancelled")
                 return True
             if not extracted_ok or body is None:
                 db.execute(
                     "UPDATE documents SET status='quarantined',reason=?,failure_code=?,"
                     "sandbox=?,sandbox_guarantees=? WHERE id=?",
-                    (extract_reason, "extraction_failed", sandbox, guarantees_json, row["id"]),
+                    (extract_reason, extract_code, sandbox, guarantees_json, row["id"]),
                 )
+                self._audit(db, "worker", "document.ingest", row["id"], "quarantined")
                 return True
             if outcome != "clean":
                 # Fail closed for every non-clean outcome, but keep an explicit
@@ -3234,6 +3256,7 @@ class Service:
                     "sandbox=?,sandbox_guarantees=? WHERE id=?",
                     (reason, code, sandbox, guarantees_json, row["id"]),
                 )
+                self._audit(db, "worker", "document.ingest", row["id"], "quarantined")
                 return True
             # Chunks are built in a resumable stage. _index commits each completed
             # page checkpoint while keeping the checked publication transaction
@@ -3262,6 +3285,9 @@ class Service:
                             row["id"],
                         ),
                     )
+            current = db.execute("SELECT status FROM documents WHERE id=?", (row["id"],)).fetchone()
+            if current and current["status"] in {"ready", "quarantined", "failed", "cancelled"}:
+                self._audit(db, "worker", "document.ingest", row["id"], str(current["status"]))
             return True
 
     @staticmethod
