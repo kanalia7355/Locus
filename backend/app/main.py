@@ -198,15 +198,21 @@ class RetentionDeleteInput(Input):
     conversation_ids: list[str] = Field(default_factory=list, max_length=200)
 
 
+def _cookie_attrs(*, secure: bool) -> dict[str, Any]:
+    return {
+        "httponly": True,
+        "samesite": "strict",
+        "secure": secure,
+        "path": "/api",
+    }
+
+
 def cookie(response: Response, token: str, *, secure: bool = False) -> None:
     response.set_cookie(
         COOKIE,
         token,
-        httponly=True,
-        samesite="strict",
-        secure=secure,
         max_age=28800,
-        path="/api",
+        **_cookie_attrs(secure=secure),
     )
 
 
@@ -413,10 +419,7 @@ def create_app(
         svc.logout(request.cookies.get(COOKIE))
         response.delete_cookie(
             COOKIE,
-            path="/api",
-            secure=deployment.cookie_secure,
-            httponly=True,
-            samesite="strict",
+            **_cookie_attrs(secure=deployment.cookie_secure),
         )
 
     @app.get("/api/projects")

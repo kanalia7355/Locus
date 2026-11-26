@@ -274,3 +274,45 @@ def test_reject_cloud_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ALLOW_CLOUD_EGRESS", "true")
     with pytest.raises(RuntimeError, match="Cloud"):
         create_app()
+
+
+def test_logout_cookie_attributes_in_production(
+    tmp_path: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch, service: Service
+) -> None:
+    from pathlib import Path
+
+    from app.main import create_app
+    from fastapi.testclient import TestClient
+    from test_production_startup import PROD_ORIGIN, apply_env, base_native_env
+
+    assert isinstance(tmp_path, Path)
+    apply_env(monkeypatch, base_native_env(tmp_path, host="127.0.0.1,locus.internal"))
+    app = create_app(service=service, start_worker=False)
+
+    with TestClient(app, base_url="https://127.0.0.1", client=("127.0.0.1", 50000)) as client:
+        login_resp = client.post(
+            "/api/auth/login",
+            json={"username": "alice", "password": "Temporary-password-02!"},
+            headers=PROD_ORIGIN,
+        )
+        assert login_resp.status_code == 200, login_resp.text
+
+        logout_resp = client.post("/api/auth/logout", headers=PROD_ORIGIN)
+        assert logout_resp.status_code == 204, logout_resp.text
+        set_cookie = logout_resp.headers.get("set-cookie", "")
+        assert "Secure" in set_cookie
+        assert "SameSite=Strict" in set_cookie or "samesite=strict" in set_cookie.lower()
+        assert "HttpOnly" in set_cookie or "httponly" in set_cookie.lower()
+        assert "Path=/api" in set_cookie
+
+
+def test_logout_cookie_attributes_in_development(service: Service) -> None:
+    client = client_for(service)
+    login(client)
+    logout_resp = client.post("/api/auth/logout", headers=ORIGIN)
+    assert logout_resp.status_code == 204, logout_resp.text
+    set_cookie = logout_resp.headers.get("set-cookie", "")
+    assert "secure" not in set_cookie.lower()
+    assert "samesite=strict" in set_cookie.lower()
+    assert "httponly" in set_cookie.lower()
+    assert "Path=/api" in set_cookie
