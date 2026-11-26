@@ -3019,3 +3019,22 @@ UNVERIFIED
 - I did not re-run `npm --prefix frontend run test:e2e`, `frontend-typecheck`, `frontend-lint`, or `secret-scan`; I relied on the controller evidence provided in the review request.
 - I did not independently reproduce the pre-T-PH6-112/T-PH6-127 failures because those migrations are already ancestors of HEAD and the reviewed diff contains only formatting changes.
 - I confirmed by read-only inspection that `frontend/e2e/a11y.spec.ts` and `frontend/e2e/workspace.spec.ts` contain no `test.skip`/`test.fail`/`fixme` and that `appearance.spec.ts` declares `APPEARANCE_ACCOUNT_OFFSET = 20` while `workspace.spec.ts` uses `test-researcher-${index}` with no offset; I did not exhaustively audit every account used by unrelated specs beyond those AC5 markers.
+
+**Answer** (2026-11-26 15:21) — **どちらも 2 回目。木を戻し、直す票を先頭に
+繰り上げた。**
+
+- `T-PH6-131`（14:33 の停止）: 出たのは `tests/test_ingestion_record.py`
+  1 本で、この票の許可パスそのもの。本体チェックアウトの写しと
+  ワークスペースの写しは中身が違った。両方を
+  `.jobloop-Locus/escaped/2026-11-26/` に退避し、本体チェックアウトからだけ
+  取り除いた。ワークスペースには触っていない。`status` を `todo` へ。
+  封じ込めは 4/41。**14:30 の記録の訂正**: 当番のマーカーは 14:30 に外して
+  あり、派遣が終わった 14:33 の時点で `present=False` だったので、
+  この派遣は普通に判定されている。
+- `T-PH6-129`（14:34 の停止）: 汚れは今回も他人のもの。`abe554a` は
+  `APPROVED` のままなので `status` を `review` へ。試行は 0/3。
+- **順番を入れ替えた**: `T-PH9-421`（屑と本物を分ける票）を phase-9 の
+  先頭にした（421 → 420 → 418 → 419）。31 分で 2 回、同じ承認済みコミットが
+  よそのファイル 1 本でマージできていない。4 票のうちいま損を出しているのは
+  421 が直す箇所だけである。
+
