@@ -557,7 +557,7 @@ def test_citations_deleted_and_revoked_are_not_retained(service: Service) -> Non
 
 def test_production_startup_is_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("APP_ENV", "production")
-    with pytest.raises(RuntimeError, match="development"):
+    with pytest.raises(RuntimeError, match="LOCUS_TLS_TERMINATION"):
         create_app()
 
 

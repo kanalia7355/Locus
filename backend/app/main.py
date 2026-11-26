@@ -1,8 +1,7 @@
-"""Loopback-only development API. Production startup is deliberately unsupported."""
+"""Development and private-network production API with fail-closed startup validation."""
 
 import asyncio
 import json
-import os
 import queue
 import threading
 import time
@@ -17,6 +16,11 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.agents.registry import AgentRegistry
+from app.deployment import (
+    is_client_allowed,
+    is_host_allowed,
+    load_deployment_config,
+)
 from app.local_model import LocalModel
 from app.model_catalog import ModelCatalog
 from app.scanner import scanner_from_environment
@@ -30,20 +34,6 @@ from app.service import (
 )
 
 COOKIE = "locus_session"
-ALLOWED_ORIGINS = frozenset(
-    {
-        "http://127.0.0.1:5174",
-        "http://localhost:5174",
-        "http://127.0.0.1:8000",
-        "http://localhost:8000",
-        "http://127.0.0.1:4173",
-        "http://localhost:4173",
-    }
-)
-ALLOWED_HOSTS = frozenset(origin.removeprefix("http://") for origin in ALLOWED_ORIGINS) | {
-    "127.0.0.1",
-    "localhost",
-}
 
 
 class Input(BaseModel):
@@ -208,9 +198,15 @@ class RetentionDeleteInput(Input):
     conversation_ids: list[str] = Field(default_factory=list, max_length=200)
 
 
-def cookie(response: Response, token: str) -> None:
+def cookie(response: Response, token: str, *, secure: bool = False) -> None:
     response.set_cookie(
-        COOKIE, token, httponly=True, samesite="strict", secure=False, max_age=28800, path="/api"
+        COOKIE,
+        token,
+        httponly=True,
+        samesite="strict",
+        secure=secure,
+        max_age=28800,
+        path="/api",
     )
 
 
@@ -222,14 +218,7 @@ def create_app(
     local_model: LocalModel | None = None,
     remote_model: Any | None = None,
 ) -> FastAPI:
-    if os.getenv("APP_ENV", "development") != "development":
-        raise RuntimeError(
-            "Only development mode is implemented; production deployment is disabled"
-        )
-    if os.getenv("ALLOW_CLOUD_EGRESS", "false").lower() != "false":
-        raise RuntimeError("Cloud egress is disabled")
-    if os.getenv("LOCAL_ONLY_MODE", "true").lower() != "true":
-        raise RuntimeError("Only local mode is supported")
+    deployment = load_deployment_config()
     owns_service = service is None
     svc = service or Service(
         Path(__file__).resolve().parents[2] / "storage" / "locus.sqlite3",
@@ -327,16 +316,18 @@ def create_app(
         limit=svc._limit,
     )
     app.state.agent_registry = registry
-    app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost"])
+    app.state.deployment = deployment
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=list(deployment.trusted_hosts))
 
     @app.middleware("http")
     async def boundary(request: Request, call_next: Any) -> Response:
-        if not request.client or request.client.host not in {"127.0.0.1", "::1"}:
+        client_host = request.client.host if request.client else None
+        if not is_client_allowed(client_host, deployment):
             return JSONResponse({"detail": "Loopback access only"}, status_code=403)
-        if request.headers.get("host") not in ALLOWED_HOSTS:
+        if not is_host_allowed(request.headers.get("host"), deployment):
             return JSONResponse({"detail": "Invalid host"}, status_code=400)
         if request.method not in {"GET", "HEAD", "OPTIONS"}:
-            if request.headers.get("origin") not in ALLOWED_ORIGINS:
+            if request.headers.get("origin") not in deployment.allowed_origins:
                 return JSONResponse(
                     {"detail": "許可された画面から操作してください"}, status_code=403
                 )
@@ -378,7 +369,7 @@ def create_app(
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
-        return {"status": "ok", "mode": "development-local-only"}
+        return {"status": "ok", "mode": deployment.mode}
 
     @app.post("/api/auth/recovery")
     def recover(data: Recovery) -> dict[str, bool]:
@@ -393,7 +384,7 @@ def create_app(
             request.client.host if request.client else "unknown",
             request.headers.get("User-Agent"),
         )
-        cookie(response, token)
+        cookie(response, token, secure=deployment.cookie_secure)
         return user
 
     @app.get("/api/auth/me")
@@ -413,13 +404,20 @@ def create_app(
         cookie(
             response,
             svc.rotate(user, data.current_password, data.new_password, session_token=token),
+            secure=deployment.cookie_secure,
         )
         return {"ok": True}
 
     @app.post("/api/auth/logout", status_code=204)
     def logout(request: Request, response: Response) -> None:
         svc.logout(request.cookies.get(COOKIE))
-        response.delete_cookie(COOKIE, path="/api")
+        response.delete_cookie(
+            COOKIE,
+            path="/api",
+            secure=deployment.cookie_secure,
+            httponly=True,
+            samesite="strict",
+        )
 
     @app.get("/api/projects")
     def projects(user: Actor) -> list[dict[str, Any]]:
