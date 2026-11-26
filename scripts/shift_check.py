@@ -90,6 +90,13 @@ def stranded_merge() -> str:
     return "ok    no merge left in progress"
 
 
+WORKER_SESSION_SHAPES: dict[str, str] = {
+    "run_standalone": "run --standalone",
+    "serve_stdio": "serve --stdio",
+    "agy_session": "agy --input-format stream-json",
+}
+
+
 def processes() -> list[tuple[int, int, str, str, str | None]]:
     """`(pid, parent, name, created, kind)` for the loop's own processes.
 
@@ -98,14 +105,20 @@ def processes() -> list[tuple[int, int, str, str, str | None]]:
     seventeen hours on 2026-11-18.
 
     `kind` is one of ``"run_standalone"``, ``"serve_stdio"``, ``"serve_service"``
-    for an ``opencode.exe`` worker the loop cares about, otherwise ``None``.
-    ``serve --service`` is the long-lived helper the user's own shell started
-    (parentless by nature) — never report it as an orphan.
+    for an ``opencode.exe`` worker, ``"agy_session"`` for a second-tier
+    ``agy.EXE`` worker, otherwise ``None``. ``serve --service`` is the
+    long-lived helper the user's own shell started (parentless by nature) —
+    never report it as an orphan. ``agy.EXE`` has no running resident helper by
+    default (measured: ``agy remote-control status`` is unregistered), and its
+    loop-dispatched sessions always carry ``--input-format stream-json``, so
+    interactive or subcommand invocations (``remote-control``, ``acp``,
+    ``mic-serve``) are left as ``None`` rather than treated as job sessions.
     """
     if sys.platform != "win32":
         return []
     script = (
-        "Get-CimInstance Win32_Process -Filter \"Name = 'python.exe' or Name = 'opencode.exe'\" "
+        "Get-CimInstance Win32_Process -Filter "
+        "\"Name = 'python.exe' or Name = 'opencode.exe' or Name = 'agy.EXE'\" "
         "| ForEach-Object { "
         "'{0}|{1}|{2}|{3}|{4}' -f $_.ProcessId, $_.ParentProcessId, $_.Name, "
         "$_.CreationDate.ToString('s'), $_.CommandLine }"
@@ -116,16 +129,25 @@ def processes() -> list[tuple[int, int, str, str, str | None]]:
         if len(parts) < 5 or not parts[0].strip().isdigit():
             continue
         pid, parent, name, created, command = parts
-        if "jobloop" in command or "supervise_loop" in command or name.strip() == "opencode.exe":
+        image = name.strip()
+        lower_image = image.lower()
+        if (
+            "jobloop" in command
+            or "supervise_loop" in command
+            or lower_image in {"opencode.exe", "agy.exe"}
+        ):
             kind: str | None = None
-            if name.strip() == "opencode.exe":
+            if lower_image == "opencode.exe":
                 if "serve --service" in command:
                     kind = "serve_service"
                 elif "serve --stdio" in command:
                     kind = "serve_stdio"
                 elif "run --standalone" in command:
                     kind = "run_standalone"
-            found.append((int(pid), int(parent), name.strip(), created.strip(), kind))
+            elif lower_image == "agy.exe":
+                if "--input-format stream-json" in command and "--print" in command:
+                    kind = "agy_session"
+            found.append((int(pid), int(parent), image, created.strip(), kind))
     return found
 
 
@@ -146,19 +168,18 @@ def orphans(live: list[tuple[int, int, str, str, str | None]]) -> str:
     """A job session whose parent is gone writes where nobody reads.
 
     The parent is looked up by id, not searched for in the list above. Testing
-    membership of a list filtered to `python.exe`/`opencode.exe` called every
-    live worker an orphan, because npm launches `opencode` through a `cmd.exe`
-    shim that the filter never collected. On 2026-11-22 that false positive told
-    the orchestrator to `taskkill` a worker that was eleven minutes into its job
-    — a check that destroys work is worse than no check.
+    membership of a list filtered to `python.exe`/`opencode.exe`/`agy.EXE`
+    called every live worker an orphan, because npm launches `opencode` through
+    a `cmd.exe` shim that the filter never collected. On 2026-11-22 that false
+    positive told the orchestrator to `taskkill` a worker that was eleven
+    minutes into its job — a check that destroys work is worse than no check.
     """
     loose: list[tuple[int, str, str]] = []  # (pid, created, shape)
     for pid, parent, _name, created, kind in live:
-        if kind not in {"run_standalone", "serve_stdio"}:
+        if kind not in WORKER_SESSION_SHAPES:
             continue
         if not running(parent):
-            shape = "run --standalone" if kind == "run_standalone" else "serve --stdio"
-            loose.append((pid, created, shape))
+            loose.append((pid, created, WORKER_SESSION_SHAPES[kind]))
     if not loose:
         return "ok    no orphaned worker"
     named = ", ".join(
@@ -167,8 +188,10 @@ def orphans(live: list[tuple[int, int, str, str, str | None]]) -> str:
     return f"FAIL  orphaned worker session: {named} — taskkill /PID <id> /T /F"
 
 
-def supervisor(live: list[tuple[int, int, str, str, bool]]) -> str:
-    running = [pid for pid, _, name, _, _ in live if name == "python.exe"]
+def supervisor(live: list[tuple[int, int, str, str, str | None]]) -> str:
+    loop_pids = [pid for pid, _, name, _, _ in live if name.lower() == "python.exe"]
+    workers = [pid for pid, _, _, _, kind in live if kind in WORKER_SESSION_SHAPES]
+    worker_note = f", {len(workers)} worker(s) alive" if workers else ""
     beat = ROOT / ".jobloop" / "supervisor.log"
     age = ""
     if beat.is_file():
@@ -180,9 +203,9 @@ def supervisor(live: list[tuple[int, int, str, str, bool]]) -> str:
                 age = f", last heartbeat {minutes:.0f} min ago"
             except ValueError:
                 age = ""
-    if not running:
-        return f"FAIL  no jobloop or supervisor process{age}"
-    return f"ok    {len(running)} loop process(es) alive{age}"
+    if not loop_pids:
+        return f"FAIL  no jobloop or supervisor process{worker_note}{age}"
+    return f"ok    {len(loop_pids)} loop process(es) alive{worker_note}{age}"
 
 
 def churn() -> str:
