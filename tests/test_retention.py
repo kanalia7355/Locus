@@ -737,3 +737,66 @@ def test_unexpired_audit_non_admin_and_in_flight_retention_delete_guards(
         service.conn.execute("SELECT 1 FROM documents WHERE id=?", (att_inflight_doc,)).fetchone()
         is None
     )
+
+
+def test_admin_retention_delete_of_ready_attachment_in_busy_conversation_returns_409(
+    service: Service, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC: Deleting a ready attachment in a busy conversation returns 409.
+
+    The guard at service.py:4502-4503 (`if row["conversation_id"]`:
+    _retention_inflight_refusal`) refuses deletion while a conversation has
+    queued/running chat work, even when the attachment is ready and expired.
+    """
+    alice, admin = client_for(service), client_for(service)
+    login(alice)
+    login(admin, "admin", "01")
+    alice_actor = service.authenticate(alice.cookies.get("locus_session"))
+    service.authenticate(admin.cookies.get("locus_session"))
+    service.scanner = AcceptingScanner()
+
+    base_now = 1_700_000_000.0
+
+    # 1. Create a conversation
+    conv = service.new_conversation(alice_actor, "project-a")["id"]
+
+    # 2. Enqueue a chat job to make the conversation "busy" (queued status).
+    # This is the same pattern used by existing tests (e.g. test_unexpired_audit...).
+    service.enqueue_chat(
+        alice_actor,
+        conv,
+        "queued question",
+        "all",
+        [],
+        token=alice.cookies.get("locus_session"),
+        generate=lambda _t, _c: ("answer", "fixture"),
+        validate=None,
+    )
+
+    # 3. Upload a ready attachment to that conversation.
+    # The upload inserts with status='queued' and created=time.time().
+    # Process to set status to 'ready', then UPDATE created to base_now so the
+    # retention expiry check (created + window <= now) works with the monkeypatched clock.
+    att = service.upload(
+        alice_actor, "project-a", "attached-note.txt", "添付ノートBの本文", "attachment", conv
+    )
+    assert service.process_next() is True
+    with service.db() as db:
+        db.execute("UPDATE documents SET created=? WHERE id=?", (base_now, att["id"]))
+
+    # 4. Set retention clock past expiry (beyond the 365-day default window).
+    monkeypatch.setattr(service, "_retention_now", lambda: base_now + 366 * SECONDS_PER_DAY)
+
+    # 5. Attempt deletion of just the attachment -> should be 409 refused.
+    resp = admin.post(
+        "/api/admin/retention/delete",
+        headers=ORIGIN,
+        json={"document_ids": [att["id"]]},
+    )
+    assert resp.status_code == 409, f"expected 409, got {resp.status_code}: {resp.text}"
+
+    # 6. Verify the attachment and conversation rows still exist (by identifier,
+    #      not by count — the 409 must have prevented the delete).
+    with service.db() as db:
+        assert db.execute("SELECT 1 FROM documents WHERE id=?", (att["id"],)).fetchone() is not None
+        assert db.execute("SELECT 1 FROM conversations WHERE id=?", (conv,)).fetchone() is not None
