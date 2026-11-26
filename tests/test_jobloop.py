@@ -1008,7 +1008,7 @@ def test_containment_judgement_still_stops_and_clean_runs_still_pass(tmp_path: P
 
     def dirty_dirt(_path: Path) -> str:
         dirty_seen["n"] += 1
-        return "before\n" if dirty_seen["n"] == 1 else "before\n?? escaped.py x\n"
+        return "before\n" if dirty_seen["n"] == 1 else "before\n M escaped.py x\n"
 
     dirty_controller.dirt = dirty_dirt  # type: ignore[assignment]
     dirty_outcome = dirty_controller.run_job(dirty_controller.select())
@@ -1034,7 +1034,7 @@ def test_containment_rest_is_readable_in_log_and_diagnose(tmp_path: Path) -> Non
 
     def dirty_dirt(_path: Path) -> str:
         seen["n"] += 1
-        return "before\n" if seen["n"] == 1 else "before\n?? leaked.py abc123\n"
+        return "before\n" if seen["n"] == 1 else "before\n M leaked.py abc123\n"
 
     controller.dirt = dirty_dirt  # type: ignore[assignment]
     outcome = controller.run_job(controller.select())

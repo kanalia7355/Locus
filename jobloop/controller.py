@@ -875,28 +875,43 @@ class Controller:
             if not self.bookkeeping(line)
         ]
         if moved and not self.operator_busy():
-            containment = self.roster.mark_containment_stop(
-                model, orchestrator_busy=self.operator_busy()
-            )
-            containment_note = (
-                f"containment {model}: {containment['containment_stops']}/"
-                f"{containment['dispatches']} stops/dispatches"
-            )
-            if containment["rested"]:
-                containment_note += f" -> rested {COOLDOWN_SECONDS / 3600:.0f}h"
-                self.note(containment_note)
-            return self.escalate(
-                task,
-                "worker wrote outside its workspace",
-                "The main checkout changed while the job ran, so this work is unreviewable. "
-                "Inspect and restore the checkout before the job is retried.",
-                f"model={model}\nworkspace={task.id}\n"
-                f"marker={self.busy_marker} present={self.operator_busy()}\n"
-                f"{containment_note}\n"
-                # Paths, not digests: the reader needs the filenames.
-                f"appeared:\n"
-                + "\n".join(f"{line[:2]} {self.changed_path(line)}" for line in moved[:25]),
-            )
+            litter = self._main_checkout_litter(task, tree, moved)
+            if litter:
+                self.discard(self.settings.repository, set(litter))
+                self.record(
+                    task,
+                    f"MAIN CHECKOUT LITTER REMOVED ({self.now()})",
+                    f"model={model}\n"
+                    f"{len(litter)} untracked file(s) outside `allowed_paths` that nothing in "
+                    f"the change refers to appeared in the main checkout and were deleted: "
+                    f"{', '.join(sorted(litter))}.\n"
+                    "These are scratch files rather than tracked source edits, so the job "
+                    "continues instead of stopping the branch.",
+                )
+            else:
+                containment = self.roster.mark_containment_stop(
+                    model, orchestrator_busy=self.operator_busy()
+                )
+                containment_note = (
+                    f"containment {model}: {containment['containment_stops']}/"
+                    f"{containment['dispatches']} stops/dispatches"
+                )
+                if containment["rested"]:
+                    containment_note += f" -> rested {COOLDOWN_SECONDS / 3600:.0f}h"
+                    self.note(containment_note)
+                return self.escalate(
+                    task,
+                    "worker wrote outside its workspace",
+                    "The main checkout changed while the job ran, so this work is unreviewable. "
+                    "Inspect and restore the checkout before the job is retried.",
+                    f"model={model}\nworkspace={task.id}\n"
+                    f"marker={self.busy_marker} present={self.operator_busy()}\n"
+                    f"{containment_note}\n"
+                    # Paths, not digests: the reader needs the filenames.
+                    f"appeared:\n"
+                    + "\n".join(f"{line[:2]} {self.changed_path(line)}" for line in moved[:25]),
+                )
+
         if self.operator_busy():
             self.record(
                 task,
@@ -1036,6 +1051,21 @@ class Controller:
                 "; ".join(f"{gate.name}: {gate.detail[:200]}" for gate in failed),
             )
         return self.review(task, tree, model, checks)
+
+    def _main_checkout_litter(self, task: Task, tree: Path, moved: list[str]) -> list[str]:
+        """Return escaped paths only when every one of them is untracked scratch.
+
+        Any tracked modification (`line[:2] != "??"`), any path inside `allowed_paths`,
+        or any path referenced by an in-scope file returns `[]` so the caller stops
+        the job as a real containment escape.
+        """
+        if not moved or any(line[:2] != "??" for line in moved):
+            return []
+        escaped = [self.changed_path(line) for line in moved]
+        names = gates.changed_files(tree)
+        readable = self.texts(tree, [*names, *self.in_scope_files(tree, task.allowed_paths)])
+        litter = gates.litter(escaped, task.allowed_paths, contents=readable)
+        return litter if set(litter) == set(escaped) else []
 
     def resume(self, task: Task) -> Outcome:
         """Re-check an existing workspace and carry on, without a new attempt.
