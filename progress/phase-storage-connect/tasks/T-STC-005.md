@@ -1,15 +1,16 @@
 ---
 id: T-STC-005
 phase: phase-storage-connect
-status: todo
-assignee: unassigned
-model: -
+status: review
+assignee: agy
+model: agy/gemini-4-carbon-low
 weight: medium
-updated: 2026-11-26T20:19:29+09:00
+updated: 2026-11-26T21:53:16+09:00
 attempts: 0
 depends_on: T-STC-002, T-STC-003, T-STC-004
 allowed_paths: frontend/src/ConnectorSettings.tsx, frontend/src/ConnectorSettings.test.tsx, backend/app/service.py, backend/app/main.py, tests/test_connectors.py, tests/test_api.py
 test_cmd: python -m pytest tests/test_connectors.py tests/test_api.py -q && npm --prefix frontend test -- --run src/ConnectorSettings.test.tsx && npm --prefix frontend run typecheck
+reviewer: agy/gemini-4-argon-low
 ---
 
 # Task `T-STC-005`: 管理画面UI＋権限喪失時のアクセス拒否の統合検証
@@ -191,3 +192,56 @@ worker wrote outside its workspace: The main checkout changed while the job ran,
   14 分の賭けのほうが安い。だから `depends_on` は足さない。
 
 原因側は `T-PH9-422`（phase-9 の先頭）。それが通れば両方とも解ける。
+
+## ATTEMPT 1 — implementation by agy/gemini-4-carbon-low (2026-11-26T21:53:16+09:00)
+
+Verification tests, frontend typecheck, and lint are currently running; waiting for completion.
+Verification tests, frontend typecheck, and lint are running; waiting for completion.
+Frontend tests, typecheck, lint, ruff, and secret scan are running; waiting for completion.
+Full verification command and controller gates are running; waiting for completion.
+Waiting for the verification task to complete.
+Verification checks (mypy, pytest, vitest, typecheck, eslint, ruff, and secret scan) are running; waiting for completion.
+Additional connector regression checks are running; waiting for completion.
+REPORT
+- Changed files and reasons:
+  - [service.py](file:///C:/Users/hirot/.jobloop-Locus/workspaces/T-STC-005/backend/app/service.py):
+    - Enforced `document_origins.revoked = 1` refusal at the shared source-authorization choke points `_source_allows()` and `_source_connector_allows()`, which `_can_read()`, `_citations()`, `_generated()`, `documents()`, `document()`, `chunks()`, `related()`, `send()`, and `_ingestion_allowed()` all call. A document whose origin is marked `revoked` is immediately refused across read, search, related-document, and citation paths, and previously generated answers citing it are hidden on live reload (`answer_hidden: True`).
+    - Added optional `source` metadata (`"<connector_id> / <source_label>"`, or `"<connector_id>"` when `source_label` is empty) to `documents()`, `document()`, and `related()` for connector-originated documents without exposing credentials or `external_id`. Manual uploads remain unchanged without a `source` field.
+    - Configured default sync connector presence at `Service` startup for `local_folder`, `google_drive`, and `box` from environment variables (`LocalFolderConnector`, `GoogleDriveConnector`, `BoxConnector`), forwarded request-time `source` onto default-configured connectors during `sync_connector()`, refused sync on unconfigured connectors with `404`, closed connector HTTP clients in `Service.close()`, and recorded aggregate-only `last_sync` (`registered`, `updated`, `skipped`, `failed`) returned by `admin_connectors()`.
+  - [ConnectorSettings.tsx](file:///C:/Users/hirot/.jobloop-Locus/workspaces/T-STC-005/frontend/src/ConnectorSettings.tsx) (new):
+    - Implemented the administrator connector settings component displaying the three connectors (`local_folder`, `google_drive`, `box`) with human-readable labels, credential presence (`設定済み` / `サーバ側で未設定`), and `last_sync` aggregate counts (`登録 / 更新 / スキップ / 失敗` counts only).
+    - Provided manual sync execution (`POST /api/admin/connectors/{connector_id}/sync`) accepting target `project_id` and `source` (relative path for local folder, folder ID for Drive/Box), disabling sync for unconfigured connectors (`同期不可`) and omitting any credential input fields.
+    - Rendered imported document origin badges (e.g., `Box / 研究資料`) for synced documents in the selected project without exposing `external_id` or credential values.
+  - [ConnectorSettings.test.tsx](file:///C:/Users/hirot/.jobloop-Locus/workspaces/T-STC-005/frontend/src/ConnectorSettings.test.tsx) (new):
+    - Added unit tests verifying connector presence rendering (`設定済み` / `サーバ側で未設定`), aggregate-only `last_sync` and manual sync result counts, absence of password/credential input fields, disabling of unconfigured connectors, and display of imported document origin labels (`Box / 研究資料`).
+  - [test_connectors.py](file:///C:/Users/hirot/.jobloop-Locus/workspaces/T-STC-005/tests/test_connectors.py):
+    - Appended integration tests (without modifying or relaxing any existing test or assertion) covering: (1) full round-trip sync -> index -> read/search/cite/generated-answer -> item removed from source -> resync -> read/chunks/related/search/new-citation denied and prior generated answer hidden (`answer_hidden: True`); (2) document listing exposing `source` (`fake / research`) while never exposing `external_id`; (3) `GET /api/admin/connectors` reporting `last_sync` aggregate counts after manual sync; and (4) default presence of all three connectors (`local_folder`, `google_drive`, `box`), refusal of unconfigured sync, and forwarding of request `source` sub-path on `local_folder`.
+- Inconsistencies between documentation and code:
+  - Mounting `ConnectorSettings` inside the existing `SettingsDialog.tsx` or `AdminSettings.tsx` (`保存先` tab) was not done because neither `frontend/src/SettingsDialog.tsx` nor `frontend/src/AdminSettings.tsx` is in `allowed_paths` (`frontend/src/ConnectorSettings.tsx`, `frontend/src/ConnectorSettings.test.tsx`, `backend/app/service.py`, `backend/app/main.py`, `tests/test_connectors.py`, `tests/test_api.py`), and `frontend/src/AdminSettings.test.tsx` explicitly asserts `expect(requests).toHaveLength(1)` on `/admin/storage` when rendering `AdminStorage`. Following the task's `allowed_paths` boundary and Implementation Details 2–3, `ConnectorSettings` is implemented and exported as a standalone component in `frontend/src/ConnectorSettings.tsx`.
+  - `backend/app/connectors.py` and the `backend/app/connectors/` package share the module name `app.connectors`, and `backend/app/connectors.py` imports `from app.service import unsafe_document_name`. Importing `connector_local` / `connector_gdrive` / `connector_box` at module top level in `backend/app/service.py` would trigger a circular import during `connectors.py` dynamic loading, so `_configure_default_sync_connectors()` imports the three connector classes lazily inside the method, matching how `create_app()` in `backend/app/main.py` lazily imports `OpenAICompatibleModel`.
+  - `AGENTS.md` and `docs/agent/PROTOCOL.md` mention updating `progress/<phase>/tasks/<TASK-ID>.md`, whereas the job brief and `jobloop/gates.py` strictly enforce `allowed_paths` and require the report in this reply only; followed the authoritative job brief.
+- Risks left behind:
+  - `ConnectorSettings` is not yet wired into `SettingsDialog.tsx` / `AdminSettings.tsx` because those files are outside `allow
+
+### Controller gates
+
+- `scope`: green
+- `task-verification`: green
+- `python-lint`: green
+- `python-format`: green
+- `secret-scan`: green
+- `frontend-free-ports`: green
+- `frontend-typecheck`: green
+- `frontend-lint`: green
+- `frontend-test:e2e`: green
+
+## REVIEW by agy/gemini-4-argon-low (2026-11-26T21:55:04+09:00)
+
+VERDICT
+- APPROVED
+
+FINDINGS
+- none
+
+UNVERIFIED
+- End-to-end integration of `ConnectorSettings` into a parent admin view (`SettingsDialog.tsx` / `AdminSettings.tsx` / `App.tsx`) was not verified because those files are outside `allowed_paths` (`frontend/src/ConnectorSettings.tsx`, `frontend/src/ConnectorSettings.test.tsx`, `backend/app/service.py`, `backend/app/main.py`, `tests/test_connectors.py`, `tests/test_api.py`); the component and its API contracts are verified through `frontend/src/ConnectorSettings.test.tsx` and `tests/test_connectors.py`.
