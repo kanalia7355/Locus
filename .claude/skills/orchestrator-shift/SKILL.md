@@ -116,7 +116,22 @@ Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" |
 ```
 
 A `supervisor started` with no later `supervisor stopped` means one is alive.
-Kill the older tree before starting a new one, and confirm **one** remains. `orchestrator-busy` suspends the
+Kill the older tree before starting a new one, and confirm **one** remains.
+
+**Both of those checks mislead, and the tie-breaker is `ParentProcessId`.** On
+2026-11-27 at 00:22 the grep gave `started=32 stopped=18` and the process filter
+returned **2** — either reading says "more than one supervisor", and the skill
+above says to kill the older tree. Both were wrong. One healthy supervisor is
+**two** `python.exe` processes: `supervise_loop.py` re-executes itself on
+Windows, so the pair shares a creation time to the second and the second's
+`ParentProcessId` is the first's PID. The `started`/`stopped` counts are a
+lifetime tally across days of restarts, not a census of what is alive. Killing
+on either reading would have stopped a loop that was mid-cycle with eleven
+models usable. So before killing anything, print `ProcessId`,
+`ParentProcessId`, `CreationDate` and the command line, and **check whether one
+is the other's child**; then confirm against the log, because one supervisor
+writes **one** rising `cycle N` sequence while two write two counters minutes
+apart. `orchestrator-busy` suspends the
 containment *comparison*; it does not stop dispatch. On 2026-11-22 a shift wrote
 ten rulings while the loop kept working, and the loop re-blocked `T-PH7-211` and
 spent `T-PH6-104`'s extended attempt on top of rulings that had just landed.
