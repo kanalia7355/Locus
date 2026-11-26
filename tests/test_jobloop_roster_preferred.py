@@ -60,25 +60,36 @@ def test_removing_dead_names_preserves_eligible_order() -> None:
     assert not (_DEAD_NAMES & set(provided))
 
     free = [name for name in provided if name.startswith("opencode/") and name.endswith("-free")]
-    old_ranked = [name for name in _PREVIOUS_PREFERRED if name in free]
-    old_first = old_ranked + [name for name in free if name not in old_ranked]
-    old_expected = [*old_first, "agy/gemini-4-carbon-low"]
+    ranked = [name for name in PREFERRED if name in free]
+    first = ranked + [name for name in free if name not in ranked]
+    expected = [*first, "agy/gemini-4-carbon-low"]
 
-    assert eligible(provided) == old_expected
+    assert eligible(provided) == expected
 
 
 def test_preferred_relative_order_and_agy_second_tier_preserved() -> None:
     expected_remaining = tuple(name for name in _PREVIOUS_PREFERRED if name not in _DEAD_NAMES)
-    assert PREFERRED == expected_remaining
+    assert set(PREFERRED) == set(expected_remaining)
+    assert PREFERRED == (
+        "opencode/deepseek-v4.1-flash-free",
+        "opencode/iceman-free",
+        "opencode/flint-40b-free",
+        "opencode/nemotron-3.5-lightning-free",
+        "opencode/beam-free",
+        "opencode/mimo-v2.6-flash-free",
+        "opencode/nemotron-3.5-super-vl-free",
+    )
 
     identifiers = [
         "agy/gemini-4-hydrogen-low",
         *reversed(PREFERRED),
         "opencode/tidepool-alpha-free",
+        "ollama/qwen3:8b",
     ]
     result = eligible(identifiers)
     assert result == [
         *PREFERRED,
         "opencode/tidepool-alpha-free",
+        "ollama/qwen3:8b",
         "agy/gemini-4-hydrogen-low",
     ]
