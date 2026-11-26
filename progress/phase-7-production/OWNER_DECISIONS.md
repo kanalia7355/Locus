@@ -1140,3 +1140,20 @@ appeared:
 ?? backend/app/storage_postgres.py
 ?? docs/MIGRATION_POSTGRES.md
 ?? tests/test_postgres_engine.py
+
+## T-PH7-223 — review cycle limit reached (2026-11-26T20:00:12+09:00)
+
+**Question**: The reviewer still requires changes, and the review cycle budget is spent (attempts 3/3, review cycles 2/2).
+
+**Context**
+
+it never exercises public-IP rejection (a regression allowing e.g. `8.8.8.8` would pass). Fix: use a genuinely public IP and supply the other required production settings to isolate the `LOCUS_PRIVATE_INTERFACE` failure.
+- Medium, tests/test_production_startup.py:146-154: `test_direct_check_production_rejected` covers only 4 of the 18+ env combinations exercised via `create_app()`, so a divergence between `check_production_configuration` and `create_app` (cert/key paths, private interface, allowed hosts, unknown TLS) would escape coverage. Fix: parametrize the direct call over the same env matrix.
+- Low, tests/test_production_startup.py (AC3/6/7): no assertions for `TrustedHostMiddleware` allowed hosts matching `LOCUS_ALLOWED_HOSTS` (AC3), rejection when `ALLOW_CLOUD_EGRESS=true`/`LOCAL_ONLY_MODE=false` with a complete production config (AC6), or absence of cert/key contents in rejection messages (AC7). The implementation appears correct, but regressions would be silent.
+- Low, backend/app/deployment.py:131: production `get_trusted_hosts()` appends `testserver`/`testclient` to the configured `LOCUS_ALLOWED_HOSTS`, widening the production Host allowlist beyond the configured value (spec: production allowed hosts = `LOCUS_ALLOWED_HOSTS`). Trade-off with TestClient usability.
+
+UNVERIFIED
+- Native TLS is never actually terminated in tests (synthetic files only); certificate/key validity beyond presence/readability is not exercised.
+- `LOCUS_TRUSTED_PROXY` is validated for presence in `proxy` mode but never consumed by any runtime path; trusted-proxy restriction/behavior was not exercised.
+- Hidden/graded tests beyond the supplied 62-test suite were not available; only the provided suite was executed (62 passed).
+- Whether the intended production client network is the single interface IP (`/32`, as implemented) or the containing private range could not be confirmed from the spec; the implementation uses `/32`, which restricts production clients to the interface's own IP.
