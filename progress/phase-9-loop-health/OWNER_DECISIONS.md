@@ -1103,6 +1103,20 @@ Automatic merge failed; fix conflicts and then commit the result.
 
 ## T-PH9-425 — worker stopped for a decision (2026-11-27T03:53:45+09:00)
 
+**Answer** (2026-11-27 04:18, 当番): **`tests/test_jobloop.py` を `allowed_paths` に足したが、
+許可するのは 1 つの表明の期待値だけで、それを新しい受入条件 5 として固定した。
+試行 0/3 のまま、既存の条件は 1 文字も変えていない。**
+
+**範囲が狭すぎたのは当番の誤りである** —— 指示 3（`PREFERRED` から 4 件を落とす）は
+`tests/test_jobloop.py` を触れなければ成立せず、なのに受入条件 4 はその検査の PASS を求めていた。
+ワーカーは逸脱せず、行を名指して訊いてきた。
+その検査の入力は合成の一覧で、守っているのは「`PREFERRED` が一覧に無いモデルより上に来る」という
+**性質**であって、`glm-5.3-flash-free` はその**乗り物**に過ぎない。だから条件を緩めず、範囲を 1 行分広げた。
+差し替え先は測って決めた: ワーカーの候補 `deepseek-v4.1-flash-free` はその合成の入力に
+入っていないので通らない。正解は **`opencode/iceman-free`** で、`set(ranked)` の表明は変わらない。
+詳細は `tasks/T-PH9-425.md`。
+
+
 **Question**: `tests/test_jobloop.py::test_only_free_and_local_models_are_eligible_best_first` (line 181) asserts `ranked[0] == "opencode/glm-5.3-flash-free"`, which fails now that `opencode/glm-5.3-flash-free` was removed from `PREFERRED`; should `tests/test_jobloop.py` be added to `allowed_paths` so that assertion can be updated to `opencode/deepseek-v4.1-flash-free` (or another remaining `PREFERRED` model)?
 
 **Context**
