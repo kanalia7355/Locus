@@ -3529,3 +3529,109 @@ def test_all_models_rotated_then_no_model_resets_frontmatter(tmp_path: Path) -> 
     task2 = tasks.load_phase(directory2).tasks[0]
     assert task2.fields.get("model") == "opencode/b-free"
     assert task2.fields.get("assignee") == "opencode"
+
+
+def test_tool_incompatible_models_excluded_from_pick(tmp_path: Path) -> None:
+    """AC: models that do not support tool calls are excluded from `pick` candidates.
+
+    When a model fails with "does not support tools", it is marked tool-incompatible
+    and excluded from future `pick` / `pick_reviewer` candidates. This prevents the
+    model from consuming an attempt on a job it can never complete.
+    """
+    from jobloop.roster import Roster
+
+    # Use only free models that support tools
+    roster = Roster(
+        models=["opencode/glm-5.3-flash-free", "ollama/gemma3:4b"],
+        state_file=tmp_path / "roster.json",
+        now=1000.0,
+    )
+
+    # Before marking, both models are eligible and pick can select either
+    model = roster.pick()
+    assert model in {"opencode/glm-5.3-flash-free", "ollama/gemma3:4b"}
+
+    # Mark gemma3:4b as tool-incompatible (simulating a dispatch failure)
+    roster.mark_tool_incompatible("ollama/gemma3:4b")
+
+    # After marking, pick should exclude the tool-incompatible model
+    model = roster.pick()
+    assert model == "opencode/glm-5.3-flash-free", (
+        f"Expected opencode/glm-5.3-flash-free, got {model}"
+    )
+
+    # pick_reviewer should also exclude the tool-incompatible model
+    reviewer = roster.pick_reviewer("opencode/glm-5.3-flash-free")
+    assert reviewer is None, (
+        f"Expected None (only one model left, and it's the implementer), got {reviewer}"
+    )
+
+
+def test_tool_incompatible_attempts_not_consumed(tmp_path: Path) -> None:
+    """AC: selecting a model that later proves tool-incompatible does not consume an attempt.
+
+    When a model is dispatched and returns "does not support tools", the job must
+    keep its attempt (the attempt survives, same as EXHAUSTED / OUTAGE rotation).
+    The controller records this via `rotated` state, not `attempt-failed`.
+    """
+    from jobloop import worker
+
+    phase_with_task(tmp_path)
+    controller = controller_for(tmp_path, ["ollama/gemma3:4b", "a-free", "b-free"])
+
+    # Dispatch gemma3:4b and make it fail with "does not support tools"
+    controller.workspace = lambda task: tmp_path  # type: ignore[assignment]
+    controller.dispatch = lambda model, prompt, **_: worker.Result(
+        worker.Ending.UNAVAILABLE,
+        "",
+        model,
+        ["provider.invalid-request: registry.ollama.ai/library/gemma3:4b does not support tools"],
+    )
+
+    outcome = controller.run_job(controller.select())
+    assert outcome.state == "rotated", f"Expected rotated, got {outcome.state}"
+    assert "does not support tools" in outcome.detail
+
+    # The attempt must NOT have been consumed
+    task = tasks.load_phase(controller.settings.phase_directory).tasks[0]
+    assert task.attempts == 0, f"Expected attempts 0, got {task.attempts}"
+
+    # The model should be marked tool-incompatible and excluded from future picks
+    assert "ollama/gemma3:4b" not in controller.roster.available()
+    assert controller.roster.pick() == "a-free"
+
+
+def test_tool_incompatible_not_counted_as_cooling(tmp_path: Path) -> None:
+    """AC: excluded tool-incompatible models are not counted as "cooling" in shift_check.
+
+    In shift_check's inventory, unusable models should not appear as "on cooldown"
+    (i.e., they should not contribute to the count of models waiting to return).
+    They are permanently excluded, not temporarily rested.
+    """
+    from jobloop.roster import Roster
+
+    # Create a roster with a tool-incompatible model and a tool-capable model
+    roster = Roster(
+        models=["opencode/flint-40b-free", "ollama/gemma3:4b"],
+        state_file=tmp_path / "roster.json",
+        now=1000.0,
+    )
+
+    # Mark gemma3:4b as tool-incompatible
+    roster.mark_tool_incompatible("ollama/gemma3:4b")
+
+    # Check available() - the tool-incompatible model should NOT be listed
+    available = roster.available()
+    assert "ollama/gemma3:4b" not in available, (
+        f"Tool-incompatible model should not be in available(), got {available}"
+    )
+
+    # The capable model should still be available
+    assert "opencode/flint-40b-free" in available, (
+        f"Capable model should be in available(), got {available}"
+    )
+
+    # Verify it is persisted without a cooldown_until timestamp (not counted as cooling)
+    state = json.loads((tmp_path / "roster.json").read_text(encoding="utf-8"))
+    assert state["ollama/gemma3:4b"].get("tool_incompatible") == 1.0
+    assert "cooldown_until" not in state["ollama/gemma3:4b"]

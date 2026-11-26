@@ -180,7 +180,9 @@ class Roster:
         return [
             name
             for name in self.models
-            if name not in exclude and not self._cooled_down(spent.get(name, {}))
+            if name not in exclude
+            and not self._cooled_down(spent.get(name, {}))
+            and not spent.get(name, {}).get("tool_incompatible")
         ]
 
     def _cooled_down(self, entry: object) -> bool:
@@ -215,7 +217,11 @@ class Roster:
         return candidates[0] if candidates else None
 
     def pick_reviewer(self, implementer: str) -> str | None:
-        """A reviewer must not be the model that wrote the code (CONSTRAINTS §5-5)."""
+        """A reviewer must not be the model that wrote the code (CONSTRAINTS §5-5).
+
+        Models the CLI cannot run at all (tool-incompatible) are excluded from
+        the reviewer candidate list, independently of the implementer exclusion.
+        """
         return self.pick(exclude=(implementer,), role="review")
 
     def mark_exhausted(self, model: str, *, seconds: float = COOLDOWN_SECONDS) -> float:
@@ -282,6 +288,19 @@ class Roster:
         entry["observations"] = (_finite_float(entry.get("observations", 0)) or 0.0) + 1
         self._save(state)
         return seconds
+
+    def mark_tool_incompatible(self, model: str) -> None:
+        """Exclude a model that does not support tool calls.
+
+        Unlike `mark_unavailable`, this does not set a cooldown: an
+        incompatible model is not temporarily resting and will not come back
+        later. Persisting the flag in state ensures `available()`, `pick()`,
+        `pick_reviewer()`, and `shift_check` all exclude it across restarts.
+        """
+        state = self._state()
+        entry = self._entry_for_write(state, model)
+        entry["tool_incompatible"] = 1.0
+        self._save(state)
 
     def mark_dispatched(self, model: str) -> None:
         """Count one dispatch. Distinct from observations: this is the denominator
