@@ -1141,6 +1141,21 @@ appeared:
 ?? docs/MIGRATION_POSTGRES.md
 ?? tests/test_postgres_engine.py
 
+
+**Answer** (2026-11-26 21:40, orchestrator): **決定は要りません。19:19 に処理済みで、
+裁定は `tasks/T-PH7-212.md` に書いてあります。** 2 回の派遣が 2 回とも本体
+チェックアウトに落ち（差分 1073 / 305 / 539 行、別々の実装）、55 分を失いました。
+全部 `escaped/2026-11-26/T-PH7-212-*` と `T-PH7-212-1911-*` に保全し、本体を戻して
+`todo` に戻しました（**手で合流させていません。試行は 0/3 のままです**）。
+受入条件は変えていません。変えたのは順番だけで、`depends_on` に `T-PH9-422` を
+足して待たせました。
+
+**その `T-PH9-422` は 20:48 にマージされたので、この票の待ちは解けています。**
+ただし 422 で入ったのは守りの形だけで逸脱自体は直っていないため、
+**もう一度逸脱する可能性は残ります。** `heavy`（1 回 30 分）なので、
+次に同じ形で落ちたら今度は `T-PH9-423`（計器）の完成まで待たせます。
+`medium` の `T-STC-005` を待たせていない理由との対比も両方の票に書いてあります。
+
 ## T-PH7-223 — review cycle limit reached (2026-11-26T20:00:12+09:00)
 
 **Question**: The reviewer still requires changes, and the review cycle budget is spent (attempts 3/3, review cycles 2/2).
