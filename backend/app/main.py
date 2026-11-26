@@ -247,6 +247,18 @@ def create_app(
 
     chat_runtime = _ChatRuntimeProxy(remote_model or runtime)
 
+    def clear_remote_runtime_credentials() -> None:
+        """Drop a discovered remote endpoint/key once the runtime is disabled.
+
+        The disable path is the single turn-off entry, but the remote adapter
+        keeps the discovered base_url/api_key on its instance, so forgetting them
+        here is what keeps a disabled runtime from holding credentials in memory.
+        """
+        target: Any = remote_runtime
+        with target.settings_lock:
+            target._base_url = None
+            target._api_key = None
+
     stop = asyncio.Event()
 
     async def worker() -> None:
@@ -873,6 +885,12 @@ def create_app(
             # api_key_present: true only for remote (openai-compatible) sources.
             # Never include the actual key value.
             status["api_key_present"] = provider == "openai-compatible"
+        elif "api_key_present" in status:
+            # Unconfigured: answer with the same item set a never-configured
+            # runtime produces, for local and remote alike. The remote adapter
+            # carries a fixed api_key_present flag, but it only means something
+            # while a model is configured, so it must not surface unconfigured.
+            status.pop("api_key_present")
         return status
 
     @app.put("/api/admin/models/runtime")
@@ -889,9 +907,16 @@ def create_app(
             if not source and data.candidate_id in (getattr(runtime, "registered", {}) or {}):
                 source = "ollama"
             if data.candidate_id is None:
-                # Disable the currently active runtime.
+                # Disable the currently active runtime and forget any remote
+                # endpoint/key it discovered, so nothing privileged survives.
                 target = chat_runtime.active
                 result = target.configure(None, False, data.timeout_seconds, data.slots)
+                if target is remote_runtime:
+                    clear_remote_runtime_credentials()
+                if not result.get("model"):
+                    # A disabled runtime answers with the unconfigured shape, the
+                    # same item set a never-configured runtime produces.
+                    result.pop("api_key_present", None)
                 audit_target = (
                     "remote-model-runtime" if target is remote_runtime else "local-model-runtime"
                 )
