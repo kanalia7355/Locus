@@ -822,3 +822,26 @@ TEST
 
 STATUS
 needs-owner-decision: `tests/test_jobloop.py` (outside `allowed_paths`) has two existing tests (`test_containment_judgement_still_stops_and_clean_runs_still_pass` with `?? escaped.py x` and `test_containment_rest_is_readable_in_log_and_diagnose` with `?? leaked.py abc123`) that assert untracked unreferenced files in the main checkout escalate; should `tests/test_jobloop.py` be updated (e.g., to use tracked `M` paths for those escalation tests) or should `T-PH9-421`'s sweep criterion exclude `.py` files?
+
+
+**Answer** (2026-11-26 22:18, orchestrator): **`tests/test_jobloop.py` を触って
+よいことにしました。許可パスに足し、触れる範囲を受入条件 7 として書きました。
+試行は 0/3 のまま、`doing` に置きました。受入条件は 1 つも緩めていません。**
+
+**ワーカーの問いが正しく、当番の落ち度です。** この票は「本体チェックアウトに
+現れた**未追跡で参照されていない屑 1 本**では止めない」という契約に変える票です。
+ところが `tests/test_jobloop.py` の既存 2 件が、まさにその場合に止まることを
+**古い契約のまま表明**していました（`?? escaped.py x` と `?? leaked.py abc123`）。
+許可パスの外なので、ワーカーは**勝手に直さず訊いて止まりました。正しい順序です。**
+
+14:25 に当番は「新しい検査を別ファイルに書けば `tests/test_jobloop.py` を
+4 票が同時に握らずに済む」と考えて許可パスを狭く引きました。**新しい表明に
+ついてはその通りですが、既存の表明が同じ契約を握っていることを見落として
+いました。**
+
+**白紙委任にはしていません。** 触れるのは名前を挙げた 2 件の「逸脱の材料」の
+行だけで、`def test_` の本数が減らないこと（103 本）と、差し替え前後の材料と
+件数の両方を貼ることを条件にしました。あの 2 件が確かめているのは
+「**本物の逸脱なら止まる**」と「**休ませた記録が読める**」であって
+「未追跡の屑 1 本で止まる」ことではないので、材料を追跡ファイルの行に
+差し替えても性質は残ります。**緩和ではなく、契約が変わった側への差し替えです。**
