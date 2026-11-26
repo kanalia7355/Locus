@@ -1,15 +1,15 @@
 ---
 id: T-AIC-007
 phase: phase-ai-connect
-status: review
+status: done
 assignee: opencode
 model: opencode/flint-40b-free
 weight: light
 depends_on: T-AIC-002
 allowed_paths: backend/app/main.py, tests/test_model_catalog.py
 test_cmd: python -m pytest tests/test_model_catalog.py -q
-updated: 2026-11-26T11:48:32+09:00
-attempts: 0
+updated: 2026-11-26T11:50:13+09:00
+attempts: 1
 reviewer: agy/gemini-4-carbon-low
 ---
 

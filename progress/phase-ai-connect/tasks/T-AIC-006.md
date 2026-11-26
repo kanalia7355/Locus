@@ -1,11 +1,11 @@
 ---
 id: T-AIC-006
 phase: phase-ai-connect
-status: todo
-assignee: unassigned
-model: -
+status: review
+assignee: agy
+model: agy/gemini-4-carbon-low
 weight: medium
-updated: 2026-11-25T20:30:00+09:00
+updated: 2026-11-26T11:55:30+09:00
 attempts: 0
 allowed_paths: progress/phase-ai-connect/material/
 test_cmd: python -m pytest tests/test_agents_registry.py -q
@@ -259,3 +259,44 @@ or approve a review`）。受入条件 1〜8 を私が読んで「満たして�
 一緒にやってはいけなかった。この票が 2 日間 `blocked` で止まり、
 3 回の「the worker changed nothing」を記録し、
 最後にオーナーの判断を要したのは、すべてその結果である。
+
+## WORKSPACE REBASED (2026-11-26T11:50:17+09:00)
+
+The workspace was 125 commit(s) behind `loop/local-development` and had no work in progress, so it was reset onto the current branch. Nothing of this job's own was discarded.
+
+## ATTEMPT 1 — implementation by agy/gemini-4-carbon-low (2026-11-26T11:55:30+09:00)
+
+REPORT
+- Changed files and reasons:
+  - [USER_CREDENTIAL_DESIGN.md](file:///C:/Users/hirot/.jobloop-Locus/workspaces/T-AIC-006/progress/phase-ai-connect/material/USER_CREDENTIAL_DESIGN.md): Created the design-only specification for per-user credential handling (`T-AIC-006`, `HBR` requirement 4), starting from git blob `0d2b822d08f158edecdadba89d1d0624e7254d49` and tightening it against all Acceptance Criteria (1–8) and phase boundaries:
+    - Separated `(A)` provider API keys (stored encrypted in a dedicated DB table `user_provider_credentials` with AEAD + AAD + per-write random nonce) and `(B)` agent credentials (kept client-side per [HYBRID_AGENT_ADAPTER_DESIGN.md](file:///C:/Users/hirot/.jobloop-Locus/workspaces/T-AIC-006/docs/plans/HYBRID_AGENT_ADAPTER_DESIGN.md) §4.2 Option 1, explaining why model-management selection UX works via metadata alone), with explicit prohibited-output location tables for both `(A)` and `(B)`.
+    - Specified KEK placement outside the DB via server environment variable / secret-manager env injection, documented why OS credential stores were not chosen as the default, prohibited committing `.env` or KEK literals to the repository, and defined key rotation (`kek_version` N → N+1 re-encryption) and revocation / user deletion behavior.
+    - Preserved `credential_schema_is_presence_only()` in [registry.py](file:///C:/Users/hirot/.jobloop-Locus/workspaces/T-AIC-006/backend/app/agents/registry.py#L53-L56) and [registry.py](file:///C:/Users/hirot/.jobloop-Locus/workspaces/T-AIC-006/backend/app/agents/registry.py#L186-L187) unchanged by isolating `(A)` into a separate table, and removed banned column-name marker `"credential"` from the proposed non-secret label column (`display_label` instead of `credential_label`) so the startup guard (`§5a`) and table definition (`§2.1`) are self-consistent.
+    - Designed the four mechanical guards (`5a` startup `RuntimeError` schema guard matching `credential_schema_is_presence_only()`, `5b` single decryption function requiring `requester_user_id` with AST boundary enforcement, `5c` explicit `system_admin` cross-user denial check including [registry.py](file:///C:/Users/hirot/.jobloop-Locus/workspaces/T-AIC-006/backend/app/agents/registry.py#L275) and [registry.py](file:///C:/Users/hirot/.jobloop-Locus/workspaces/T-AIC-006/backend/app/agents/registry.py#L725) boundary verification, and `5d` leak scanning across API responses, audit rows, logs, and exception strings for plaintext, `"secret_ciphertext"`, and ciphertext bytes), each with explicit fail/pass conditions, plus additional mock/synthetic verification cases (`VT-1`–`VT-5`, `NV-1`–`NV-5`) using the approved `sk-synthetic-01-not-a-real-key` fixture from [secret_scan.py](file:///C:/Users/hirot/.jobloop-Locus/workspaces/T-AIC-006/scripts/secret_scan.py#L41-L45).
+    - Stated the security claim boundary honestly following [DOCUMENT_EXTRACTION_BOUNDARY.md](file:///C:/Users/hirot/.jobloop-Locus/workspaces/T-AIC-006/docs/architecture/DOCUMENT_EXTRACTION_BOUNDARY.md#L59-L89): protection holds against application paths and DB reads, and does not hold against host-root-equivalent actors who can read server environment variables or process memory alongside the DB.
+- Inconsistencies found between documentation and code:
+  - In [T-AIC-006.md](file:///C:/Users/hirot/.jobloop-Locus/workspaces/T-AIC-006/progress/phase-ai-connect/tasks/T-AIC-006.md) (`SCOPE` and `OWNER DECISION APPLIED`), the brief notes that the original artifact remained in workspace `T-AIC-006` as well as in git blob `0d2b822d08f158edecdadba89d1d0624e7254d49`; in actual workspace state after the branch reset onto `loop/local-development`, `progress/phase-ai-connect/material/USER_CREDENTIAL_DESIGN.md` was absent from the working tree while blob `0d2b822d08f158edecdadba89d1d0624e7254d49` was present in git object storage (`33,069` bytes).
+  - [PROTOCOL.md](file:///C:/Users/hirot/.jobloop-Locus/workspaces/T-AIC-006/docs/agent/PROTOCOL.md#L30-L32) describes workers updating `progress/<phase>/tasks/<TASK-ID>.md` directly under the `pi` harness, whereas the active `jobloop` controller enforces `allowed_paths` (`progress/phase-ai-connect/material/` only) and records task progress deterministically from the worker's structured reply; followed the controller's `allowed_paths` boundary.
+  - [.bootstrap/complete.json](file:///C:/Users/hirot/.jobloop-Locus/workspaces/T-AIC-006/.bootstrap/complete.json#L20-L43) records the historical ruff targets `backend tests scripts`, whereas the current controller gate and repository layout include `jobloop` (`ruff check backend tests scripts jobloop`).
+- Risks left behind:
+  - This task delivers a design gate document only; none of the runtime schema guards, encryption/decryption functions, API endpoints, or automated leak/authorization tests for `user_provider_credentials` exist in code until the follow-up implementation task lands.
+  - As documented in `§2.7`, host-root-equivalent actors can access both the external KEK (environment/process memory) and the DB ciphertext, and audit-log tamper resistance (`T-T4`) remains a separate unimplemented work item.
+
+TEST
+- `Test-Path progress/phase-ai-connect/material/USER_CREDENTIAL_DESIGN.md` (before writing, to verify missing target document) -> `False` (exit 0)
+- `.venv/Scripts/python.exe -V; .venv/Scripts/python.exe -m pip check` -> `Python 3.13.2`, `No broken requirements found.` (exit 0)
+- `.venv/Scripts/python.exe -m pytest tests/test_agents_registry.py -q && ...` -> PowerShell 5.1 parser error (`The token '&&' is not a valid statement separator in this version.`, exit 1)
+- `.venv/Scripts/python.exe -m pytest tests/test_agents_registry.py -q` -> `12 passed in 6.32s` (exit 0)
+- `.venv/Scripts/python.exe -m ruff check backend tests scripts jobloop` -> `All checks passed!` (exit 0)
+- `.venv/Scripts/python.exe -m ruff format --check backend tests scripts jobloop` -> `200 files already formatted` (exit 0)
+- `.venv/Scripts/python.exe scripts/secret_
+
+### Controller gates
+
+- `scope`: green
+- `task-verification`: green
+- `secret-scan`: green
+
+## WAITING FOR A REVIEWER (2026-11-26T11:55:30+09:00)
+
+`agy/gemini-4-carbon-low` implemented this, and no other free model is off cooldown, so there is nobody to review it. Self-review is prohibited (CONSTRAINTS.md §5-5). This is a wait, not a decision: the job stays in `review` and the next cycle tries again once a model is back. Nothing was approved, nothing was merged.
