@@ -444,3 +444,171 @@ def test_failed_origin_recording_leaves_no_orphan_and_retry_registers(
         ).fetchone()
     assert doc is not None
     assert doc["content"] == "note"
+
+
+def test_source_revocation_denies_read_search_and_citation_after_resync(
+    service: Service,
+) -> None:
+    """Round trip: sync -> read/search/cite allowed -> source gone -> resync -> all denied."""
+    connector = FakeConnector([SourceItem("ext-1", "note.txt", "rev-1", "h1", 4, 1.0)])
+    connector.contents["ext-1"] = b"hello connector"
+    service.register_sync_connector("fake", connector, configured=True)
+    actor = admin_actor(service)
+    with service.db() as db:
+        db.execute(
+            "UPDATE users SET must_rotate=0,temp_expires=NULL,temp_used=0 WHERE id=?", (actor.id,)
+        )
+
+    imported = SyncEngine(service).sync(
+        actor, "project-a", connector, "research", connector_id="fake"
+    )
+    assert imported["registered"] == 1
+    origin = service.get_document_origin("fake", "ext-1")
+    assert origin is not None
+    with service.db() as db:
+        doc_row = db.execute(
+            "SELECT * FROM documents WHERE id=?", (origin["document_id"],)
+        ).fetchone()
+        service._index(db, doc_row)
+
+    client = client_for(service)
+    login(client, "admin", "01")
+    assert client.get(f"/api/documents/{origin['document_id']}").status_code == 200
+    assert client.get(f"/api/documents/{origin['document_id']}/chunks").status_code == 200
+    assert [
+        item["id"]
+        for item in client.get("/api/documents", params={"project_id": "project-a"}).json()
+    ] == [origin["document_id"]]
+    conversation = client.post(
+        "/api/conversations", json={"project_id": "project-a"}, headers=ORIGIN
+    ).json()["id"]
+    token = client.cookies.get("locus_session")
+    assert token
+    sent = service.send(
+        service.authenticate(token),
+        conversation,
+        "hello",
+        "all",
+        [],
+        generate=lambda _text, _citations: ("generated from connector doc", "fixture"),
+        token=token,
+    )
+    assert sent is not None
+    assert sent["citations"]
+    assert sent["answer"] == "generated from connector doc"
+
+    connector.items = []
+    revoked = SyncEngine(service).sync(
+        actor, "project-a", connector, "research", connector_id="fake"
+    )
+    assert revoked["revoked"] == 1
+    assert service.is_document_origin_revoked(origin["document_id"]) is True
+
+    assert client.get(f"/api/documents/{origin['document_id']}").status_code == 404
+    assert client.get(f"/api/documents/{origin['document_id']}/chunks").status_code == 404
+    assert client.get(f"/api/documents/{origin['document_id']}/related").status_code == 404
+    assert client.get("/api/documents", params={"project_id": "project-a"}).json() == []
+    assert (
+        client.get("/api/documents", params={"project_id": "project-a", "q": "note"}).json() == []
+    )
+    history = client.get(f"/api/conversations/{conversation}").json()["messages"][0]
+    assert history["citations"] == []
+    assert history.get("answer_hidden") is True
+    assert history["answer"] is None
+
+    after_revoke = client.post(
+        f"/api/conversations/{conversation}/messages",
+        json={"text": "hello", "scope": "all", "attachment_ids": []},
+        headers=ORIGIN,
+    ).json()
+    assert after_revoke["citations"] == []
+
+
+def test_synced_document_listing_exposes_source_without_external_id(service: Service) -> None:
+    connector = FakeConnector([SourceItem("ext-1", "note.txt", "rev-1", "h1", 4, 1.0)])
+    connector.contents["ext-1"] = b"hello connector"
+    service.register_sync_connector("fake", connector, configured=True)
+    actor = admin_actor(service)
+    imported = SyncEngine(service).sync(
+        actor, "project-a", connector, "research", connector_id="fake"
+    )
+    assert imported["registered"] == 1
+    origin = service.get_document_origin("fake", "ext-1")
+    assert origin is not None
+
+    client = client_for(service)
+    login(client, "admin", "01")
+    listing = client.get("/api/documents", params={"project_id": "project-a"}).json()
+    assert [item["id"] for item in listing] == [origin["document_id"]]
+    assert listing[0]["source"] == "fake / research"
+    assert "ext-1" not in client.get("/api/documents", params={"project_id": "project-a"}).text
+
+
+def test_connector_admin_reports_last_sync_aggregates(service: Service) -> None:
+    connector = FakeConnector([SourceItem("ext-1", "note.txt", "rev-1", "h1", 4, 1.0)])
+    connector.contents["ext-1"] = b"hello connector"
+    service.register_sync_connector("fake", connector, configured=True)
+
+    admin = client_for(service)
+    login(admin, "admin", "01")
+    listing = admin.get("/api/admin/connectors").json()
+    assert any(item["connector_id"] == "fake" and item["configured"] is True for item in listing)
+
+    sync = admin.post(
+        "/api/admin/connectors/fake/sync",
+        json={"project_id": "project-a", "source": "research"},
+        headers=ORIGIN,
+    )
+    assert sync.status_code == 200, sync.text
+    assert sync.json()["registered"] == 1
+
+    after = [
+        item for item in admin.get("/api/admin/connectors").json() if item["connector_id"] == "fake"
+    ][0]
+    assert after["configured"] is True
+    assert after["last_sync"] == {
+        "registered": 1,
+        "updated": 0,
+        "skipped": 0,
+        "failed": 0,
+    }
+
+
+def test_default_three_connectors_reported_and_request_source_forwarded(
+    service: Service, tmp_path: Path
+) -> None:
+    admin = client_for(service)
+    login(admin, "admin", "01")
+    initial_ids = {item["connector_id"] for item in admin.get("/api/admin/connectors").json()}
+    assert {"local_folder", "google_drive", "box"} <= initial_ids
+
+    # Unconfigured connector refuses sync with 404.
+    assert (
+        admin.post(
+            "/api/admin/connectors/box/sync",
+            json={"project_id": "project-a", "source": "0"},
+            headers=ORIGIN,
+        ).status_code
+        == 404
+    )
+
+    root = tmp_path / "local-root"
+    sub = root / "sub"
+    sub.mkdir(parents=True)
+    (root / "outside-sub.txt").write_text("top level", encoding="utf-8")
+    (sub / "scoped.txt").write_text("scoped content", encoding="utf-8")
+    service._configure_default_sync_connectors({"LOCUS_LOCAL_SOURCE_ROOT": str(root)})
+
+    synced = admin.post(
+        "/api/admin/connectors/local_folder/sync",
+        json={"project_id": "project-a", "source": "sub"},
+        headers=ORIGIN,
+    )
+    assert synced.status_code == 200, synced.text
+    assert synced.json()["registered"] == 1
+    assert service.get_document_origin("local_folder", "sub/scoped.txt") is not None
+    assert service.get_document_origin("local_folder", "outside-sub.txt") is None
+    docs = admin.get("/api/documents", params={"project_id": "project-a"}).json()
+    assert [d["name"] for d in docs] == ["scoped.txt"]
+    assert docs[0]["source"] == "local_folder / sub"
+    assert "sub/scoped.txt" not in str(docs)
