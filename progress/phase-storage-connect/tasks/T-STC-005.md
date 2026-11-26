@@ -1,11 +1,11 @@
 ---
 id: T-STC-005
 phase: phase-storage-connect
-status: blocked
+status: todo
 assignee: unassigned
 model: -
 weight: medium
-updated: 2026-11-26T17:48:01+09:00
+updated: 2026-11-26T18:25:39+09:00
 attempts: 0
 depends_on: T-STC-002, T-STC-003, T-STC-004
 allowed_paths: frontend/src/ConnectorSettings.tsx, frontend/src/ConnectorSettings.test.tsx, backend/app/service.py, backend/app/main.py, tests/test_connectors.py, tests/test_api.py
@@ -113,3 +113,44 @@ The workspace was 32 commit(s) behind `loop/local-development` and had no work i
 ## OWNER DECISION REQUESTED (2026-11-26T17:48:01+09:00)
 
 worker wrote outside its workspace: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
+
+## ORCHESTRATOR NOTE — 仕事が 2 つの木に割れた（2026-11-26 18:25）
+
+17:48 の `worker wrote outside its workspace` を調べた。今日の 7 件の中で
+**この 1 件だけが形が違う**。仕事が**両方の木に割れていた**。
+
+ワークスペース（`C:\Users\hirot\.jobloop-Locus\workspaces\T-STC-005`）:
+
+```
+ M tests/test_connectors.py
+?? frontend/src/ConnectorSettings.test.tsx
+?? plan.md
+```
+
+本体チェックアウト:
+
+```
+ M backend/app/service.py              (+37 行)
+?? frontend/src/ConnectorSettings.tsx  (187 行)
+?? frontend/src/ConnectorSettings.test.tsx (110 行・ワークスペース側とは別物)
+```
+
+**画面の本体（`ConnectorSettings.tsx`）とサーバ側（`service.py`）が
+本体チェックアウトにしか無く、その検査はワークスペースにしか無い。**
+どちらの木も単独では `test_cmd` を通せない。
+
+やったこと: 本体チェックアウト側を
+`C:\Users\hirot\.jobloop-Locus\escaped\2026-11-26\T-STC-005-*` に残し
+（`ConnectorSettings.test.tsx` は 2 つ別物なので本体側を
+`-main-checkout` 付きで残した）、本体チェックアウトだけを 18:21 に戻した。
+**ワークスペースは触っていない** —— そこに有るものはそこの仕事である。
+試行は消費されていない（0/3）。
+
+**手で貼り合わせない。** 2 つの木の `ConnectorSettings.test.tsx` が別物で
+あるということは、同じ検査を 2 回書いたか、途中で考えが変わったという
+ことで、どちらが本物かを当番が当てるのは推測である。次の派遣に
+やり直させる。`status: todo` に戻した。
+
+原因側は `T-PH9-422`（phase-9 の先頭に置いた）。この票はそれを待たない
+—— 待たせると `phase-storage-connect` が止まるだけで、通る可能性は
+今日の実測で 5 件に 1 件は有る。
