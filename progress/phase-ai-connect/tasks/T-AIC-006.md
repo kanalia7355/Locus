@@ -1,12 +1,12 @@
 ---
 id: T-AIC-006
 phase: phase-ai-connect
-status: review
+status: done
 assignee: opencode
 model: opencode/flint-40b-free
 weight: medium
-updated: 2026-11-26T17:29:08+09:00
-attempts: 1
+updated: 2026-11-26T17:31:05+09:00
+attempts: 2
 allowed_paths: progress/phase-ai-connect/material/
 test_cmd: python -m pytest tests/test_agents_registry.py -q
 reviewer: opencode/nemotron-3.5-lightning-free
