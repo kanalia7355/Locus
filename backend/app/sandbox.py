@@ -550,10 +550,12 @@ def extract_with_sandbox(
 ) -> SandboxResult:
     """Resolve format → extractor source → run in sandbox.
 
-    Returns a SandboxResult whose .content holds the extractor JSON output (or
-    None on failure) and .guarantees tells the operator what containment was
-    actually provided. Strong Docker guarantees are reported only when a Docker
-    container actually executed and returned an exit code.
+    Returns a SandboxResult whose .content holds the extractor's raw JSON
+    envelope stdout (for example ``{"body": ...}``), or None on failure. The
+    envelope is not unwrapped here; callers that need the extracted text must
+    parse ``.content`` and read ``body``. ``.guarantees`` tells the operator what
+    containment was actually provided. Strong Docker guarantees are reported only
+    when a Docker container actually executed and returned an exit code.
     """
     source = _resolve_extractor(format_name)
     if source is None:
