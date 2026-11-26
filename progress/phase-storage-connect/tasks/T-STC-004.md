@@ -1,15 +1,16 @@
 ---
 id: T-STC-004
 phase: phase-storage-connect
-status: todo
-assignee: unassigned
-model: -
+status: review
+assignee: agy
+model: agy/gemini-4-carbon-low
 weight: medium
-updated: 2026-11-22T14:06:00+09:00
+updated: 2026-11-26T12:37:21+09:00
 attempts: 0
 depends_on: T-STC-001
 allowed_paths: backend/app/connector_box.py, tests/test_connector_box.py, backend/requirements.lock
 test_cmd: python -m pytest tests/test_connector_box.py tests/test_connectors.py -q
+reviewer: agy/gemini-4-argon-low
 ---
 
 # Task `T-STC-004`: Box コネクタ（CCG／読み取り専用）
@@ -122,3 +123,45 @@ test_cmd: python -m pytest tests/test_connector_box.py tests/test_connectors.py 
   **経路を「裁定を仰ぐ」に書き換えた**。書けない場所を許可と書いた票は、
   phase-8 で 3 件のジョブを保護パスへ書かせて失わせている。
   `backend/requirements.lock` は保護対象でないのでそのまま残した。
+
+## ATTEMPT 1 — implementation by agy/gemini-4-carbon-low (2026-11-26T12:37:21+09:00)
+
+Verification checks are running; waiting for completion.
+Verification command is completing; waiting for final task notification.
+Final verification checks are running; waiting for completion.
+REPORT
+- Changed files and reasons:
+  - [connector_box.py](file:///C:/Users/hirot/.jobloop-Locus/workspaces/T-STC-004/backend/app/connector_box.py) (new): Implements read-only `BoxConnector` against the T-STC-001 `list_items` / `fetch_content` sync contract directly over `httpx` (leaving `backend/requirements.lock` untouched). Reads `LOCUS_BOX_CLIENT_ID`, `LOCUS_BOX_CLIENT_SECRET`, and `LOCUS_BOX_ENTERPRISE_ID` into closure-backed storage so credential values and cached bearer tokens do not appear in `vars(connector)`, `repr(connector)`, `self.rejections`, exceptions, or sync results; raises `BoxUnavailable` when unconfigured. Acquires access tokens via `POST https://api.box.com/oauth2/token` (`grant_type=client_credentials`, `box_subject_type=enterprise`, `box_subject_id`), caches them in memory until expiry (with a 60s skew), and re-acquires on expiry. Enumerates `GET https://api.box.com/2.0/folders/{folder_id}/items` with `fields=id,type,name,sha1,size,modified_at,file_version` and `limit`/`offset` pagination, walking nested folders up to `MAX_DEPTH = 8` and `MAX_ITEMS = 1000` (with cycle tracking), setting `external_id` to file ID, `revision` to `file_version.id` (falling back to `sha1`), and `content_hash` to `sha1`. Downloads content via `GET https://api.box.com/2.0/files/{file_id}/content`: the main API client keeps `follow_redirects=False`, and only when `/content` returns a redirect does a dedicated download client follow redirects (without forwarding `Authorization`) after verifying on every hop via `event_hooks` that the target is `https://` on a Box download host (`*.boxcloud.com` / `*.box.com`, excluding `api.box.com` and embedded credentials). Refreshes the token once on `401` without further retries; treats initial root-folder `403`/`404` as source permission loss by recording `source_unreachable` and returning a complete empty listing `([], None)` so `SyncEngine` marks existing origins `revoked`, while raising `BoxError` on mid-enumeration/mid-pagination `403`/`404` so unseen items are not partially revoked.
+  - [test_connector_box.py](file:///C:/Users/hirot/.jobloop-Locus/workspaces/T-STC-004/tests/test_connector_box.py) (new): Offline test suite using `httpx.MockTransport` covering CCG token acquisition and re-acquisition after expiry, paginated and recursive folder enumeration with depth (`8`) and item (`1,000`) bounds, `file_version.id` and `sha1` revision/diff handling via `Service.sync_connector`, redirect following to Box download hosts without leaking the `Authorization` header, refusal of insecure/unexpected initial and chained redirect hosts, non-following of redirects on listing endpoints, single-retry `401` token refresh without infinite loops, initial `403`/`404` origin revocation vs. mid-pagination `403` abort without partial revocation, unconfigured/invalid-source handling, and non-exposure of `client_secret` across exceptions, connector state, rejections, and sync results.
+- Inconsistencies between documentation and code:
+  - The task specification states that the sync request's `source` carries the Box folder ID (`"0"` for root), whereas `Service.sync_connector` in [service.py](file:///C:/Users/hirot/.jobloop-Locus/workspaces/T-STC-004/backend/app/service.py#L951-L970) currently forwards `source` only as `source_label` to `SyncEngine.sync` rather than passing it to the connector (`service.py`, `main.py`, and `connectors.py` are outside `allowed_paths`, matching `T-STC-002` and `T-STC-003`; `BoxConnector` accepts `source` at construction and wiring request-time `source` / startup registration belongs to `T-STC-005`).
+  - `backend/app/connectors.py` and the `backend/app/connectors/` package share the module name `app.connectors`, so importing `app.connectors` resolves to the package rather than `connectors.py`. Following the existing convention in `app/service.py`, `app/connector_local.py`, and `app/connector_gdrive.py`, `connector_box.py` loads `connectors.py` via `importlib.util.spec_from_file_location`.
+  - `AGENTS.md` and `docs/agent/PROTOCOL.md` describe worker updates to `progress/<phase>/tasks/<TASK-ID>.md`, whereas the controller brief and `jobloop/gates.py` strictly enforce `allowed_paths` (`backend/app/connector_box.py`, `tests/test_connector_box.py`, `backend/requirements.lock`) and require the report in this reply only; followed the brief and `gates.py`.
+- Risks left behind:
+  - When a folder tree exceeds `MAX_DEPTH` (`8`) or `MAX_ITEMS` (`1,000`), `list_items` records `depth_limit` / `item_limit` in `self.rejections` and returns the bounded listing as complete (matching `LocalFolderConnector` in [connector_local.py](file:///C:/Users/hirot/.jobloop-Locus/workspaces/T-STC-004/backend/app/connector_local.py#L216-L226)); any previously imported items beyond those bounds would be marked `revoked` by `SyncEngine`.
+  - Pre-existing `mypy` errors remain in untouched [main.py](file:///C:/Users/hirot/.jobloop-Locus/workspaces/T-STC-004/backend/app/main.py) (7 errors when running `python -m mypy backend/app`), while `python -m mypy backend/app/connector_box.py` passes cleanly with 0 errors.
+  - Live end-to-end verification against Box's CCG OAuth2 and v2 REST/download endpoints remains pending owner creation and Box administrator approval of the Server (CCG) application, as noted in the task background. Read-path enforcement of `document_origins.revoked` across retrieval endpoints is deferred to `T-STC-005` per the phase plan.
+
+TEST
+- `python -m pytest tests/test_connector_box.py -q` (red check before creating `backend/app/connector_box.py`): failed (exit 1), `ModuleNotFoundError: No module named 'app.connector_box'`
+- `python -m pytest tests/test_connector_box.py tests/test_connectors.py -q` (initial implementation run): `26 passed in 4.94s`
+- `python -m ruff check
+
+### Controller gates
+
+- `scope`: green
+- `task-verification`: green
+- `python-lint`: green
+- `python-format`: green
+- `secret-scan`: green
+
+## REVIEW by agy/gemini-4-argon-low (2026-11-26T12:38:39+09:00)
+
+VERDICT
+- APPROVED
+
+FINDINGS
+- none
+
+UNVERIFIED
+- Live Box API integration (Client Credentials Grant approval and folder collaboration in Box Developer Console are external owner prerequisites; tests verify all protocol flows against `httpx.MockTransport` as required by the task definition).

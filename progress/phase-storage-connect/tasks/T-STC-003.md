@@ -1,12 +1,12 @@
 ---
 id: T-STC-003
 phase: phase-storage-connect
-status: review
+status: done
 assignee: agy
 model: agy/gemini-4-carbon-low
 weight: medium
-updated: 2026-11-26T12:27:26+09:00
-attempts: 0
+updated: 2026-11-26T12:28:08+09:00
+attempts: 1
 depends_on: T-STC-001
 allowed_paths: backend/app/connector_gdrive.py, tests/test_connector_gdrive.py, backend/requirements.lock
 test_cmd: python -m pytest tests/test_connector_gdrive.py tests/test_connectors.py -q
