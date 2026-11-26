@@ -48,6 +48,25 @@ class FakeConnector:
         return self.contents[external_id]
 
 
+class OriginFailingService:
+    """Delegate to a real Service but fail origin writes for one external id."""
+
+    def __init__(self, service: Service, external_id: str) -> None:
+        self._service = service
+        self.external_id = external_id
+        self.fail = True
+        self.attempts = 0
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._service, name)
+
+    def record_document_origin(self, **kwargs: Any) -> None:
+        if self.fail and kwargs["external_id"] == self.external_id:
+            self.attempts += 1
+            raise RuntimeError("origin store unavailable")
+        self._service.record_document_origin(**kwargs)
+
+
 def login(client: TestClient, username: str = "admin", number: str = "01") -> None:
     response = client.post(
         "/api/auth/login",
@@ -368,3 +387,60 @@ def test_sync_does_not_revoke_when_listing_fails_mid_pagination(service: Service
     origin_b = service.get_document_origin("fake", "ext-b")
     assert origin_b is not None
     assert origin_b["revoked"] is False
+
+
+def test_sync_continues_and_reports_failure_when_origin_recording_fails(
+    service: Service,
+) -> None:
+    connector = FakeConnector(
+        [
+            SourceItem("ext-origin", "origin.txt", "rev-1", "h1", 1, 1.0),
+            SourceItem("ext-ok", "ok.txt", "rev-1", "h2", 2, 1.0),
+        ]
+    )
+    connector.contents["ext-origin"] = b"o"
+    connector.contents["ext-ok"] = b"ok"
+    service.register_sync_connector("fake", connector, configured=True)
+    wrapped = OriginFailingService(service, "ext-origin")
+
+    result = SyncEngine(wrapped).sync(
+        admin_actor(service), "project-a", connector, "label", connector_id="fake"
+    )
+
+    assert wrapped.attempts == 1
+    assert result["registered"] == 1
+    assert result["failed"] == 1
+    assert result["reasons"].get("origin_failed") == 1
+    assert service.get_document_origin("fake", "ext-ok") is not None
+    assert service.get_document_origin("fake", "ext-origin") is None
+
+
+def test_failed_origin_recording_leaves_no_orphan_and_retry_registers(
+    service: Service,
+) -> None:
+    connector = FakeConnector([SourceItem("ext-1", "note.txt", "rev-1", "h1", 4, 1.0)])
+    connector.contents["ext-1"] = b"note"
+    service.register_sync_connector("fake", connector, configured=True)
+    wrapped = OriginFailingService(service, "ext-1")
+    actor = admin_actor(service)
+
+    first = SyncEngine(wrapped).sync(actor, "project-a", connector, "label", connector_id="fake")
+    assert first["registered"] == 0
+    assert first["failed"] == 1
+    with service.db() as db:
+        orphaned = db.execute("SELECT id FROM documents WHERE name='note.txt'").fetchall()
+    assert orphaned == []
+    assert service.get_document_origin("fake", "ext-1") is None
+
+    wrapped.fail = False
+    second = SyncEngine(wrapped).sync(actor, "project-a", connector, "label", connector_id="fake")
+    assert second["registered"] == 1
+    assert second["failed"] == 0
+    origin = service.get_document_origin("fake", "ext-1")
+    assert origin is not None
+    with service.db() as db:
+        doc = db.execute(
+            "SELECT content FROM documents WHERE id=?", (origin["document_id"],)
+        ).fetchone()
+    assert doc is not None
+    assert doc["content"] == "note"
