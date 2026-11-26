@@ -986,6 +986,10 @@ def create_app(
     def audit(user: Actor) -> list[dict[str, Any]]:
         return svc.audit(user)
 
+    @app.get("/api/admin/audit/integrity")
+    def audit_integrity(user: Actor) -> dict[str, Any]:
+        return svc.verify_audit_chain(user)
+
     @app.get("/api/admin/retention")
     def retention_status(request: Request) -> dict[str, Any]:
         return svc.retention_status(request.cookies.get(COOKIE))

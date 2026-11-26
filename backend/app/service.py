@@ -125,6 +125,74 @@ def digest(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+AUDIT_CHAIN_GENESIS = "genesis"
+
+
+def _audit_canon_at(at: Any) -> str:
+    """Canonical text form for audit timestamps.
+
+    SQLite REAL values round-trip through Python floats; format with enough
+    precision to keep the same float value stable across hash computation and
+    verification reads.
+    """
+    if isinstance(at, bool):
+        # bool is an int subclass; treat as its numeric value explicitly.
+        return format(float(int(at)), ".17g")
+    if isinstance(at, (int, float)):
+        return format(float(at), ".17g")
+    return str(at)
+
+
+def _audit_hash_payload(
+    prev_hash: str,
+    audit_id: str,
+    at: Any,
+    actor_id: str,
+    operation: str,
+    target_id: str,
+    outcome: str,
+) -> str:
+    """Hash one audit row into the append-only chain.
+
+    Canonicalization is length-prefixed UTF-8 for every field (prev_hash plus
+    the 6 audit columns) joined with NUL. The length prefix makes column
+    boundaries unambiguous, so shifting bytes between adjacent columns cannot
+    produce the same payload.
+    """
+    fields = [
+        str(prev_hash),
+        str(audit_id),
+        _audit_canon_at(at),
+        str(actor_id),
+        str(operation),
+        str(target_id),
+        str(outcome),
+    ]
+    body = "\x00".join(f"{len(f.encode('utf-8'))}:{f}" for f in fields)
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
+def _audit_sha256_udf(
+    prev_hash: Any,
+    audit_id: Any,
+    at: Any,
+    actor_id: Any,
+    operation: Any,
+    target_id: Any,
+    outcome: Any,
+) -> str:
+    """SQLite UDF wrapper; registered per-connection as audit_sha256."""
+    return _audit_hash_payload(
+        str(prev_hash),
+        str(audit_id),
+        at,
+        str(actor_id),
+        str(operation),
+        str(target_id),
+        str(outcome),
+    )
+
+
 def fail(status: int, detail: str) -> NoReturn:
     raise HTTPException(status, detail)
 
@@ -204,6 +272,7 @@ class Service:
         engine: StorageEngine | None = None,
     ) -> None:
         self._engine = engine if engine is not None else SqliteEngine(path)
+        self._register_audit_hash_function()
         self.scanner = scanner or UnavailableScanner()
         # Fail-closed visibility: only an adapter that can actually perform the
         # safety check counts as configured; the placeholder always quarantines.
@@ -585,6 +654,54 @@ class Service:
                 id TEXT PRIMARY KEY, at REAL NOT NULL, actor_id TEXT NOT NULL,
                 operation TEXT NOT NULL, target_id TEXT NOT NULL, outcome TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS audit_chain (
+                audit_id TEXT PRIMARY KEY REFERENCES audit(id),
+                seq INTEGER NOT NULL UNIQUE,
+                prev_hash TEXT NOT NULL,
+                row_hash TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS audit_chain_head (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                row_count INTEGER NOT NULL,
+                head_hash TEXT NOT NULL
+            );
+            CREATE TRIGGER IF NOT EXISTS audit_no_update
+            BEFORE UPDATE ON audit BEGIN
+                SELECT RAISE(ABORT, 'audit rows are append-only');
+            END;
+            CREATE TRIGGER IF NOT EXISTS audit_no_delete
+            BEFORE DELETE ON audit BEGIN
+                SELECT RAISE(ABORT, 'audit rows are append-only');
+            END;
+            CREATE TRIGGER IF NOT EXISTS audit_chain_no_update
+            BEFORE UPDATE ON audit_chain BEGIN
+                SELECT RAISE(ABORT, 'audit chain rows are immutable');
+            END;
+            CREATE TRIGGER IF NOT EXISTS audit_chain_no_delete
+            BEFORE DELETE ON audit_chain BEGIN
+                SELECT RAISE(ABORT, 'audit chain rows are immutable');
+            END;
+            CREATE TRIGGER IF NOT EXISTS audit_chain_head_no_delete
+            BEFORE DELETE ON audit_chain_head BEGIN
+                SELECT RAISE(ABORT, 'audit chain head is retained');
+            END;
+            CREATE TRIGGER IF NOT EXISTS audit_chain_insert
+            AFTER INSERT ON audit BEGIN
+                INSERT INTO audit_chain (audit_id, seq, prev_hash, row_hash)
+                SELECT
+                    NEW.id,
+                    COALESCE((SELECT row_count FROM audit_chain_head WHERE id = 1), 0) + 1,
+                    COALESCE((SELECT head_hash FROM audit_chain_head WHERE id = 1), 'genesis'),
+                    audit_sha256(
+                        COALESCE((SELECT head_hash FROM audit_chain_head WHERE id = 1), 'genesis'),
+                        NEW.id, NEW.at, NEW.actor_id, NEW.operation, NEW.target_id, NEW.outcome
+                    );
+                INSERT INTO audit_chain_head (id, row_count, head_hash)
+                VALUES (1, 1, (SELECT row_hash FROM audit_chain WHERE audit_id = NEW.id))
+                ON CONFLICT(id) DO UPDATE SET
+                    row_count = row_count + 1,
+                    head_hash = (SELECT row_hash FROM audit_chain WHERE audit_id = NEW.id);
+            END;
             CREATE TABLE IF NOT EXISTS login_events (
                 id TEXT PRIMARY KEY, at REAL NOT NULL,
                 user_id TEXT, username_digest TEXT NOT NULL,
@@ -621,6 +738,7 @@ class Service:
             "INSERT OR IGNORE INTO membership_roles (user_id,project_id,role) "
             "SELECT user_id,project_id,role FROM memberships"
         )
+        self._migrate_audit_chain()
 
     @property
     def lock(self) -> Any:
@@ -664,6 +782,57 @@ class Service:
 
     def close(self) -> None:
         self._engine.close()
+
+    def _register_audit_hash_function(self) -> None:
+        # T-PH7-214: the audit_chain AFTER INSERT trigger calls audit_sha256.
+        # Registration is per-connection; SQLite only (PostgreSQL uses a
+        # different hash function path and is not implemented in this job).
+        raw = getattr(getattr(self._engine, "conn", None), "raw", None)
+        create_function = getattr(raw, "create_function", None)
+        if callable(create_function):
+            create_function("audit_sha256", 7, _audit_sha256_udf)
+
+    def _migrate_audit_chain(self) -> None:
+        """Backfill audit_chain for databases created before the chain existed.
+
+        Runs once: if audit_chain_head already has a row the chain is left as-is.
+        Existing audit rows are chained in (at, id) ascending order so the result
+        is deterministic and immediately verifiable.
+        """
+        with self.db() as db:
+            head = db.execute("SELECT row_count FROM audit_chain_head WHERE id = 1").fetchone()
+            if head is not None:
+                return
+            rows = db.execute(
+                "SELECT id, at, actor_id, operation, target_id, outcome "
+                "FROM audit ORDER BY at ASC, id ASC"
+            ).fetchall()
+            if not rows:
+                return
+            prev_hash = AUDIT_CHAIN_GENESIS
+            last_hash = prev_hash
+            row_count = 0
+            for seq, row in enumerate(rows, start=1):
+                row_hash = _audit_hash_payload(
+                    prev_hash,
+                    row["id"],
+                    row["at"],
+                    row["actor_id"],
+                    row["operation"],
+                    row["target_id"],
+                    row["outcome"],
+                )
+                db.execute(
+                    "INSERT INTO audit_chain (audit_id, seq, prev_hash, row_hash) VALUES (?,?,?,?)",
+                    (row["id"], seq, prev_hash, row_hash),
+                )
+                prev_hash = row_hash
+                last_hash = row_hash
+                row_count = seq
+            db.execute(
+                "INSERT INTO audit_chain_head (id, row_count, head_hash) VALUES (1, ?, ?)",
+                (row_count, last_hash),
+            )
 
     def _audit(
         self, db: StorageConnection, actor: str, operation: str, target: str, outcome: str = "ok"
@@ -4240,6 +4409,148 @@ class Service:
                 "local-model-catalog",
                 "complete" if complete else "partial",
             )
+
+    def _verify_audit_chain(self, db: StorageConnection) -> Json:
+        head = db.execute(
+            "SELECT row_count, head_hash FROM audit_chain_head WHERE id = 1"
+        ).fetchone()
+        audit_count = db.execute("SELECT COUNT(*) AS count FROM audit").fetchone()["count"]
+        chain_count = db.execute("SELECT COUNT(*) AS count FROM audit_chain").fetchone()["count"]
+
+        if head is None:
+            if audit_count == 0 and chain_count == 0:
+                return {"ok": True, "checked": 0, "first_bad_id": None, "reason": "ok"}
+            return {
+                "ok": False,
+                "checked": 0,
+                "first_bad_id": None,
+                "reason": "chain not provisioned",
+            }
+
+        expected_count = int(head["row_count"])
+        if audit_count != expected_count or chain_count != expected_count:
+            if audit_count < expected_count or chain_count < expected_count:
+                missing = db.execute(
+                    "SELECT c.seq, c.audit_id FROM audit_chain c "
+                    "LEFT JOIN audit a ON a.id = c.audit_id "
+                    "WHERE a.id IS NULL ORDER BY c.seq ASC"
+                ).fetchall()
+                if missing:
+                    first_missing = int(missing[0]["seq"])
+                    contiguous_tail = first_missing == expected_count - len(missing) + 1 and all(
+                        int(row["seq"]) == first_missing + index
+                        for index, row in enumerate(missing)
+                    )
+                    reason = "tail truncation" if contiguous_tail else "missing"
+                    first_bad = str(missing[0]["audit_id"])
+                else:
+                    reason = "tail truncation"
+                    first_bad = None
+                return {
+                    "ok": False,
+                    "checked": min(audit_count, chain_count, expected_count),
+                    "first_bad_id": first_bad,
+                    "reason": reason,
+                }
+            extra = db.execute(
+                "SELECT id FROM audit WHERE id NOT IN (SELECT audit_id FROM audit_chain) "
+                "ORDER BY at ASC, id ASC LIMIT 1"
+            ).fetchone()
+            return {
+                "ok": False,
+                "checked": expected_count,
+                "first_bad_id": str(extra["id"]) if extra is not None else None,
+                "reason": "insertion",
+            }
+
+        rows = db.execute(
+            "SELECT c.audit_id AS chain_audit_id, c.seq, c.prev_hash, c.row_hash, "
+            "a.id, a.at, a.actor_id, a.operation, a.target_id, a.outcome "
+            "FROM audit_chain c LEFT JOIN audit a ON a.id = c.audit_id "
+            "ORDER BY c.seq ASC"
+        ).fetchall()
+        if len(rows) != expected_count:
+            return {
+                "ok": False,
+                "checked": len(rows),
+                "first_bad_id": None,
+                "reason": "missing",
+            }
+
+        prev_hash = AUDIT_CHAIN_GENESIS
+        for index, row in enumerate(rows, start=1):
+            seq = int(row["seq"])
+            if seq != index:
+                return {
+                    "ok": False,
+                    "checked": index - 1,
+                    "first_bad_id": str(row["chain_audit_id"]),
+                    "reason": "insertion",
+                }
+            if row["id"] is None:
+                return {
+                    "ok": False,
+                    "checked": index - 1,
+                    "first_bad_id": str(row["chain_audit_id"]),
+                    "reason": "missing",
+                }
+            if str(row["prev_hash"]) != prev_hash:
+                return {
+                    "ok": False,
+                    "checked": index - 1,
+                    "first_bad_id": str(row["id"]),
+                    "reason": "content mismatch",
+                }
+            expected_hash = _audit_hash_payload(
+                prev_hash,
+                row["id"],
+                row["at"],
+                row["actor_id"],
+                row["operation"],
+                row["target_id"],
+                row["outcome"],
+            )
+            if str(row["row_hash"]) != expected_hash:
+                return {
+                    "ok": False,
+                    "checked": index - 1,
+                    "first_bad_id": str(row["id"]),
+                    "reason": "content mismatch",
+                }
+            prev_hash = str(row["row_hash"])
+
+        if prev_hash != str(head["head_hash"]):
+            return {
+                "ok": False,
+                "checked": expected_count,
+                "first_bad_id": None,
+                "reason": "content mismatch",
+            }
+
+        extra = db.execute(
+            "SELECT id FROM audit WHERE id NOT IN (SELECT audit_id FROM audit_chain) "
+            "ORDER BY at ASC, id ASC LIMIT 1"
+        ).fetchone()
+        if extra is not None:
+            return {
+                "ok": False,
+                "checked": expected_count,
+                "first_bad_id": str(extra["id"]),
+                "reason": "insertion",
+            }
+
+        return {
+            "ok": True,
+            "checked": expected_count,
+            "first_bad_id": None,
+            "reason": "ok",
+        }
+
+    def verify_audit_chain(self, actor: Principal) -> Json:
+        if not actor.system_admin:
+            fail(403, "管理権限が必要です")
+        with self.db() as db:
+            return self._verify_audit_chain(db)
 
     def audit(self, actor: Principal) -> list[Json]:
         if not actor.system_admin:
