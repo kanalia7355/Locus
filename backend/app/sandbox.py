@@ -6,9 +6,11 @@ limits, a stripped environment, and explicit guarantee tracking. The extractor
 code is never imported into the backend process.
 
 The subprocess path does NOT claim network isolation or memory/pids limits on
-Windows (where ``resource`` is unavailable). The Docker path provides strong
-guarantees and is opt-in. Records say which backend ran and what it could
-actually guarantee (DOCUMENT_EXTRACTION_BOUNDARY.md §5).
+Windows (where ``resource`` is unavailable). The Docker path is opt-in and only
+claims strong containment when a Docker container actually ran and reported an
+extractor exit code; on hosts without a reachable Docker daemon, Docker
+containment is unverified and falls back to subprocess guarantees
+(DOCUMENT_EXTRACTION_BOUNDARY.md §5).
 """
 
 import json
@@ -62,6 +64,30 @@ _MINIMAL_ENV_KEYS: tuple[str, ...] = (
     "PATHEXT",
 )
 
+# Docker CLI connection environment variables (separate from the extractor env
+# inside the container). Preserving these lets the host docker client reach a
+# daemon configured via DOCKER_HOST / TLS / DOCKER_CONFIG without leaking the
+# full parent environment into either the CLI or the container.
+_DOCKER_CLIENT_ENV_KEYS: tuple[str, ...] = (
+    "PATH",
+    "SYSTEMROOT",
+    "COMSPEC",
+    "PATHEXT",
+    "HOME",
+    "USERPROFILE",
+    "DOCKER_HOST",
+    "DOCKER_CERT_PATH",
+    "DOCKER_TLS_VERIFY",
+    "DOCKER_CONFIG",
+    "DOCKER_CONTEXT",
+)
+
+# Explicit container image and interpreter contract: the image must provide the
+# paired Python interpreter on its container PATH. Never pass host sys.executable.
+DEFAULT_DOCKER_IMAGE: str = "python:3.13-slim"
+DEFAULT_DOCKER_INTERPRETER: str = "python3"
+DOCKER_CLIENT_FAILURE_EXIT_CODES: frozenset[int] = frozenset({125, 126, 127})
+
 
 def _make_minimal_env() -> dict[str, str]:
     env: dict[str, str] = {}
@@ -72,6 +98,15 @@ def _make_minimal_env() -> dict[str, str]:
     env["PYTHONUNBUFFERED"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONUTF8"] = "1"
+    return env
+
+
+def _make_docker_client_env() -> dict[str, str]:
+    env: dict[str, str] = {}
+    for key in _DOCKER_CLIENT_ENV_KEYS:
+        value = os.environ.get(key)
+        if value is not None:
+            env[key] = value
     return env
 
 
@@ -319,31 +354,30 @@ def _run_subscript(
 
 
 # ---------------------------------------------------------------------------
-# _run_docker – opt-in strong guarantees.
+# _run_docker – opt-in Docker path (unverified when no Docker engine runs).
 # ---------------------------------------------------------------------------
 
 
-def _run_docker(
-    script: str,
-    *,
-    timeout: float = 30.0,
-    output_limit: int = 8 * 1024 * 1024,
-    image: str = "python:3.13-slim",
-    content: str | None = None,
-) -> SandboxResult:
-    binary = shutil.which("docker")
-    if binary is None:
-        return _run_subscript(
-            script,
-            timeout=timeout,
-            output_limit=output_limit,
-            content=content,
-        )
-    cmd = [
-        binary,
+def _docker_argv(
+    image: str = DEFAULT_DOCKER_IMAGE,
+    interpreter: str = DEFAULT_DOCKER_INTERPRETER,
+    script: str = "",
+) -> list[str]:
+    """Build the container argv without host paths or starting a Docker engine.
+
+    Uses ``docker`` by program name (resolved via ``PATH`` in the client env so
+    no host absolute path enters ``argv``), ``-i`` so stdin reaches the
+    extractor, ``--user 1000:1000`` for non-root execution, and
+    ``--entrypoint <interpreter>`` so an image supervisor ENTRYPOINT cannot
+    intercept or swallow the interpreter argument.
+    """
+    if not image or not interpreter:
+        raise ValueError("image and interpreter must be non-empty")
+    return [
+        "docker",
         "run",
         "--rm",
-        "--interactive",
+        "-i",
         "--network",
         "none",
         "--read-only",
@@ -357,21 +391,71 @@ def _run_docker(
         "--cpus=1",
         "--tmpfs",
         "/tmp:exec",
+        "--user",
+        "1000:1000",
+        "--entrypoint",
+        interpreter,
+        "--env",
+        "PYTHONUNBUFFERED=1",
         "--env",
         "PYTHONIOENCODING=utf-8",
         "--env",
         "PYTHONUTF8=1",
         image,
-        "python3",
         "-c",
         script,
     ]
+
+
+def _docker_daemon_available(client_env: dict[str, str], timeout: float = 5.0) -> bool:
+    """Return True only when the Docker CLI and reachable daemon both respond."""
+    if shutil.which("docker") is None:
+        return False
+    probe = _run_process(
+        ["docker", "info"],
+        b"",
+        timeout=min(timeout, 5.0),
+        output_limit=65536,
+        env=client_env,
+    )
+    return not probe.spawn_failed and not probe.timed_out and probe.exit_code == 0
+
+
+def _run_docker(
+    script: str,
+    *,
+    timeout: float = 30.0,
+    output_limit: int = 8 * 1024 * 1024,
+    image: str = DEFAULT_DOCKER_IMAGE,
+    interpreter: str = DEFAULT_DOCKER_INTERPRETER,
+    content: str | None = None,
+) -> SandboxResult:
+    client_env = _make_docker_client_env()
+    if not _docker_daemon_available(client_env, timeout=timeout):
+        return _run_subscript(
+            script,
+            timeout=timeout,
+            output_limit=output_limit,
+            content=content,
+        )
+    cmd = _docker_argv(image, interpreter, script)
     outcome = _run_process(
         cmd,
         (content or "").encode("utf-8"),
         timeout=timeout,
         output_limit=output_limit,
+        env=client_env,
     )
+    # Only claim DOCKER_GUARANTEES (strong) when the container actually ran and
+    # returned a real process exit code (not spawn failure or docker CLI/daemon
+    # invocation errors 125/126/127).
+    container_ran = (
+        not outcome.spawn_failed
+        and outcome.exit_code is not None
+        and outcome.exit_code not in DOCKER_CLIENT_FAILURE_EXIT_CODES
+    )
+    if not container_ran:
+        return _interpret(outcome, "subprocess", SUBPROCESS_GUARANTEES)
     return _interpret(outcome, "docker", DOCKER_GUARANTEES)
 
 
@@ -461,26 +545,35 @@ def extract_with_sandbox(
     timeout: float = 30.0,
     output_limit: int = 8 * 1024 * 1024,
     use_docker: bool = False,
+    docker_image: str = DEFAULT_DOCKER_IMAGE,
+    docker_interpreter: str = DEFAULT_DOCKER_INTERPRETER,
 ) -> SandboxResult:
     """Resolve format → extractor source → run in sandbox.
 
-    Returns a SandboxResult whose .content holds the extracted body (or None on
-    failure) and .guarantees tells the operator what containment was provided.
+    Returns a SandboxResult whose .content holds the extractor JSON output (or
+    None on failure) and .guarantees tells the operator what containment was
+    actually provided. Strong Docker guarantees are reported only when a Docker
+    container actually executed and returned an exit code.
     """
     source = _resolve_extractor(format_name)
     if source is None:
-        backend = "docker" if use_docker else "subprocess"
-        gua = dict(DOCKER_GUARANTEES) if use_docker else dict(SUBPROCESS_GUARANTEES)
         return SandboxResult(
             success=False,
             content=None,
-            sandbox=backend,
-            guarantees=gua,
+            sandbox="subprocess",
+            guarantees=dict(SUBPROCESS_GUARANTEES),
             exit_code=1,
             error_message="サポートされていない形式です",
         )
 
     script = _build_extractor_script(source, content)
     if use_docker:
-        return _run_docker(script, timeout=timeout, output_limit=output_limit, content=content)
+        return _run_docker(
+            script,
+            timeout=timeout,
+            output_limit=output_limit,
+            image=docker_image,
+            interpreter=docker_interpreter,
+            content=content,
+        )
     return _run_subscript(script, timeout=timeout, output_limit=output_limit, content=content)

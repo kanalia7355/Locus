@@ -465,3 +465,166 @@ for _ in range(1024):
     assert result.guarantees["output_bytes"] == "truncated"
     assert result.bytes_read is not None
     assert limit < result.bytes_read <= limit + 256 * 1024
+
+
+# ---------------------------------------------------------------------------
+# 9. Docker 経路の誠実さ (T-PH6-129) — docker エンジン未実証の環境で strong を主張しない
+# ---------------------------------------------------------------------------
+
+
+def test_docker_unavailable_on_host_does_not_claim_strong_guarantees() -> None:
+    """When extract_with_sandbox(..., use_docker=True) runs on this host where no
+    Docker daemon is reachable, it falls back cleanly: sandbox is not 'docker'
+    and guarantees for network/memory/cpu do not claim 'strong' (T-PH6-129 AC1).
+
+    Note: Docker containment is unverified on this host.
+    """
+    synthetic = "docker不在時の退避本文"
+    result = app.sandbox.extract_with_sandbox("plaintext", synthetic, use_docker=True)
+    assert result.sandbox != "docker", f"Expected fallback sandbox, got {result.sandbox!r}"
+    assert result.sandbox == "subprocess"
+    assert result.guarantees.get("network") != "strong"
+    assert result.guarantees.get("memory") != "strong"
+    assert result.guarantees.get("cpu") != "strong"
+    assert result.guarantees.get("write_out_of_tmp") != "strong"
+    assert result.success is True, (
+        f"Fallback subprocess should extract cleanly: {result.error_message}"
+    )
+    assert result.content is not None
+    assert json.loads(result.content)["body"] == synthetic
+
+
+def test_docker_unsupported_format_without_engine_does_not_claim_strong() -> None:
+    """Unsupported format with use_docker=True must also not claim docker/strong
+    when Docker did not actually run.
+    """
+    result = app.sandbox.extract_with_sandbox("unknown_format", "data", use_docker=True)
+    assert result.success is False
+    assert result.sandbox != "docker"
+    assert result.guarantees.get("network") != "strong"
+    assert result.guarantees.get("memory") != "strong"
+    assert result.guarantees.get("cpu") != "strong"
+
+
+def test_docker_spawn_or_daemon_failure_does_not_claim_strong(monkeypatch) -> None:
+    """Even when docker info appears to pass or fails mid-flight, a docker invocation
+    that cannot start a container (spawn_failed or exit 125/126/127) must never
+    claim sandbox='docker' or strong guarantees.
+    """
+    monkeypatch.setattr(app.sandbox.shutil, "which", lambda _name: "docker")
+
+    # Case A: docker info fails -> falls back to subprocess without claiming strong.
+    calls: list[list[str]] = []
+    real_run_process = app.sandbox._run_process
+
+    def fake_run_info_fails(command: list[str], stdin_data: bytes, **kwargs):
+        calls.append(list(command))
+        if len(command) >= 2 and command[1] == "info":
+            return app.sandbox._Outcome(exit_code=1, stdout="", stderr="pipe unavailable")
+        return real_run_process(command, stdin_data, **kwargs)
+
+    monkeypatch.setattr(app.sandbox, "_run_process", fake_run_info_fails)
+    fallback = app.sandbox._run_docker(PLAINTEXT_SOURCE, content="from-fallback")
+    assert fallback.sandbox == "subprocess"
+    assert fallback.guarantees.get("network") != "strong"
+    assert fallback.guarantees.get("memory") != "strong"
+    assert fallback.guarantees.get("cpu") != "strong"
+    assert fallback.success is True
+
+    # Case B: docker info succeeds, but docker run fails before container starts (exit 125).
+    def fake_run_daemon_error(command: list[str], stdin_data: bytes, **kwargs):
+        if len(command) >= 2 and command[1] == "info":
+            return app.sandbox._Outcome(exit_code=0, stdout="ok", stderr="")
+        return app.sandbox._Outcome(exit_code=125, stdout="", stderr="docker daemon error")
+
+    monkeypatch.setattr(app.sandbox, "_run_process", fake_run_daemon_error)
+    failed_start = app.sandbox._run_docker(PLAINTEXT_SOURCE, content="no-start")
+    assert failed_start.success is False
+    assert failed_start.sandbox != "docker"
+    assert failed_start.guarantees.get("network") != "strong"
+    assert failed_start.guarantees.get("memory") != "strong"
+    assert failed_start.guarantees.get("cpu") != "strong"
+
+
+def test_docker_argv_has_no_host_paths_and_sets_entrypoint_interactive_and_user() -> None:
+    """_docker_argv builds the container command statically without starting an engine:
+    - no host absolute paths (such as sys.executable) appear anywhere in argv (AC2)
+    - includes -i / --interactive so stdin reaches the extractor
+    - overrides ENTRYPOINT via --entrypoint and keeps --user 1000:1000
+    - uses an explicit container interpreter (e.g. python3) rather than positional python3
+      swallowed by an image supervisor entrypoint.
+    """
+    import pathlib
+    import sys
+
+    argv = app.sandbox._docker_argv(
+        app.sandbox.DEFAULT_DOCKER_IMAGE,
+        app.sandbox.DEFAULT_DOCKER_INTERPRETER,
+        "print(1)",
+    )
+    assert argv[0] == "docker"
+    assert argv[1] == "run"
+
+    # Host absolute paths (Windows drive paths or host sys.executable) must never appear.
+    # Note: '/tmp:exec' is an internal container tmpfs mount specification, not a host path.
+    for token in argv:
+        assert sys.executable not in token, f"sys.executable leaked into argv: {token!r}"
+        assert not pathlib.PureWindowsPath(token).is_absolute(), (
+            f"Windows host absolute path leaked into argv: {token!r}"
+        )
+        assert "\\" not in token or token == "print(1)", (
+            f"Backslash path leaked into argv: {token!r}"
+        )
+
+    # Interactive stdin forwarding must be enabled.
+    assert "-i" in argv or "--interactive" in argv
+
+    # Non-root container user must be preserved.
+    assert "--user" in argv
+    user_idx = argv.index("--user")
+    assert argv[user_idx + 1] == "1000:1000"
+
+    # Image ENTRYPOINT must be overridden explicitly with the container interpreter,
+    # and the args after the image are ["-c", script] (no positional interpreter).
+    assert "--entrypoint" in argv
+    ep_idx = argv.index("--entrypoint")
+    assert argv[ep_idx + 1] == "python3"
+
+    image_idx = argv.index(app.sandbox.DEFAULT_DOCKER_IMAGE)
+    assert argv[image_idx + 1 :] == ["-c", "print(1)"]
+
+    # Containment flags vocabulary check.
+    for expected in (
+        "--rm",
+        "--network",
+        "none",
+        "--read-only",
+        "--cap-drop",
+        "ALL",
+        "--security-opt",
+        "no-new-privileges",
+        "--pids-limit",
+        "--tmpfs",
+    ):
+        assert expected in argv, f"Missing expected docker flag {expected!r} in {argv!r}"
+    assert any(tok.startswith("--memory") for tok in argv)
+    assert any(tok.startswith("--cpus") for tok in argv)
+
+
+def test_docker_client_env_preserves_connection_vars_without_leaking_secrets(monkeypatch) -> None:
+    """Docker CLI client env keeps DOCKER_HOST / DOCKER_CERT_PATH / DOCKER_TLS_VERIFY /
+    DOCKER_CONFIG so remote/custom daemons remain reachable, while unrelated host
+    environment variables are excluded.
+    """
+    monkeypatch.setenv("DOCKER_HOST", "npipe:////./pipe/custom_docker")
+    monkeypatch.setenv("DOCKER_TLS_VERIFY", "1")
+    monkeypatch.setenv("DOCKER_CERT_PATH", "/certs/client")
+    monkeypatch.setenv("DOCKER_CONFIG", "/cfg/docker")
+    monkeypatch.setenv("EXTRACTED_VAR", "SENTINEL_MUST_NOT_ENTER_DOCKER_CLIENT_ENV")
+
+    client_env = app.sandbox._make_docker_client_env()
+    assert client_env.get("DOCKER_HOST") == "npipe:////./pipe/custom_docker"
+    assert client_env.get("DOCKER_TLS_VERIFY") == "1"
+    assert client_env.get("DOCKER_CERT_PATH") == "/certs/client"
+    assert client_env.get("DOCKER_CONFIG") == "/cfg/docker"
+    assert "EXTRACTED_VAR" not in client_env

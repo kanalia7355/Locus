@@ -1,25 +1,35 @@
-"""Opt-in real Docker containment evidence for DATA-006 (T-PH6-104).
+"""Opt-in live Docker sandbox checks for DATA-006 / T-PH6-129.
 
-These tests verify Docker-level sandbox guarantees (network, write isolation)
-when LOCUS_LIVE_DOCKER=1 is set.  They follow the same作法 as
-tests/integration/test_live_docker_boundary.py.
-
-skip された検査を証拠として扱わないこと (design §8).
+These checks exercise the product sandbox path (`extract_with_sandbox(..., use_docker=True)`)
+when `LOCUS_LIVE_DOCKER=1` is set on a machine with a running Docker daemon.
+On hosts without a Docker daemon (including this development machine), Docker
+containment is unverified: skipped checks are NEVER evidence that containment works
+(DOCUMENT_EXTRACTION_BOUNDARY.md §5, §8).
 """
 
 import json
 import os
-import subprocess
 from pathlib import Path
 from uuid import uuid4
 
+import app.sandbox
 import pytest
 
 
-def _need_docker() -> None:
-    """Skip unless LOCUS_LIVE_DOCKER=1 is set in the environment."""
+def _need_docker() -> str:
+    """Skip unless LOCUS_LIVE_DOCKER=1 is set; return the target Docker image."""
     if os.environ.get("LOCUS_LIVE_DOCKER") != "1":
-        pytest.skip("Real Docker containment is opt-in (set LOCUS_LIVE_DOCKER=1)")
+        pytest.skip(
+            "Live Docker check is opt-in (set LOCUS_LIVE_DOCKER=1); "
+            "skip is not evidence of containment"
+        )
+    receipt_path = Path(__file__).resolve().parents[2] / ".loop/runtime/qa-image.json"
+    if receipt_path.is_file():
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        image_id = receipt.get("image_id")
+        if isinstance(image_id, str) and image_id:
+            return image_id
+    return app.sandbox.DEFAULT_DOCKER_IMAGE
 
 
 # ---------------------------------------------------------------------------
@@ -27,159 +37,98 @@ def _need_docker() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_live_docker_network_access_denied() -> None:
-    """In Docker with --network none, socket connections are denied.
+def test_live_docker_network_access_denied(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Through extract_with_sandbox(..., use_docker=True), outbound socket
+    connections inside the container are denied (--network none) and cause
+    the extraction to fail (quarantine).
 
-    An extractor that attempts to open an outbound connection should fail
-    with the connection denied, resulting in isolation (quarantine).
+    Note: Unverified when skipped without LOCUS_LIVE_DOCKER=1.
     """
-    _need_docker()
+    image = _need_docker()
 
-    root = Path(__file__).resolve().parents[2]
-    receipt = json.loads((root / ".loop/runtime/qa-image.json").read_text())
-
-    script = """import socket,json
-try:
-    s = socket.create_connection(("1.1.1.1", 443), timeout=2)
-    print(json.dumps({"connected": True, "error": None}))
-except OSError as e:
-    print(json.dumps({"connected": False, "error": str(e) }))
+    probe_source = """\
+import socket, json, sys
+sys.stdin.read()
+s = socket.create_connection(("1.1.1.1", 443), timeout=2)
+s.close()
+print(json.dumps({"body": "unexpectedly-connected"}), flush=True)
 """
-    work = Path(__file__).resolve().parents[2] / ".loop/runtime/probes" / ("docker-" + uuid4().hex)
-    work.mkdir(parents=True)
-
-    cmd = [
-        "docker",
-        "run",
-        "--rm",
-        "--network",
-        "none",
-        "--read-only",
-        "--cap-drop",
-        "ALL",
-        "--security-opt",
-        "no-new-privileges",
-        "--pids-limit",
-        "1024",
-        f"--memory={512 * 1024 * 1024}",
-        f"--cpus={1.0}",
-        "--tmpfs",
-        "/tmp:exec",  # noqa: S108
-        "--user",
-        "1000:1000",
-        receipt["image_id"],
-        "python3",
-        "-c",
-        script,
-    ]
-    proc = subprocess.run(  # noqa: S603
-        cmd, capture_output=True, text=True, timeout=20
+    monkeypatch.setitem(app.sandbox.EXTRACTOR_SOURCE, "net_probe", probe_source)
+    result = app.sandbox.extract_with_sandbox(
+        "net_probe",
+        "probe-input",
+        timeout=20.0,
+        use_docker=True,
+        docker_image=image,
     )
-    assert proc.returncode == 0, f"Docker run failed: {proc.stderr}"
-    data = json.loads(proc.stdout)
-    assert data["connected"] is False, (
-        f"Docker network isolation failed: connection was allowed. stdout={proc.stdout}"
+    assert result.sandbox == "docker", (
+        f"Expected live Docker execution (not subprocess fallback), got sandbox={result.sandbox!r}"
     )
+    assert result.success is False, "Outbound socket connection must fail under --network none"
+    assert result.content is None
+    assert result.guarantees.get("network") == "strong"
 
 
 # ---------------------------------------------------------------------------
 # 8. 外に書く — サンドボックス外の既知パスへ書こうとする抽出器 →
-#     ファイルの不在で書けていないことを確認する
+#     失敗し、ホスト側にもファイルが存在しないことを確認する
 # ---------------------------------------------------------------------------
 
 
-def test_live_docker_write_outside_denied() -> None:
-    """In Docker with --read-only + --tmpfs, writing outside the allowed tmpfs
-    is denied.  The extractor should not be able to write to the host filesystem.
+def test_live_docker_write_outside_denied(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Through extract_with_sandbox(..., use_docker=True), writing outside the
+    container's /tmp tmpfs fails under --read-only, and no file appears on the
+    host filesystem.
 
-    An extractor that attempts to write to a path outside the sandbox's
-    writable directory should fail with the file not existing (OSError).
+    Note: Unverified when skipped without LOCUS_LIVE_DOCKER=1.
     """
-    _need_docker()
+    image = _need_docker()
 
-    root = Path(__file__).resolve().parents[2]
-    receipt = json.loads((root / ".loop/runtime/qa-image.json").read_text())
-
-    script = """import pathlib,json,os
-out = pathlib.Path("/lease/heartbeat")
-try:
-    out.write_text("forged")
-    print(json.dumps({"wrote": True}))
-except OSError as e:
-    print(json.dumps({"wrote": False, "error": str(e) }))
+    host_probe = tmp_path / ("outside-" + uuid4().hex + ".txt")
+    write_probe_source = f"""\
+import pathlib, json, sys
+sys.stdin.read()
+# Attempt both a container root-fs write and the host probe path.
+for target in ("/etc/locus_forged_probe", {host_probe.as_posix()!r}):
+    pathlib.Path(target).write_text("forged", encoding="utf-8")
+print(json.dumps({{"body": "unexpectedly-wrote"}}), flush=True)
 """
-    work = (
-        Path(__file__).resolve().parents[2]
-        / ".loop/runtime/probes"
-        / ("docker-write-" + uuid4().hex)
+    monkeypatch.setitem(app.sandbox.EXTRACTOR_SOURCE, "write_probe", write_probe_source)
+    result = app.sandbox.extract_with_sandbox(
+        "write_probe",
+        "probe-input",
+        timeout=20.0,
+        use_docker=True,
+        docker_image=image,
     )
-    work.mkdir(parents=True)
-
-    cmd = [
-        "docker",
-        "run",
-        "--rm",
-        "--network",
-        "none",
-        "--read-only",
-        "--cap-drop",
-        "ALL",
-        "--security-opt",
-        "no-new-privileges",
-        "--pids-limit",
-        "1024",
-        f"--memory={512 * 1024 * 1024}",
-        f"--cpus={1.0}",
-        "--tmpfs",
-        "/tmp:exec",  # noqa: S108
-        "--user",
-        "1000:1000",
-        receipt["image_id"],
-        "python3",
-        "-c",
-        script,
-    ]
-    proc = subprocess.run(  # noqa: S603
-        cmd, capture_output=True, text=True, timeout=20
+    assert result.sandbox == "docker", (
+        f"Expected live Docker execution (not subprocess fallback), got sandbox={result.sandbox!r}"
     )
-    assert proc.returncode == 0, f"Docker run failed: {proc.stderr}"
-    data = json.loads(proc.stdout)
-    assert data["wrote"] is False, (
-        f"Docker write isolation failed: write was allowed. stdout={proc.stdout}"
-    )
-    # Verify the file does not exist in the work directory (which is a copy)
-    assert not (work / "heartbeat").exists(), "Write to outside path should not create the file"
+    assert result.success is False, "Write outside /tmp must fail under --read-only"
+    assert result.content is None
+    assert not host_probe.exists(), "Extractor must not create files on the host filesystem"
 
 
 # ---------------------------------------------------------------------------
-# Product Docker path – exercises the actual sandbox boundary function.
+# Product Docker path – normal extraction round-trip via extract_with_sandbox
 # ---------------------------------------------------------------------------
 
 
 def test_live_docker_product_path_runs_extractor() -> None:
-    """The product Docker path (_run_docker) executes an extractor in Docker.
+    """extract_with_sandbox(..., use_docker=True) passes stdin to the container
+    extractor and returns its JSON output when a live Docker daemon is present.
 
-    This is env-gated evidence that the product command construction works with
-    a real Docker engine and the receipt image, not only hand-built commands.
+    Note: Unverified when skipped without LOCUS_LIVE_DOCKER=1.
     """
-    _need_docker()
+    image = _need_docker()
 
-    import app.sandbox
-
-    root = Path(__file__).resolve().parents[2]
-    receipt = json.loads((root / ".loop/runtime/qa-image.json").read_text())
-
-    source = """\
-import sys, json
-content = sys.stdin.read()
-print(json.dumps({"body": content}), flush=True)
-"""
-    result = app.sandbox._run_docker(
-        source,
+    result = app.sandbox.extract_with_sandbox(
+        "plaintext",
+        "docker-product-path",
         timeout=20.0,
         output_limit=8 * 1024 * 1024,
-        image=receipt["image_id"],
-        content="docker-product-path",
+        use_docker=True,
+        docker_image=image,
     )
     assert result.success is True, result.error_message
     assert result.sandbox == "docker"
