@@ -945,6 +945,16 @@ class Controller:
             # doubles while the failure repeats, so a provider that is broken
             # for a reason nobody has seen yet is not picked up every fifteen
             # minutes for a day.
+            if any("does not support tools" in err.lower() for err in result.errors):
+                self.roster.mark_tool_incompatible(model)
+                self.set_fields(
+                    task, status=prior_status, assignee=prior_assignee, model=prior_model
+                )
+                return Outcome(
+                    task.id,
+                    "rotated",
+                    f"{model} does not support tools (excluded): {'; '.join(result.errors)}",
+                )
             rested = self.roster.mark_unavailable(model, base_seconds=cooldown_for(result.errors))
             self.set_fields(task, status=prior_status, assignee=prior_assignee, model=prior_model)
             return Outcome(
@@ -961,6 +971,16 @@ class Controller:
             # evaluated. Keep the attempt, rest the model so the next dispatch
             # reaches a different one, and escalate once consecutive timeouts
             # hit TIMEOUT_ESCALATE_LIMIT.
+            if any("does not support tools" in err.lower() for err in result.errors):
+                self.roster.mark_tool_incompatible(model)
+                self.set_fields(
+                    task, status=prior_status, assignee=prior_assignee, model=prior_model
+                )
+                return Outcome(
+                    task.id,
+                    "rotated",
+                    f"{model} does not support tools (excluded): {'; '.join(result.errors)}",
+                )
             rested = self.roster.mark_unavailable(model, base_seconds=cooldown_for(result.errors))
             count = self.consecutive_timeouts(task) + 1
             detail = (
