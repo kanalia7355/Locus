@@ -3,6 +3,7 @@
 import hashlib
 import json
 import math
+import os
 import re
 import secrets
 import threading
@@ -309,6 +310,9 @@ class Service:
             "google_drive": False,
             "box": False,
         }
+        self.sync_connector_last_sync: dict[str, Json] = {}
+        self._request_sourced_connectors: set[str] = set()
+        self._configure_default_sync_connectors()
         self.limits: OrderedDict[str, list[float]] = OrderedDict()
         self.chat_dispatch: dict[str, ChatDispatch] = {}
         self.chat_dispatch_lock = threading.Lock()
@@ -781,6 +785,9 @@ class Service:
             self.chat_dispatch.clear()
 
     def close(self) -> None:
+        for connector in self.sync_connectors.values():
+            if hasattr(connector, "close"):
+                connector.close()
         self._engine.close()
 
     def _register_audit_hash_function(self) -> None:
@@ -1095,6 +1102,27 @@ class Service:
                 "configuration_available": False,
             }
 
+    def _configure_default_sync_connectors(self, env: dict[str, str] | None = None) -> None:
+        from app.connector_box import BoxConnector
+        from app.connector_gdrive import GoogleDriveConnector
+        from app.connector_local import LocalFolderConnector
+
+        environment = os.environ if env is None else env
+        for connector_id, factory in (
+            ("local_folder", LocalFolderConnector),
+            ("google_drive", GoogleDriveConnector),
+            ("box", BoxConnector),
+        ):
+            instance = factory("", env=environment)
+            self.sync_connector_credentials_configured[connector_id] = bool(instance.configured)
+            if instance.configured:
+                self.sync_connectors[connector_id] = instance
+                self._request_sourced_connectors.add(connector_id)
+            else:
+                self._request_sourced_connectors.discard(connector_id)
+                if hasattr(instance, "close"):
+                    instance.close()
+
     def register_sync_connector(
         self,
         connector_id: str,
@@ -1103,6 +1131,7 @@ class Service:
         configured: bool | None = None,
     ) -> None:
         self.sync_connectors[connector_id] = connector
+        self._request_sourced_connectors.discard(connector_id)
         if configured is not None:
             self.sync_connector_credentials_configured[connector_id] = bool(configured)
         elif connector_id not in self.sync_connector_credentials_configured:
@@ -1112,15 +1141,19 @@ class Service:
         if not actor.system_admin:
             fail(403, "管理権限が必要です")
         ids = set(self.sync_connector_credentials_configured) | set(self.sync_connectors)
-        return [
-            {
+        items: list[Json] = []
+        for connector_id in sorted(ids):
+            entry: Json = {
                 "connector_id": connector_id,
                 "configured": bool(
                     self.sync_connector_credentials_configured.get(connector_id, False)
                 ),
             }
-            for connector_id in sorted(ids)
-        ]
+            last_sync = self.sync_connector_last_sync.get(connector_id)
+            if last_sync is not None:
+                entry["last_sync"] = dict(last_sync)
+            items.append(entry)
+        return items
 
     def sync_connector(
         self, actor: Principal, connector_id: str, project: str, source: str
@@ -1128,30 +1161,47 @@ class Service:
         if not actor.system_admin:
             fail(403, "管理権限が必要です")
         connector = self.sync_connectors.get(connector_id)
-        if connector is None:
+        if connector is None or not self.sync_connector_credentials_configured.get(
+            connector_id, False
+        ):
             fail(404, "コネクタが見つかりません")
         with self.db() as db:
             if not db.execute("SELECT 1 FROM projects WHERE id=?", (project,)).fetchone():
                 fail(404, "プロジェクトが見つかりません")
-        module = _sync_connectors_module()
-        engine = module.SyncEngine(self)
-        result = engine.sync(
-            actor,
-            project,
-            connector,
-            source_label=str(source),
-            connector_id=connector_id,
+        source_text = str(source).strip()
+        bind_source = connector_id in self._request_sourced_connectors and hasattr(
+            connector, "source"
         )
+        previous_source = getattr(connector, "source", None)
+        if bind_source:
+            connector.source = source_text
+        try:
+            module = _sync_connectors_module()
+            engine = module.SyncEngine(self)
+            result = engine.sync(
+                actor,
+                project,
+                connector,
+                source_label=str(source),
+                connector_id=connector_id,
+            )
+        finally:
+            if bind_source:
+                connector.source = previous_source
+        aggregates: Json = {
+            "registered": int(result.get("registered", 0)),
+            "updated": int(result.get("updated", 0)),
+            "skipped": int(result.get("skipped", 0)),
+            "failed": int(result.get("failed", 0)),
+        }
+        self.sync_connector_last_sync[connector_id] = dict(aggregates)
         with self.db() as db:
             self._audit(db, actor.id, "connector.sync", connector_id)
         # Return only aggregate counts; never include content or credentials.
         return {
             "connector_id": connector_id,
             "project_id": project,
-            "registered": int(result.get("registered", 0)),
-            "updated": int(result.get("updated", 0)),
-            "skipped": int(result.get("skipped", 0)),
-            "failed": int(result.get("failed", 0)),
+            **aggregates,
         }
 
     def formats(self, actor: Principal) -> Json:
@@ -1423,6 +1473,12 @@ class Service:
         """Original-source ACL gate. Reads binding/revision/state from db within transaction.
         Unbound documents pass; bound ones must pass the DB checks.
         connector.can_read() is called by the caller outside the transaction (DATA-008)."""
+        origin = db.execute(
+            "SELECT revoked FROM document_origins WHERE document_id=?",
+            (row["id"],),
+        ).fetchone()
+        if origin is not None and bool(origin["revoked"]):
+            return False
         binding = db.execute(
             "SELECT source_id,object_id,revision FROM document_source_bindings WHERE document_id=?",
             (row["id"],),
@@ -1500,6 +1556,12 @@ class Service:
             (row["id"],),
         ).fetchone()
         if doc_state and str(doc_state["failure_code"]) == "source_denied":
+            return False
+        origin_state = db.execute(
+            "SELECT revoked FROM document_origins WHERE document_id=?",
+            (row["id"],),
+        ).fetchone()
+        if origin_state is not None and bool(origin_state["revoked"]):
             return False
         return True
 
@@ -3049,7 +3111,24 @@ class Service:
         return row
 
     @staticmethod
-    def _metadata(row: Any, actor_id: str) -> Json:
+    def _format_origin_source(connector_id: str, source_label: str) -> str:
+        conn = connector_id.strip()
+        label = source_label.strip()
+        return f"{conn} / {label}" if label else conn
+
+    def _origin_source_for(self, db: StorageConnection, document_id: str) -> str | None:
+        origin = db.execute(
+            "SELECT connector_id,source_label FROM document_origins WHERE document_id=?",
+            (document_id,),
+        ).fetchone()
+        if origin is None:
+            return None
+        return self._format_origin_source(
+            str(origin["connector_id"] or ""), str(origin["source_label"] or "")
+        )
+
+    @staticmethod
+    def _metadata(row: Any, actor_id: str, *, source: str | None = None) -> Json:
         available = set(row.keys())
         data: Json = {
             key: row[key]
@@ -3076,6 +3155,8 @@ class Service:
         except (TypeError, ValueError):
             guarantees = {}
         data["sandbox_guarantees"] = guarantees if isinstance(guarantees, dict) else {}
+        if source is not None:
+            data["source"] = source
         return {
             **data,
             "stage": DOCUMENT_STAGES.get(row["status"], row["status"]),
@@ -3106,12 +3187,15 @@ class Service:
                     continue
                 if needle and needle not in row["name"].lower():
                     continue
-                rows.append(self._metadata(row, actor.id))
+                source = self._origin_source_for(db, str(row["id"]))
+                rows.append(self._metadata(row, actor.id, source=source))
             return rows
 
     def document(self, actor: Principal, document: str, conversation: str | None = None) -> Json:
         with self.db() as db:
-            return self._metadata(self._document(db, actor, document, conversation), actor.id)
+            row = self._document(db, actor, document, conversation)
+            source = self._origin_source_for(db, str(row["id"]))
+            return self._metadata(row, actor.id, source=source)
 
     def chunks(
         self, actor: Principal, document: str, conversation: str | None = None
@@ -3180,7 +3264,11 @@ class Service:
                 if matches:
                     results.append(
                         {
-                            "document": self._metadata(candidate, actor.id),
+                            "document": self._metadata(
+                                candidate,
+                                actor.id,
+                                source=self._origin_source_for(db, str(candidate["id"])),
+                            ),
                             "method": "lexical-common-terms",
                             "shared_term_count": len(matches),
                             "evidence": [
