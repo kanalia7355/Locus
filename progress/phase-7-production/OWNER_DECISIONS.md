@@ -1037,3 +1037,21 @@ carve-out は**票の本文の先頭、レビュアーが読む場所**に書い
 急ぎません。`T-PH7-213` はこの判断を待たずにマージへ進めます
 （条件 3 のとおりに実装されているため）。
 
+
+## T-PH7-212 — worker wrote outside its workspace (2026-11-26T16:42:57+09:00)
+
+**Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
+
+**Context**
+
+model=opencode/nemotron-3.5-lightning-free
+workspace=T-PH7-212
+marker=.jobloop/orchestrator-busy present=False
+containment opencode/nemotron-3.5-lightning-free: 5/47 stops/dispatches
+appeared:
+ M backend/app/main.py
+ M pyproject.toml
+ M tests/test_storage_seam.py
+?? backend/app/storage_postgres.py
+?? docs/MIGRATION_POSTGRES.md
+?? tests/test_postgres_engine.py
