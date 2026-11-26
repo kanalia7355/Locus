@@ -47,12 +47,12 @@ AGY_EFFORT_ORDER = ("-low", "-medium", "-high", "-xhigh")
 # never outranks a model we have evidence for.
 PREFERRED = (
     "opencode/deepseek-v4.1-flash-free",
+    "opencode/iceman-free",
     "opencode/flint-40b-free",
+    "opencode/nemotron-3.5-lightning-free",
+    "opencode/beam-free",
     "opencode/mimo-v2.6-flash-free",
     "opencode/nemotron-3.5-super-vl-free",
-    "opencode/nemotron-3.5-lightning-free",
-    "opencode/iceman-free",
-    "opencode/beam-free",
 )
 COOLDOWN_SECONDS = 6 * 60 * 60
 # If a model answers "out of usage" again within this window after its previous
