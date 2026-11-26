@@ -682,3 +682,31 @@ phase-6 の 3 票（`T-PH6-129`, `T-PH6-135`, `T-PH6-136`）が止まった。
   **`T-PH9-422`（出る前に止める）が効けば不要になる**。先に 422 を
   測ってから決めるほうが安い
 
+
+## T-PH9-421 — worker wrote outside its workspace (2026-11-26T18:00:55+09:00)
+
+**Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
+
+**Context**
+
+model=opencode/iceman-free
+workspace=T-PH9-421
+marker=.jobloop/orchestrator-busy present=False
+containment opencode/iceman-free: 1/29 stops/dispatches
+appeared:
+ M jobloop/controller.py
+?? tests/test_jobloop_containment.py
+
+## T-PH9-422 — worker wrote outside its workspace (2026-11-26T18:16:41+09:00)
+
+**Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
+
+**Context**
+
+model=opencode/iceman-free
+workspace=T-PH9-422
+marker=.jobloop/orchestrator-busy present=False
+containment opencode/iceman-free: 2/30 stops/dispatches
+appeared:
+ M jobloop/worker.py
+?? tests/test_jobloop_worker_cwd.py

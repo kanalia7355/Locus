@@ -58,3 +58,18 @@ UNVERIFIED
 - Per the task SCOPE ruling (2026-11-25 15:30), I did not treat the absence of a partial-pagination listing-failure regression test as a finding; that case is tracked by `T-STC-006`.
 
 **Answer** (2026-11-25 16:30, orchestrator): **周回を 1 回戻す（2/2 → 1/2）、試行を 3/3 から 2/3 に戻し、`review` に置く。15:24 の新しい指摘は `T-STC-007` に移した。** 15:30 に戻した周回は 2 分で消えたが、**原因は前と違う**。**SCOPE は効いていた**: 15:24 のレビュアーは `UNVERIFIED` に「SCOPE の裁定により、ページ途中失敗の退行テストの不在は指摘として扱わなかった。`T-STC-006` が追う」と書いている。代わりに**条件の外の新しい指摘が 1 件**出た: `connectors.py:141-159` の `record_document_origin` が `upload()` の commit 後、しかもアップロード失敗を扱う `try/except` の外で走るので、出自記録の失敗が同期全体を落とす。これも条件 1〜5 のどれも名指ししていない（条件は往復の検証・走査/ACL/上限・資格情報の非露出・退行なし・許可パス）。**`T-STC-007` に移した — 落としたのではなく移した。** **構図を認める**: 周回を戻すたびに条件外の新しい指摘が出て、繰り返しに終わりが無い。だから SCOPE を書き換え、**判断は受入条件に対して行い、条件外の気づきは所見として書く**ことを明記した（レビューを弱めるためではなく、条件が契約であり、条件外の指摘は別票に実際に残してある）。**この戻しを最後にする**: 次のレビューがまた条件の外を理由に差し戻したら、周回は戻さず、**「レビュアーが条件外の指摘を出し続ける票を誰が完了と決めるのか」をオーナーに伺う**（レビューの承認を私が与えることは禁じられているため）。受入条件は 1 文字も変えていない。詳細は `tasks/T-STC-001.md`。
+
+## T-STC-005 — worker wrote outside its workspace (2026-11-26T17:48:01+09:00)
+
+**Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
+
+**Context**
+
+model=opencode/nemotron-3.5-lightning-free
+workspace=T-STC-005
+marker=.jobloop/orchestrator-busy present=False
+containment opencode/nemotron-3.5-lightning-free: 6/50 stops/dispatches
+appeared:
+ M backend/app/service.py
+?? frontend/src/ConnectorSettings.test.tsx
+?? frontend/src/ConnectorSettings.tsx

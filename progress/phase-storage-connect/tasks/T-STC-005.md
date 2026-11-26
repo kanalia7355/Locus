@@ -1,11 +1,11 @@
 ---
 id: T-STC-005
 phase: phase-storage-connect
-status: todo
+status: blocked
 assignee: unassigned
 model: -
 weight: medium
-updated: 2026-11-22T14:06:00+09:00
+updated: 2026-11-26T17:48:01+09:00
 attempts: 0
 depends_on: T-STC-002, T-STC-003, T-STC-004
 allowed_paths: frontend/src/ConnectorSettings.tsx, frontend/src/ConnectorSettings.test.tsx, backend/app/service.py, backend/app/main.py, tests/test_connectors.py, tests/test_api.py
@@ -105,3 +105,11 @@ test_cmd: python -m pytest tests/test_connectors.py tests/test_api.py -q && npm 
 - **`model:` を `-` にした**（他フェーズと同じ表記）。
 - **`depends_on` を frontmatter に入れた。** 本文とフェーズ表には依存が書いてあったが、
   コントローラが見るのは frontmatter だけである。入れないと土台より先に派遣される。
+
+## WORKSPACE REBASED (2026-11-26T17:31:14+09:00)
+
+The workspace was 32 commit(s) behind `loop/local-development` and had no work in progress, so it was reset onto the current branch. Nothing of this job's own was discarded.
+
+## OWNER DECISION REQUESTED (2026-11-26T17:48:01+09:00)
+
+worker wrote outside its workspace: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
