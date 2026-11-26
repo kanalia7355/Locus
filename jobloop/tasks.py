@@ -124,7 +124,13 @@ class Phase:
         shape the code does not have yet.
         """
         status = {other.id: other.status for other in self.tasks}
-        return [name for name in task.depends_on if status.get(name) != "done"]
+        result: list[str] = []
+        for name in task.depends_on:
+            if name not in status:
+                result.append(f"{name} (not in phase)")
+            elif status[name] != "done":
+                result.append(name)
+        return result
 
     def ready(self, task: Task) -> bool:
         return task.actionable and not self.unmet(task)
