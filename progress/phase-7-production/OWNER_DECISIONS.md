@@ -1181,3 +1181,25 @@ UNVERIFIED
 
 土台が 353 コミット遅れているので、通っても衝突しうる。衝突したら
 手で解決はせず、土台を進める派遣を出す。
+
+## T-PH7-224 — the merge broke the loop (2026-11-26T21:29:38+09:00)
+
+**Question**: The merged change left the loop's own suite failing, so the merge was rolled back. The fix has to keep the controller working.
+
+**Context**
+
+commit=2842a78b32594ba1b0821ac472fc209d8ea9e19a
+scripts/check_deployment.py
+exit 1
+E       AssertionError: tracked files contain the repository root absolute path:
+E         progress/phase-9-loop-health/tasks/T-PH9-422.md
+E         progress/phase-9-loop-health/tasks/T-PH9-423.md
+E       assert ['progress/ph...T-PH9-423.md'] == []
+E         
+E         Left contains 2 more items, first extra item: 'progress/phase-9-loop-health/tasks/T-PH9-422.md'
+E         Use -v to get more diff
+
+tests\test_jobloop.py:954: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_jobloop.py::test_tracked_files_do_not_record_absolute_repository_root
+1 failed, 117 passed in 37.78s
