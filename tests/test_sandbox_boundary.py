@@ -217,6 +217,24 @@ def test_extractor_normal_returns_content() -> None:
     )
 
 
+def test_extract_with_sandbox_content_is_raw_json_envelope() -> None:
+    """extract_with_sandbox().content is the extractor's raw JSON envelope stdout.
+
+    Pins the contract: callers must parse .content to obtain ``body``; the method
+    does not unwrap the envelope for them (T-PH6-136).
+    """
+    synthetic = "封筒の中の本文"
+    result = app.sandbox.extract_with_sandbox("plaintext", synthetic, timeout=5.0)
+
+    assert result.success is True, result.error_message
+    assert result.content is not None
+    # The content is the raw JSON envelope, not the extracted body itself.
+    assert result.content != synthetic
+    envelope = json.loads(result.content)
+    assert envelope == {"body": synthetic}
+    assert envelope["body"] == synthetic
+
+
 # ---------------------------------------------------------------------------
 # 4. 記録が嘘をつかない — 子プロセス系統で走ったとき、取り込み記録が
 #     ネットワーク遮断・メモリ上限を主張していないこと
