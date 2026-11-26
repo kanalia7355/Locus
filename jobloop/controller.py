@@ -1223,6 +1223,8 @@ class Controller:
                 "the job needs a human decision.",
                 detail,
             )
+        with suppress(Exception):
+            self.roster.mark_attempt_failed(model)
         return Outcome(task.id, "attempt-failed", detail, model=model)
 
     # --- review --------------------------------------------------------------
@@ -1522,6 +1524,8 @@ class Controller:
         # to be set before the merge, so a conflict left a job recorded as done
         # whose change was nowhere.
         self.set_fields(task, status="done", attempts=str(task.attempts + 1))
+        with suppress(Exception):
+            self.roster.mark_delivered(model)
         if self.settings.push:
             git(self.settings.repository, "push", "origin", self.settings.integration_branch)
         return Outcome(

@@ -325,6 +325,46 @@ class Roster:
         entry["dispatches"] = (_finite_float(entry.get("dispatches", 0)) or 0.0) + 1
         self._save(state)
 
+    def mark_delivered(self, model: str) -> None:
+        """Count one delivered job for its implementing model.
+
+        Distinct from `dispatches` (every worker launch, implementer or reviewer)
+        and `observations` (rest events). A meter failure logs to stderr and never
+        raises, so instrumentation cannot drop a delivered job.
+        """
+        try:
+            state = self._state()
+            entry = self._entry_for_write(state, model)
+            entry["deliveries"] = (_finite_float(entry.get("deliveries", 0)) or 0.0) + 1
+            self._save(state)
+        except Exception as exc:
+            print(f"roster mark_delivered failed: {self.state_file}: {exc}", file=sys.stderr)
+
+    def mark_attempt_failed(self, model: str) -> None:
+        """Count one failed implementation attempt (`attempt-failed`).
+
+        Escalations (`escalated`), rotations, quota exhaustion and CLI startup
+        failures do not call this. Errors are logged to stderr and swallowed so
+        the meter never aborts the controller.
+        """
+        try:
+            state = self._state()
+            entry = self._entry_for_write(state, model)
+            entry["failed_attempts"] = (_finite_float(entry.get("failed_attempts", 0)) or 0.0) + 1
+            self._save(state)
+        except Exception as exc:
+            print(f"roster mark_attempt_failed failed: {self.state_file}: {exc}", file=sys.stderr)
+
+    def delivery_stats(self, model: str) -> tuple[int, int]:
+        """Return (deliveries, failed_attempts) for a model, defaulting missing keys to 0."""
+        entry = self._state().get(model, {})
+        if not isinstance(entry, dict):
+            return 0, 0
+        return (
+            _finite_int(entry.get("deliveries", 0)) or 0,
+            _finite_int(entry.get("failed_attempts", 0)) or 0,
+        )
+
     def containment_stats(self, model: str) -> tuple[int, int]:
         """Return (dispatches, containment_stops) for a model."""
         entry = self._state().get(model, {})
