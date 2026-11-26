@@ -845,3 +845,29 @@ needs-owner-decision: `tests/test_jobloop.py` (outside `allowed_paths`) has two 
 「**本物の逸脱なら止まる**」と「**休ませた記録が読める**」であって
 「未追跡の屑 1 本で止まる」ことではないので、材料を追跡ファイルの行に
 差し替えても性質は残ります。**緩和ではなく、契約が変わった側への差し替えです。**
+
+## T-PH9-405 — attempt limit reached (2026-11-26T22:28:24+09:00)
+
+**Question**: Three attempts did not satisfy the acceptance criteria; the job needs a human decision.
+
+**Context**
+
+the worker changed nothing
+
+## T-PH9-420 — worker stopped for a decision (2026-11-26T22:34:01+09:00)
+
+**Question**: Existing test `test_the_record_names_the_cli_that_actually_ran_the_session` (`tests/test_jobloop.py:2754`) asserts that `task.fields["model"]` is set to `"agy/gemini-4-carbon-low"` when `worker.Ending.UNAVAILABLE` is returned, which directly conflicts with T-PH9-420 AC2 (a model that fails during rotation must not remain in `model`). Should `test_the_record_names_the_cli_that_actually_ran_the_sess
+
+**Context**
+
+nd `secret_scan.py` in the background and waiting for them to finish.
+REPORT
+- `jobloop/controller.py`: Removed the unconditional `set_fields(task, status="todo", assignee="unassigned", model="-")` from the `if not model:` (`no-model`) branch and moved `task = self.set_fields(task, status="doing", assignee=model.split("/", 1)[0], model=model)` to after the `Ending.UNAVAILABLE` and `Ending.TIMEOUT` rotation branches, as requested by the Attempt 1 review.
+- `tests/test_jobloop.py`: Updated `test_all_models_rotated_then_no_model_resets_frontmatter` to test `Ending.UNAVAILABLE` (`"does not support tools"`) followed by `Ending.OUTAGE` and `no-model`, plus AC3 (later model in rotation succeeds).
+- **Conflict found**: Moving `set_fields` after `Ending.UNAVAILABLE` causes the existing test `test_the_record_names_the_cli_that_actually_ran_the_session` (`tests/test_jobloop.py:2754`) to fail, because that test dispatches `Ending.UNAVAILABLE` and asserts `task.fields["model"] == "agy/gemini-4-carbon-low"`. Modifying existing tests is prohibited by the job boundary.
+
+TEST
+- `python -m pytest tests/test_jobloop.py -q`: `2 failed, 102 passed in 38.52s` (`test_the_record_names_the_cli_that_actually_ran_the_session` failed at `tests/test_jobloop.py:2754` with `AssertionError: assert '-' == 'agy/gemini-4-carbon-low'`; `test_all_models_rotated_then_no_model_resets_frontmatter` failed at `tests/test_jobloop.py:3520` with `AssertionError: assert 'attempt-failed' == 'review'`).
+
+STATUS
+needs-owner-decision: Existing test `test_the_record_names_the_cli_that_actually_ran_the_session` (`tests/test_jobloop.py:2754`) asserts that `task.fields["model"]` is set to `"agy/gemini-4-carbon-low"` when `worker.Ending.UNAVAILABLE` is returned, which directly conflicts with T-PH9-420 AC2 (a model that fails during rotation must not remain in `model`). Should `test_the_record_names_the_cli_that_actually_ran_the_session` be updated to use `Ending.COMPLETED` (or `FAILED`) instead of `Ending.UNAVAILABLE`?
