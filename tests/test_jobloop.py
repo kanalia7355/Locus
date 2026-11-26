@@ -178,7 +178,7 @@ def test_only_free_and_local_models_are_eligible_best_first() -> None:
     )
     assert "openai/gpt-6.1-sol" not in ranked, "a paid route must never enter the roster"
     assert "opencode/big-pickle" not in ranked, "only documented free identifiers are eligible"
-    assert ranked[0] == "opencode/glm-5.3-flash-free"
+    assert ranked[0] == "opencode/iceman-free"
     assert set(ranked) == {
         "opencode/glm-5.3-flash-free",
         "opencode/iceman-free",
