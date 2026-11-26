@@ -936,3 +936,15 @@ needs-owner-decision: Existing test `test_the_record_names_the_cli_that_actually
 - **C**: 条件 2 だけを別票に出し、現在の設計との優劣をそこで決める
 
 **票を閉じるのは当番がやってはいけないことなので、A にはご指示が要ります。**
+
+## T-PH9-420 — review cycle limit reached (2026-11-26T23:44:06+09:00)
+
+**Question**: The reviewer still requires changes, and the review cycle budget is spent (attempts 2/3, review cycles 2/2).
+
+**Context**
+
+k; the CLI fails to start the model and returns `Ending.UNAVAILABLE`, then the next pass returns `"no-model"`. The task frontmatter is left at `status: doing`, `assignee: agy`, `model: agy/gemini-4-carbon-low` instead of its pre-dispatch state, directly violating Acceptance Criteria 1 and 2 (appear to have been added to keep `test_the_record_names_the_cli_that_actually_ran_the_session` passing when that test mocked `Ending.UNAVAILABLE` on a 1-model roster). Smallest fix: remove the `if len(self.roster.models) <= 1: task = self.set_fields(...)` block from the `UNAVAILABLE` branch so no `UNAVAILABLE` rotation ever writes `doing`/`assignee`/`model` to the task frontmatter (and if an existing test wants to verify that a ran session records `assignee`/`model`, have that session return a non-rotational ending or verify why `UNAVAILABLE` was used).
+- Medium, `jobloop/controller.py:963`: `self.set_fields(task, status="doing", assignee=model.split("/", 1)[0], model=model)` was moved to *after* `self.dispatch(...)` returns instead of being written while the worker is running and reverted on `"rotated"` / `"no-model"`. Concrete failure scenario: while a worker is actively executing a 30-minute dispatch (`worker_timeout=1800.0`), `python -m jobloop status` and any operator/shift inspection of the task file continue to show `status: todo`, `assignee: unassigned`, and no `model`, violating Acceptance Criterion 4 ("本当に派遣中のジョブが `doing` のまま見えることが壊れていない"). Smallest fix: either write `doing`/`assignee`/`model` only after a successful/non-rotated dispatch if AC4 is satisfied by the post-attempt `doing` state, or if AC4 requires live visibility during `dispatch()`, restore the pre-dispatch state whenever a rotation or `no-model` occurs without a completed/attempted run.
+
+UNVERIFIED
+- Whether the implementer's report addressed the ticket's required analysis of `doing` readers (AC4 / "要件への批判"), because only the repository diff and controller gate output are visible in the review context.
