@@ -11,8 +11,10 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+from app.local_model import LocalModel
 from app.main import create_app
 from app.model_catalog import ModelCatalog
+from app.provider_openai_compatible import OpenAICompatibleModel
 from app.service import Service
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
@@ -426,3 +428,75 @@ def test_openai_compatible_skips_malformed_items() -> None:
     assert result["sources"][0]["status"] == "partial"
     assert result["sources"][0]["rejected_entries"] == 3
     assert secret not in json.dumps(result)
+
+
+def test_disabling_remote_model_clears_endpoint_and_key(service: Service) -> None:
+    secret = "sk-synthetic-04-not-a-real-key"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and str(request.url) == "https://api.example.invalid/v1/models":
+            assert request.headers.get("authorization") == f"Bearer {secret}"
+            return httpx.Response(
+                200, json={"data": [{"id": "gpt-4o-mini", "name": "GPT-4o mini"}]}
+            )
+        return httpx.Response(404, json={"error": "not found"})
+
+    transport = httpx.MockTransport(handler)
+    catalog = ModelCatalog({}, transport=transport)
+    remote = OpenAICompatibleModel(transport=transport)
+    app = create_app(
+        service=service, start_worker=False, model_catalog=catalog, remote_model=remote
+    )
+
+    def client() -> TestClient:
+        return TestClient(app, base_url="http://127.0.0.1", client=("127.0.0.1", 50000))
+
+    admin = client()
+    login(admin, "admin", "01")
+    discovered = admin.post(
+        "/api/admin/models/discover",
+        headers=ORIGIN,
+        json={
+            "sources": ["openai-compatible"],
+            "base_url": "https://api.example.invalid/v1",
+            "api_key": secret,
+        },
+    )
+    assert discovered.status_code == 200, discovered.text
+    candidate = discovered.json()["models"][0]["id"]
+
+    configured = admin.put(
+        "/api/admin/models/runtime",
+        headers=ORIGIN,
+        json={"candidate_id": candidate, "local_only_confirmed": False, "timeout_seconds": 30},
+    )
+    assert configured.status_code == 200, configured.text
+    assert configured.json()["enabled"] is True
+    assert remote._base_url == "https://api.example.invalid/v1"
+    assert remote._api_key == secret
+
+    disabled = admin.put(
+        "/api/admin/models/runtime",
+        headers=ORIGIN,
+        json={"candidate_id": None, "local_only_confirmed": False, "timeout_seconds": 30},
+    )
+    assert disabled.status_code == 200, disabled.text
+    assert disabled.json() == {"enabled": False, "model": None, "timeout_seconds": 30}
+    assert remote._base_url is None
+    assert remote._api_key is None
+
+
+def test_unconfigured_runtime_response_shape_is_local_and_remote_equal(service: Service) -> None:
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json={"models": []}))
+    catalog = ModelCatalog({}, transport=transport)
+    app = create_app(
+        service=service,
+        start_worker=False,
+        model_catalog=catalog,
+        remote_model=OpenAICompatibleModel(transport=transport),
+    )
+    admin = TestClient(app, base_url="http://127.0.0.1", client=("127.0.0.1", 50000))
+    login(admin, "admin", "01")
+    body = admin.get("/api/admin/models/runtime").json()
+    assert body == LocalModel().status()
+    assert set(body) == {"enabled", "model", "timeout_seconds"}
