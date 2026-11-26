@@ -1085,3 +1085,18 @@ Automatic merge failed; fix conflicts and then commit the result.
 **したがって、この先は「起票してあるものを通るまで実装させる」では進まない。**
 通るまで実装する対象が残っていない。次の 1 手は実装でなく、
 オーナーの決定 4 件（`T-PH6-132` `T-PH6-134` `T-PH6-135` `T-PH9-405`）のいずれかである。
+
+## 申し送り: 測ったが起票しなかったもの —— `exhaustion_streak`（2026-11-27 03:20）
+
+`roster.json` の `opencode/deepseek-v4.1-flash-free` の項目だけが、
+`exhausted_streak`（2.0）と `exhaustion_streak`（1.0）の **2 つの鍵**を持っている。
+`mark_exhausted` が読み書きするのは `exhausted_streak` だけで、
+`exhaustion_streak` を読む本番コードは**存在しない**
+（検索して当たるのは検査の関数名 1 件の文字列だけ）。
+`T-PH9-409`（`f6e7605`）が書いていた時代の鍵が 1 エントリに残ったものである。
+
+**起票しないと決めた。** 読み手が無い鍵が 20 エントリ中 1 件に残っているだけで、
+振る舞いは 1 ビットも変わらない。起票すれば「忙しく見せるための仕事」になる。
+記録するのは、**後の当番が同じものを見て同じ測定をやり直さないように**である。
+12 時間の休みの理由を `roster.json` から読むときは、
+**`exhausted_streak` の側を見ること**。
