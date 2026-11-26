@@ -547,3 +547,96 @@ dispatches  1
 測るべきは、1 件が枠切れを返したあと**同族の別の 1 件が実際に働けた例が
 有るか**である。今日の記録にその例は無い（`carbon-low` が働いたのは
 冷却が明けてからで、他が枠切れを返している最中ではない）。
+
+## T-PH9-418 — out-of-scope change (2026-11-26T13:45:01+09:00)
+
+**Question**: The worker needed paths outside allowed_paths; widen the scope or split the job. — 1 path(s) the worker wrote outside its scope: jobloop/controller.py. Decide whether the job's scope was drawn too narrowly, or whether the worker should not have written them.
+
+**Context**
+
+outside allowed_paths: ['jobloop/controller.py']
+
+**Answer** (2026-11-26 14:21) — **当番の誤りである。許可パスを広げた。**
+受入条件 1 が「判定の根拠（応答の文言か、能力の問い合わせか）を報告に
+書くこと」と要求しているのに、応答の文言が読める場所（`controller.py` の
+回転処理）を許可パスに入れていなかった。条件が構造上必要としている
+モジュールであり、拾い食いではない。`jobloop/controller.py` を
+**回転処理の 1 箇所に限って**許可パスに追加し、その限定を票の SCOPE に
+書いた。受入条件は 1 つも変えていない。`scripts/shift_check.py` は
+追加していない —— 受入条件 3 は `roster.py` 側の除外だけで満たされる
+（`shift_check` は `Roster.available()` を呼んでいる）。
+
+## T-PH9-419 — worker wrote outside its workspace (2026-11-26T13:55:55+09:00)
+
+**Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
+
+**Context**
+
+model=opencode/nemotron-3.5-lightning-free
+workspace=T-PH9-419
+marker=.jobloop/orchestrator-busy present=False
+containment opencode/nemotron-3.5-lightning-free: 2/38 stops/dispatches
+appeared:
+ M scripts/shift_check.py
+ M tests/test_jobloop.py
+
+**Answer** (2026-11-26 14:21) — **停止は正しい。ワーカーの逸脱である。**
+`marker present=False`、当番は本体チェックアウトを触っていない。
+この票のワークスペースは**完全に空**で、唯一の写しが本体チェックアウトに
+有った。差分を `.jobloop-Locus/escaped/2026-11-26/T-PH9-419-main-checkout.patch`
+に退避し（消していない）、`git checkout --` で木を戻した。`status` を
+`todo` に戻し、`depends_on` に `T-PH9-418` を足して同じテストファイルの
+競合を外した。試行は消費されていない。封じ込め比 3/39 は休ませる水準に遠い。
+
+## T-PH9-420 — worker wrote outside its workspace (2026-11-26T14:00:49+09:00)
+
+**Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
+
+**Context**
+
+model=opencode/nemotron-3.5-lightning-free
+workspace=T-PH9-420
+marker=.jobloop/orchestrator-busy present=False
+containment opencode/nemotron-3.5-lightning-free: 3/39 stops/dispatches
+appeared:
+?? REPORT
+
+**Answer** (2026-11-26 14:21) — **停止は正しいが、出たのは報告ファイル 1 本
+だけである。** この票の実装はワークスペースに正しく残っている
+（`jobloop/controller.py` + `tests/test_jobloop.py`）。`REPORT` を
+`.jobloop-Locus/escaped/2026-11-26/T-PH9-420-REPORT.txt` に退避して木から
+外し、ワークスペースの差分も保険として写した。`status` を `todo` に
+戻した。レビューを通っていないので、再派遣で実装者が自分で報告すること。
+
+## ORCHESTRATOR NOTE — 封じ込めの比率は一生分なので、今まさに暴れている 5 分が見えない（2026-11-26 14:23）
+
+**オーナー決定ではない。** 直す場所（`jobloop/roster.py`）を `T-PH9-418` が
+握っているので起票を見送った記録である（`T-PH9-418` 自身が `T-PH9-410` を
+待ったのと同じ扱い）。
+
+測ったこと。`opencode/nemotron-3.5-lightning-free` は今日 13:55 と 14:00 の
+**5 分間に 2 回**、本体チェックアウトに書いた。それでも封じ込めの集計は
+**3/39** で、しきい値（`CONTAINMENT_MIN_DISPATCHES = 5` 以上の派遣で
+`CONTAINMENT_RATE = 0.5`）に対して 7% である。**休ませる判定には永久に
+届かない。** 残りの 1 回は 2026-11-24 で、2 日前である。
+
+比率が一生分の派遣で割られているので、**39 回の正常な派遣が、いま続けて
+起きている逸脱を薄めている。** 新しいモデルは 5 回で判定されるのに、
+働いてきたモデルは何回逸脱しても判定されない —— 向きが逆である。
+
+**今日の損は実際に出た。** 14:00 に落ちた `REPORT` のせいで、14:03 に
+`T-PH6-129` の `abe554a`（`APPROVED` 済み）が
+`integration branch is dirty` でマージできず、当番が手で木を戻すまで
+phase-6 の 3 票（`T-PH6-129`, `T-PH6-135`, `T-PH6-136`）が止まった。
+1 本のよそのファイルが枝ごと止める、2026-11-20 と同じ形である。
+
+起票するときの判断点（決めてはいない）:
+
+- 直近の窓（たとえば直近 10 派遣）での比率を併用するのか、
+  **連続 2 回の逸脱それ自体**を休ませる条件にするのか
+- 窓を入れると、2026-11-24 のように**当番自身のコミットが原因だった**
+  誤検知が一気に効きやすくなる。あの日の 6 件のうち 5 件は当番のもので、
+  いまは `progress/` を除外して直っているが、除外の穴が 1 つ出れば
+  即座にモデルを休ませることになる。**窓は厳しくする変更である**ことを
+  票に書くこと
+

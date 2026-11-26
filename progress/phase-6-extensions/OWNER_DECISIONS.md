@@ -2947,3 +2947,30 @@ needs-owner-decision: T-PH6-129 の末尾にある 2026-11-24 22:30 の ORCHESTR
 **実測で (B) を外した**（2026-11-26 06:17〜06:19、統合枝）。`_run_docker` は `shutil.which("docker")` で CLI が見つかると**退避しない**（`backend/app/sandbox.py:334`）。この機は CLI 28.5.1 があってサーバのパイプが無いので `docker run` は失敗し、`_interpret(outcome, "docker", DOCKER_GUARANTEES)`（375 行）が **`sandbox="docker"` と `network`/`memory`/`cpu` = `strong` を返す。何も隔離されていないのに強い保証を名乗る。** これは受入条件 1 そのもので、**エンジンの不在こそが証明の材料**である。ワーカーも独立に同じ測定に至っている（`docker info` が Client 28.5.1 / サーバのパイプ無しで exit 1）。**この機で証明できる嘘を、実機が来るまで放置する理由は無い。**
 
 **分担はこうなる**: `T-PH6-129` は**本文に戻る**（2026-11-22 の受入条件 1〜6 と 18:50 追記がそのまま契約。書き換えていない）。**実機で隔離を確かめる仕事は `T-PH6-135` へ移した**（削除ではなく移動。`blocked` のままで、`docker info` が通る機が用意されるまで動かない）。ワーカーが見つけた条件外の指摘 1 件（`extract_with_sandbox` の docstring と返り値の食い違い）は **`T-PH6-136`** に出した。
+
+## T-PH6-129 — integration branch is dirty (2026-11-26T14:03:02+09:00)
+
+**Question**: The main checkout has uncommitted changes, so the reviewed commit was not merged. Decide how to integrate it.
+
+**Context**
+
+commit=abe554ad861ba71034459f59077961ffa2f632ed
+foreign (判定に使った未コミットのパス):
+ M scripts/shift_check.py  → T-PH6-109, T-PH6-113, T-PH6-124, T-PH9-402, T-PH9-407, T-PH9-417, T-PH9-419 の許可パス
+ M tests/test_jobloop.py  → T-PH6-109, T-PH6-113, T-PH6-124, T-PH6-127, T-PH9-401, T-PH9-403, T-PH9-404, T-PH9-405, T-PH9-406, T-PH9-408, T-PH9-409, T-PH9-410, T-PH9-412, T-PH9-413, T-PH9-414, T-PH9-415, T-PH9-416, T-PH9-417, T-PH9-418, T-PH9-419, T-PH9-420 の許可パス
+?? REPORT  → どの票の許可パスにも無い
+
+not used for decision (判定に使っていない: progress/ と平易化ページ):
+ M progress/phase-6-extensions/tasks/T-PH6-129.md
+ M progress/phase-9-loop-health/OWNER_DECISIONS.md
+ M progress/phase-9-loop-health/tasks/T-PH9-417.md
+ M progress/phase-9-loop-health/tasks/T-PH9-418.md
+ M progress/phase-9-loop-health/tasks/T-PH9-419.md
+ M progress/phase-9-loop-health/tasks/T-PH9-420.md
+
+**Answer** (2026-11-26 14:22) — **汚していたのは別のジョブである。** 3 本とも
+`T-PH9-419` / `T-PH9-420` のワーカー（`opencode/nemotron-3.5-lightning-free`）が
+本体チェックアウトに書いたもので、14:19〜14:20 にリポジトリ外へ退避して
+木を戻した。この票の `abe554a` は `APPROVED` なので `status` を `review` に
+戻した（仕事が有る場所に戻す。`stranded()` は `review` しか見ない）。
+試行は消費されていない。
