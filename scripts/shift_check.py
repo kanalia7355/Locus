@@ -147,6 +147,11 @@ def processes() -> list[tuple[int, int, str, str, str | None]]:
             elif lower_image == "agy.exe":
                 if "--input-format stream-json" in command and "--print" in command:
                     kind = "agy_session"
+            elif lower_image == "python.exe":
+                if "supervise_loop" in command:
+                    kind = f"supervisor:{command.strip()}"
+                elif "jobloop" in command:
+                    kind = "jobloop_run"
             found.append((int(pid), int(parent), image, created.strip(), kind))
     return found
 
@@ -189,7 +194,16 @@ def orphans(live: list[tuple[int, int, str, str, str | None]]) -> str:
 
 
 def supervisor(live: list[tuple[int, int, str, str, str | None]]) -> str:
-    loop_pids = [pid for pid, _, name, _, _ in live if name.lower() == "python.exe"]
+    sup_by_pid = {
+        pid: (parent, kind)
+        for pid, parent, name, _, kind in live
+        if name.lower() == "python.exe" and kind != "jobloop_run"
+    }
+    loop_pids = [
+        pid
+        for pid, (parent, kind) in sup_by_pid.items()
+        if not (parent in sup_by_pid and sup_by_pid[parent][1] == kind)
+    ]
     workers = [pid for pid, _, _, _, kind in live if kind in WORKER_SESSION_SHAPES]
     worker_note = f", {len(workers)} worker(s) alive" if workers else ""
     beat = ROOT / ".jobloop" / "supervisor.log"
@@ -205,7 +219,8 @@ def supervisor(live: list[tuple[int, int, str, str, str | None]]) -> str:
                 age = ""
     if not loop_pids:
         return f"FAIL  no jobloop or supervisor process{worker_note}{age}"
-    return f"ok    {len(loop_pids)} loop process(es) alive{worker_note}{age}"
+    pid_note = f" (pids: {', '.join(str(pid) for pid in loop_pids)})" if len(loop_pids) >= 2 else ""
+    return f"ok    {len(loop_pids)} loop process(es) alive{pid_note}{worker_note}{age}"
 
 
 def churn() -> str:

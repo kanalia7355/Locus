@@ -3455,6 +3455,36 @@ def test_shift_check_orphans_and_liveness_handle_agy_workers(
     assert "13668" not in orphan_line, "`serve --service` exclusion must remain intact"
 
 
+def test_shift_check_supervisor_collapses_parent_child_but_not_double_launch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC1-AC5: parent-child re-exec collapses to 1; independent pair stays 2 with PIDs."""
+    check = load_shift_check()
+    monkeypatch.setattr(check, "ROOT", tmp_path)
+
+    cmd_kind = (
+        "supervisor:C:\\Locus\\.venv\\Scripts\\python.exe scripts/supervise_loop.py --phase 9"
+    )
+
+    # (a) Parent-child pair with identical command line + jobloop child process => 1 supervisor.
+    reexec_tree = [
+        (45224, 48460, "python.exe", "2026-11-26T02:42:53", cmd_kind),
+        (4752, 45224, "python.exe", "2026-11-26T02:42:53", cmd_kind),
+        (9901, 4752, "python.exe", "2026-11-26T02:43:00", "jobloop_run"),
+    ]
+    line_single = check.supervisor(reexec_tree)
+    assert line_single == "ok    1 loop process(es) alive"
+
+    # (b) Two independent supervisors with identical command lines => 2 with PIDs, not FAIL.
+    double_launch = [
+        (45224, 48460, "python.exe", "2026-11-26T02:42:53", cmd_kind),
+        (51000, 48460, "python.exe", "2026-11-26T02:45:00", cmd_kind),
+    ]
+    line_double = check.supervisor(double_launch)
+    assert line_double.startswith("ok    2 loop process(es) alive"), line_double
+    assert "45224" in line_double and "51000" in line_double
+
+
 def test_all_models_rotated_then_no_model_resets_frontmatter(tmp_path: Path) -> None:
     # When all eligible models fail during rotation (including UNAVAILABLE such
     # as "does not support tools") and no-model is reached, the task's
