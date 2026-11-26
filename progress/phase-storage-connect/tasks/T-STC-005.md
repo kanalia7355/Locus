@@ -5,7 +5,7 @@ status: todo
 assignee: unassigned
 model: -
 weight: medium
-updated: 2026-11-26T18:25:39+09:00
+updated: 2026-11-26T20:19:29+09:00
 attempts: 0
 depends_on: T-STC-002, T-STC-003, T-STC-004
 allowed_paths: frontend/src/ConnectorSettings.tsx, frontend/src/ConnectorSettings.test.tsx, backend/app/service.py, backend/app/main.py, tests/test_connectors.py, tests/test_api.py
@@ -154,3 +154,40 @@ worker wrote outside its workspace: The main checkout changed while the job ran,
 原因側は `T-PH9-422`（phase-9 の先頭に置いた）。この票はそれを待たない
 —— 待たせると `phase-storage-connect` が止まるだけで、通る可能性は
 今日の実測で 5 件に 1 件は有る。
+
+## WORKER LITTER REMOVED (2026-11-26T20:02:16+09:00)
+
+1 file(s) outside `allowed_paths` that nothing in the change refers to were deleted: plan.md.
+These are command output and one-off probes — a worker reading a result by writing it to a file. The brief forbids it in so many words, so this is a deviation and not a scope drawn too narrowly; it is recorded here rather than stopping the job because the instruction has not taken with these models and nine jobs have been lost to it. Nothing inside `allowed_paths` was touched, and no scope or acceptance criterion was changed.
+
+## OWNER DECISION REQUESTED (2026-11-26T20:16:49+09:00)
+
+worker wrote outside its workspace: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
+
+## ORCHESTRATOR NOTE — 2 回目。同じ割れ方（2026-11-26 20:19）
+
+20:16 にもう一度逸脱した。**17:48 と同じ形で、仕事が 2 つの木に割れた。**
+
+- ワークスペース: `M tests/test_connectors.py`、`?? ConnectorSettings.test.tsx`
+- 本体チェックアウト: `M backend/app/service.py`、`?? ConnectorSettings.tsx`、
+  `?? ConnectorSettings.test.tsx`（ワークスペース側とは別物）
+
+**17:48 の実装とも別物である**（`ConnectorSettings.tsx` も
+`ConnectorSettings.test.tsx` も内容が違う）。つまりこの票は 2 回派遣して
+2 回とも違う実装を出し、2 回とも同じ割れ方をした。本体側を
+`.jobloop-Locus/escaped/2026-11-26/T-STC-005-2016-*` に残し、
+20:18 に本体チェックアウトだけ戻した。**ワークスペースは触っていない。
+手では貼り合わせない。** 試行は 0/3 のまま。
+
+### `T-PH7-212` と違って、この票は待たせない
+
+同じ 2/2 の逸脱でも扱いを分けた。理由を書く。
+
+- `T-PH7-212` は **`heavy`（1 回 25〜30 分）**で、`phase-7-production` には
+  `T-PH7-203` / `T-PH7-204` 他が残っている。待たせても**フェーズは動く**。
+  だから `depends_on: T-PH9-422` を足した。
+- この票は **`medium`（1 回 14 分）**で、**`phase-storage-connect` の
+  最後の 1 票**である。待たせるとフェーズが丸ごと止まる。
+  14 分の賭けのほうが安い。だから `depends_on` は足さない。
+
+原因側は `T-PH9-422`（phase-9 の先頭）。それが通れば両方とも解ける。

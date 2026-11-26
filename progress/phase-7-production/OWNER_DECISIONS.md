@@ -1157,3 +1157,27 @@ UNVERIFIED
 - `LOCUS_TRUSTED_PROXY` is validated for presence in `proxy` mode but never consumed by any runtime path; trusted-proxy restriction/behavior was not exercised.
 - Hidden/graded tests beyond the supplied 62-test suite were not available; only the provided suite was executed (62 passed).
 - Whether the intended production client network is the single interface IP (`/32`, as implemented) or the containing private range could not be confirmed from the spec; the implementation uses `/32`, which restricts production clients to the interface's own IP.
+
+**Answer** (2026-11-26 20:19, 当番): **レビュアーが正しい。上書きしない。**
+
+指摘 6 件のうち **5 件はこの票の受入条件そのもの**に当たっている
+（本番の許可ホストを広げている件は受入条件の文言に直接反する。
+開発で `http://127.0.0.1:8000` が `400 Invalid host` になる退行は
+「既定値は現状と同一の挙動」に反する。公開 IP の拒否を踏む検査が
+実際には私設 IP を使っていて一度も踏んでいない。関数直呼びの検査が
+18 通り中 4 通り。受入条件 3 / 6 / 7 を踏む検査が無い）。
+**よって E3 は使えない。受入条件は 1 文字も変えていない。**
+
+**残り 1 件（`logout` の `delete_cookie` に `secure` / `samesite` /
+`httponly` が無い）だけを `T-PH7-225` に新規起票して移した。**
+受入条件がログアウトを 1 つも名指ししていないからである。移したことは
+`T-PH7-223` の本文の先頭（`## SCOPE`）に、レビュアーが読む場所に書いた。
+
+`attempts` を 3 → 2、`review_cycles` を 2 → 1 に戻した。**根拠は
+オーナーのご指示「起票してあるものに関して基本的に通るまで実装させ
+ましょう」である。** 試行が盗まれたからではないので、そこははっきり
+分けて票にも書いた。残っている 5 件は、行番号と直し方まで
+レビュアーが書いているので、票の先頭に直す順に並べた。
+
+土台が 353 コミット遅れているので、通っても衝突しうる。衝突したら
+手で解決はせず、土台を進める派遣を出す。

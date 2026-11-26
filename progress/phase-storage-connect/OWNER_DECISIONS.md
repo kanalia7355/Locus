@@ -73,3 +73,33 @@ appeared:
  M backend/app/service.py
 ?? frontend/src/ConnectorSettings.test.tsx
 ?? frontend/src/ConnectorSettings.tsx
+
+## T-STC-005 — worker wrote outside its workspace (2026-11-26T20:16:49+09:00)
+
+**Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
+
+**Context**
+
+model=opencode/iceman-free
+workspace=T-STC-005
+marker=.jobloop/orchestrator-busy present=False
+containment opencode/iceman-free: 4/39 stops/dispatches
+appeared:
+ M backend/app/service.py
+ M tests/test_connectors.py
+?? frontend/src/ConnectorSettings.test.tsx
+?? frontend/src/ConnectorSettings.tsx
+
+**Answer** (2026-11-26 20:19, 当番): 本体チェックアウトを 20:18 に戻し、
+`status: todo` に戻した（試行は 0/3 のまま）。**この票は 2 回派遣して
+2 回とも違う実装を出し、2 回とも同じ割れ方をした** —— 画面の本体と
+サーバ側が本体チェックアウトに、その検査がワークスペースに。
+逃げた側は `.jobloop-Locus/escaped/2026-11-26/T-STC-005-2016-*` に残した。
+**手では貼り合わせない。**
+
+同じ 2/2 の逸脱でも `T-PH7-212` は `T-PH9-422` の後ろに回し、この票は
+回していない。`T-PH7-212` は `heavy`（1 回 30 分）でフェーズに他の仕事が
+有るのに対し、この票は `medium`（1 回 14 分）で**このフェーズの最後の
+1 票**だからである。待たせるとフェーズが丸ごと止まる。
+
+原因側は `T-PH9-422`（phase-9 の先頭）。
