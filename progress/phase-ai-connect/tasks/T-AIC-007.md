@@ -8,9 +8,9 @@ weight: light
 depends_on: T-AIC-002
 allowed_paths: backend/app/main.py, tests/test_model_catalog.py
 test_cmd: python -m pytest tests/test_model_catalog.py -q
-updated: 2026-11-25T20:26:12+09:00
+updated: 2026-11-26T11:48:32+09:00
 attempts: 0
-reviewer: opencode/iceman-free
+reviewer: agy/gemini-4-carbon-low
 ---
 
 # Task `T-AIC-007`: リモートモデルを無効にしたとき、資格情報と応答の形を後始末する
@@ -114,3 +114,24 @@ ready-for-review
 - `python-lint`: green
 - `python-format`: green
 - `secret-scan`: green
+
+## RESUMED GATES (2026-11-26T11:48:32+09:00)
+
+- `scope`: green
+- `task-verification`: green
+- `python-lint`: green
+- `python-format`: green
+- `secret-scan`: green
+
+## REVIEW by agy/gemini-4-carbon-low (2026-11-26T11:50:12+09:00)
+
+VERDICT
+- APPROVED
+
+FINDINGS
+- Medium, backend/app/main.py:895-937 (`configure_model`): `clear_remote_runtime_credentials()` is only invoked in the `candidate_id is None` branch when `target is remote_runtime`, leaving two sequences where `remote_runtime` is unconfigured/inactive while its `_base_url` and `_api_key` survive in process memory: (1) admin discovers `openai-compatible` with `base_url`/`api_key`, never selects a remote candidate (`chat_runtime.active` remains `runtime`), and calls `PUT /api/admin/models/runtime` with `candidate_id: None` — `target is remote_runtime` is `False`, so the helper is skipped and `remote_runtime._base_url`/`_api_key` remain set; (2) admin discovers and configures a remote model (`chat_runtime.active = remote_runtime`), then switches directly to a local Ollama candidate via `PUT /api/admin/models/runtime` (`candidate_id: <ollama_id>`) — `chat_runtime.active` switches to `runtime` without disabling or clearing `remote_runtime`, leaving `_base_url`/`_api_key` in memory (and `remote_runtime.model` still populated on the inactive instance). Not treated as `CHANGES_REQUIRED` per the task's `## SCOPE` instruction because AC1/AC2 specify the explicit disable path (`candidate_id is None` after remote selection). Smallest fix (for a follow-up): call `clear_remote_runtime_credentials()` unconditionally in the `candidate_id is None` branch, and when switching `chat_runtime.active` from `remote_runtime` to `runtime`, reset `remote_runtime` (`remote_runtime.configure(None, False)`) and call `clear_remote_runtime_credentials()`.
+
+UNVERIFIED
+- Did not re-run `pytest`, `ruff`, `mypy`, or `secret_scan.py` (relied on the deterministic controller gate results provided in the prompt, per instructions; note 2 symlink tests in `tests/test_model_catalog.py` were skipped due to Windows symlink privileges).
+- Neighboring test suites (`tests/test_provider_openai_compatible.py`, `tests/test_local_model.py`, frontend Vitest suite) were inspected statically by reading source files rather than executed in this review session, as `task-verification` runs `tests/test_model_catalog.py` only.
+- Live HTTP behavior against a real OpenAI-compatible server was not verified (tests use `httpx.MockTransport`).
