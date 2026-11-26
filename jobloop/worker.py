@@ -12,6 +12,7 @@ import json
 import os
 import shutil
 import signal
+import sqlite3
 import subprocess
 import sys
 from contextlib import suppress
@@ -72,6 +73,9 @@ class Result:
     model: str
     errors: list[str] = field(default_factory=list)
     tokens: int = 0
+    session_id: str | None = None
+    db_directory: str | None = None
+    cwd: str | None = None
 
     @property
     def rotate(self) -> bool:
@@ -219,6 +223,115 @@ def _directory_from_event(event: dict[str, Any]) -> str | None:
 
 # Alias for the escaped attempt's naming; same behaviour.
 _session_directory_from_event = _directory_from_event
+
+
+def _opencode_db_path() -> Path:
+    """Default location of OpenCode's session database (`~/.local/share/opencode/opencode.db`).
+
+    Never reads `~/.config/opencode/service.json` (which holds owner credentials).
+    """
+    return Path.home() / ".local" / "share" / "opencode" / "opencode.db"
+
+
+def session_id(stream: str) -> str | None:
+    """Extract `sessionID` from an OpenCode `--format json` event stream, or None."""
+    for line in stream.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        found = _session_id_from_event(event)
+        if found:
+            return found
+    return None
+
+
+def _session_id_from_event(event: dict[str, Any]) -> str | None:
+    """Pull a session identifier out of one JSON event, wherever it sits."""
+    for key in ("sessionID", "sessionId", "session_id"):
+        value = event.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    for container_key in ("session", "part", "properties", "info"):
+        raw = event.get(container_key)
+        if not isinstance(raw, dict):
+            continue
+        for key in ("sessionID", "sessionId", "session_id"):
+            value = raw.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        if container_key == "session":
+            sid = raw.get("id")
+            if isinstance(sid, str) and sid.strip():
+                return sid.strip()
+        nested_session = raw.get("session")
+        if isinstance(nested_session, dict):
+            for key in ("id", "sessionID", "sessionId", "session_id"):
+                value = nested_session.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+    return None
+
+
+def _open_readonly_sqlite(db_path: Path, *, timeout: float = 0.25) -> sqlite3.Connection:
+    """Open `db_path` strictly read-only via SQLite URI (`?mode=ro`).
+
+    `mode=ro` guarantees SQLite never creates a missing database file and
+    rejects every write statement at the engine level.
+    """
+    uri = f"{db_path.resolve().as_uri()}?mode=ro"
+    return sqlite3.connect(uri, uri=True, timeout=timeout)
+
+
+def session_db_directory(
+    sid: str | None,
+    *,
+    db_path: Path | None = None,
+    timeout: float = 0.25,
+) -> str | None:
+    """Look up `session_v2.directory` for `sid` in OpenCode's DB, read-only.
+
+    Returns `None` ("unknown") without raising when `sid` is empty, the DB file
+    is absent, the DB is locked, the table or column is missing, or no matching
+    row exists.
+    """
+    if not sid or not sid.strip():
+        return None
+    target = db_path if db_path is not None else _opencode_db_path()
+    try:
+        conn = _open_readonly_sqlite(target, timeout=timeout)
+    except (sqlite3.Error, OSError, ValueError):
+        return None
+    try:
+        cursor = conn.execute(
+            "SELECT directory FROM session_v2 WHERE id = ? LIMIT 1",
+            (sid.strip(),),
+        )
+        row = cursor.fetchone()
+    except sqlite3.Error:
+        return None
+    finally:
+        with suppress(sqlite3.Error):
+            conn.close()
+    if not row:
+        return None
+    directory = row[0]
+    if isinstance(directory, str) and directory.strip():
+        return directory.strip()
+    return None
+
+
+def _format_session_cwd_note(sid: str | None, db_dir: str | None, passed_cwd: str) -> str:
+    """One-line telemetry note naming both the DB-recorded directory and passed `cwd`."""
+    shown_sid = sid.replace("\r", " ").replace("\n", " ") if sid else "unknown"
+    shown_dir = db_dir.replace("\r", " ").replace("\n", " ") if db_dir is not None else "unknown"
+    shown_cwd = passed_cwd.replace("\r", " ").replace("\n", " ")
+    return f"[opencode-session session_id={shown_sid} db_directory={shown_dir} cwd={shown_cwd}]"
 
 
 def read_stream(stream: str) -> tuple[str, list[str], int]:
@@ -422,8 +535,15 @@ def run_agy(
         errors.extend(stderr.splitlines())
     if status == "SUCCESS" and text.strip():
         # A session that answered and also logged noise still answered.
-        return Result(Ending.COMPLETED, text, model, errors=errors, tokens=tokens)
-    return Result(classify(errors), text, model, errors=errors or ["empty reply"], tokens=tokens)
+        return Result(Ending.COMPLETED, text, model, errors=errors, tokens=tokens, cwd=str(cwd))
+    return Result(
+        classify(errors),
+        text,
+        model,
+        errors=errors or ["empty reply"],
+        tokens=tokens,
+        cwd=str(cwd),
+    )
 
 
 def run(
@@ -434,6 +554,7 @@ def run(
     timeout: float,
     executable: str | None = None,
     runner: object | None = None,
+    db_path: Path | None = None,
 ) -> Result:
     """Execute one archived, auto-approved session in `cwd`.
 
@@ -443,9 +564,12 @@ def run(
         return run_agy(
             model, prompt, cwd=cwd, timeout=timeout, executable=executable, runner=runner
         )
+    passed_cwd = str(cwd)
     binary = executable or shutil.which("opencode")
     if not binary:
-        return Result(Ending.UNAVAILABLE, "", model, ["opencode executable not found"])
+        return Result(
+            Ending.UNAVAILABLE, "", model, ["opencode executable not found"], cwd=passed_cwd
+        )
     # `--standalone` is what makes the worktree the session's working directory.
     # Without it the CLI reuses a background service whose directory is wherever
     # it was first started, and a worker edits the main checkout instead of its
@@ -468,7 +592,7 @@ def run(
     try:
         completed = execute(  # noqa: S603 — fixed CLI, no shell
             command,
-            cwd=str(cwd),
+            cwd=passed_cwd,
             input=prompt,
             capture_output=True,
             text=True,
@@ -477,26 +601,73 @@ def run(
             timeout=timeout,
         )
     except subprocess.TimeoutExpired:
-        return Result(Ending.TIMEOUT, "", model, [f"no reply within {timeout:.0f}s"])
+        return Result(
+            Ending.TIMEOUT, "", model, [f"no reply within {timeout:.0f}s"], cwd=passed_cwd
+        )
     except OSError as error:
-        return Result(Ending.UNAVAILABLE, "", model, [str(error)])
-    text, errors, tokens = read_stream(completed.stdout or "")
+        return Result(Ending.UNAVAILABLE, "", model, [str(error)], cwd=passed_cwd)
+    stdout = completed.stdout or ""
+    text, errors, tokens = read_stream(stdout)
     stderr = (completed.stderr or "").strip()
     if stderr:
         errors.extend(stderr.splitlines())
-    reported = reported_directory(completed.stdout or "")
-    if reported and not _same_directory(reported, str(cwd)):
+    sid = session_id(stdout)
+    db_dir = session_db_directory(sid, db_path=db_path)
+    note = _format_session_cwd_note(sid, db_dir, passed_cwd)
+    reported = reported_directory(stdout)
+    if reported and not _same_directory(reported, passed_cwd):
         return Result(
             Ending.MISROUTED,
             text,
             model,
             errors=errors
-            + [f"session reported working directory {reported!r}, expected {str(cwd)!r}"],
+            + [
+                f"session reported working directory {reported!r}, expected {passed_cwd!r}",
+                note,
+            ],
             tokens=tokens,
+            session_id=sid,
+            db_directory=db_dir,
+            cwd=passed_cwd,
         )
-    if completed.returncode == 0 and text.strip() and not errors:
-        return Result(Ending.COMPLETED, text, model, tokens=tokens)
     if completed.returncode == 0 and text.strip():
+        # Prepend the telemetry line when `sessionID` or `session_v2.directory`
+        # was observed so both `db_directory` and passed `cwd` remain in the
+        # controller's recorded section without disturbing trailing STATUS lines
+        # or turning a clean run's `errors` list non-empty. Do NOT stop on a DB
+        # directory mismatch here (T-PH9-423 AC3: mismatch != escape).
+        recorded_text = f"{note}\n\n{text}" if (sid is not None or db_dir is not None) else text
+        if not errors:
+            return Result(
+                Ending.COMPLETED,
+                recorded_text,
+                model,
+                tokens=tokens,
+                session_id=sid,
+                db_directory=db_dir,
+                cwd=passed_cwd,
+            )
         # A session that answered and also logged noise still answered.
-        return Result(Ending.COMPLETED, text, model, errors=errors, tokens=tokens)
-    return Result(classify(errors), text, model, errors=errors or ["empty reply"], tokens=tokens)
+        return Result(
+            Ending.COMPLETED,
+            recorded_text,
+            model,
+            errors=errors,
+            tokens=tokens,
+            session_id=sid,
+            db_directory=db_dir,
+            cwd=passed_cwd,
+        )
+    failure_errors = list(errors) if errors else ["empty reply"]
+    if sid is not None or db_dir is not None:
+        failure_errors.append(note)
+    return Result(
+        classify(errors),
+        text,
+        model,
+        errors=failure_errors,
+        tokens=tokens,
+        session_id=sid,
+        db_directory=db_dir,
+        cwd=passed_cwd,
+    )
