@@ -1122,3 +1122,21 @@ appeared:
   既にあり、`T-STC-003` はそちらに書いています。`pyproject.toml` と
   どちらが宣言の正本かを決める話になります
 
+
+## T-PH7-212 — worker wrote outside its workspace (2026-11-26T19:11:25+09:00)
+
+**Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
+
+**Context**
+
+model=opencode/iceman-free
+workspace=T-PH7-212
+marker=.jobloop/orchestrator-busy present=False
+containment opencode/iceman-free: 3/36 stops/dispatches
+appeared:
+ M backend/app/service.py
+ M backend/app/storage.py
+ M tests/test_storage_seam.py
+?? backend/app/storage_postgres.py
+?? docs/MIGRATION_POSTGRES.md
+?? tests/test_postgres_engine.py
