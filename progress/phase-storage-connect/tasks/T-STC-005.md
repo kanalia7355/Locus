@@ -1,12 +1,12 @@
 ---
 id: T-STC-005
 phase: phase-storage-connect
-status: review
+status: done
 assignee: agy
 model: agy/gemini-4-carbon-low
 weight: medium
-updated: 2026-11-26T21:53:16+09:00
-attempts: 0
+updated: 2026-11-26T21:55:05+09:00
+attempts: 1
 depends_on: T-STC-002, T-STC-003, T-STC-004
 allowed_paths: frontend/src/ConnectorSettings.tsx, frontend/src/ConnectorSettings.test.tsx, backend/app/service.py, backend/app/main.py, tests/test_connectors.py, tests/test_api.py
 test_cmd: python -m pytest tests/test_connectors.py tests/test_api.py -q && npm --prefix frontend test -- --run src/ConnectorSettings.test.tsx && npm --prefix frontend run typecheck
