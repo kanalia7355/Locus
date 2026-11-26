@@ -949,6 +949,15 @@ k; the CLI fails to start the model and returns `Ending.UNAVAILABLE`, then the n
 UNVERIFIED
 - Whether the implementer's report addressed the ticket's required analysis of `doing` readers (AC4 / "要件への批判"), because only the repository diff and controller gate output are visible in the review context.
 
+**Answer** (2026-11-27 02:22, 当番): **これは直下の同題の項目と同じ要求で、裁定はそちらに書いた。
+この票は 00:26 にマージ済み（`34c4cd0`）で、オーナーの決定は要らない。**
+
+**これは当番の記録の誤りである。** 00:20 に裁定を書くとき、**すでにあるこの項目の下に
+`**Answer**` を置く代わりに、同じ見出しをもう 1 つ追加して**その下に書いた。
+`Phase.open_decisions` は `**Answer**` を持たない項目を数えるので（`jobloop/tasks.py`）、
+**解決済みの票についてフェーズが「オーナー待ち」と言い続けていた**。
+見出しは消さず、ここに答えを置いて正す。
+
 ## T-PH9-420 — review cycle limit reached (2026-11-26T23:44:06+09:00)
 
 **Answer** (2026-11-27 00:20, orchestrator): **23:22 の私の指示を撤回します。
@@ -1042,3 +1051,37 @@ Automatic merge failed; fix conflicts and then commit the result.
 が入っており、`status` も `waits for T-PH9-418` と出ます。**同じフェーズ内の
 依存なので正しく効きます**（フェーズを跨ぐと永久に解けないのは昨夜
 `T-PH9-424` に起票した別件です）。当番が足す必要はありませんでした。
+
+
+## 申し送り: 指定された仕事は尽きた。残りはすべてオーナーの決定待ちである（2026-11-27 02:22）
+
+**ループが 6 フェーズすべてで「no actionable job is left」を返しているのは、
+欠陷でもモデル不足でもない。実装できる形になっている票が 0 件になったからである。**
+
+測ったこと（`python -m jobloop --phase <各フェーズ> status`、6 フェーズ 96 票）:
+
+- **phase-9-loop-health**: 24 票中 23 が `done`。残り 1 件は `T-PH9-405`（決定待ち）
+- **phase-ai-connect**・**phase-storage-connect**: 全票 `done`
+- **phase-7-production**: 16 票中 14 が `done`。残り 2 件は `T-PH7-203` `T-PH7-204`
+- **phase-8-runner**: 6 票中 5 が `done`。残り 1 件は `T-PH8-305`
+- **phase-6-extensions**: 残りは `T-PH6-132` `T-PH6-134` `T-PH6-135`（どれも決定待ち）と
+  `T-PH6-106` `T-PH6-114`
+
+**未着手の 5 票は、意図して止めてある。**
+`T-PH6-106` `T-PH6-114` `T-PH7-203` `T-PH7-204` `T-PH8-305` はどれも
+`allowed_paths: 未確定` `test_cmd: 未確定` を持っている。
+`Task.allowed_paths` は「未確定」を含む値を空リストにして返すので（`jobloop/tasks.py`、
+説明文は「決まっていない範囲は、開いた範囲ではない」）、`actionable` が偽になる。
+**そして 5 票とも、依存先はすでに全部 `done` である** ——
+止めているのは依存ではなく、範囲が決まっていないことだけである。
+
+**その範囲を当番が埋めることはできない。** 5 票の本文は、何が決まっていないかを
+自分で列挙している。外向き通信の許可（`T-PH7-203` `T-PH7-204`）、
+接続の主体と資格情報の保管、隔離プロファイルの選定と残余リスクの受諾、
+敵対的試験を走らせる使い捨て環境の承認（`T-PH8-305`）——
+**どれも製品の境界に関わるオーナー決定であって、範囲の書き方の問題ではない。**
+当番が推測で埋めたら、受入条件が「動いた」に退化すると `T-PH8-305` 自身が書いている。
+
+**したがって、この先は「起票してあるものを通るまで実装させる」では進まない。**
+通るまで実装する対象が残っていない。次の 1 手は実装でなく、
+オーナーの決定 4 件（`T-PH6-132` `T-PH6-134` `T-PH6-135` `T-PH9-405`）のいずれかである。

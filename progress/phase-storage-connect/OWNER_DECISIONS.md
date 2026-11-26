@@ -74,6 +74,19 @@ appeared:
 ?? frontend/src/ConnectorSettings.test.tsx
 ?? frontend/src/ConnectorSettings.tsx
 
+**Answer** (2026-11-27 02:22, 当番): **決定は要らない。この票は 2026-11-26 21:55 に
+マージ済み（`3dc6a0a`、試行 1/3）である。**
+
+17:48 と 20:16 の 2 回、`opencode/nemotron-3.5-lightning-free` が仕事を
+本体チェックアウトに落とした。**どちらも保全して本体を戻しており、手で合流させていない** ——
+17:48 分は `escaped/2026-11-26/T-STC-005-*`、20:16 分は同 `T-STC-005-2016-*` に残っている。
+逸脱の escalation は試行を消費しないので、**3 度目の派遣が 1 回目の試行として通った**。
+経緯は直下の 20:16 の項目にある。
+
+**17:48 のこの項目に答えを書いていなかったのは当番の記録漏れである。**
+そのため phase-storage-connect は、解決済みの票について
+「オーナー待ち 1 件」と言い続けていた。
+
 ## T-STC-005 — worker wrote outside its workspace (2026-11-26T20:16:49+09:00)
 
 **Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.

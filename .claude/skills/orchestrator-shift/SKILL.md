@@ -277,6 +277,19 @@ A ruling is written in **two** places and they must agree: the `## ORCHESTRATOR
 RULING` section of the task file, and an `**Answer**` under the matching entry in
 `progress/<phase>/OWNER_DECISIONS.md`.
 
+**Under the matching entry — not under a copy of its heading.** On 2026-11-27 at
+00:20 I ruled on `T-PH9-420` by appending a *second* `## T-PH9-420 — review cycle
+limit reached (2026-11-26T23:44:06+09:00)` heading and writing the `**Answer**`
+below that. `Phase.open_decisions` counts entries that have no `**Answer**`
+(`jobloop/tasks.py`), so phase-9 went on reporting "1 owner decision unanswered"
+for a job that had merged at 00:26 — and the owner's real queue of four looked
+like five. The same shift found `T-STC-005`'s 17:48 entry never answered at all
+while the job merged at 21:55, for the same reason in the other direction: a
+later entry for the same job was answered and the earlier one was forgotten.
+A job with two stop records needs **two** answers, each under its own heading,
+even when the second one just points at the first. Fix it by adding the answer,
+never by deleting the heading.
+
 ## Never
 
 - Widen a scope to make a worker's deviation legal after the fact.
