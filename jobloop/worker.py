@@ -27,6 +27,7 @@ class Ending(StrEnum):
     OUTAGE = "outage"
     UNAVAILABLE = "unavailable"
     TIMEOUT = "timeout"
+    MISROUTED = "misrouted"
 
 
 # Phrases providers use for a spent free allowance. Matched case-insensitively
@@ -75,11 +76,15 @@ class Result:
     @property
     def rotate(self) -> bool:
         """The model never got to the job, so the attempt must survive."""
-        return self.ending in {Ending.EXHAUSTED, Ending.OUTAGE}
+        return self.ending in {Ending.EXHAUSTED, Ending.OUTAGE, Ending.MISROUTED}
 
     @property
     def why_rotate(self) -> str:
-        return "is out of usage" if self.ending is Ending.EXHAUSTED else "endpoint is unavailable"
+        if self.ending is Ending.EXHAUSTED:
+            return "is out of usage"
+        if self.ending is Ending.MISROUTED:
+            return "was routed to the wrong working directory"
+        return "endpoint is unavailable"
 
 
 def classify(errors: list[str]) -> Ending:
@@ -91,6 +96,129 @@ def classify(errors: list[str]) -> Ending:
     if any(marker in joined for marker in AUTH_MARKERS):
         return Ending.UNAVAILABLE
     return Ending.UNAVAILABLE
+
+
+def _expand_short_name(path: str) -> str:
+    """Expand a Windows 8.3 short name to its long form where possible.
+
+    Returns `path` unchanged on non-Windows systems, when the path does not
+    exist, or when the OS cannot resolve it. Only directory metadata is read.
+    """
+    if sys.platform != "win32" or not path:
+        return path
+    try:
+        import ctypes
+
+        buf = ctypes.create_unicode_buffer(32768)
+        length = ctypes.windll.kernel32.GetLongPathNameW(path, buf, len(buf))
+        if 0 < length < len(buf):
+            return buf.value
+    except (OSError, AttributeError, ValueError):
+        pass
+    return path
+
+
+def normalize_session_path(path: str) -> str:
+    """Normalise a session-reported directory for comparison.
+
+    Case, separators, `.`/`..`, and Windows 8.3 short names are folded so that
+    two spellings of the same location compare equal, and only a genuinely
+    different location is treated as a misroute.
+    """
+    if not path:
+        return ""
+    expanded = _expand_short_name(path)
+    return os.path.normcase(os.path.normpath(os.path.abspath(expanded)))
+
+
+def _same_directory(left: str, right: str) -> bool:
+    """Whether two paths name the same directory, normalising Windows spelling.
+
+    A worker that reports `C:\repo` and one that reports `C:/repo` are in the
+    same place; a worker that reports a different checkout is not. Normalising
+    case and separators covers (a) and (b); `realpath` resolves short names and
+    symlinks where the filesystem can answer, and the normalised comparison
+    still holds when it cannot.
+    """
+    if not left or not right:
+        return False
+
+    if normalize_session_path(left) == normalize_session_path(right):
+        return True
+    try:
+        left_real = normalize_session_path(os.path.realpath(_expand_short_name(left)))
+        right_real = normalize_session_path(os.path.realpath(_expand_short_name(right)))
+        return left_real == right_real
+    except OSError:
+        return False
+
+
+def reported_directory(stream: str) -> str | None:
+    """The working directory a session reported, if any event carried one.
+
+    OpenCode's `--format json` stream is the only evidence we have before the
+    controller inspects the worktree. `agy` reports its worktree in an init
+    event; OpenCode may report a directory on session/init-shaped events. A
+    failed probe on 2026-11-26 produced only `type:error` with no directory, so
+    absence is reported as None rather than guessed. The scan is defensive:
+    any event that carries a directory/cwd/workdir string is considered.
+    """
+    for line in stream.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        found = _directory_from_event(event)
+        if found:
+            return found
+    return None
+
+
+_SESSION_CWD_TYPES = {
+    "session.created",
+    "session.updated",
+    "session.init",
+    "init",
+}
+
+
+def _directory_from_event(event: dict[str, Any]) -> str | None:
+    """Pull a working-directory string out of one JSON event, wherever it sits."""
+    kind = event.get("type")
+    if isinstance(kind, str) and kind.strip() and kind not in _SESSION_CWD_TYPES:
+        return None
+    for key in ("directory", "cwd", "workdir"):
+        value = event.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    for container_key in ("part", "session", "properties", "info"):
+        raw = event.get(container_key)
+        if not isinstance(raw, dict):
+            continue
+        for key in ("directory", "cwd", "workdir"):
+            value = raw.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        # One level deeper covers shapes like properties.session.directory.
+        for nested_key in ("session", "info", "part"):
+            nested = raw.get(nested_key)
+            if not isinstance(nested, dict):
+                continue
+            for key in ("directory", "cwd", "workdir"):
+                value = nested.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+    return None
+
+
+# Alias for the escaped attempt's naming; same behaviour.
+_session_directory_from_event = _directory_from_event
 
 
 def read_stream(stream: str) -> tuple[str, list[str], int]:
@@ -356,6 +484,16 @@ def run(
     stderr = (completed.stderr or "").strip()
     if stderr:
         errors.extend(stderr.splitlines())
+    reported = reported_directory(completed.stdout or "")
+    if reported and not _same_directory(reported, str(cwd)):
+        return Result(
+            Ending.MISROUTED,
+            text,
+            model,
+            errors=errors
+            + [f"session reported working directory {reported!r}, expected {str(cwd)!r}"],
+            tokens=tokens,
+        )
     if completed.returncode == 0 and text.strip() and not errors:
         return Result(Ending.COMPLETED, text, model, tokens=tokens)
     if completed.returncode == 0 and text.strip():
