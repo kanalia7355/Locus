@@ -32,6 +32,7 @@ from app.service import (
     Service,
     fail,
 )
+from app.storage_postgres import configured_database_url
 
 COOKIE = "locus_session"
 
@@ -225,6 +226,10 @@ def create_app(
     remote_model: Any | None = None,
 ) -> FastAPI:
     deployment = load_deployment_config()
+    try:
+        configured_database_url()
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from None
     owns_service = service is None
     svc = service or Service(
         Path(__file__).resolve().parents[2] / "storage" / "locus.sqlite3",
