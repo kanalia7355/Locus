@@ -49,6 +49,10 @@ PASSWORDS = PasswordHasher(time_cost=2, memory_cost=19456, parallelism=1)
 # Login history retention: 1 year (matches the 1-year audit retention decision).
 # Pruning is limited to login_events only; no other tables are auto-deleted.
 LOGIN_HISTORY_RETENTION_SECONDS = 365 * 24 * 60 * 60
+SECONDS_PER_DAY = 24 * 60 * 60
+DEFAULT_RETENTION_DAYS = 365
+MIN_RETENTION_DAYS = 1
+MAX_RETENTION_DAYS = 3650
 NON_ADMIN = frozenset({"read", "retrieve", "upload", "publish"})
 ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     "system_admin": frozenset(),
@@ -223,6 +227,7 @@ class Service:
             if registered is not None:
                 self.source_connectors.setdefault(registered.source_id, registered)
         self.source_interval_seconds: int = DEFAULT_INTERVAL_SECONDS
+        self.retention_days: int = DEFAULT_RETENTION_DAYS
         self.source_scheduler: SourceScheduler = (
             source_scheduler
             if source_scheduler is not None
@@ -4297,3 +4302,241 @@ class Service:
                 db.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))
             self._audit(db, actor.id, "account.enable" if enabled else "account.disable", user_id)
             return self._public_user(user) | {"enabled": enabled}
+
+    # --- Data retention notice and admin-only manual deletion (DATA-015) -------
+
+    def _retention_now(self) -> float:
+        """Retention clock boundary; Unix epoch seconds in the SQLite prototype."""
+        return time.time()
+
+    def _valid_retention_now(self) -> float:
+        try:
+            now = self._retention_now()
+        except Exception:
+            fail(503, "現在時刻を検証できないため保存期間判定を停止しました")
+        if (
+            isinstance(now, bool)
+            or not isinstance(now, (int, float))
+            or not math.isfinite(now)
+            or now < 0
+        ):
+            fail(503, "現在時刻を検証できないため保存期間判定を停止しました")
+        return float(now)
+
+    def _authenticate_system_admin(self, db: StorageConnection, token: str | None) -> Principal:
+        if not token:
+            fail(403, "管理権限が必要です")
+        try:
+            actor = self._authenticate(db, token)
+        except HTTPException as exc:
+            if exc.status_code == 401:
+                fail(403, "管理権限が必要です")
+            raise
+        if not actor.system_admin:
+            fail(403, "管理権限が必要です")
+        return actor
+
+    def set_retention_days(
+        self,
+        days: int | Callable[[], int],
+        *,
+        actor: Principal | None = None,
+        session_token: str | None = None,
+    ) -> Json:
+        with self.lock:
+            with self.db() as db:
+                if session_token is not None:
+                    current = self._authenticate_system_admin(db, session_token)
+                    actor_id = current.id
+                elif actor is not None:
+                    if not actor.system_admin:
+                        fail(403, "管理権限が必要です")
+                    actor_id = actor.id
+                else:
+                    actor_id = "system"
+                resolved = days() if callable(days) else days
+                if (
+                    isinstance(resolved, bool)
+                    or not isinstance(resolved, int)
+                    or not MIN_RETENTION_DAYS <= resolved <= MAX_RETENTION_DAYS
+                ):
+                    fail(
+                        422,
+                        f"保存期間は{MIN_RETENTION_DAYS}〜{MAX_RETENTION_DAYS}日の整数で指定してください",
+                    )
+                self._audit(db, actor_id, "retention.configure", str(resolved))
+            self.retention_days = resolved
+            return {"retention_days": self.retention_days}
+
+    def retention_status(self, token: str | None) -> Json:
+        """Return expired item counts and metadata-only listings for system_admin.
+
+        Expiry rule (inclusive boundary):
+        ``base_timestamp + retention_days * 86400 <= _retention_now()``.
+        Never returns document content, chunk text, message text, or generated answers.
+        """
+        with self.db() as db:
+            actor = self._authenticate_system_admin(db, token)
+            self._limit("retention-read:" + actor.id, 60)
+            now = self._valid_retention_now()
+            window = self.retention_days * SECONDS_PER_DAY
+            doc_rows = db.execute(
+                "SELECT id, name, created FROM documents WHERE created + ? <= ? "
+                "ORDER BY created ASC, id ASC",
+                (window, now),
+            ).fetchall()
+            conv_rows = db.execute(
+                "SELECT id, created FROM conversations WHERE created + ? <= ? "
+                "ORDER BY created ASC, id ASC",
+                (window, now),
+            ).fetchall()
+            audit_count = int(
+                db.execute(
+                    "SELECT COUNT(*) FROM audit WHERE at + ? <= ?",
+                    (window, now),
+                ).fetchone()[0]
+            )
+            return {
+                "retention_days": self.retention_days,
+                "counts": {
+                    "documents": len(doc_rows),
+                    "conversations": len(conv_rows),
+                    "audit": audit_count,
+                },
+                "items": {
+                    "documents": [
+                        {
+                            "id": str(row["id"]),
+                            "name": str(row["name"]),
+                            "created": float(row["created"]),
+                            "expires": float(row["created"]) + window,
+                        }
+                        for row in doc_rows
+                    ],
+                    "conversations": [
+                        {
+                            "id": str(row["id"]),
+                            "name": str(row["id"]),
+                            "created": float(row["created"]),
+                            "expires": float(row["created"]) + window,
+                        }
+                        for row in conv_rows
+                    ],
+                },
+            }
+
+    def _retention_inflight_refusal(self, db: StorageConnection, conversation_id: str) -> None:
+        """DATA-015 decided rule: refuse retention deletion while a conversation is mid-work.
+
+        Applied both when an admin deletes a conversation directly and when an
+        explicitly named document belongs to that conversation (attachments share
+        the conversation's mid-work state, so a `ready` attachment still cannot be
+        removed while the conversation has a queued/running chat job).
+        """
+        active_job = db.execute(
+            "SELECT 1 FROM chat_jobs WHERE conversation_id=? AND status IN ('queued','running')",
+            (conversation_id,),
+        ).fetchone()
+        if active_job is not None:
+            fail(409, "応答処理中の会話は完了後に削除してください")
+        active_att = db.execute(
+            "SELECT 1 FROM documents WHERE conversation_id=? "
+            "AND status IN ('queued','scanning','indexing')",
+            (conversation_id,),
+        ).fetchone()
+        if active_att is not None:
+            fail(409, "取り込み処理中の添付を含む会話は完了後に削除してください")
+
+    def delete_expired_retention(
+        self,
+        token: str | None,
+        *,
+        document_ids: list[str] | None = None,
+        conversation_ids: list[str] | None = None,
+        body: Callable[[], dict[str, Any]] | None = None,
+    ) -> Json:
+        """Manually delete explicitly named expired documents and conversations.
+
+        Audit rows are never deletable here (T-PH7-214 owns audit chain truncation).
+        In-flight documents (queued/scanning/indexing) and conversations with active
+        chat jobs (queued/running) or in-flight attachments are refused with 409
+        until their work completes.
+        """
+        with self.db() as db:
+            actor = self._authenticate_system_admin(db, token)
+            self._limit("retention-delete:" + actor.id, 30)
+            if body is not None:
+                parsed = body()
+                resolved_docs = list(parsed["document_ids"])
+                resolved_convs = list(parsed["conversation_ids"])
+            else:
+                resolved_docs = list(document_ids or [])
+                resolved_convs = list(conversation_ids or [])
+
+            if not resolved_docs and not resolved_convs:
+                fail(422, "削除対象の識別子を1件以上指定してください")
+            if len(set(resolved_docs)) != len(resolved_docs) or len(set(resolved_convs)) != len(
+                resolved_convs
+            ):
+                fail(422, "重複しない識別子を指定してください")
+
+            now = self._valid_retention_now()
+            window = self.retention_days * SECONDS_PER_DAY
+
+            for doc_id in resolved_docs:
+                if not isinstance(doc_id, str) or not doc_id.strip():
+                    fail(422, "削除対象の資料IDを確認してください")
+                row = db.execute(
+                    "SELECT id, created, status, conversation_id FROM documents WHERE id=?",
+                    (doc_id,),
+                ).fetchone()
+                if row is None:
+                    fail(422, "指定された期限到来資料が見つかりません")
+                if float(row["created"]) + window > now:
+                    fail(422, "保存期間が満了していない資料は削除できません")
+                if row["status"] in {"queued", "scanning", "indexing"}:
+                    fail(409, "取り込み処理中の資料は完了後に削除してください")
+                # A document that belongs to a conversation inherits that
+                # conversation's mid-work state, so an attachment that already
+                # reached `ready` is still refused while its conversation is busy.
+                if row["conversation_id"]:
+                    self._retention_inflight_refusal(db, str(row["conversation_id"]))
+
+            dispatches_to_drop: list[str] = []
+            for conv_id in resolved_convs:
+                if not isinstance(conv_id, str) or not conv_id.strip():
+                    fail(422, "削除対象の会話IDを確認してください")
+                row = db.execute(
+                    "SELECT id, created FROM conversations WHERE id=?",
+                    (conv_id,),
+                ).fetchone()
+                if row is None:
+                    fail(422, "指定された期限到来会話が見つかりません")
+                if float(row["created"]) + window > now:
+                    fail(422, "保存期間が満了していない会話は削除できません")
+                self._retention_inflight_refusal(db, conv_id)
+                job_rows = db.execute(
+                    "SELECT id FROM chat_jobs WHERE conversation_id=?",
+                    (conv_id,),
+                ).fetchall()
+                dispatches_to_drop.extend(str(job["id"]) for job in job_rows)
+
+            for doc_id in resolved_docs:
+                db.execute("DELETE FROM documents WHERE id=?", (doc_id,))
+                self._audit(db, actor.id, "retention.delete", doc_id)
+
+            for conv_id in resolved_convs:
+                db.execute("DELETE FROM conversations WHERE id=?", (conv_id,))
+                self._audit(db, actor.id, "retention.delete", conv_id)
+
+            if dispatches_to_drop:
+                with self.chat_dispatch_lock:
+                    for job_id in dispatches_to_drop:
+                        self.chat_dispatch.pop(job_id, None)
+
+            return {
+                "deleted": {
+                    "document_ids": resolved_docs,
+                    "conversation_ids": resolved_convs,
+                }
+            }

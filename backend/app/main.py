@@ -199,6 +199,15 @@ class AdapterBindingInput(Input):
     adapter_id: str = Field(min_length=1, max_length=64)
 
 
+class RetentionConfigInput(Input):
+    retention_days: int = Field(strict=True)
+
+
+class RetentionDeleteInput(Input):
+    document_ids: list[str] = Field(default_factory=list, max_length=200)
+    conversation_ids: list[str] = Field(default_factory=list, max_length=200)
+
+
 def cookie(response: Response, token: str) -> None:
     response.set_cookie(
         COOKIE, token, httponly=True, samesite="strict", secure=False, max_age=28800, path="/api"
@@ -976,6 +985,25 @@ def create_app(
     @app.get("/api/admin/audit")
     def audit(user: Actor) -> list[dict[str, Any]]:
         return svc.audit(user)
+
+    @app.get("/api/admin/retention")
+    def retention_status(request: Request) -> dict[str, Any]:
+        return svc.retention_status(request.cookies.get(COOKIE))
+
+    @app.put("/api/admin/retention")
+    def configure_retention(request: Request) -> dict[str, Any]:
+        validate = validated_agent_body(request, RetentionConfigInput)
+        return svc.set_retention_days(
+            lambda: int(validate()["retention_days"]),
+            session_token=request.cookies.get(COOKIE),
+        )
+
+    @app.post("/api/admin/retention/delete")
+    def delete_retention(request: Request) -> dict[str, Any]:
+        return svc.delete_expired_retention(
+            request.cookies.get(COOKIE),
+            body=validated_agent_body(request, RetentionDeleteInput),
+        )
 
     @app.get("/api/admin/login-history")
     def login_history(user: Actor, limit: int = 200) -> list[dict[str, Any]]:
