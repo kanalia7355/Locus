@@ -12,6 +12,7 @@ Covers the acceptance criteria of the storage seam task:
 from __future__ import annotations
 
 import ast
+import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -19,7 +20,8 @@ from typing import Any
 
 import pytest
 from app.service import Principal, Service
-from app.storage import SqliteEngine, StorageConnection, StorageIntegrityError
+from app.storage import SqliteEngine, StorageConnection, StorageEngine, StorageIntegrityError
+from app.storage_postgres import PostgresEngine
 from fastapi import HTTPException
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -81,16 +83,38 @@ def test_no_sqlite3_outside_storage_module() -> None:
         )
 
 
-def test_storage_error_preserves_cause(tmp_path: Path) -> None:
-    """SqliteEngine wraps sqlite3 errors in StorageError/StorageIntegrityError with __cause__."""
-    engine = SqliteEngine(tmp_path / "cause.sqlite3")
+def _open_contract_engine(engine_kind: str, tmp_path: Path) -> StorageEngine:
+    """Open a StorageEngine for the parameterized contract suite.
+
+    Uses ``pytest.skip()`` inside the test body (no custom pytest marker) ONLY when
+    ``engine_kind == 'postgres'`` and ``LOCUS_DATABASE_URL`` is unset.  When
+    ``LOCUS_DATABASE_URL`` is set, skipping is forbidden: driver/connection errors
+    raise immediately and fail the test.
+    """
+    if engine_kind == "sqlite":
+        return SqliteEngine(tmp_path / "contract.sqlite3")
+    if engine_kind == "postgres":
+        if "LOCUS_DATABASE_URL" not in os.environ:
+            pytest.skip("LOCUS_DATABASE_URL is not set; skipping live PostgreSQL contract run")
+        dsn = os.environ["LOCUS_DATABASE_URL"]
+        engine = PostgresEngine(dsn, connect_immediately=True)
+        return engine
+    raise ValueError(f"Unknown engine_kind: {engine_kind}")
+
+
+@pytest.mark.parametrize("engine_kind", ["sqlite", "postgres"])
+def test_storage_error_preserves_cause(engine_kind: str, tmp_path: Path) -> None:
+    """StorageEngine wraps driver errors in StorageError/StorageIntegrityError with __cause__."""
+    engine = _open_contract_engine(engine_kind, tmp_path)
+    table_name = f"items_{os.getpid()}"
     try:
-        engine.apply_schema("CREATE TABLE items (id TEXT PRIMARY KEY)")
+        engine.apply_schema(f"CREATE TABLE IF NOT EXISTS {table_name} (id TEXT PRIMARY KEY)")
         with engine.transaction(), engine.connection() as conn:
-            conn.execute("INSERT INTO items VALUES (?)", ("dup",))
+            conn.execute(f"DELETE FROM {table_name}")  # noqa: S608
+            conn.execute(f"INSERT INTO {table_name} VALUES (?)", ("dup",))  # noqa: S608
         with pytest.raises(StorageIntegrityError) as exc_info:
             with engine.transaction(), engine.connection() as conn:
-                conn.execute("INSERT INTO items VALUES (?)", ("dup",))
+                conn.execute(f"INSERT INTO {table_name} VALUES (?)", ("dup",))  # noqa: S608
         assert exc_info.value.__cause__ is not None
     finally:
         engine.close()
@@ -276,10 +300,15 @@ class FakeNoIntegrityErrorEngine(SqliteEngine):
         yield _OkConnection(self._conn)
 
 
-def test_real_engine_commits_registration_and_rejects_duplicates(tmp_path: Path) -> None:
-    """Default engine acceptance: writes commit, duplicate users are rejected with 409."""
-    service = Service(tmp_path / "seam.sqlite3")
+@pytest.mark.parametrize("engine_kind", ["sqlite", "postgres"])
+def test_real_engine_commits_registration_and_rejects_duplicates(
+    engine_kind: str, tmp_path: Path
+) -> None:
+    """Engine contract: writes commit, columns/schema apply, duplicate users reject with 409."""
+    engine = _open_contract_engine(engine_kind, tmp_path)
+    service = Service(tmp_path / "seam.sqlite3", engine=engine)
     try:
+        assert "id" in engine.columns("users")
         user_id = service.provision("carol", "Temporary-password-05!")
         assert (
             service.conn.execute("SELECT id FROM users WHERE username='carol'").fetchone()
@@ -309,6 +338,21 @@ def test_real_engine_commits_registration_and_rejects_duplicates(tmp_path: Path)
         assert exc_info.value.status_code == 409
     finally:
         service.close()
+
+
+def test_postgres_contract_does_not_skip_when_database_url_is_set(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC2 guard: when LOCUS_DATABASE_URL is set, the postgres branch must run, never skip."""
+    monkeypatch.setenv("LOCUS_DATABASE_URL", "postgresql://127.0.0.1:5432/locus_test")
+    skipped = False
+    try:
+        _open_contract_engine("postgres", tmp_path)
+    except pytest.skip.Exception:
+        skipped = True
+    except Exception:  # noqa: S110 — driver absence or unreachable port raises a real error, not skip
+        pass
+    assert not skipped, "PostgreSQL contract test must not skip when LOCUS_DATABASE_URL is set"
 
 
 def test_rollback_engine_discards_user_creation_and_registration(tmp_path: Path) -> None:

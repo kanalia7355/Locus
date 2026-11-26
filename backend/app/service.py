@@ -38,11 +38,11 @@ from app.password_rules import (
 from app.sandbox import SUBPROCESS_GUARANTEES, SandboxResult, extract_with_sandbox
 from app.scanner import UNAVAILABLE, ScanResult
 from app.storage import (
-    SqliteEngine,
     StorageConnection,
     StorageEngine,
     StorageError,
     StorageIntegrityError,
+    select_storage_engine,
 )
 
 Json = dict[str, Any]
@@ -272,7 +272,7 @@ class Service:
         source_scheduler: SourceScheduler | None = None,
         engine: StorageEngine | None = None,
     ) -> None:
-        self._engine = engine if engine is not None else SqliteEngine(path)
+        self._engine = engine if engine is not None else select_storage_engine(path)
         self._register_audit_hash_function()
         self.scanner = scanner or UnavailableScanner()
         # Fail-closed visibility: only an adapter that can actually perform the
@@ -792,8 +792,11 @@ class Service:
 
     def _register_audit_hash_function(self) -> None:
         # T-PH7-214: the audit_chain AFTER INSERT trigger calls audit_sha256.
-        # Registration is per-connection; SQLite only (PostgreSQL uses a
-        # different hash function path and is not implemented in this job).
+        # Registration is per-connection on SQLite; PostgreSQL defines a PL/pgSQL
+        # audit_sha256 function during apply_schema and must not open a driver
+        # connection prematurely here before apply_schema runs.
+        if getattr(self._engine, "backend_name", "sqlite") != "sqlite":
+            return
         raw = getattr(getattr(self._engine, "conn", None), "raw", None)
         create_function = getattr(raw, "create_function", None)
         if callable(create_function):
@@ -1088,8 +1091,9 @@ class Service:
                     "SELECT status,COUNT(*) AS count FROM documents GROUP BY status"
                 )
             }
+            backend = str(getattr(self._engine, "backend_name", "sqlite"))
             return {
-                "backend": "sqlite",
+                "backend": backend,
                 "mode": "local-only",
                 "external_enabled": False,
                 "accepted_formats": accepted_format_names(),
