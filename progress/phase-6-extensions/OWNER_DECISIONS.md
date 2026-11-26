@@ -2974,3 +2974,48 @@ not used for decision (判定に使っていない: progress/ と平易化ペー
 木を戻した。この票の `abe554a` は `APPROVED` なので `status` を `review` に
 戻した（仕事が有る場所に戻す。`stranded()` は `review` しか見ない）。
 試行は消費されていない。
+
+## T-PH6-131 — worker wrote outside its workspace (2026-11-26T14:33:03+09:00)
+
+**Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
+
+**Context**
+
+model=opencode/nemotron-3.5-lightning-free
+workspace=T-PH6-131
+marker=.jobloop/orchestrator-busy present=False
+containment opencode/nemotron-3.5-lightning-free: 4/41 stops/dispatches
+appeared:
+?? tests/test_ingestion_record.py
+
+## T-PH6-129 — integration branch is dirty (2026-11-26T14:34:26+09:00)
+
+**Question**: The main checkout has uncommitted changes, so the reviewed commit was not merged. Decide how to integrate it.
+
+**Context**
+
+commit=abe554ad861ba71034459f59077961ffa2f632ed
+foreign (判定に使った未コミットのパス):
+?? tests/test_ingestion_record.py  → T-PH6-109, T-PH6-113, T-PH6-124, T-PH6-131 の許可パス
+
+not used for decision (判定に使っていない: progress/ と平易化ページ):
+ M progress/phase-6-extensions/OWNER_DECISIONS.md
+ M progress/phase-6-extensions/tasks/T-PH6-129.md
+ M progress/phase-6-extensions/tasks/T-PH6-131.md
+
+## T-PH6-132 — review cycle limit reached (2026-11-26T15:20:48+09:00)
+
+**Question**: The reviewer still requires changes, and the review cycle budget is spent (attempts 3/3, review cycles 2/2).
+
+**Context**
+
+VERDICT
+- CHANGES_REQUIRED
+
+FINDINGS
+- Medium, `progress/phase-6-extensions/tasks/T-PH6-132.md:194-220` — AC2 requires each fixed assertion to be reported one by one with its pre-fix failure content. The ATTEMPT 3 report still provides only category summaries (T-PH6-112/T-PH6-127 migration groups) and does not list each changed assertion with test name/location, the observed pre-migration failure, the new assertion, and the property preserved. The reviewed diff (`frontend/e2e/a11y.spec.ts`, `frontend/e2e/workspace.spec.ts`) is formatting-only, so I cannot reconstruct per-assertion pre-fix failures from the submitted change. Concrete failure scenario: a weakened or semantically altered assertion introduced during the earlier migrations could pass review because the report gives no per-assertion trace to audit against AC3. Smallest fix: add a per-assertion list/table in the task report covering every assertion changed for T-PH6-112/T-PH6-127 migration (file, test name, line/selector or assertion, pre-fix failure/symptom, post-fix assertion, preserved property).
+
+UNVERIFIED
+- I did not re-run `npm --prefix frontend run test:e2e`, `frontend-typecheck`, `frontend-lint`, or `secret-scan`; I relied on the controller evidence provided in the review request.
+- I did not independently reproduce the pre-T-PH6-112/T-PH6-127 failures because those migrations are already ancestors of HEAD and the reviewed diff contains only formatting changes.
+- I confirmed by read-only inspection that `frontend/e2e/a11y.spec.ts` and `frontend/e2e/workspace.spec.ts` contain no `test.skip`/`test.fail`/`fixme` and that `appearance.spec.ts` declares `APPEARANCE_ACCOUNT_OFFSET = 20` while `workspace.spec.ts` uses `test-researcher-${index}` with no offset; I did not exhaustively audit every account used by unrelated specs beyond those AC5 markers.
