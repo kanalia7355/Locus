@@ -806,3 +806,19 @@ B か C をご希望の場合はここに書いてください。何も無けれ
 18:24［当番のマーカーが隠した］/ 19:11 / 19:18［`T-PH7-214`、進行中］）。
 通算 47 → 以降も増えている。いっぽう**今日のマージは 20 件**で、
 これも今日が最多である。両方が同時に起きている。
+
+## T-PH9-421 — worker stopped for a decision (2026-11-26T22:01:05+09:00)
+
+**Question**: `tests/test_jobloop.py` (outside `allowed_paths`) has two existing tests (`test_containment_judgement_still_stops_and_clean_runs_still_pass` with `?? escaped.py x` and `test_containment_rest_is_readable_in_log_and_diagnose` with `?? leaked.py abc123`) that assert untracked unreferenced files in the main checkout escalate; should `tests/test_jobloop.py` be updated (e.g., to use tracked `M` paths fo
+
+**Context**
+
+file in the main checkout stopped the job. Under `T-PH9-421` AC1 (using `gates.litter`'s reference-based criterion, not file extensions), those unreferenced untracked files are swept instead of escalating, causing those two existing tests in `tests/test_jobloop.py` (which is outside `allowed_paths`) to fail.
+- Risk: `test_main_checkout_untracked_litter_is_swept_and_recorded` also failed because `self.changed_path("?? REPORT\tabc123")` returned `"REPORT\tabc123"` rather than `"REPORT"`.
+
+TEST
+- `python -m ruff format jobloop/controller.py tests/test_jobloop_containment.py; python -m ruff check backend tests scripts jobloop; python -m ruff format --check backend tests scripts jobloop; python scripts/secret_scan.py jobloop/controller.py tests/test_jobloop_containment.py; python -m pytest tests/test_jobloop_containment.py tests/test_jobloop.py -q`: `ruff check` passed, `ruff format --check` passed (213 files), `secret_scan.py` passed (0 findings), `pytest` had 3 failed, 103 passed (`test_main_checkout_untracked_litter_is_swept_and_recorded`, `tests/test_jobloop.py::test_containment_judgement_still_stops_and_clean_runs_still_pass`, `tests/test_jobloop.py::test_containment_rest_is_readable_in_log_and_diagnose`).
+- `python -m ruff format --check backend tests scripts jobloop; python -m pytest tests/test_jobloop_containment.py -q`: `ruff format --check` passed (213 files), `pytest` had 1 failed, 2 passed (`test_main_checkout_untracked_litter_is_swept_and_recorded`).
+
+STATUS
+needs-owner-decision: `tests/test_jobloop.py` (outside `allowed_paths`) has two existing tests (`test_containment_judgement_still_stops_and_clean_runs_still_pass` with `?? escaped.py x` and `test_containment_rest_is_readable_in_log_and_diagnose` with `?? leaked.py abc123`) that assert untracked unreferenced files in the main checkout escalate; should `tests/test_jobloop.py` be updated (e.g., to use tracked `M` paths for those escalation tests) or should `T-PH9-421`'s sweep criterion exclude `.py` files?
