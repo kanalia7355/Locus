@@ -1,15 +1,16 @@
 ---
 id: T-STC-002
 phase: phase-storage-connect
-status: todo
-assignee: unassigned
-model: -
+status: review
+assignee: opencode
+model: opencode/deepseek-v4.1-flash-free
 weight: medium
-updated: 2026-11-22T14:06:00+09:00
+updated: 2026-11-26T12:12:15+09:00
 attempts: 0
 depends_on: T-STC-001
 allowed_paths: backend/app/connector_local.py, tests/test_connector_local.py
 test_cmd: python -m pytest tests/test_connector_local.py tests/test_connectors.py -q
+reviewer: agy/gemini-4-argon-low
 ---
 
 # Task `T-STC-002`: ローカルフォルダ（エクスプローラー）コネクタ
@@ -106,3 +107,52 @@ test_cmd: python -m pytest tests/test_connector_local.py tests/test_connectors.p
 - **`model:` を `-` にした**（他フェーズと同じ表記）。
 - **`depends_on` を frontmatter に入れた。** 本文とフェーズ表には依存が書いてあったが、
   コントローラが見るのは frontmatter だけである。入れないと土台より先に派遣される。
+
+## ATTEMPT 1 — implementation by opencode/deepseek-v4.1-flash-free (2026-11-26T12:12:15+09:00)
+
+REPORT
+- `backend/app/connector_local.py` (new): implements `LocalFolderConnector` against the T-STC-001 `list_items` / `fetch_content` contract. The root comes from `LOCUS_LOCAL_SOURCE_ROOT` (or an injected root/env seam for tests); `source` is accepted only as a root-relative sub-path and is refused when absolute, drive-qualified, UNC, containing `..`/`.`/empty segments, alternate-data-stream colons, Windows-reserved device names, or trailing dot/space shapes. Enumeration is metadata-only (no file is opened): it walks breadth-first with `MAX_DEPTH = 8` and `MAX_ITEMS = 1000`, skips symlinks/junctions/reparse points, re-checks each directory's ancestor chain before descending, and records reason codes in `self.rejections` (`root_not_configured`, `path_escape`, `symlink_or_junction`, `depth_limit`, `item_limit`, `not_a_file`, `unreadable`). `external_id` is the root-relative POSIX path, `revision` is `mtime_ns:size`, and `content_hash` is left empty because the sync engine computes SHA-256 when it fetches the bytes. `fetch_content` re-validates the id, re-checks the ancestor chain, rejects links, resolves the real path and confirms it is still under the root before opening it read-only (`"rb"`).
+- `tests/test_connector_local.py` (new): covers metadata-only listing (asserts no `open` call during enumeration), normal fetch, `source` sub-folder selection, path escapes (`..`, absolute, drive, UNC, ADS, trailing dot/space, reserved shapes), read-only behaviour (content/size/mtime unchanged), symlinked file/directory, junction, swap-after-listing, unavailable root, environment-supplied root, depth/item limits, and an end-to-end `Service.sync_connector` round trip that verifies the origin’s `content_hash` equals SHA-256 of the file content.
+
+Inconsistencies found:
+- The task text says the sync request’s `source` selects the relative sub-path, but `Service.sync_connector` passes `source` only as `source_label` to `SyncEngine`, and `SyncEngine` never forwards it to the connector. Since `backend/app/service.py`, `backend/app/main.py` and `backend/app/connectors.py` are outside `allowed_paths`, `LocalFolderConnector` takes `source` at construction; wiring the request field belongs to T-STC-005.
+- `progress/phase-storage-connect/PROGRESS.md` §2.1 says the local revision is `mtime + SHA-256`, while the task text (authoritative) says `revision = mtime + size` and `content_hash = SHA-256` computed by the engine at fetch. I followed the task text.
+- `backend/app/connectors.py` and the `backend/app/connectors/` package share the module name `app.connectors`; the package wins on import, so the contract file cannot be imported by name. `app/service.py` and `tests/test_connectors.py` already load it via `importlib.util.spec_from_file_location`; `connector_local.py` follows that same convention.
+- `Service.sync_connector_credentials_configured` already contains a `local_folder` key defaulting to `False`, but no local connector is registered and no presence wiring exists yet; that is outside this task’s allowed paths (T-STC-005).
+
+Risks left behind:
+- A listing truncated by `MAX_DEPTH` or `MAX_ITEMS` is returned as a complete page (`cursor = None`). `SyncEngine` therefore treats it as complete and may mark origins beyond the cap as revoked. The sync contract has no truncation signal, and `connectors.py` is outside `allowed_paths`.
+- A small resolve/verify-to-`open` race remains; the read is read-only and re-verified, but there is no atomic no-follow open (Windows lacks `O_NOFOLLOW`).
+- Three symlink tests are skipped on this Windows host because creating symlinks requires a privilege (`WinError 1314`), following the existing `test_storage_connector_smb.py` convention. The junction test executed and passed here; the symlink tests should execute on a POSIX CI runner.
+- `content_hash` is intentionally empty at enumeration; a caller that expects it before fetching would need to change the contract.
+
+TEST
+- `python -m pytest tests/test_connector_local.py tests/test_connectors.py -q` → **19 passed, 3 skipped** (skips: symlink creation denied by Windows privilege; junction test ran and passed).
+- `python -m ruff check backend/app/connector_local.py tests/test_connector_local.py` → first run **failed** with `I001` (import block un-sorted); after `ruff check --fix` → **All checks passed**.
+- `python -m ruff format backend/app/connector_local.py tests/test_connector_local.py` → reformatted 1 file; `--check` → **2 files already formatted**.
+- `python -m ruff check backend tests scripts jobloop` → **All checks passed**.
+- `python -m ruff format --check backend tests scripts jobloop` → **202 files already formatted**.
+- `python scripts/secret_scan.py backend/app/connector_local.py tests/test_connector_local.py` → **0 findings**.
+- `git status --porcelain` → only `?? backend/app/connector_local.py` and `?? tests/test_connector_local.py`.
+
+STATUS
+ready-for-review
+
+### Controller gates
+
+- `scope`: green
+- `task-verification`: green
+- `python-lint`: green
+- `python-format`: green
+- `secret-scan`: green
+
+## REVIEW by agy/gemini-4-argon-low (2026-11-26T12:13:33+09:00)
+
+VERDICT
+- APPROVED
+
+FINDINGS
+- none
+
+UNVERIFIED
+- `test_symlinked_file_outside_root_is_not_followed`, `test_fetch_rechecks_after_listing_when_file_is_replaced`, and `test_symlinked_directory_outside_root_is_not_traversed` in `tests/test_connector_local.py` were skipped during local task verification because the unprivileged Windows test account lacks `SeCreateSymbolicLinkPrivilege` (`[WinError 1314]`). Reparse-point traversal protection on Windows was exercised via `test_junction_outside_root_is_not_traversed` (`mklink /J`), and the symlink branches follow the task's documented skip convention (`T-STC-002.md` Implementation Details 5).

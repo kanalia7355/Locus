@@ -1,15 +1,15 @@
 ---
 id: T-STC-007
 phase: phase-storage-connect
-status: review
+status: done
 assignee: opencode
 model: opencode/deepseek-v4.1-flash-free
 weight: light
 depends_on: T-STC-001
 allowed_paths: backend/app/connectors.py, tests/test_connectors.py
 test_cmd: python -m pytest tests/test_connectors.py -q
-updated: 2026-11-26T11:58:51+09:00
-attempts: 0
+updated: 2026-11-26T11:59:49+09:00
+attempts: 1
 reviewer: agy/gemini-4-argon-low
 ---
 
