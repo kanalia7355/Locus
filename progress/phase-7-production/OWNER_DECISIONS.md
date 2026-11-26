@@ -955,3 +955,85 @@ timeout: no reply within 1800s
 ## T-PH7-223 — base advanced before dispatch (2026-11-26T01:24:00+09:00)
 
 **Answer** (2026-11-26 01:24, orchestrator): **土台を進めた。最後の試行を衝突で失う前に捕まえた。試行は 2/3 のまま、`doing` のまま、受入条件も許可パスも変えていない。** `T-PH6-127` で同じ形の罠を踏みかけたので**動いているワークスペースを全部測った**ところ、この票が一番危なかった: **`behind 231 / ahead 0`（未コミットの汚れのみ）**。**`refresh()` は汚れた木には触らない**ので、放っておけばワーカーは **231 commit 前の土台**で仕事をする。そして `backend/app/main.py` はその土台のあとで統合枝で **+186 / -24** 動いており、**変更した行の範囲が重なっている**（この票は旧 208-216・268・272-276・319・357 付近、統合枝は旧 206・222・228・231・261・329 付近。同じ `create_app()` の中で入り組んでいる）。**これは衝突する。そしてこの票の残り試行は 1 回しかない。** **したこと**: `advance_base()` は汚れた木を拒むので、(1) 未コミットの 4 ファイルを**保全のために私が commit し**（`ff8d529`。**内容はワーカー `opencode/nemotron-3.5-lightning-free` の作業**）、(2) `advance_base()` が **`stale/T-PH7-223-1126`** に退避して `444f371` へ reset した（`behind 0`、dirt なし）。**1 行も消していない。** **やり直す範囲は `main.py` だけである** — 退避した 4 ファイルのうち 3 つは統合枝で動いていないことを測って確かめた: `backend/app/deployment.py`（新規）と `tests/test_production_startup.py`（新規）と `tests/test_api.py`（統合枝で不動）は**そのまま持ってきてよく**、`git show stale/T-PH7-223-1126 -- <path>` で取り出せる。**`backend/app/main.py` だけは今のファイルを読んでから当て直すこと** — 退避版の差分を**そのまま適用しないこと**（字面が通っても統合枝に入った 186 行を壊す）。**何をしたかったかは退避版から読み、どこに置くかは今のファイルで決める。** 自分で確かめる測り方: `git diff -U0 HEAD FETCH_HEAD -- backend/app/main.py | grep '^@@'`。**試行を動かさない理由**: ワーカーは何も間違えておらず、土台が古いのは私が順番を決めなかったからで、派遣の前に直したので**ワーカーの予算に手を付ける理由が無い**。**申し送り**: **`T-PH7-224` がこの票を待っている**ので、この票が衝突で最後の試行を失うと 2 票止まる。それが今これをした理由である。詳細は `tasks/T-PH7-223.md`。
+
+## T-PH7-213 — review cycle limit reached (2026-11-26T16:17:53+09:00)
+
+**Question**: The reviewer still requires changes, and the review cycle budget is spent (attempts 2/3, review cycles 2/2).
+
+**Context**
+
+failure scenario: if `service.py:4403-4404` is removed/regressed, the delete would return 200 and remove the ready attachment while the conversation still has active chat work, violating the decided 409-until-complete rule; the current test suite would still pass because it only covers in-flight document status, busy conversation deletion, and conversation-with-in-flight-attachment deletion. Smallest fix: add a test that creates a busy conversation with a queued/running chat job and a ready expired attachment, asserts `POST /api/admin/retention/delete` for that attachment ID returns 409, and asserts the attachment/conversation rows remain.
+- Low, `backend/app/service.py:4227-4238`, `backend/app/main.py:964-981` — Retention admin endpoints collapse unauthenticated access to 403 via `_authenticate_system_admin`, which satisfies AC3 but is inconsistent with sibling `/api/admin/*` routes that use the `Actor` dependency and return 401 for unauthenticated callers / 403 for authenticated non-admins. Concrete failure scenario: clients or tests that rely on the established admin auth contract (401 vs 403) get different behavior only on retention endpoints, making auth handling inconsistent across the admin surface. Smallest fix: either align retention endpoints with the existing `Actor`/`authenticate` contract and adjust AC/tests accordingly, or document/centralize the intentional exception so admin auth semantics are explicit.
+
+UNVERIFIED
+- Controller-reported gates were not re-run by this reviewer (`task-verification` 44 passed, `python-lint`, `python-format`, `secret-scan` exit 0); I treated them as evidence reported by the controller, not as commands I executed.
+- I did not run pytest/lint/format/secret scan locally in this review context and did not inspect CI/head state outside the provided diff and worktree files.
+- I did not verify frontend/admin popup behavior or backup/recovery scope beyond confirming the task/report text states they are out of scope for T-PH7-213.
+
+**Answer** (2026-11-26 16:22) — **E3（受入条件は契約）で `review` に戻した。
+受入条件は 1 つも書き換えていない。**
+
+当番がワークスペースで `test_cmd` を走らせて **44 passed / 24.35s**（16:19）、
+そのうえで受入条件 1〜8 の検査の中身を読んだ。条件ごとの根拠は
+`progress/phase-7-production/tasks/T-PH7-213.md` の
+`## ORCHESTRATOR DECISION` に表で書いた。特に自分で本文を読んだのは
+条件 2（無人削除が起きない）と条件 3（403 と本文非開示）の 2 本で、
+どちらも条件が求めた形を満たしている —— 条件 2 は件数ではなく識別子の
+集合で比べ、`Service` を閉じて同じファイルから開き直してから 500 日後の
+時計で常駐処理を回している。
+
+レビュー 2 件の指摘は**どちらも受入条件 1〜8 のどれも名指していない**。
+行き先:
+
+- **Medium**（忙しい会話の中の `ready` 添付を資料として直接消す筋の退行
+  検査が無い）→ **`T-PH7-215` を新規に起票した。** 守りのコードは入って
+  いる（`delete_expired_retention` の資料検証ループが `conversation_id` を
+  見て `_retention_inflight_refusal` を呼ぶ）。足りないのは検査 1 本
+- **Low**（未ログインが 401 でなく 403）→ **下の決定要求に出した。**
+  票ではなく判断に出した理由は、管理 API 全体の契約を決める話で、
+  実装者が決めてよいことではないからである
+
+carve-out は**票の本文の先頭、レビュアーが読む場所**に書いた。2026-11-22 に
+`T-PH6-104` の docker 指摘を裁定の途中に書いて、次のレビュアーが同じ指摘を
+挙げ、試行 2 つとレビュー 2 回を失った。あれは当番の落ち度だった。
+
+**申し送り**: このワークスペースの土台は `9a10fb0` で統合枝は 84 コミット
+先、しかも `main.py`（+27）と `service.py`（+129/-16）は枝側でも変わって
+いる。**マージが衝突する見込みがある。** 衝突しても手で解かないこと。
+
+## 管理 API の未ログイン応答は 401 か 403 か（当番からの決定要求、2026-11-26 16:22）
+
+**これはオーナー判断である。当番は決めない。** `T-PH7-213` のレビューが
+2 件とも挙げた指摘で、同票の受入条件の外にある。
+
+事実:
+
+- `T-PH7-213` が足した `GET /api/admin/retention` と
+  `POST /api/admin/retention/delete` は、**未ログインでも 403** を返す
+  （`_authenticate_system_admin` が 401 を 403 に畳んでいる）
+- **これは `T-PH7-213` の受入条件 3 がそう要求したからである** ——
+  「`system_admin` 以外（一般利用者・未ログイン）では 403」。
+  書いたのは当番である
+- 他の `/api/admin/*` は `Actor` 依存 → `Service.authenticate` を通り、
+  **未ログインは 401、ログイン済みの非管理者は 403** である。
+  既存の検査もそれで固定されている（`tests/test_login_history.py` が
+  未ログイン → 401 を assert）
+- つまり**管理 API の中で保存期間の 2 本だけが作法が違う**
+
+判断が要る理由は、これが単なる統一の好みではないことである。
+**401 は「このエンドポイントは存在する。認証すれば答える」と教える。
+403 で畳むと、未ログインの相手にエンドポイントの存在を区別させない。**
+どちらが正しいかは製品の方針で、当番の美意識ではない。
+
+- **A（推奨）**: 403 で畳む側に**管理 API 全体を揃える。** 未ログインに
+  管理エンドポイントの存在を区別させない。`T-PH7-213` の条件 3 は
+  そのままで、既存の 401 を期待している検査を直す票を別に立てる
+- **B**: `T-PH7-213` の 2 本を既存の作法（401/403）に合わせる。
+  この場合**受入条件 3 を書き換えることになる**ので、オーナーの明示的な
+  指示が無いと当番は動かない
+- **C**: 違いを意図的な例外として文書に明記し、両方を残す。
+  推奨しない —— 作法が 2 つある理由を後から読む人に説明できない
+
+急ぎません。`T-PH7-213` はこの判断を待たずにマージへ進めます
+（条件 3 のとおりに実装されているため）。
+
