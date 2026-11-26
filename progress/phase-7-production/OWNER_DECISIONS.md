@@ -1203,3 +1203,23 @@ tests\test_jobloop.py:954: AssertionError
 =========================== short test summary info ===========================
 FAILED tests/test_jobloop.py::test_tracked_files_do_not_record_absolute_repository_root
 1 failed, 117 passed in 37.78s
+
+
+**Answer** (2026-11-26 21:38, orchestrator): **決定は要りません。止めたのは
+この票ではなく、当番が同時刻に書いていた裁定の文章です。`review` に戻しました。
+試行は 0/3 のまま、受入条件も許可パスも変えていません。**
+
+落ちた検査は `test_tracked_files_do_not_record_absolute_repository_root` で、
+名指しされた 2 ファイルは `T-PH9-422.md` と `T-PH9-423.md` —— どちらも当番が
+21:25 に書いた裁定です。`opencode` のセッション DB の測定結果を表にするときに
+**リポジトリ直下の絶対パスを書き写しました。** 記録が他の機械で読めなくなるので
+それを禁じる検査が有り、合流時に走って落ちました。
+**`scripts/check_deployment.py` の中身は 1 行も関係していません。**
+
+21:38 に 2 ファイルを直し、その検査が `1 passed` になることを確かめました。
+この票はレビュー済み（`APPROVED`、`FINDINGS: none`、ゲート 5 本緑）で、
+仕事はワークスペースにコミット済み（`2842a78`、`ahead=1`）なので `review` です。
+
+**当番の失敗として記録します**: `progress/` は封じ込め比較の除外対象ですが、
+**ループ自身の検査の対象ではあります。** 「`progress/` に書けば安全」という
+読みが間違っていました。承認済みの仕事 1 件が当番の文章で合流できませんでした。
