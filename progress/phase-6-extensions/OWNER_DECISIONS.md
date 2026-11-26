@@ -2988,6 +2988,9 @@ containment opencode/nemotron-3.5-lightning-free: 4/41 stops/dispatches
 appeared:
 ?? tests/test_ingestion_record.py
 
+
+**Answer** (2026-11-26 21:25, orchestrator): **この票は 21:00 にマージされた（`4645538`）。決定は要らない。記録のために閉じる。** 14:33 の流出（`?? tests/test_ingestion_record.py`）はこの票自身の仕事が本体チェックアウトに落ちたもので、`C:/Users/hirot/.jobloop-Locus/escaped/2026-11-26/` に保全して本体を戻し、**手で合流させず** `todo` に戻した。試行は消費されていない。戻したあと同じ票が `agy/gemini-4-carbon-low` で 1 回目に通った（`attempts 1/3`）。**流出が票の落ち度ではなかったことの、いちばん短い証拠である。** 逸脱そのものの原因追及は `T-PH9-422`（マージ済み）と `T-PH9-423`（新規）が持つ。
+
 ## T-PH6-129 — integration branch is dirty (2026-11-26T14:34:26+09:00)
 
 **Question**: The main checkout has uncommitted changes, so the reviewed commit was not merged. Decide how to integrate it.
@@ -3002,6 +3005,9 @@ not used for decision (判定に使っていない: progress/ と平易化ペー
  M progress/phase-6-extensions/OWNER_DECISIONS.md
  M progress/phase-6-extensions/tasks/T-PH6-129.md
  M progress/phase-6-extensions/tasks/T-PH6-131.md
+
+
+**Answer** (2026-11-26 21:25, orchestrator): **この票は 18:32 にマージされた（`abe554a` → `ea3c1b3`）。決定は要らない。記録のために閉じる。** 14:34 の `dirty` は 14:03 と同じもので、止めた `foreign` は `?? tests/test_ingestion_record.py` —— **この票のものではなく `T-PH6-131` の流出**である（上の 14:33 の項目と同じ 1 本）。**レビュー済み・承認済みのコミットが、よそのファイル 1 本で 3 回マージできなかった**（14:03 / 14:34 / 18:18）。18:21:07 に本体を綺麗にして再開が通り、18:28:35 にもう一度綺麗にして 18:32 に合流した。**この損を機械的に無くすのが `T-PH9-421`** で、いまフェーズ 9 の順番待ちに居る。屑 1 本（未追跡・どの許可パスにも無い）と本物のソースを分けて扱う票である。
 
 ## T-PH6-132 — review cycle limit reached (2026-11-26T15:20:48+09:00)
 
@@ -3037,6 +3043,15 @@ UNVERIFIED
   先頭にした（421 → 420 → 418 → 419）。31 分で 2 回、同じ承認済みコミットが
   よそのファイル 1 本でマージできていない。4 票のうちいま損を出しているのは
   421 が直す箇所だけである。
+
+
+**Answer** (2026-11-26 21:25, orchestrator): **指摘は受入条件 2 そのものである。だから E3 は使えない。上書きもしない。受入条件は 1 文字も変えない。そのうえで試行と周回を戻し（3/3 → 2/3、2/2 → 1/2）、`doing` に置く。** 根拠はオーナーの常時指示「起票してあるものに関して基本的に通るまで実装させましょう」であって、試行が奪われたからではない。**これは 2026-11-20 の回復（供給側の停止）とは別の理由である。**
+
+**残っている仕事は 1 件だけで、レビュアーが直し方まで書いている。** 条件 2 は「直した表明を**1 件ずつ**、**直す前の失敗内容とともに**」報告することを求めているが、試行 3 の報告は `T-PH6-112` / `T-PH6-127` という移行の**かたまり単位の要約**しか出していない。レビュアーの「smallest fix」をそのまま写すと: 変えた表明ごとに（ファイル、テスト名、行または selector、直す前の失敗・症状、直したあとの表明、守った性質）の表を本文に足す。
+
+**`doing` であって `review` ではない理由**: ワークスペースの仕事は**未コミット**である（`M frontend/e2e/a11y.spec.ts`、`M frontend/e2e/workspace.spec.ts`、`ahead=0`）。`stranded()` は `review` しか見ないので、未コミットの票を `review` に置くと「何も変えなかった」で試行を失う（`T-PH6-116` がそれで 3 回失った）。
+
+**既知の危険**: 土台が **54 コミット遅れ**ている。衝突したら**手で解かない**。また条件 1 は `test:e2e` 全件 PASS を求め、これは 127.0.0.1:8000 と :5174 を掴むので、フロントエンドの票を同時に 2 つ出さない規則がここでも効く。**条件 3（削除・skip・緩和の禁止）と条件 4（`frontend/src` を触らない）はそのまま。** 報告を足すために表明を書き換えてはいけない。詳細は `tasks/T-PH6-132.md`。
 
 ## T-PH6-132 — review cycle limit reached (2026-11-26T15:20:48+09:00)
 
