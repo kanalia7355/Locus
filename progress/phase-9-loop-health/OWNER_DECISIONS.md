@@ -1100,3 +1100,23 @@ Automatic merge failed; fix conflicts and then commit the result.
 記録するのは、**後の当番が同じものを見て同じ測定をやり直さないように**である。
 12 時間の休みの理由を `roster.json` から読むときは、
 **`exhausted_streak` の側を見ること**。
+
+## T-PH9-425 — worker stopped for a decision (2026-11-27T03:53:45+09:00)
+
+**Question**: `tests/test_jobloop.py::test_only_free_and_local_models_are_eligible_best_first` (line 181) asserts `ranked[0] == "opencode/glm-5.3-flash-free"`, which fails now that `opencode/glm-5.3-flash-free` was removed from `PREFERRED`; should `tests/test_jobloop.py` be added to `allowed_paths` so that assertion can be updated to `opencode/deepseek-v4.1-flash-free` (or another remaining `PREFERRED` model)?
+
+**Context**
+
+N 件のうち …` line, reporting either no divergence or the missing/unlisted free-tier models from `preferred_divergence()`.
+- `tests/test_jobloop_roster_preferred.py`: Added tests covering `preferred_divergence()` (empty and non-empty in both directions), equivalence of `eligible()` on a provided set without the 4 dead names, and preservation of the remaining 7 `PREFERRED` order plus `agy/` second-tier placement.
+- Inconsistency / blocker: `tests/test_jobloop.py::test_only_free_and_local_models_are_eligible_best_first` (line 181) asserts `ranked[0] == "opencode/glm-5.3-flash-free"`, which conflicts with removing `opencode/glm-5.3-flash-free` from `PREFERRED`. `tests/test_jobloop.py` is outside `allowed_paths`.
+- Risk left behind: `tests/test_jobloop.py` currently has 1 failing test (`1 failed, 111 passed` across both test files) until `test_only_free_and_local_models_are_eligible_best_first` is updated or `tests/test_jobloop.py` is added to `allowed_paths`.
+
+TEST
+- `python -m ruff check backend tests scripts jobloop` -> `All checks passed!` (exit 0)
+- `python -m ruff format --check backend tests scripts jobloop` -> `219 files already formatted` (exit 0)
+- `python scripts/secret_scan.py jobloop/roster.py scripts/shift_check.py tests/test_jobloop_roster_preferred.py` -> `Offline secret scan: 0 findings` (exit 0)
+- `python -m pytest tests/test_jobloop_roster_preferred.py tests/test_jobloop.py -q` -> `1 failed, 111 passed in 35.32s` (`FAILED tests/test_jobloop.py::test_only_free_and_local_models_are_eligible_best_first` at `tests\test_jobloop.py:181`)
+
+STATUS
+needs-owner-decision: `tests/test_jobloop.py::test_only_free_and_local_models_are_eligible_best_first` (line 181) asserts `ranked[0] == "opencode/glm-5.3-flash-free"`, which fails now that `opencode/glm-5.3-flash-free` was removed from `PREFERRED`; should `tests/test_jobloop.py` be added to `allowed_paths` so that assertion can be updated to `opencode/deepseek-v4.1-flash-free` (or another remaining `PREFERRED` model)?
