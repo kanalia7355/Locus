@@ -1,12 +1,12 @@
 ---
 id: T-STC-002
 phase: phase-storage-connect
-status: review
+status: done
 assignee: opencode
 model: opencode/deepseek-v4.1-flash-free
 weight: medium
-updated: 2026-11-26T12:12:15+09:00
-attempts: 0
+updated: 2026-11-26T12:13:34+09:00
+attempts: 1
 depends_on: T-STC-001
 allowed_paths: backend/app/connector_local.py, tests/test_connector_local.py
 test_cmd: python -m pytest tests/test_connector_local.py tests/test_connectors.py -q

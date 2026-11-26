@@ -1,15 +1,16 @@
 ---
 id: T-STC-003
 phase: phase-storage-connect
-status: todo
-assignee: unassigned
-model: -
+status: review
+assignee: agy
+model: agy/gemini-4-carbon-low
 weight: medium
-updated: 2026-11-22T14:06:00+09:00
+updated: 2026-11-26T12:27:26+09:00
 attempts: 0
 depends_on: T-STC-001
 allowed_paths: backend/app/connector_gdrive.py, tests/test_connector_gdrive.py, backend/requirements.lock
 test_cmd: python -m pytest tests/test_connector_gdrive.py tests/test_connectors.py -q
+reviewer: agy/gemini-4-argon-low
 ---
 
 # Task `T-STC-003`: Google Drive コネクタ（サービスアカウント／読み取り専用）
@@ -125,3 +126,42 @@ test_cmd: python -m pytest tests/test_connector_gdrive.py tests/test_connectors.
   **経路を「裁定を仰ぐ」に書き換えた**。書けない場所を許可と書いた票は、
   phase-8 で 3 件のジョブを保護パスへ書かせて失わせている。
   `backend/requirements.lock` は保護対象でないのでそのまま残した。
+
+## ATTEMPT 1 — implementation by agy/gemini-4-carbon-low (2026-11-26T12:27:26+09:00)
+
+REPORT
+- Changed files and reasons:
+  - [connector_gdrive.py](file:///C:/Users/hirot/.jobloop-Locus/workspaces/T-STC-003/backend/app/connector_gdrive.py) (new): Implements `GoogleDriveConnector` against the T-STC-001 `list_items` / `fetch_content` contract using `httpx` and `cryptography` (no new dependencies or changes to `backend/requirements.lock`). Reads the service-account JSON key file path from `LOCUS_GDRIVE_SERVICE_ACCOUNT_FILE`, parses `client_email` and `private_key` in memory only, signs RS256 JWT assertions scoped exclusively to `https://www.googleapis.com/auth/drive.readonly`, exchanges them via `POST https://oauth2.googleapis.com/token` (`urn:ietf:params:oauth:grant-type:jwt-bearer`), and caches the access token until expiry (with a 60s skew). Configures `httpx.Client` with `trust_env=False` and `follow_redirects=False`, sanitizes `httpx.HTTPError` and key-loading errors into `GoogleDriveError` / `GoogleDriveUnavailable` so key material and response bodies never leak, and validates Drive folder/file IDs before URL/query interpolation. Enumerates `GET https://www.googleapis.com/drive/v3/files` with `q='<folder_id>' in parents and trashed=false` and `fields=files(id,name,mimeType,md5Checksum,headRevisionId,size,modifiedTime),nextPageToken`, using `headRevisionId` (with `modifiedTime` / `md5Checksum` fallback) for revision tracking. Downloads regular supported files via `files/{id}?alt=media`, exports Google Docs (`application/vnd.google-apps.document`) via `files/{id}/export?mimeType=text/plain` normalized to `.txt` and Google Sheets (`application/vnd.google-apps.spreadsheet`) via `text/csv` normalized to `.csv` (setting metadata `size=0` on native items so Drive's internal size does not falsely trigger `SyncEngine`'s pre-fetch size skip, and recording `export_unavailable` if export returns 400/403), and skips folders, other Google-native formats, and unsupported binary formats with recorded reason codes in `self.rejections`. Refreshes the bearer token once on `401` without further retries; on initial-page `403` during enumeration, records `source_unreachable` and returns a complete empty listing `([], None)` so `SyncEngine` marks existing origins `revoked`, while raising `GoogleDriveError` on mid-pagination `403` so partial listings do not partially revoke unseen pages.
+  - [test_connector_gdrive.py](file:///C:/Users/hirot/.jobloop-Locus/workspaces/T-STC-003/tests/test_connector_gdrive.py) (new): Offline test suite using `httpx.MockTransport` and an ephemeral per-session RSA key covering RS256 JWT header/claims/signature and read-only scope verification, paginated enumeration and `headRevisionId` revision updates through `Service.sync_connector`, Google Docs/Sheets export and unsupported native/binary/folder skipping with reason codes, oversized metadata on Google Docs still verifying actual exported byte size, unexportable Google Docs skipping with `export_unavailable`, single-retry `401` refresh and non-retry on repeated `401` or transport errors, token caching until expiry, unconfigured/invalid-folder handling, initial `403` origin revocation and mid-pagination `403` protection, and non-exposure of private key material in exceptions, rejections, or connector state.
+- Inconsistencies between documentation and code:
+  - The task specification states that the sync request's `source` carries the Drive folder ID, whereas `Service.sync_connector` in [service.py](file:///C:/Users/hirot/.jobloop-Locus/workspaces/T-STC-003/backend/app/service.py#L951-L970) currently forwards `source` only as `source_label` to `SyncEngine.sync` and does not pass it into the connector instance (`service.py`, `main.py`, and `connectors.py` are outside `allowed_paths`, matching T-STC-002; `GoogleDriveConnector` accepts `source` at construction and wiring request-time `source` / startup registration belongs to T-STC-005).
+  - `backend/app/connectors.py` and the `backend/app/connectors/` package share the module path `app.connectors`; importing `app.connectors` resolves to the package rather than `connectors.py`. Following the existing convention in `app/service.py` and `app/connector_local.py`, `connector_gdrive.py` loads `connectors.py` via `importlib.util.spec_from_file_location`.
+  - `AGENTS.md` and `docs/agent/PROTOCOL.md` describe worker updates to `progress/<phase>/tasks/<TASK-ID>.md`, whereas the controller brief and `jobloop/gates.py` enforce `allowed_paths` strictly (`backend/app/connector_gdrive.py`, `tests/test_connector_gdrive.py`, `backend/requirements.lock`) and require the report in this reply only; followed the brief and `gates.py`.
+- Risks left behind:
+  - `fetch_content` relies on `self._exports` populated during `list_items` to know whether an `external_id` requires `/export` or `?alt=media` (`SyncEngine` always calls `list_items` before `fetch_content`; a standalone `fetch_content` call on a fresh connector instance without prior listing will use `?alt=media`).
+  - Enumeration lists direct children of the configured Drive folder (`'<folder_id>' in parents and trashed=false`) and skips subfolders with reason `folder`, matching the task's query specification rather than walking nested subfolders.
+  - Real end-to-end verification against Google Cloud / Drive API remains pending owner provisioning of the service account key and folder share, as noted in the task background. Read-path enforcement of `document_origins.revoked` across retrieval endpoints is deferred to `T-STC-005` per the phase plan.
+
+TEST
+- `python -m pytest tests/test_connector_gdrive.py tests/test_connectors.py -q` (initial run on existing draft): `20 passed in 4.95s`
+- `python -m ruff check backend tests scripts jobloop` (initial run): failed (exit 1) with `S105` on `TOKEN_URL` in `backend/app/connector_gdrive.py` and `S107` on `token_response(token=...)` in `tests/test_connector_gdrive.py`
+- `python -m ruff format --check backend tests scripts jobloop` (initial run): failed (exit 1), `2 files would be reformatted, 202
+
+### Controller gates
+
+- `scope`: green
+- `task-verification`: green
+- `python-lint`: green
+- `python-format`: green
+- `secret-scan`: green
+
+## REVIEW by agy/gemini-4-argon-low (2026-11-26T12:28:07+09:00)
+
+VERDICT
+- APPROVED
+
+FINDINGS
+- none
+
+UNVERIFIED
+- Live integration against the Google Cloud OAuth2 / Drive v3 APIs was not checked because the service-account key and shared Drive folder are owner-provisioned outside the repository and tests run strictly offline over `httpx.MockTransport`.
