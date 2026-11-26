@@ -1010,3 +1010,35 @@ Auto-merging jobloop/controller.py
 Auto-merging tests/test_jobloop.py
 CONFLICT (content): Merge conflict in tests/test_jobloop.py
 Automatic merge failed; fix conflicts and then commit the result.
+
+
+**Answer** (2026-11-27 01:20, orchestrator): **現在の統合枝の上で組み直させます。
+試行は 0/3 のまま、受入条件も許可パスも変えていません。衝突は手で解いていません。**
+
+レビュー済みのコミットの土台が **102 コミット遅れ**で、衝突したのは
+`tests/test_jobloop.py` **1 ファイルだけ**でした（`controller.py` と
+`roster.py` は auto-merge が通っていました）。
+
+**自動で乗るかだけ試し、乗らないことを確かめました。** `git rebase` は
+`UU` で停止したので**即 abort して元の状態へ戻しました。手で解く選択は
+していません** —— 当てずっぽうで解くと「この変更は通ったのか」を記録が
+答えられなくなります。
+
+**原因は中身の矛盾ではなく位置の衝突です。** この成果は
+`tests/test_jobloop.py` の**末尾に 3 件の検査を足す**もので、今夜その同じ
+ファイルを `T-PH9-421`（00:24）と `T-PH9-420`（00:26）が書き換えたため
+文脈がずれました。
+
+**成果はタグ `stale/T-PH9-418-1127` に保全済みで、消していません**
+（3 ファイル・134 行がそのまま読めます）。ワークスペースは現在の枝へ揃え、
+その枝で `tests/test_jobloop.py` が **`104 passed`** であることを確認しました。
+組み直しは 3 件を足し直すだけで、`roster.py` と `controller.py` の中身は
+保全したコミットから読めます。
+
+**申し送り**: `tests/test_jobloop.py` は今夜 3 票（421・420・418）が触りました。
+**同じファイルを複数の票に持たせると、この位置衝突は繰り返します。**
+いまフェーズ 9 に残る票のうち `T-PH9-419` も同じファイルを握っていますが、
+**こちらは順番がすでに付いていました** —— `depends_on: T-PH9-417, T-PH9-418`
+が入っており、`status` も `waits for T-PH9-418` と出ます。**同じフェーズ内の
+依存なので正しく効きます**（フェーズを跨ぐと永久に解けないのは昨夜
+`T-PH9-424` に起票した別件です）。当番が足す必要はありませんでした。

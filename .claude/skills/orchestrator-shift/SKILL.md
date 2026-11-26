@@ -131,7 +131,9 @@ models usable. So before killing anything, print `ProcessId`,
 `ParentProcessId`, `CreationDate` and the command line, and **check whether one
 is the other's child**; then confirm against the log, because one supervisor
 writes **one** rising `cycle N` sequence while two write two counters minutes
-apart. `orchestrator-busy` suspends the
+apart.
+
+`orchestrator-busy` suspends the
 containment *comparison*; it does not stop dispatch. On 2026-11-22 a shift wrote
 ten rulings while the loop kept working, and the loop re-blocked `T-PH7-211` and
 spent `T-PH6-104`'s extended attempt on top of rulings that had just landed.
