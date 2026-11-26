@@ -300,10 +300,11 @@ def quota() -> str:
     """
     if str(ROOT) not in sys.path:
         sys.path.insert(0, str(ROOT))
-    from jobloop.roster import Roster, eligible
+    from jobloop.roster import Roster, eligible, preferred_divergence
 
     now = time.time()
-    provided = eligible(installed_models())
+    raw_installed = installed_models()
+    provided = eligible(raw_installed)
     state_file = ROOT / ".jobloop" / "roster.json"
     roster = Roster(models=provided, state_file=state_file, now=now)
     available = roster.available()
@@ -333,6 +334,16 @@ def quota() -> str:
             if resting_left:
                 soonest = min(resting_left.values()) / 60
                 line += f", soonest back in {soonest:.0f} min"
+    missing, unlisted = preferred_divergence(raw_installed)
+    if not missing and not unlisted:
+        line += "\nok    PREFERRED と提供無料枠の乖離なし"
+    else:
+        parts: list[str] = []
+        if missing:
+            parts.append(f"PREFERRED のみ {len(missing)} 件 ({', '.join(missing)})")
+        if unlisted:
+            parts.append(f"未登録の無料枠 {len(unlisted)} 件 ({', '.join(unlisted)})")
+        line += f"\nok    PREFERRED 乖離: {'; '.join(parts)}"
     return line
 
 

@@ -46,15 +46,11 @@ AGY_EFFORT_ORDER = ("-low", "-medium", "-high", "-xhigh")
 # keep their CLI order after these, so a new free model is usable immediately but
 # never outranks a model we have evidence for.
 PREFERRED = (
-    "opencode/glm-5.3-flash-free",
     "opencode/deepseek-v4.1-flash-free",
-    "opencode/minimax-m3.1-flash-free",
-    "opencode/longcat-2.5-free",
     "opencode/flint-40b-free",
     "opencode/mimo-v2.6-flash-free",
     "opencode/nemotron-3.5-super-vl-free",
     "opencode/nemotron-3.5-lightning-free",
-    "opencode/inkling-2-small-free",
     "opencode/iceman-free",
     "opencode/beam-free",
 )
@@ -120,6 +116,24 @@ def eligible(identifiers: list[str]) -> list[str]:
         key=_agy_rank,
     )
     return first + second
+
+
+def preferred_divergence(identifiers: list[str]) -> tuple[list[str], list[str]]:
+    """Return (missing_from_provided, unlisted_free) between PREFERRED and identifiers.
+
+    Pure function with no side effects: does not read or write roster.json.
+    """
+    free = [
+        name
+        for name in identifiers
+        if (name.startswith(FREE_PREFIXES) and name.endswith(FREE_SUFFIX))
+        or name.startswith(LOCAL_PREFIXES)
+    ]
+    free_set = set(free)
+    preferred_set = set(PREFERRED)
+    missing = [name for name in PREFERRED if name not in free_set]
+    unlisted = [name for name in free if name not in preferred_set]
+    return missing, unlisted
 
 
 @dataclass
