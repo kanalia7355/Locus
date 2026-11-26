@@ -28,10 +28,10 @@
     "question": "ADR-0013 項目4: ジョブレシートの既定 TTL と最大 TTL、絶対時刻か期限アンカーか、時刻権威、クロックスキュー許容をどう定めるか。",
     "state": "resolved",
     "source": [
-      "docs/plans/OWNER_DECISIONS_2026-11-10-ENTRIES.md#Entry 1 — Receipt TTL — **選択肢(a)を承認する**",
-      "2026-11-16 オーナー回答 E1（「一か月」）— job text / owner response recorded in task context; no separate file in docs/plans"
+      "docs/plans/OWNER_DECISIONS_2026-11-25-ENTRIES.md#E4 — レシートの有効期限",
+      "docs/plans/OWNER_DECISIONS_2026-11-10-ENTRIES.md#Entry 1 — Receipt TTL — **選択肢(a)を承認する**"
     ],
-    "value": "既定 TTL = 一か月（2026-11-16 E1）。設定値とし、取消は即時反映、取消済みは次の検証で拒否、利用履歴の記録を必須とする。最大 TTL・時刻権威・クロックスキュー許容は未決（ADR0013-4-MAX 等）。",
+    "value": "既定 TTL = 24 時間（2026-11-10 Entry 1 維持）・最大 TTL = 一か月・対象 = Runner 登録のリース（2026-11-25 E4 で Entry 1 の最大 7 日を更新）。設定値とし、即時失効、失効済みレシートは次の検証で拒否、利用履歴の記録は必須とする。なお 1 ジョブを認可するレシート（HYBRID_STEP2_RECEIPT_CONTRACT.md §2.1）自身の TTL は対象外のため未決（T-PH8-307 着手前にオーナーへ伺う）。絶対時刻か期限アンカーか・時刻権威・クロックスキュー許容も未決。",
     "blocks": ["T-PH8-307"]
   },
   "ADR0013-4-MAX": {

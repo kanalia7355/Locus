@@ -259,13 +259,27 @@ dispatch path.
 
 ### 7. Approval-expiry policy
 
-Expiry is a mandatory receipt field (§1). Bounds are owner decisions:
+Expiry is a mandatory receipt field (§1). Bounds and owner decisions:
 
-- Default TTL and maximum TTL for job receipts 【要決定】. For orientation
-  only: the owner-resolved delegation TTL is 15 min minimum / 24 h default /
-  7 days maximum (`create_delegation`, `backend/app/service.py`). A job receipt
-  plausibly wants a shorter horizon because it authorizes one execution, but
-  no value is proposed here.
+- **Runner-registration lease TTL (Runner 登録のリース, owner decision 2026-11-25 E4):**
+  既定 24 時間・最大一か月 (default TTL = 24 hours per
+  `docs/plans/OWNER_DECISIONS_2026-11-10-ENTRIES.md` Entry 1, unchanged;
+  maximum TTL = one month and target = Runner 登録のリース per
+  `docs/plans/OWNER_DECISIONS_2026-11-25-ENTRIES.md` E4, updating Entry 1's
+  7-day maximum). Configurable setting: revocation takes immediate effect
+  (即時失効), revoked leases/receipts are rejected at the next validation check
+  (失効済みレシートは次の検証で拒否), and usage history recording is mandatory
+  (利用履歴の記録は必須) (`progress/phase-6-extensions/OWNER_DECISIONS.md`
+  テーマ 1 E1).
+- **Per-job authorization receipt TTL (1 ジョブを認可するレシート自身の TTL) 【要決定】:**
+  2026-11-25 E4 fixes the Runner-registration lease horizon only; the default
+  and maximum TTL of the per-job receipt (`HYBRID_STEP2_RECEIPT_CONTRACT.md`
+  §2.1 `job_id` — 1 ジョブ 1 レシート) remain undecided and must be asked of
+  the owner before slice-2b receipt issuance implementation (`T-PH8-307`) begins.
+  For orientation only: the owner-resolved delegation TTL is 15 min minimum /
+  24 h default / 7 days maximum (`create_delegation`, `backend/app/service.py`).
+  A job receipt plausibly wants a shorter horizon because it authorizes one
+  execution, but no value is proposed here.
 - Whether expiry is absolute (wall-clock) or anchored to a job deadline
   (`deadline_seconds` is currently CHECK-constrained to NULL in
   `backend/app/agents/registry.py`), and the timestamp authority (the
