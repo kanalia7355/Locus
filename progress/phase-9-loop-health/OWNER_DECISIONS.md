@@ -854,6 +854,16 @@ needs-owner-decision: `tests/test_jobloop.py` (outside `allowed_paths`) has two 
 
 the worker changed nothing
 
+**Answer** (2026-11-28 23:17, オーナー) — **A。後の仕事に追い越されたものとして
+閉じる。** オーナーの言葉は `T-PH9-405：A`。票は `done` にした
+（`tasks/T-PH9-405.md` の 23:17 の節）。**受入条件は 1 文字も書き換えていない。**
+受入条件 1 は `tests/test_jobloop.py:437-444` が現に表明している。受入条件 2 は
+「判定の基準は参照であって拡張子ではない」という後からの意図した設計に
+置き換わっており、生かすと 9 ジョブ分の損の上に立つ設計を退行させる。
+**この票からコードは 1 行も入っていない** —— 3 回の試行はすべて
+「the worker changed nothing」で、ワークスペースは綺麗、コミット 0 件。
+選択肢 C（条件 2 を別票に出す）は選ばれなかったので、新しい票は作っていない。
+
 ## T-PH9-420 — worker stopped for a decision (2026-11-26T22:34:01+09:00)
 
 **Question**: Existing test `test_the_record_names_the_cli_that_actually_ran_the_session` (`tests/test_jobloop.py:2754`) asserts that `task.fields["model"]` is set to `"agy/gemini-4-carbon-low"` when `worker.Ending.UNAVAILABLE` is returned, which directly conflicts with T-PH9-420 AC2 (a model that fails during rotation must not remain in `model`). Should `test_the_record_names_the_cli_that_actually_ran_the_sess
