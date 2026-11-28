@@ -386,3 +386,73 @@ UNVERIFIED
 - End-to-end inherit-max enforcement: only synthetic `_max_classification` cases are covered (`tests/test_hbr_classification_contract.py:163-186`); no backend implementation is in scope for this change, so runtime enforcement across the 8 paths is unverified here.
 
 **Answer** (2026-11-22, orchestrator): **Low 3 件とも正しく、私が保持している票なので私が直した。レビューは別の無料モデルが行う。** (1) `material/T-PH8-303.md` はバイト単位で同一の重複なので削除した — **この重複は私が作らせたもの**でもあり、元の `allowed_paths` がその名前を成果物として名指していたのに本文を `HBR_CLASSIFICATION_DESIGN.md` に書き換えたため票が 2 つの名前を示していた。(2) §3.3 の「`max` **以上にはならない**（下げられない）」は前半と括弧内が逆のことを言っていたので、§3.1 に合わせて「`max` を**下回らない**」に直した。(3) `levels` を集合で比べていたので順序の表明を足した。併せて**私の落ち度**を直した: AC4 の見積りを task ファイルの `REPORT` にだけ書いており、レビュアーの `UNVERIFIED` が指摘したとおり**レビューできる差分の外**にあった。`material/HBR_MIGRATION_TEST_IMPACT.md` に移した。受入条件が証拠を差分の外に置かせていたのは票の設計の誤りである。順序の表明は measure-first で確かめ、**最初の試し方では通ってしまった**ことまで docstring に書いた。詳細は `tasks/T-PH8-303.md`。
+
+## オーナー決定 — `T-PH8-305`（2026-11-28 23:16）
+
+オーナーの言葉: `T-PH8-305：いい感じにしてほしい。Opencode とか T3code の実装参考にしてきて`
+
+**Answer** (2026-11-28 23:17, オーナー) — **設計は当番に委ねられた。
+参考実装も当番が見てきた。** ただし**委ねられていないものが残る**ので、
+票を 2 つに分けた（削っていない）。
+
+**参考にしてきたもの（実測、2026-11-28 23:17）**: Opencode はこの機械に
+入っているが、配られているのは**コンパイル済みの実行ファイルだけで
+読めるソースは無い**（`@opencode/cli` は `bin/opencode.exe` と
+`postinstall.mjs` のみ）。**T3code はこの機械には無い。**
+そこで実行ファイル内の文字列を数えた:
+
+| 探した語 | 出現 | 読み取れること |
+|---|---|---|
+| `sandbox` | 313 | 隔離は中心概念として実装されている |
+| `namespace` 920 / `bwrap` 5 / `cgroup` 10 | | **Linux は bubblewrap + cgroups** |
+| `AssignProcessToJobObject` | 2 | **Windows は Job Object** |
+| `seatbelt` / `landlock` / `AppContainer` / `CreateRestrictedToken` | 0 | どれも使っていない |
+| `permission.ask` | 10 | 境界の上に**人に訊く層**がある |
+
+設定の形も読めた: `sandbox.enabled` / `sandbox.filesystem(.disabled/.allowRead)` /
+`sandbox.credentials(.awsPairs/.allowPlaintext…)` / `sandbox.ripgrep` /
+`sandbox-runtime` / `bwrapPath` / `allowUnsandboxedCommands`。
+
+**倣う形**: 隔離を 1 つの真偽値で持たず、**能力ごとに名前を付けて持つ。**
+`T-PH6-104` の `SUBPROCESS_GUARANTEES` / `DOCKER_GUARANTEES` が項目ごとに
+`verified` / `unverified` を持つのと同じ考えで、**この repository はすでに
+同じ方向に居る。**
+**倣わない形**: Opencode の `allowUnsandboxedCommands` のような**隔離を外す口**。
+`HYBRID_ISOLATION_PROFILES.md` §9 が no-VM downgrade path を禁じている。
+
+**票の分け方**:
+
+- **`T-PH8-305`（`todo`）** — ハーネスと台帳を作る。**プローブを 1 本も
+  実行しない。** 中心の受入条件は「正のコントロールが落ちた族は、負の結果が
+  合格にならない（無効になる）」ことを**コードの構造として**持つこと、
+  スキップを合格に丸めないこと、`NET` の観測できなかったプローブを失敗として
+  扱うこと。資源上限は**外から受け取る**（数値を埋め込まない）。
+- **`T-PH8-307`（`blocked`）** — 本物の境界に当てる。入場条件は下の 3 つ。
+
+**オーナーしか与えられないもの（`T-PH8-307` の入場条件）**:
+
+1. **使い捨ての検証環境と、そこで脱出試験を走らせる承認。**
+   `HYBRID_ISOLATION_PROFILES.md` §6 が「オーナーの作業機や統合ブランチを
+   動かしている機械で走らせてはならない」と書いており、**この機械は
+   その両方である。**
+2. **残余リスクの受諾**（共有カーネル／ハイパーバイザ／ローカル管理者。
+   `L-D` / `L-S` では Linux のファイル保管リスク）。§2.1 末尾・§8 が、
+   受諾が無い候補は全テストが通っても活性化できないと定めている。
+   **リスクを受けるのはオーナーであって当番ではない。**
+3. **プロファイルの選定**（`T-PH8-304` の `selected`）。4 候補
+   `W-D` / `W-S` / `L-D` / `L-S` の証跡は相互に流用できない。
+   **当番の推奨は `W-D`（Windows デスクトップ）** —— 製品が動いているのは
+   この形で、Opencode も Windows では Job Object を使っている。
+   **`selected` を当番が埋めてはいけない** —— `T-PH8-304` の受入条件が
+   `selected: null` を要求して通っているので、埋めると受入条件を事後に
+   書き換えることになる。
+
+**独立検証者（§7 項目 4、未任命）については、ループが実装したモデルに
+レビューをさせない仕組みで満たせると当番は考えている**
+（CLAUDE.md の譲らない 3 条件の 1 つ）。人を任命する必要があると
+ご判断されるなら、ご指示を頂きたい。
+
+**資源上限は当番が提案値を書いた**（CPU 1 コア相当 / メモリ 1 GiB /
+プロセス 32 / ディスク 256 MiB / 出力 8 MiB / 実時間 60 秒）が、
+`HYBRID_ISOLATION_ENGINEERING_DETAIL.md` §2.4 は数値を決めておらず
+**本当の値決めは実測後のオーナー判断である。提案は実測ではない。**
