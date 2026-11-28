@@ -1038,6 +1038,20 @@ carve-out は**票の本文の先頭、レビュアーが読む場所**に書い
 （条件 3 のとおりに実装されているため）。
 
 
+**Answer** (2026-11-28 23:17, オーナー) — **A。403 で畳む側に管理 API 全体を
+揃える。** オーナーの言葉は `管理APIの未ログイン応答：A`。
+
+未ログインの相手に管理エンドポイントの存在を区別させない、という方針である。
+`T-PH7-213` の**受入条件 3 は書き換えない** —— 他をその作法に合わせる側である。
+
+**実装の票を新しく立てた: `T-PH7-216`**（`todo`、試行 0/3、medium、
+`allowed_paths: backend/app/main.py, backend/app/service.py, tests/`）。
+範囲は `/api/admin/*` **だけ**で、一般 API の 401 は 1 つも変えない
+（畳んだらログインできているかが利用者に分からなくなる）。
+`Service.authenticate` 自体を書き換えることは本文で禁じた。
+既存の 401 期待の検査は、**管理 API を叩いているものだけ**を直させ、
+どちらに当たるかを表で報告させる。
+
 ## T-PH7-212 — worker wrote outside its workspace (2026-11-26T16:42:57+09:00)
 
 **Question**: The main checkout changed while the job ran, so this work is unreviewable. Inspect and restore the checkout before the job is retried.
@@ -1122,6 +1136,25 @@ appeared:
   既にあり、`T-STC-003` はそちらに書いています。`pyproject.toml` と
   どちらが宣言の正本かを決める話になります
 
+
+**Answer** (2026-11-28 23:17, オーナー) — **A。いまは宣言しない。実装が完了した
+時点で宣言する。** オーナーの言葉は `psycopgの依存宣言：A(実装完了後に宣言)`。
+
+だから**この場では `pyproject.toml` に何も足さない**。`pyproject.toml` は
+保護パスであり、ワーカーもここでは触らない。
+
+**保留の理由を残す**: 2026-11-17 の申し送りは `[project.optional-dependencies]`
+の `prod` に版を固定して足すと言っていたが、実際には行われていなかった。
+ワーカーが書こうとした `psycopg[binary]==2.9.9` は**信用できない** ——
+`2.9.x` は `psycopg2` の系列で `[binary]` という extra を持たず、
+`psycopg` 3 なら `psycopg[binary]==3.x` になる。つまり**どの行をどの版で
+固定するかが決まっていない。**
+
+**宣言するときに要るもの**（実装完了時に当番が揃えて改めてお伺いする）:
+(1) `psycopg` 3 か `psycopg2` かの選択、(2) 固定する版、
+(3) 当番が PyPI を引いて実在の版を確かめる許可（**外部への問い合わせ**なので
+明示の許可が要る）。`backend/requirements.lock` 側で扱う道（`T-STC-003` が
+すでにそこへ書いている）も残っている。
 
 ## T-PH7-212 — worker wrote outside its workspace (2026-11-26T19:11:25+09:00)
 
